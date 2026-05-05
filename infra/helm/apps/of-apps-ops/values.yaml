@@ -349,18 +349,9 @@ services:
         memory: 1Gi
 
   # ── Apps & Ops services completed (S8.6 — full coverage) ──────────
-  app-builder-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 (C2) — `app-builder-service` retired (legacy);
+  # domain covered by `application-composition-service`. No Deployment
+  # renders here.
 
   # S8 / ADR-0030 (B19) — `application-curation-service` merged →
   # `application-composition-service`. No Deployment renders here.
@@ -410,34 +401,16 @@ services:
   # S8 / ADR-0030 (B22) — `monitoring-rules-service` merged →
   # `telemetry-governance-service`. No Deployment renders here.
 
-  nexus-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (C3) — `nexus-service` retired (legacy); domain
+  # covered by `tenancy-organizations-service` and
+  # `federation-product-exchange-service`. No Deployment renders here.
 
   # S8 / ADR-0030 (B21) — `product-distribution-service` merged →
   # `federation-product-exchange-service`. No Deployment renders here.
 
-  report-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (C4) — `report-service` retired (legacy); domain
+  # covered by the absorbed `document-reporting` module in
+  # `notebook-runtime-service`. No Deployment renders here.
 
   # S8 / ADR-0030 (B20) — `scenario-simulation-service` merged →
   # `ontology-exploratory-analysis-service` (lives in `of-ontology`).

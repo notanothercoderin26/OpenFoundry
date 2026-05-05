@@ -1,10 +1,33 @@
 import { createBrowserRouter } from 'react-router-dom';
 
 import { AppShell } from '@components/AppShell';
+import { AuthLayout } from '@components/AuthLayout';
 import { Home } from './routes/Home';
 import { NotFound } from './routes/NotFound';
 
 export const router = createBrowserRouter([
+  {
+    path: '/auth',
+    element: <AuthLayout />,
+    children: [
+      {
+        path: 'login',
+        lazy: async () => ({ Component: (await import('./routes/auth/LoginPage')).LoginPage }),
+      },
+      {
+        path: 'register',
+        lazy: async () => ({ Component: (await import('./routes/auth/RegisterPage')).RegisterPage }),
+      },
+      {
+        path: 'mfa',
+        lazy: async () => ({ Component: (await import('./routes/auth/MfaPage')).MfaPage }),
+      },
+      {
+        path: 'callback',
+        lazy: async () => ({ Component: (await import('./routes/auth/CallbackPage')).CallbackPage }),
+      },
+    ],
+  },
   {
     path: '/',
     element: <AppShell />,

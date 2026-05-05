@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { updateUser } from '@api/auth';
-import { auth, useCurrentUser } from '@stores/auth';
+import { auth, useCurrentUser, useRequireAuth } from '@stores/auth';
 import {
   getLocaleLabel,
   setLocale,
@@ -23,6 +23,7 @@ import { UsersSection } from './UsersSection';
 
 export function SettingsPage() {
   const t = useTranslator();
+  useRequireAuth();
   const currentUser = useCurrentUser();
   const currentLocale = useCurrentLocale();
   const supportedLocales = useSupportedLocales();
@@ -110,16 +111,6 @@ export function SettingsPage() {
           </div>
         </div>
 
-        {!currentUser && (
-          <p className="of-text-muted" style={{ marginTop: 16, fontSize: 12 }}>
-            Sign in via the existing app at{' '}
-            <a className="of-link" href="http://localhost:5173/auth/login">
-              localhost:5173
-            </a>{' '}
-            first (the React shell on port 5174 is migration-only and shares the backend, not the local
-            session).
-          </p>
-        )}
       </div>
 
       <UsersSection setNotice={setNotice} setError={setError} />

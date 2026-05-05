@@ -215,7 +215,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build smoke stack
-        run: cargo build -p of-cli -p edge-gateway-service -p identity-federation-service -p connector-management-service -p dataset-versioning-service -p pipeline-build-service -p sql-bi-gateway-service -p ingestion-replication-service -p report-service -p geospatial-intelligence-service -p audit-compliance-service -p ontology-definition-service -p app-builder-service -p code-repository-review-service -p federation-product-exchange-service -p nexus-service -p ai-service -p agent-runtime-service -p ml-service -p model-catalog-service
+        run: cargo build -p of-cli -p edge-gateway-service -p identity-federation-service -p connector-management-service -p dataset-versioning-service -p pipeline-build-service -p sql-bi-gateway-service -p ingestion-replication-service -p notebook-runtime-service -p ontology-exploratory-analysis-service -p audit-compliance-service -p ontology-definition-service -p application-composition-service -p code-repository-review-service -p federation-product-exchange-service -p tenancy-organizations-service -p ai-service -p agent-runtime-service -p ml-service -p model-catalog-service
       - name: Prepare service databases
         env:
           PGPASSWORD: test
@@ -285,15 +285,15 @@ jobs:
           # main; once it is, this smoke step is replaced by the
           # ingestion-replication-service stanza already running below.
           DATABASE_URL=postgres://test:test@localhost:5432/of_queries JWT_SECRET="$JWT_SECRET" target/debug/sql-bi-gateway-service > /tmp/of-smoke-logs/sql-bi-gateway-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_reports JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50079 GEOSPATIAL_SERVICE_URL=http://127.0.0.1:50068 target/debug/report-service > /tmp/of-smoke-logs/report-service.log 2>&1 &
+          # S8 / ADR-0030 (C4): report-service retired (legacy); covered by notebook-runtime-service.
           DATABASE_URL=postgres://test:test@localhost:5432/of_geospatial JWT_SECRET="$JWT_SECRET" target/debug/geospatial-intelligence-service > /tmp/of-smoke-logs/geospatial-intelligence-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_audit JWT_SECRET="$JWT_SECRET" target/debug/audit-compliance-service > /tmp/of-smoke-logs/audit-compliance-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_ontology JWT_SECRET="$JWT_SECRET" AUDIT_SERVICE_URL=http://127.0.0.1:50115 target/debug/ontology-definition-service > /tmp/of-smoke-logs/ontology-definition-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_app_builder JWT_SECRET="$JWT_SECRET" PUBLIC_BASE_URL=http://127.0.0.1:8080/apps/runtime target/debug/app-builder-service > /tmp/of-smoke-logs/app-builder-service.log 2>&1 &
+          # S8 / ADR-0030 (C2): app-builder-service retired (legacy); covered by application-composition-service.
           DATABASE_URL=postgres://test:test@localhost:5432/of_code_repos JWT_SECRET="$JWT_SECRET" REPO_STORAGE_ROOT=/tmp/of-code-repos target/debug/code-repository-review-service > /tmp/of-smoke-logs/code-repository-review-service.log 2>&1 &
           # S8 / ADR-0030 (B21): marketplace-service merged → federation-product-exchange-service.
           DATABASE_URL=postgres://test:test@localhost:5432/of_marketplace JWT_SECRET="$JWT_SECRET" APP_BUILDER_SERVICE_URL=http://127.0.0.1:50063 target/debug/federation-product-exchange-service > /tmp/of-smoke-logs/federation-product-exchange-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_nexus JWT_SECRET="$JWT_SECRET" target/debug/nexus-service > /tmp/of-smoke-logs/nexus-service.log 2>&1 &
+          # S8 / ADR-0030 (C3): nexus-service retired (legacy); covered by tenancy-organizations-service.
           DATABASE_URL=postgres://test:test@localhost:5432/of_ai JWT_SECRET="$JWT_SECRET" target/debug/agent-runtime-service > /tmp/of-smoke-logs/agent-runtime-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_ml JWT_SECRET="$JWT_SECRET" target/debug/model-catalog-service > /tmp/of-smoke-logs/model-catalog-service.log 2>&1 &
           target/debug/of mock-provider serve --host 127.0.0.1 --port 50110 > /tmp/of-smoke-logs/mock-provider.log 2>&1 &

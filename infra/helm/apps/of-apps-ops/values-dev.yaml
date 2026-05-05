@@ -21,14 +21,7 @@ global:
 services:
   audit-sink:
     replicas: 1
-  app-builder-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: app-builder-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: app-builder-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (C2): app-builder-service retired (legacy).
   application-composition-service:
     envSecrets:
       DATABASE_URL:
@@ -88,14 +81,7 @@ services:
   # federation-product-exchange-service.
   # S8 / ADR-0030 (B22): monitoring-rules-service merged →
   # telemetry-governance-service.
-  nexus-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: nexus-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: nexus-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (C3): nexus-service retired (legacy).
   notebook-runtime-service:
     envSecrets:
       DATABASE_URL:
@@ -112,14 +98,7 @@ services:
       DATABASE_READ_URL:
         secretName: notification-alerting-db-dsn
         key: reader_url
-  report-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: report-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: report-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (C4): report-service retired (legacy).
   # S8 / ADR-0030 (B20): scenario-simulation-service merged →
   # ontology-exploratory-analysis-service.
   sdk-generation-service:

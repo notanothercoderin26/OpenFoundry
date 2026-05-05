@@ -13,8 +13,9 @@
 > audit-compliance + identity-federation + connector-management +
 > ai-evaluation + telemetry-governance + application-composition +
 > ontology-exploratory-analysis + federation-product-exchange
-> consolidation — **all merge-pending rows now closed**). The live
-> repository has **43 directories** under `services/`
+> consolidation — **all merge-pending rows now closed; all 3 legacy
+> deletes (app-builder, nexus, report) retired**). The live
+> repository has **40 directories** under `services/`
 > (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
@@ -64,7 +65,7 @@
 | `ai-evaluation-service` | `ai-evaluation-service` | keep | also absorbs `mcp-orchestration-service` |
 | `ai-sink` | `ai-sink` | sink | Kafka → ML inference store |
 | `analytical-logic-service` | `sql-bi-gateway-service` | merged → `sql-bi-gateway-service` | S8: directory removed; reusable expressions now live in the internal `libs/analytical-logic` crate (no duplicated HTTP routes). `analytical_expressions` schema folded into `services/sql-bi-gateway-service/migrations/`. |
-| `app-builder-service` | (legacy) | delete | already retired in earlier R-prompts; verify Cargo workspace removal |
+| `app-builder-service` | (legacy) | retired | S8 (C2): directory removed; legacy crate covered by `application-composition-service`. 2 source migrations preserved on `pg-runtime-config`. `APP_BUILDER_SERVICE_URL` callers retargeted at `application-composition-service:50140`. |
 | `application-composition-service` | `application-composition-service` | keep | absorbs `application-curation-service`, `widget-registry-service` (S8.1.b), `developer-console-service`, `custom-endpoints-service`, `managed-workspace-service` |
 | `application-curation-service` | `application-composition-service` | merged → `application-composition-service` | S8 (B19): directory removed; the source was a `tools/scaffold_p59_p85.py` placeholder. Edge gateway routing for `/api/v1/apps/*/{versions,publish}` retargeted at `application-composition-service:50140`. `APPLICATION_CURATION_SERVICE_URL` callers also retargeted. |
 | `approvals-service` | `workflow-automation-service` | merged → `workflow-automation-service` | S8: directory removed; `audit_compliance.approval_requests` state machine + `approval.{requested,completed,expired,decided}.v1` outbox + `approvals-timeout-sweep` CronJob binary moved under `services/workflow-automation-service/src/approvals/` and `src/bin/approvals_timeout_sweep.rs`. Helm CronJob template moved from `of-platform` to `of-apps-ops`. |
@@ -118,7 +119,7 @@
 | `model-serving-service` | `model-deployment-service` | merged → `model-deployment-service` | S8: directory removed; the source was a substrate-only shim over `libs/ml-kernel` (re-exported `predictions` modules; identical scaffold to `model-inference-history-service`). Edge gateway routing for `/api/v1/ml/deployments/{id}/predict` retargeted at `model-deployment-service`. |
 | `monitoring-rules-service` | `telemetry-governance-service` | merged → `telemetry-governance-service` | S8 (B22): directory removed; 10 source files (config, evaluator, handlers, models, streaming_handlers, streaming_monitors) absorbed under `services/telemetry-governance-service/src/monitoring_rules/`. 2 source migrations preserved. `MONITORING_RULES_SERVICE_URL` callers retargeted at `telemetry-governance-service:50153`. |
 | `network-boundary-service` | `authorization-policy-service` | merged → `authorization-policy-service` | S8: directory removed; 8 source files (config, domain/boundary, handlers/boundary, models) absorbed under `services/authorization-policy-service/src/network_boundary/`. Migration `20260427080100_network_boundary_foundation.sql` preserved on `pg-policy`. `NETWORK_BOUNDARY_SERVICE_URL` callers retargeted at `authorization-policy-service:50093`. |
-| `nexus-service` | (legacy) | delete | retire after `tenancy-organizations-service` and `federation-product-exchange-service` confirmed |
+| `nexus-service` | (legacy) | retired | S8 (C3): directory removed after `tenancy-organizations-service` and `federation-product-exchange-service` confirmed. 2 source migrations preserved on `pg-schemas`. `NEXUS_SERVICE_URL` callers retargeted at `tenancy-organizations-service:50113`. |
 | `notebook-runtime-service` | `notebook-runtime-service` | keep | absorbs `document-reporting-service`, `spreadsheet-computation-service` |
 | `notification-alerting-service` | `notification-alerting-service` | keep | |
 | `oauth-integration-service` | split → `identity-federation-service` (auth) + `connector-management-service` (data OAuth) | merged → co-located in `identity-federation-service` | S8 (B16): directory removed; 32 source files (config, domain with api_keys/idp_mapping/jwt/mfa/oauth/rbac/saml/security, handlers with sso/api_key_mgmt/applications/oauth_clients/external_integrations, models, plus `clients_postgres` and `pending_auth_cassandra` substrates) absorbed under `services/identity-federation-service/src/oauth_integration/`. The map declares a logical split between auth-side and data-side, but the source code is co-located in identity-federation for now; the data-side extraction (oauth_clients, applications, external_integrations, clients_postgres, pending_auth_cassandra) into `connector-management-service::oauth_data` is queued as a follow-up. Migration `20260427010100_oauth_applications_and_integrations.sql` preserved on `pg-policy`. Edge gateway routing for `/api/v1/{oauth/clients,applications,external-integrations,api-keys,auth/sso}` retargeted at `identity-federation-service:50112`. |
@@ -139,7 +140,7 @@
 | `product-distribution-service` | `federation-product-exchange-service` | merged → `federation-product-exchange-service` | S8 (B21): directory removed; 6 source files (TASK O — action-type artifact import logic plus shims that re-exported marketplace's domain/handlers/models via `#[path]`). The path includes were rewritten to `../marketplace/`. `PRODUCT_DISTRIBUTION_SERVICE_URL` callers retargeted at `federation-product-exchange-service:50120`. |
 | `prompt-workflow-service` | `agent-runtime-service` | merged → `agent-runtime-service` | S8: directory removed; the source was a substrate-only crate (`fn main() {}` stub, `lib.rs`, `domain.rs`/`handlers.rs`/`models.rs` shims over `libs/ai-kernel`, plus a producer-specific `ai_events.rs` mirror that has been retired in favour of agent-runtime's own — both producers now share the `agent-runtime-` Kafka transactional-id prefix). Helm Deployment retired from `of-ml-aip`; Strimzi KafkaUser + transactional-id ACL for `prompt-workflow-` retired; `PROMPT_WORKFLOW_SERVICE_URL` callers retargeted at `agent-runtime-service:50127`. |
 | `reindex-coordinator-service` | `reindex-coordinator-service` | keep | Rust replacement (FASE 4 / Tarea 4.2) for the Go `workers-go/reindex` Temporal worker (ADR-0021). Owns the resume cursor in `pg-runtime-config.reindex_jobs`, drives Cassandra page-by-page scans via `cassandra-kernel`, and fans batches out to `services/ontology-indexer` over `ontology.reindex.v1`. Distinct ownership boundary (Postgres state + Temporal-replacement semantics) from the downstream `ontology-indexer` sink. |
-| `report-service` | (legacy) | delete | already covered by `document-reporting-service` |
+| `report-service` | (legacy) | retired | S8 (C4): directory removed; legacy crate covered by the absorbed `document-reporting` module in `notebook-runtime-service`. Migration preserved. `REPORT_SERVICE_URL` callers retargeted at `notebook-runtime-service:50134`. |
 | `retention-policy-service` | `audit-compliance-service` | merged → `audit-compliance-service` | S8: directory removed; 14 source files (config, domain/retention, handlers/retention, models, metrics, retention runner) absorbed under `services/audit-compliance-service/src/retention_policy/`. 2 source migrations + 3 tests preserved on `pg-policy`. Edge gateway routing for `/api/v1/retention/*` and `/applicable-policies` / `/retention-preview` retargeted at `audit-compliance-service`. |
 | `retrieval-context-service` | `retrieval-context-service` | keep | absorbs `knowledge-index-service`, `document-intelligence-service` |
 | `scenario-simulation-service` | `ontology-exploratory-analysis-service` | merged → `ontology-exploratory-analysis-service` | S8 (B20): directory removed; scaffold placeholder. Migration `20260427070600_09_scenario_simulations_foundation.sql` preserved. `SCENARIO_SIMULATION_SERVICE_URL` callers retargeted. |
@@ -177,10 +178,11 @@ directories under `services/` and must not be rendered by Helm or compose:
 | keep / ownership boundary | 36 |
 | merge → X (pending) | 0 |
 | merged → X (completed) | 56 |
-| delete scheduled for active legacy dirs | 3 |
+| delete scheduled for active legacy dirs | 0 |
+| retired legacy directories | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **43** |
+| **Total current service directories** | **40** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

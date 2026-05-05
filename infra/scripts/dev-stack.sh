@@ -19,9 +19,6 @@ SERVICES=(
   agent-runtime-service
   workflow-automation-service
   notebook-runtime-service
-  app-builder-service
-  report-service
-  nexus-service
   notification-alerting-service
   gateway
 )

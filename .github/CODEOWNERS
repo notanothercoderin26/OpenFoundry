@@ -196,12 +196,9 @@
 
 # --- Analytics / reports / geospatial / nexus ---
 /services/federation-product-exchange-service/          @open-foundry/analytics-team @open-foundry/data-platform
-/services/nexus-service/                                @open-foundry/analytics-team
-/services/report-service/                               @open-foundry/analytics-team
 /services/solution-design-service/                      @open-foundry/analytics-team @open-foundry/developer-platform
 
 # --- Developer platform / app builder / marketplace / SDKs ---
-/services/app-builder-service/                          @open-foundry/developer-platform @open-foundry/frontend-team
 /services/application-composition-service/              @open-foundry/developer-platform @open-foundry/frontend-team
 /services/code-repository-review-service/               @open-foundry/developer-platform
 /services/sdk-generation-service/                       @open-foundry/developer-platform @open-foundry/architecture-council

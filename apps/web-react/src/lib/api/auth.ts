@@ -23,6 +23,44 @@ export interface TokenResponse {
   expires_in: number;
 }
 
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  name: string;
+  email: string;
+  password: string;
+}
+
+export interface BootstrapStatusResponse {
+  requires_initial_admin: boolean;
+}
+
+export interface AuthenticatedResponse extends TokenResponse {
+  status: 'authenticated';
+}
+
+export interface MfaRequiredResponse {
+  status: 'mfa_required';
+  challenge_token: string;
+  expires_in: number;
+}
+
+export type LoginResponse = AuthenticatedResponse | MfaRequiredResponse;
+
+export interface PublicSsoProvider {
+  id: string;
+  slug: string;
+  name: string;
+  provider_type: string;
+}
+
+export interface StartSsoLoginResponse {
+  authorization_url: string;
+}
+
 export interface PermissionRecord {
   id: string;
   resource: string;
@@ -171,6 +209,39 @@ export function getMe() {
 
 export function refreshToken(refresh_token: string) {
   return api.post<TokenResponse>('/auth/refresh', { refresh_token });
+}
+
+export function login(data: LoginRequest) {
+  return api.post<LoginResponse>('/auth/login', data);
+}
+
+export function register(data: RegisterRequest) {
+  return api.post<{ id: string; email: string; name: string }>('/auth/register', data);
+}
+
+export function getBootstrapStatus() {
+  return api.get<BootstrapStatusResponse>('/auth/bootstrap-status');
+}
+
+export function completeMfaLogin(data: { challenge_token: string; code: string }) {
+  return api.post<TokenResponse>('/auth/mfa/complete', data);
+}
+
+export function listPublicSsoProviders() {
+  return api.get<PublicSsoProvider[]>('/auth/sso/providers/public');
+}
+
+export function startSsoLogin(slug: string) {
+  return api.get<StartSsoLoginResponse>(`/auth/sso/providers/${slug}/start`);
+}
+
+export function completeSsoLogin(data: {
+  code?: string;
+  state?: string;
+  saml_response?: string;
+  relay_state?: string;
+}) {
+  return api.post<LoginResponse>('/auth/sso/callback', data);
 }
 
 export function listUsers(params?: { q?: string; limit?: number }) {

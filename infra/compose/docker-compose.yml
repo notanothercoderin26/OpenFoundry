@@ -665,8 +665,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      nexus-service:
-        condition: service_started
+      # S8 / ADR-0030 (C3): nexus-service retired (legacy).
     ports:
       - "${OPENFOUNDRY_TENANCY_ORGANIZATIONS_HOST_PORT:-50113}:50113"
 
@@ -1407,55 +1406,15 @@ services:
   # notebook-runtime-service. Notepad routes (`/api/v1/notepad/*`)
   # now hit notebook-runtime; schema preserved on `notebook-pg`. ──
 
-  app-builder-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/app-builder-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50063
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_app_builder_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      PUBLIC_BASE_URL: ${OPENFOUNDRY_PUBLIC_BASE_URL:-http://localhost:3000/apps/runtime}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_APP_BUILDER_HOST_PORT:-50063}:50063"
+  # ── S8 / ADR-0030 (C2) — app-builder-service retired (legacy);
+  # domain covered by application-composition-service. ──
 
   # ── S8 / ADR-0030 (B19) — application-curation-service merged →
   # application-composition-service. ──
 
-  report-service:
-    <<: *app-common
-    profiles: *profiles-knowledge
-    build:
-      context: ..
-      dockerfile: services/report-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50064
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_report_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
-      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
-      # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
-      GEOSPATIAL_SERVICE_URL: http://ontology-exploratory-analysis-service:50131
-      OBJECT_STORAGE_BACKEND: local
-      LOCAL_DELIVERY_ROOT: /var/lib/openfoundry/report-delivery
-      REPORT_DELIVERY_TIMEOUT_SECS: "10"
-      REPORT_DELIVERY_MAX_RETRIES: "2"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
-      # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
-    volumes:
-      - report_delivery_data:/var/lib/openfoundry/report-delivery
-    ports:
-      - "${OPENFOUNDRY_REPORT_HOST_PORT:-50064}:50064"
+  # ── S8 / ADR-0030 (C4) — report-service retired (legacy); domain
+  # covered by the absorbed `document-reporting` module in
+  # `notebook-runtime-service`. ──
 
   # ── S8 / ADR-0030 (B21) — marketplace-service, marketplace-catalog-service
   # and product-distribution-service merged → federation-product-exchange-service.
@@ -1477,29 +1436,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      nexus-service:
-        condition: service_started
+      # S8 / ADR-0030 (C3): nexus-service retired (legacy).
       # S8 / ADR-0030 (B21): marketplace-catalog-service merged → federation-product-exchange-service.
       # S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
     ports:
       - "${OPENFOUNDRY_FEDERATION_PRODUCT_EXCHANGE_HOST_PORT:-50120}:50120"
 
-  nexus-service:
-    <<: *app-common
-    profiles: *profiles-foundation
-    build:
-      context: ..
-      dockerfile: services/nexus-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50067
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_nexus_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_NEXUS_HOST_PORT:-50067}:50067"
+  # ── S8 / ADR-0030 (C3) — nexus-service retired (legacy); domain
+  # covered by tenancy-organizations-service and
+  # federation-product-exchange-service. ──
 
   # ── S8 / ADR-0030 (B20) — geospatial-intelligence-service merged →
   # ontology-exploratory-analysis-service. GEOSPATIAL_SERVICE_URL callers
@@ -1644,10 +1589,12 @@ services:
       NOTEBOOK_SERVICE_URL: http://notebook-runtime-service:50134
       # S8 / ADR-0030: document-reporting-service merged → notebook-runtime-service.
       DOCUMENT_REPORTING_SERVICE_URL: http://notebook-runtime-service:50134
-      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
+      # S8 / ADR-0030 (C2): app-builder-service retired (legacy); covered by application-composition-service.
+      APP_BUILDER_SERVICE_URL: http://application-composition-service:50140
       # S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
       APPLICATION_CURATION_SERVICE_URL: http://application-composition-service:50140
-      REPORT_SERVICE_URL: http://report-service:50064
+      # S8 / ADR-0030 (C4): report-service retired (legacy); covered by notebook-runtime-service.
+      REPORT_SERVICE_URL: http://notebook-runtime-service:50134
       # S8 / ADR-0030 — global-branch-service merged → code-repository-review-service.
       GLOBAL_BRANCH_SERVICE_URL: http://code-repository-review-service:50155
       # S8 / ADR-0030 (B21): marketplace-catalog-service merged → federation-product-exchange-service.
@@ -1655,7 +1602,8 @@ services:
       # S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
       PRODUCT_DISTRIBUTION_SERVICE_URL: http://federation-product-exchange-service:50120
       FEDERATION_PRODUCT_EXCHANGE_SERVICE_URL: http://federation-product-exchange-service:50120
-      NEXUS_SERVICE_URL: http://nexus-service:50067
+      # S8 / ADR-0030 (C3): nexus-service retired (legacy); covered by tenancy-organizations-service.
+      NEXUS_SERVICE_URL: http://tenancy-organizations-service:50113
       # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
       GEOSPATIAL_INTELLIGENCE_SERVICE_URL: http://ontology-exploratory-analysis-service:50131
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
@@ -1773,17 +1721,14 @@ services:
       notebook-runtime-service:
         condition: service_started
       # S8 / ADR-0030: document-reporting-service merged → notebook-runtime-service.
-      app-builder-service:
-        condition: service_started
+      # S8 / ADR-0030 (C2): app-builder-service retired (legacy).
       # S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
-      report-service:
-        condition: service_started
+      # S8 / ADR-0030 (C4): report-service retired (legacy).
       # S8 / ADR-0030 (B21): marketplace-catalog-service merged → federation-product-exchange-service.
       # S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
       federation-product-exchange-service:
         condition: service_started
-      nexus-service:
-        condition: service_started
+      # S8 / ADR-0030 (C3): nexus-service retired (legacy).
       # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
       notification-alerting-service:
         condition: service_started

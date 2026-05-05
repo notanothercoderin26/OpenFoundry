@@ -48,14 +48,8 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/analytical-logic-service/src/handlers.rs"], tables = ["analytical_expression_versions", "analytical_expressions"] }
 tables = ["analytical_expressions", "analytical_expression_versions"]
 
-[[entries]]
-component = "services/app-builder-service"
-service = "app-builder-service"
-migration_dir = "services/app-builder-service/migrations"
-schema = "app_builder"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/app-builder-service/src/handlers/apps.rs", "services/app-builder-service/src/handlers/mod.rs", "services/app-builder-service/src/handlers/publish.rs"], tables = ["app_templates", "app_versions", "apps"] }
-tables = ["apps", "app_versions", "app_templates"]
+# S8 / ADR-0030 (C2): app-builder-service retired (legacy); domain
+# covered by application-composition-service. Schema absorbed.
 
 [[entries]]
 component = "services/application-composition-service"
@@ -293,14 +287,9 @@ tables = ["ml_experiments", "ml_runs", "ml_models", "ml_model_versions", "ml_fea
 # authorization-policy-service. Schema absorbed; `pg-policy`
 # residency preserved.
 
-[[entries]]
-component = "services/nexus-service"
-service = "nexus-service"
-migration_dir = "services/nexus-service/migrations"
-schema = "nexus"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/nexus-service/src/handlers/contracts.rs", "services/nexus-service/src/handlers/mod.rs", "services/nexus-service/src/handlers/peers.rs", "services/nexus-service/src/handlers/shares.rs", "services/nexus-service/src/handlers/spaces.rs"], tables = ["nexus_access_grants", "nexus_contracts", "nexus_peers", "nexus_shares", "nexus_spaces", "nexus_sync_statuses"] }
-tables = ["nexus_peers", "nexus_contracts", "nexus_shares", "nexus_access_grants", "nexus_sync_statuses", "nexus_spaces"]
+# S8 / ADR-0030 (C3): nexus-service retired (legacy); domain
+# covered by tenancy-organizations-service +
+# federation-product-exchange-service. Schemas absorbed.
 
 [[entries]]
 component = "services/notebook-runtime-service"
@@ -335,14 +324,8 @@ allow_new_sqlx = { files = ["services/pipeline-authoring-service/src/domain/exec
 legacy_archive_tables = ["lineage_nodes"]
 tables = ["pipelines", "pipeline_runs", "lineage_edges", "column_lineage_edges", "lineage_nodes", "lineage_relations"]
 
-[[entries]]
-component = "services/report-service"
-service = "report-service"
-migration_dir = "services/report-service/migrations"
-schema = "report"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/report-service/src/handlers/crud.rs", "services/report-service/src/handlers/generate.rs", "services/report-service/src/handlers/mod.rs"], tables = ["report_definitions", "report_executions"] }
-tables = ["report_definitions", "report_executions"]
+# S8 / ADR-0030 (C4): report-service retired (legacy); domain
+# covered by notebook-runtime-service. Schema absorbed.
 
 # S8 / ADR-0030 (B15): retention-policy-service merged →
 # audit-compliance-service. Schema absorbed; `pg-policy` residency
