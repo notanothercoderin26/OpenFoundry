@@ -180,15 +180,11 @@ residency = "pg-runtime-config"
 allow_new_sqlx = { files = ["services/custom-endpoints-service/src/handlers.rs"], tables = ["custom_endpoint_sets", "custom_endpoints"] }
 tables = ["custom_endpoint_sets", "custom_endpoints"]
 
-[[entries]]
-component = "services/data-asset-catalog-service"
-service = "data-asset-catalog-service"
-migration_dir = "services/data-asset-catalog-service/migrations"
-schema = "data_asset_catalog"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/data-asset-catalog-service/src/domain/catalog.rs", "services/data-asset-catalog-service/src/domain/markings.rs", "services/data-asset-catalog-service/src/domain/runtime.rs", "services/data-asset-catalog-service/src/handlers/crud.rs", "services/data-asset-catalog-service/src/handlers/export.rs", "services/data-asset-catalog-service/src/handlers/internal.rs", "services/data-asset-catalog-service/src/handlers/preview.rs", "services/data-asset-catalog-service/src/handlers/views.rs"], tables = ["dataset_branches", "dataset_markings", "dataset_schemas", "dataset_versions", "dataset_views", "datasets"] }
-legacy_archive_tables = ["dataset_transactions"]
-tables = ["datasets", "dataset_schemas", "dataset_versions", "dataset_profiles", "dataset_quality_rules", "dataset_quality_history", "dataset_quality_alerts", "dataset_branches", "dataset_views", "dataset_transactions", "dataset_markings"]
+# S8 / ADR-0030: `data-asset-catalog-service` and `dataset-quality-service`
+# merged → `dataset-versioning-service`. The catalog and quality
+# tables are now owned by `dataset-versioning-service`; the existing
+# entry below for `dataset-versioning-service` covers the residency
+# contract.
 
 [[entries]]
 component = "services/dataset-versioning-service"

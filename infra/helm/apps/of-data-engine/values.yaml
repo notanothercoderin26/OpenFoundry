@@ -296,31 +296,14 @@ services:
   # and their HTTP/Flight SQL surfaces are served by the gateway pods.
   # Tabular-analysis lived under the ops chart previously and is removed
   # from `infra/helm/apps/of-apps-ops/values.yaml`.
-  dataset-quality-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  data-asset-catalog-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 — `data-asset-catalog-service` and
+  # `dataset-quality-service` merged → `dataset-versioning-service`.
+  # The catalog (preview, upload, schema validate, dataset_model)
+  # and quality (lint, profiler, scoring, health) HTTP surfaces now
+  # live in dataset-versioning-service. Phase 1 absorbed the code as
+  # a library (`dataset_versioning_service::{data_asset_catalog,
+  # dataset_quality}::*`); the consolidated binary is wired in a
+  # follow-up.
 
   lineage-deletion-service:
     replicas: 1

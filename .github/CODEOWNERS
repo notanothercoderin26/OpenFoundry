@@ -181,8 +181,6 @@
 
 # --- Data platform / pipelines / datasets ---
 /services/connector-management-service/                 @open-foundry/data-platform
-/services/data-asset-catalog-service/                   @open-foundry/data-platform
-/services/dataset-quality-service/                      @open-foundry/data-platform
 /services/dataset-versioning-service/                   @open-foundry/data-platform
 /services/global-branch-service/                        @open-foundry/data-platform
 /services/ingestion-replication-service/                @open-foundry/data-platform

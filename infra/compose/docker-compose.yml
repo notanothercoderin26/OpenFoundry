@@ -763,7 +763,8 @@ services:
       PORT: 50088
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_data_connector
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
       ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       INGESTION_REPLICATION_SERVICE_URL: http://ingestion-replication-service:50090
@@ -792,7 +793,8 @@ services:
       PORT: 50089
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_data_connector
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
       ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       ALLOW_PRIVATE_NETWORK_EGRESS: "true"
@@ -818,15 +820,15 @@ services:
       CDC_METADATA_HOST: 0.0.0.0
       CDC_METADATA_PORT: 50122
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
       ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       ALLOW_PRIVATE_NETWORK_EGRESS: "true"
     depends_on:
       postgres:
         condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
       ontology-definition-service:
         condition: service_started
     ports:
@@ -882,64 +884,15 @@ services:
       - "${OPENFOUNDRY_MEDIA_SETS_HOST_PORT:-50156}:50156"
       - "${OPENFOUNDRY_MEDIA_SETS_GRPC_HOST_PORT:-50157}:50157"
 
-  data-asset-catalog-service:
-    <<: *app-common
-    profiles: *profiles-data
-    build:
-      context: ..
-      dockerfile: services/data-asset-catalog-service/Dockerfile
-    environment:
-      OPENFOUNDRY_ENV: development
-      HOST: 0.0.0.0
-      PORT: 50079
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_dataset_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      STORAGE_BACKEND: s3
-      STORAGE_BUCKET: datasets
-      S3_ENDPOINT: http://minio:9000
-      S3_REGION: us-east-1
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
-      DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      minio-init:
-        condition: service_started
-      dataset-quality-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_DATASET_CATALOG_HOST_PORT:-50079}:50079"
-
-  dataset-quality-service:
-    <<: *app-common
-    profiles: *profiles-data
-    build:
-      context: ..
-      dockerfile: services/dataset-quality-service/Dockerfile
-    environment:
-      OPENFOUNDRY_ENV: development
-      HOST: 0.0.0.0
-      PORT: 50072
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_dataset_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      STORAGE_BACKEND: s3
-      STORAGE_BUCKET: datasets
-      S3_ENDPOINT: http://minio:9000
-      S3_REGION: us-east-1
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      minio-init:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_DATASET_QUALITY_HOST_PORT:-50072}:50072"
+  # ── S8 / ADR-0030 — data-asset-catalog-service and
+  # dataset-quality-service merged → dataset-versioning-service.
+  # Catalog / preview / upload / schema-validate / dataset_model
+  # surfaces (ex-data-asset-catalog) and lint / profiler / quality /
+  # health surfaces (ex-dataset-quality) absorbed as
+  # `dataset_versioning_service::{data_asset_catalog,dataset_quality}`
+  # library modules. Downstream callers route to
+  # http://dataset-versioning-service:50078; the consolidated binary's
+  # main is wired in a follow-up. ──
 
   # ── S8 / ADR-0030 — event-streaming-service merged →
   # ingestion-replication-service. The streaming control plane
@@ -1379,7 +1332,8 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       DATA_DIR: /var/lib/openfoundry/pipeline-data
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
       AI_SERVICE_URL: http://agent-runtime-service:50127
       STORAGE_BACKEND: s3
@@ -1410,7 +1364,8 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       DATA_DIR: /var/lib/openfoundry/pipeline-data
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
       AI_SERVICE_URL: http://agent-runtime-service:50127
       STORAGE_BACKEND: s3
@@ -1425,8 +1380,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
       workflow-automation-service:
         condition: service_started
     volumes:
@@ -1447,7 +1401,8 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       DATA_DIR: /var/lib/openfoundry/pipeline-data
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
       AI_SERVICE_URL: http://agent-runtime-service:50127
       STORAGE_BACKEND: s3
@@ -1462,8 +1417,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
       workflow-automation-service:
         condition: service_started
     volumes:
@@ -1484,7 +1438,8 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
       AI_SERVICE_URL: http://agent-runtime-service:50127
       STORAGE_BACKEND: s3
@@ -1499,8 +1454,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
     volumes:
       - pipeline_data:/var/lib/openfoundry/pipeline-data
     ports:
@@ -1518,7 +1472,8 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
       AI_SERVICE_URL: http://agent-runtime-service:50127
@@ -1543,7 +1498,8 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
       AI_SERVICE_URL: http://agent-runtime-service:50127
@@ -1570,7 +1526,8 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
       AI_SERVICE_URL: http://agent-runtime-service:50127
@@ -1595,7 +1552,8 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
       AI_SERVICE_URL: http://agent-runtime-service:50127
@@ -1797,7 +1755,8 @@ services:
       PORT: 50064
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_report_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       GEOSPATIAL_SERVICE_URL: http://geospatial-intelligence-service:50068
       OBJECT_STORAGE_BACKEND: local
       LOCAL_DELIVERY_ROOT: /var/lib/openfoundry/report-delivery
@@ -1806,8 +1765,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
       geospatial-intelligence-service:
         condition: service_started
     volumes:
@@ -2024,7 +1982,8 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_lineage_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       LINEAGE_SERVICE_URL: http://lineage-service:50083
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
       AUDIT_COMPLIANCE_SERVICE_URL: http://audit-compliance-service:50115
       STORAGE_BACKEND: ${OPENFOUNDRY_STORAGE_BACKEND:-local}
       STORAGE_BUCKET: ${OPENFOUNDRY_STORAGE_BUCKET:-datasets}
@@ -2034,8 +1993,7 @@ services:
         condition: service_healthy
       lineage-service:
         condition: service_started
-      data-asset-catalog-service:
-        condition: service_started
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
       audit-compliance-service:
         condition: service_started
     ports:
@@ -2084,8 +2042,10 @@ services:
       VIRTUAL_TABLE_SERVICE_URL: http://virtual-table-service:50089
       INGESTION_REPLICATION_SERVICE_URL: http://ingestion-replication-service:50090
       DATASET_VERSIONING_SERVICE_URL: http://dataset-versioning-service:50078
-      DATA_ASSET_CATALOG_SERVICE_URL: http://data-asset-catalog-service:50079
-      DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      DATA_ASSET_CATALOG_SERVICE_URL: http://dataset-versioning-service:50078
+      # S8 / ADR-0030: dataset-quality-service merged → dataset-versioning-service.
+      DATASET_QUALITY_SERVICE_URL: http://dataset-versioning-service:50078
       # S8 / ADR-0030: event-streaming-service merged → ingestion-replication-service.
       # Repointed at the consolidated runtime owner; streaming runtime wiring is a follow-up.
       EVENT_STREAMING_SERVICE_URL: http://ingestion-replication-service:50121
@@ -2214,10 +2174,8 @@ services:
         condition: service_started
       dataset-versioning-service:
         condition: service_started
-      data-asset-catalog-service:
-        condition: service_started
-      dataset-quality-service:
-        condition: service_started
+      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+      # S8 / ADR-0030: dataset-quality-service merged → dataset-versioning-service.
       # S8 / ADR-0030: event-streaming-service merged → ingestion-replication-service.
       # S8-13A: cdc-metadata-service merged into ingestion-replication-service.
       # S8 / ADR-0030: sql-warehousing-service merged into sql-bi-gateway-service (below).

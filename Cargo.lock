@@ -3263,49 +3263,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "data-asset-catalog-service"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "arrow",
- "async-trait",
- "auth-middleware",
- "axum 0.8.9",
- "axum-extra",
- "bytes",
- "chrono",
- "config",
- "core-models",
- "csv",
- "datafusion",
- "event-bus-control",
- "futures",
- "http-body-util",
- "moka",
- "once_cell",
- "prometheus",
- "query-engine",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "storage-abstraction",
- "tempfile",
- "testcontainers",
- "testing",
- "thiserror 2.0.18",
- "tokio",
- "tower 0.5.3",
- "tower-http 0.6.8",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
- "uuid",
- "wiremock",
-]
-
-[[package]]
 name = "data-encoding"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3734,41 +3691,6 @@ dependencies = [
  "recursive",
  "regex",
  "sqlparser",
-]
-
-[[package]]
-name = "dataset-quality-service"
-version = "0.0.1"
-dependencies = [
- "arrow",
- "auth-middleware",
- "axum 0.8.9",
- "bytes",
- "chrono",
- "config",
- "core-models",
- "datafusion",
- "event-bus-control",
- "http-body-util",
- "once_cell",
- "prometheus",
- "query-engine",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "storage-abstraction",
- "tempfile",
- "testcontainers",
- "testing",
- "thiserror 2.0.18",
- "tokio",
- "tower 0.5.3",
- "tower-http 0.6.8",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

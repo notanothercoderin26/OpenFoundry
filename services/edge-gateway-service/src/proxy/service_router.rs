@@ -147,7 +147,8 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/datasets/")
         && (path.ends_with("/quality") || path.contains("/quality/") || path.ends_with("/lint"))
     {
-        &config.dataset_quality_service_url
+        // S8 / ADR-0030: dataset-quality-service merged → dataset-versioning-service.
+        &config.dataset_versioning_service_url
     } else if path.starts_with("/api/v1/iceberg-tables")
         || path.starts_with("/iceberg/v1/")
         || path == "/iceberg/v1"
@@ -192,7 +193,8 @@ pub async fn proxy_handler(
     {
         &config.dataset_versioning_service_url
     } else if path.starts_with("/api/v1/datasets") || path.starts_with("/api/v2/filesystem") {
-        &config.data_asset_catalog_service_url
+        // S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+        &config.dataset_versioning_service_url
     } else if path.starts_with("/api/v1/queries") {
         &config.query_service_url
     } else if path.starts_with("/api/v1/pipelines/triggers/cron/") {

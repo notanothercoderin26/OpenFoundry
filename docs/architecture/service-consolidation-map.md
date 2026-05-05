@@ -8,9 +8,10 @@
 >
 > Audit date: 2026-05-05 (S8 workflow-automation + retrieval-context +
 > code-repository-review + workflow-trace + event-streaming +
-> notebook-runtime + agent-runtime + model-deployment consolidation).
-> The live repository has **74 directories** under `services/`
-> (`ls services/ | wc -l`). S8 is now measured as
+> notebook-runtime + agent-runtime + model-deployment +
+> dataset-versioning consolidation). The live repository has **72
+> directories** under `services/` (`ls services/ | wc -l`). S8 is now
+> measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
 > `health-check-service`, `tool-registry-service` and
@@ -77,8 +78,8 @@
 | `connector-management-service` | `connector-management-service` | keep | absorbs `virtual-table-service`, OAuth-data side of `oauth-integration-service` |
 | `conversation-state-service` | `agent-runtime-service` | merged → `agent-runtime-service` | S8: directory removed; the source was a substrate-only crate (`fn main() {}` stub plus `domain.rs`/`handlers.rs`/`models.rs` shims that re-exported `libs/ai-kernel`). No migrations to move. Helm Deployment retired from `of-ml-aip`; `CONVERSATION_STATE_SERVICE_URL` callers retargeted at `agent-runtime-service:50127`. |
 | `custom-endpoints-service` | `application-composition-service` | merge → `application-composition-service` | |
-| `data-asset-catalog-service` | `dataset-versioning-service` | merge → `dataset-versioning-service` | metadata/discovery only during transition; no runtime writes to `dataset_versions`, `dataset_branches`, `dataset_transactions` |
-| `dataset-quality-service` | `dataset-versioning-service` | merge → `dataset-versioning-service` | |
+| `data-asset-catalog-service` | `dataset-versioning-service` | merged → `dataset-versioning-service` | S8: directory removed; 32 source files (config, domain with catalog/file_format/markings/runtime/storage/transactions/validation, handlers with catalog/crud/dataset_model/export/internal/preview/schema_validate/upload/views, models, security, metrics) absorbed under `services/dataset-versioning-service/src/data_asset_catalog/`. 8 source migrations preserved on `pg-schemas`. Edge gateway routing for `/api/v1/datasets` and `/api/v2/filesystem` retargeted at `dataset-versioning-service`. The streaming runtime wiring into the consolidated binary's main is a follow-up. |
+| `dataset-quality-service` | `dataset-versioning-service` | merged → `dataset-versioning-service` | S8: directory removed; 19 source files (config, domain with health and quality/{alerts,profiler,rules,scorer}, handlers with health/lint/quality, models, metrics) absorbed under `services/dataset-versioning-service/src/dataset_quality/`. The single `dataset_health` migration preserved. Edge gateway routing for `/api/v1/datasets/.../quality` and `/lint` retargeted at `dataset-versioning-service`. Two integration tests (`health_freshness_sla.rs`, `schema_drift_detected.rs`) NOT moved — they need follow-up wiring of the dataset_quality handlers in target's main. |
 | `dataset-versioning-service` | `dataset-versioning-service` | keep | sole runtime owner of `dataset_versions`, `dataset_branches`, `dataset_transactions`; Iceberg owns snapshots/data state |
 | `developer-console-service` | `application-composition-service` | merge → `application-composition-service` | |
 | `document-intelligence-service` | `retrieval-context-service` | merged → `retrieval-context-service` | S8: directory removed; sketch handlers/models preserved under `services/retrieval-context-service/src/document_intelligence/` and gated behind a new `parsers` Cargo feature so parser pipelines stay out of the default CI compile path. The `document_intelligence_jobs` / `_status_events` / `_extractions` migration is folded into `services/retrieval-context-service/migrations/0001_document_intelligence_foundation.sql`; tables stay on `pg-schemas`. |
@@ -170,12 +171,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 31 |
-| merged → X (completed) | 25 |
+| merge → X (pending) | 29 |
+| merged → X (completed) | 27 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **74** |
+| **Total current service directories** | **72** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 
