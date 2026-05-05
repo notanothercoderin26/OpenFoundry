@@ -40,6 +40,13 @@ export function Sidebar() {
           <span className="of-sidebar__label">Notebooks</span>
         </NavLink>
         <NavLink
+          to="/contour"
+          className="of-sidebar__link"
+          style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}
+        >
+          <span className="of-sidebar__label">Contour</span>
+        </NavLink>
+        <NavLink
           to="/settings"
           className="of-sidebar__link"
           style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}
