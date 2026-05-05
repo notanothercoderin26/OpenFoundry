@@ -13,6 +13,8 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/geospatial', title: 'Geospatial', description: 'MapLibre canvas with layers, queries, clustering, geocoding, routing, templates.' },
   { path: '/queries', title: 'Queries', description: 'SQL editor with saved queries, explain plan, and ontology catalog inspection.' },
   { path: '/search', title: 'Search', description: 'Discovery hub linking to object explorer, queries, and ontology.' },
+  { path: '/global-branching', title: 'Global branching', description: 'Workspace branches + scoped resources + merge / promote workflow.' },
+  { path: '/developers', title: 'Developers', description: 'Plugin SDK + CLI cookbook + OpenAPI explorer + Terraform provider + Git integrations.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },
