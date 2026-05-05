@@ -115,6 +115,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/ontology-design/OntologyDesignPage')).OntologyDesignPage }),
       },
       {
+        path: 'dynamic-scheduling',
+        lazy: async () => ({ Component: (await import('./routes/dynamic-scheduling/DynamicSchedulingPage')).DynamicSchedulingPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },

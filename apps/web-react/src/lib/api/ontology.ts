@@ -560,3 +560,147 @@ export function listProjectMemberships(id: string) {
     .get<{ data: OntologyProjectMembership[] }>(`/ontology/projects/${id}/memberships`)
     .then((response) => response.data);
 }
+
+// ────────────────────────────────────────────────────────────────
+// Rules + machinery — used by /dynamic-scheduling.
+// ────────────────────────────────────────────────────────────────
+
+export type RuleEvaluationMode = 'advisory' | 'automatic';
+
+export interface RuleTriggerSpec {
+  equals?: Record<string, unknown>;
+  numeric_gte?: Record<string, number>;
+  numeric_lte?: Record<string, number>;
+  exists?: string[];
+  changed_properties?: string[];
+  markings?: string[];
+}
+
+export interface RuleAlertSpec {
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  title: string;
+  message?: string | null;
+}
+
+export interface RuleScheduleSpec {
+  property_name: string;
+  offset_hours: number;
+  priority_score?: number;
+  estimated_duration_minutes?: number;
+  required_capability?: string | null;
+  constraint_tags?: string[];
+  hard_deadline_hours?: number | null;
+}
+
+export interface RuleEffectSpec {
+  object_patch?: Record<string, unknown> | null;
+  schedule?: RuleScheduleSpec | null;
+  alert?: RuleAlertSpec | null;
+}
+
+export interface OntologyRule {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  object_type_id: string;
+  evaluation_mode: RuleEvaluationMode;
+  trigger_spec: RuleTriggerSpec;
+  effect_spec: RuleEffectSpec;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MachineryInsight {
+  rule_id: string;
+  name: string;
+  display_name: string;
+  evaluation_mode: RuleEvaluationMode;
+  matched_runs: number;
+  total_runs: number;
+  pending_schedules: number;
+  overdue_schedules: number;
+  avg_schedule_lead_hours: number | null;
+  dynamic_pressure: string;
+  last_matched_at: string | null;
+  last_object_id: string | null;
+}
+
+export interface MachineryQueueItem {
+  id: string;
+  rule_id: string;
+  rule_run_id: string;
+  object_id: string;
+  rule_name: string;
+  rule_display_name: string;
+  object_type_id: string;
+  status: string;
+  scheduled_for: string;
+  priority_score: number;
+  estimated_duration_minutes: number;
+  required_capability: string | null;
+  constraint_snapshot: Record<string, unknown>;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface MachineryCapabilityLoad {
+  capability: string;
+  pending_count: number;
+  total_estimated_minutes: number;
+}
+
+export interface MachineryQueueRecommendation {
+  generated_at: string;
+  strategy: string;
+  queue_depth: number;
+  overdue_count: number;
+  total_estimated_minutes: number;
+  next_due_at: string | null;
+  recommended_order: string[];
+  capability_load: MachineryCapabilityLoad[];
+}
+
+export interface MachineryQueueResponse {
+  object_type_id: string | null;
+  data: MachineryQueueItem[];
+  recommendation: MachineryQueueRecommendation;
+}
+
+export function listRules(params?: {
+  object_type_id?: string;
+  search?: string;
+  page?: number;
+  per_page?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.object_type_id) qs.set('object_type_id', params.object_type_id);
+  if (params?.search) qs.set('search', params.search);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  return api.get<{ data: OntologyRule[]; total: number; page: number; per_page: number }>(
+    `/ontology/rules?${qs}`,
+  );
+}
+
+export function getMachineryInsights(params?: { object_type_id?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.object_type_id) qs.set('object_type_id', params.object_type_id);
+  return api.get<{ object_type_id: string | null; data: MachineryInsight[] }>(
+    `/ontology/rules/insights?${qs}`,
+  );
+}
+
+export function getMachineryQueue(params?: { object_type_id?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.object_type_id) qs.set('object_type_id', params.object_type_id);
+  return api.get<MachineryQueueResponse>(`/ontology/rules/machinery/queue?${qs}`);
+}
+
+export function updateMachineryQueueItem(id: string, body: { status: string }) {
+  return api.patch<MachineryQueueItem>(`/ontology/rules/machinery/queue/${id}`, body);
+}
