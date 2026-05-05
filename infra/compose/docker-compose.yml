@@ -588,9 +588,10 @@ services:
   # (see ADR-0008). In Kubernetes the Iceberg REST Catalog is provided by
   # Lakekeeper (`infra/k8s/platform/manifests/lakekeeper/`); there is no Polaris/Lakekeeper
   # service in this Compose file. Services that read `ICEBERG_CATALOG_URL`
-  # (e.g. dataset-versioning-service, event-streaming-service) treat the
-  # variable as optional and fall back to the legacy dataset writer when
-  # it is unset — see `services/*/storage/factory.rs`.
+  # (e.g. dataset-versioning-service, ingestion-replication-service's
+  # absorbed event_streaming module) treat the variable as optional and
+  # fall back to the legacy dataset writer when it is unset — see
+  # `services/*/storage/factory.rs`.
 
   identity-federation-service:
     <<: *app-common
@@ -940,40 +941,10 @@ services:
     ports:
       - "${OPENFOUNDRY_DATASET_QUALITY_HOST_PORT:-50072}:50072"
 
-  event-streaming-service:
-    <<: *app-common
-    profiles: *profiles-data
-    build:
-      context: ..
-      dockerfile: services/event-streaming-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50121
-      REST_PORT: 50121
-      GRPC_PORT: 50221
-      ADMIN_PORT: 50222
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_event_streaming_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      ROUTES_FILE: /etc/openfoundry/topic-routes.yaml
-      CONNECTOR_MANAGEMENT_SERVICE_URL: http://connector-management-service:50088
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ICEBERG_CATALOG_URL: http://iceberg-rest:8181
-      ICEBERG_NAMESPACE: streaming_service
-      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
-      ARCHIVE_DIR: /var/lib/openfoundry/event-streaming-archive
-    depends_on:
-      postgres:
-        condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
-    volumes:
-      - event_streaming_archive_data:/var/lib/openfoundry/event-streaming-archive
-      - ../services/event-streaming-service/config/topic-routes.yaml:/etc/openfoundry/topic-routes.yaml:ro
-    ports:
-      - "${OPENFOUNDRY_EVENT_STREAMING_HOST_PORT:-50121}:50121"
-      - "${OPENFOUNDRY_EVENT_STREAMING_GRPC_HOST_PORT:-50221}:50221"
-      - "${OPENFOUNDRY_EVENT_STREAMING_ADMIN_HOST_PORT:-50222}:50222"
-
+  # ── S8 / ADR-0030 — event-streaming-service merged →
+  # ingestion-replication-service. The streaming control plane
+  # (REST + gRPC) is now part of the consolidated binary; the runtime
+  # wiring into ingestion-replication-service's main is a follow-up. ──
   # ── S8 / ADR-0030 — sql-warehousing-service merged into
   # sql-bi-gateway-service. The warehousing CRUD lives at
   # /api/v1/warehouse/* on port 50133. ──
@@ -992,7 +963,9 @@ services:
       PORT: 50124
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_time_series_data_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      EVENT_STREAMING_SERVICE_URL: http://event-streaming-service:50121
+      # S8 / ADR-0030: event-streaming-service merged → ingestion-replication-service.
+      # Repointed at the consolidated runtime owner; streaming runtime wiring is a follow-up.
+      EVENT_STREAMING_SERVICE_URL: http://ingestion-replication-service:50121
       ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       GEOSPATIAL_SERVICE_URL: http://geospatial-intelligence-service:50068
     depends_on:
@@ -2212,7 +2185,9 @@ services:
       DATASET_VERSIONING_SERVICE_URL: http://dataset-versioning-service:50078
       DATA_ASSET_CATALOG_SERVICE_URL: http://data-asset-catalog-service:50079
       DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
-      EVENT_STREAMING_SERVICE_URL: http://event-streaming-service:50121
+      # S8 / ADR-0030: event-streaming-service merged → ingestion-replication-service.
+      # Repointed at the consolidated runtime owner; streaming runtime wiring is a follow-up.
+      EVENT_STREAMING_SERVICE_URL: http://ingestion-replication-service:50121
       CDC_METADATA_SERVICE_URL: http://ingestion-replication-service:50122
       # S8 / ADR-0030: SQL_WAREHOUSING_SERVICE_URL retired —
       # warehousing CRUD is served by sql-bi-gateway-service (50133).
@@ -2337,8 +2312,7 @@ services:
         condition: service_started
       dataset-quality-service:
         condition: service_started
-      event-streaming-service:
-        condition: service_started
+      # S8 / ADR-0030: event-streaming-service merged → ingestion-replication-service.
       # S8-13A: cdc-metadata-service merged into ingestion-replication-service.
       # S8 / ADR-0030: sql-warehousing-service merged into sql-bi-gateway-service (below).
       time-series-data-service:
@@ -2492,7 +2466,8 @@ volumes:
   opensearch_data:
   kafka_data:
   streaming_archive_data:
-  event_streaming_archive_data:
+  # S8 / ADR-0030: `event_streaming_archive_data` retired with
+  # `event-streaming-service` (merged → `ingestion-replication-service`).
   query_data:
   pipeline_data:
   notebook_data:

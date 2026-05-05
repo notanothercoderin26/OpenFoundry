@@ -250,7 +250,6 @@
 /services/compute-modules-control-plane-service/        @open-foundry/platform-runtime
 /services/compute-modules-runtime-service/              @open-foundry/platform-runtime
 /services/edge-gateway-service/                         @open-foundry/platform-runtime
-/services/event-streaming-service/                      @open-foundry/platform-runtime
 /services/execution-observability-service/              @open-foundry/observability-team @open-foundry/platform-runtime
 /services/managed-workspace-service/                    @open-foundry/platform-runtime
 /services/monitoring-rules-service/                     @open-foundry/observability-team

@@ -7,9 +7,9 @@
 > Stream S8.1 of the Cassandra/Foundry parity migration plan.
 >
 > Audit date: 2026-05-05 (S8 workflow-automation + retrieval-context +
-> code-repository-review + workflow-trace consolidation). The live
-> repository has **82 directories** under `services/`
-> (`ls services/ | wc -l`). S8 is now measured as
+> code-repository-review + workflow-trace + event-streaming
+> consolidation). The live repository has **81 directories** under
+> `services/` (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
 > `health-check-service`, `tool-registry-service` and
@@ -84,7 +84,7 @@
 | `document-reporting-service` | `notebook-runtime-service` | merge → `notebook-runtime-service` | |
 | `edge-gateway-service` | `edge-gateway-service` | keep | |
 | `entity-resolution-service` | `entity-resolution-service` | keep | specialised matching |
-| `event-streaming-service` | `ingestion-replication-service` | merge → `ingestion-replication-service` | |
+| `event-streaming-service` | `ingestion-replication-service` | merged → `ingestion-replication-service` | S8: directory removed; ~100 source files (`backends/`, `domain/`, `grpc/`, `handlers/`, `models/`, `outbox`, `router/`, `runtime/`, `storage/`) absorbed under `services/ingestion-replication-service/src/event_streaming/` preserving the source `AppState`. Cargo features merged: `kafka-rdkafka`, `kafka-it`, `rocksdb-state`, `flink-runtime`. 20 SQL migrations moved to `services/ingestion-replication-service/migrations/streaming/` (schema namespace `event_streaming` on `pg-schemas` preserved). 18 integration tests moved to `services/ingestion-replication-service/tests/`. `proto/streaming/{router,streams}.proto` now compiled with both server and client stubs by the consolidated build.rs. Helm Deployment retired from `of-data-engine`; `EVENT_STREAMING_SERVICE_URL` repointed at `ingestion-replication-service:50121`. The streaming runtime wiring into the consolidated binary's main is a follow-up. |
 | `execution-observability-service` | `telemetry-governance-service` | merge → `telemetry-governance-service` | |
 | `federation-product-exchange-service` | `federation-product-exchange-service` | keep | absorbs `marketplace-service`, `marketplace-catalog-service`, `product-distribution-service` |
 | `geospatial-intelligence-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
@@ -169,12 +169,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 39 |
-| merged → X (completed) | 17 |
+| merge → X (pending) | 38 |
+| merged → X (completed) | 18 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **82** |
+| **Total current service directories** | **81** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

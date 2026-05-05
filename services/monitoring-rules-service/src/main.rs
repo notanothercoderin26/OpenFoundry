@@ -43,8 +43,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState { db: db.clone() };
 
     // ---- evaluator scheduler ------------------------------------------------
+    // S8 / ADR-0030: event-streaming-service merged → ingestion-replication-service.
     let metrics_url = std::env::var("STREAMING_BASE_URL")
-        .unwrap_or_else(|_| "http://event-streaming-service:50079".to_string());
+        .unwrap_or_else(|_| "http://ingestion-replication-service:50121".to_string());
     let notifier_url = std::env::var("NOTIFICATION_BASE_URL")
         .unwrap_or_else(|_| "http://notification-alerting-service:50083".to_string());
     let http = reqwest::Client::builder()

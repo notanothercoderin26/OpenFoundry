@@ -51,8 +51,9 @@ services:
     - control
   entity-resolution-service:
     - control
-  event-streaming-service:
-    - control
+  # `event-streaming-service` merged → `ingestion-replication-service`
+  # per ADR-0030 (S8). Streaming control-plane traffic now flows
+  # through the ingestion-replication runtime owner.
   federation-product-exchange-service:
     - control
   code-repository-review-service:

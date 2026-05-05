@@ -4442,52 +4442,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "event-streaming-service"
-version = "0.0.1"
-dependencies = [
- "async-nats",
- "async-trait",
- "audit-trail",
- "auth-middleware",
- "axum 0.8.9",
- "base64 0.22.1",
- "bytes",
- "cassandra-kernel",
- "chrono",
- "config",
- "core-models",
- "event-bus-control",
- "event-bus-data",
- "futures",
- "globset",
- "k8s-openapi",
- "kube",
- "outbox",
- "prometheus",
- "prost",
- "protoc-bin-vendored",
- "rdkafka",
- "regex",
- "reqwest",
- "rocksdb",
- "serde",
- "serde_json",
- "serde_yaml",
- "sqlx",
- "storage-abstraction",
- "tempfile",
- "testcontainers",
- "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-build",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "execution-observability-service"
 version = "0.0.1"
 dependencies = [

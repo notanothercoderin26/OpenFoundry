@@ -229,13 +229,19 @@ schema = "document_reporting"
 residency = "pg-schemas"
 tables = ["notepad_documents", "notepad_presence"]
 
+# S8 / ADR-0030: `event-streaming-service` merged →
+# `ingestion-replication-service`. Streaming schemas now live under
+# `services/ingestion-replication-service/migrations/streaming/` and
+# the runtime owner is `ingestion-replication-service`. The
+# `pg-schemas` residency and `event_streaming` schema name are
+# preserved.
 [[entries]]
-component = "services/event-streaming-service"
-service = "event-streaming-service"
-migration_dir = "services/event-streaming-service/migrations"
+component = "services/ingestion-replication-service"
+service = "ingestion-replication-service"
+migration_dir = "services/ingestion-replication-service/migrations/streaming"
 schema = "event_streaming"
 residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/event-streaming-service/src/domain/archiver.rs", "services/event-streaming-service/src/domain/checkpoints.rs", "services/event-streaming-service/src/domain/engine/processor.rs", "services/event-streaming-service/src/handlers/branches.rs", "services/event-streaming-service/src/handlers/checkpoints.rs", "services/event-streaming-service/src/handlers/flink.rs", "services/event-streaming-service/src/handlers/schemas.rs", "services/event-streaming-service/src/handlers/streams.rs", "services/event-streaming-service/src/handlers/topologies.rs", "services/event-streaming-service/src/runtime/flink/deployer.rs", "services/event-streaming-service/src/runtime/flink/metrics_poller.rs"], tables = ["streaming_dead_letters", "streaming_lineage_edges", "streaming_stream_branches", "streaming_stream_schema_history", "streaming_streams", "streaming_topologies", "streaming_topology_runs", "streaming_windows"] }
+allow_new_sqlx = { files = ["services/ingestion-replication-service/src/event_streaming/domain/archiver.rs", "services/ingestion-replication-service/src/event_streaming/domain/checkpoints.rs", "services/ingestion-replication-service/src/event_streaming/domain/engine/processor.rs", "services/ingestion-replication-service/src/event_streaming/handlers/branches.rs", "services/ingestion-replication-service/src/event_streaming/handlers/checkpoints.rs", "services/ingestion-replication-service/src/event_streaming/handlers/flink.rs", "services/ingestion-replication-service/src/event_streaming/handlers/schemas.rs", "services/ingestion-replication-service/src/event_streaming/handlers/streams.rs", "services/ingestion-replication-service/src/event_streaming/handlers/topologies.rs", "services/ingestion-replication-service/src/event_streaming/runtime/flink/deployer.rs", "services/ingestion-replication-service/src/event_streaming/runtime/flink/metrics_poller.rs"], tables = ["streaming_dead_letters", "streaming_lineage_edges", "streaming_stream_branches", "streaming_stream_schema_history", "streaming_streams", "streaming_topologies", "streaming_topology_runs", "streaming_windows"] }
 legacy_archive_tables = ["streaming_events"]
 tables = ["streaming_streams", "streaming_windows", "streaming_topologies", "streaming_topology_runs", "streaming_events", "streaming_checkpoints", "streaming_lineage_edges", "streaming_dead_letters", "streaming_cold_archives", "streaming_topology_checkpoints", "streaming_stream_branches", "streaming_stream_schema_history"]
 
