@@ -112,11 +112,5 @@ services:
       DATABASE_READ_URL:
         secretName: sql-warehousing-db-dsn
         key: reader_url
-  time-series-data-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: time-series-data-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: time-series-data-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B20): time-series-data-service merged →
+  # ontology-exploratory-analysis-service.

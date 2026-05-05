@@ -311,6 +311,11 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/reports") {
         &config.report_service_url
     } else if path.starts_with("/api/v1/geospatial") {
+        // S8 / ADR-0030 (B20): geospatial-intelligence-service merged →
+        // ontology-exploratory-analysis-service. The
+        // `geospatial_intelligence_service_url` config field is
+        // retained for backwards compat; in production it points at
+        // the consolidated owner.
         &config.geospatial_intelligence_service_url
     } else if path.starts_with("/api/v1/code-repos/repositories/") && path.ends_with("/branches") {
         &config.global_branch_service_url

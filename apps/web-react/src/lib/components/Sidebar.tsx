@@ -14,9 +14,16 @@ export function Sidebar() {
           to="/"
           end
           className="of-sidebar__link"
-          data-active={undefined}
+          style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}
         >
           <span className="of-sidebar__label">Home</span>
+        </NavLink>
+        <NavLink
+          to="/settings"
+          className="of-sidebar__link"
+          style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}
+        >
+          <span className="of-sidebar__label">Settings</span>
         </NavLink>
       </nav>
     </aside>

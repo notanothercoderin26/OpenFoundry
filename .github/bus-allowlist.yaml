@@ -57,8 +57,7 @@ services:
     - control
   code-repository-review-service:
     - control
-  geospatial-intelligence-service:
-    - control
+  # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
   identity-federation-service:
     - control
   ingestion-replication-service:

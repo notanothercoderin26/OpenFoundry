@@ -162,7 +162,6 @@
 /services/ontology-definition-service/                  @open-foundry/ontology-team
 /services/ontology-exploratory-analysis-service/        @open-foundry/ontology-team
 /services/ontology-query-service/                       @open-foundry/ontology-team
-/services/ontology-timeseries-analytics-service/        @open-foundry/ontology-team @open-foundry/analytics-team
 /services/object-database-service/                      @open-foundry/ontology-team @open-foundry/data-platform
 /services/entity-resolution-service/                    @open-foundry/ontology-team
 
@@ -187,19 +186,16 @@
 /services/sql-bi-gateway-service/                       @open-foundry/data-platform @open-foundry/analytics-team
 /services/sql-warehousing-service/                      @open-foundry/data-platform
 /services/tabular-analysis-service/                     @open-foundry/data-platform @open-foundry/analytics-team
-/services/time-series-data-service/                     @open-foundry/data-platform
 /services/analytical-logic-service/                     @open-foundry/data-platform @open-foundry/analytics-team
 
 # --- Workflow / automation / notifications ---
 /services/approvals-service/                            @open-foundry/workflow-team
 /services/automation-operations-service/                @open-foundry/workflow-team
 /services/notification-alerting-service/                @open-foundry/workflow-team
-/services/scenario-simulation-service/                  @open-foundry/workflow-team
 /services/workflow-automation-service/                  @open-foundry/workflow-team
 
 # --- Analytics / reports / geospatial / nexus ---
 /services/federation-product-exchange-service/          @open-foundry/analytics-team @open-foundry/data-platform
-/services/geospatial-intelligence-service/              @open-foundry/analytics-team
 /services/nexus-service/                                @open-foundry/analytics-team
 /services/report-service/                               @open-foundry/analytics-team
 /services/solution-design-service/                      @open-foundry/analytics-team @open-foundry/developer-platform

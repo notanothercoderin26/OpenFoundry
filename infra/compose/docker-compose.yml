@@ -815,27 +815,9 @@ services:
   # ingestion-replication-service. The CDC metadata HTTP surface lives on
   # ingestion-replication-service when CDC_METADATA_DATABASE_URL is set. ──
 
-  time-series-data-service:
-    <<: *app-common
-    profiles: *profiles-data
-    build:
-      context: ..
-      dockerfile: services/time-series-data-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50124
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_time_series_data_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      # S8 / ADR-0030: event-streaming-service merged → ingestion-replication-service.
-      # Repointed at the consolidated runtime owner; streaming runtime wiring is a follow-up.
-      EVENT_STREAMING_SERVICE_URL: http://ingestion-replication-service:50121
-      ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
-      GEOSPATIAL_SERVICE_URL: http://geospatial-intelligence-service:50068
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_TIME_SERIES_DATA_HOST_PORT:-50124}:50124"
+  # ── S8 / ADR-0030 (B20) — time-series-data-service merged →
+  # ontology-exploratory-analysis-service. TIME_SERIES_DATA_SERVICE_URL
+  # callers route to ontology-exploratory-analysis-service:50131. ──
 
   # NOTE: `model-adapter-service` and `model-lifecycle-service` were merged
   # into `model-catalog-service` (S8 consolidation, ADR-0030). Ports
@@ -896,22 +878,8 @@ services:
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_EXPLORATORY_ANALYSIS_HOST_PORT:-50131}:50131"
 
-  ontology-timeseries-analytics-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/ontology-timeseries-analytics-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50132
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_timeseries_analytics
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ONTOLOGY_TIMESERIES_ANALYTICS_HOST_PORT:-50132}:50132"
+  # ── S8 / ADR-0030 (B20) — ontology-timeseries-analytics-service merged →
+  # ontology-exploratory-analysis-service. ──
 
   sql-bi-gateway-service:
     <<: *app-common
@@ -1020,22 +988,8 @@ services:
     ports:
       - "${OPENFOUNDRY_APPLICATION_COMPOSITION_HOST_PORT:-50140}:50140"
 
-  scenario-simulation-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/scenario-simulation-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50141
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_scenario_simulation
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_SCENARIO_SIMULATION_HOST_PORT:-50141}:50141"
+  # ── S8 / ADR-0030 (B20) — scenario-simulation-service merged →
+  # ontology-exploratory-analysis-service. ──
 
   solution-design-service:
     <<: *app-common
@@ -1487,7 +1441,8 @@ services:
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
       DATASET_SERVICE_URL: http://dataset-versioning-service:50078
-      GEOSPATIAL_SERVICE_URL: http://geospatial-intelligence-service:50068
+      # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
+      GEOSPATIAL_SERVICE_URL: http://ontology-exploratory-analysis-service:50131
       OBJECT_STORAGE_BACKEND: local
       LOCAL_DELIVERY_ROOT: /var/lib/openfoundry/report-delivery
       REPORT_DELIVERY_TIMEOUT_SECS: "10"
@@ -1496,8 +1451,7 @@ services:
       postgres:
         condition: service_healthy
       # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
-      geospatial-intelligence-service:
-        condition: service_started
+      # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
     volumes:
       - report_delivery_data:/var/lib/openfoundry/report-delivery
     ports:
@@ -1608,22 +1562,9 @@ services:
     ports:
       - "${OPENFOUNDRY_NEXUS_HOST_PORT:-50067}:50067"
 
-  geospatial-intelligence-service:
-    <<: *app-common
-    profiles: *profiles-knowledge
-    build:
-      context: ..
-      dockerfile: services/geospatial-intelligence-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50068
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_geospatial_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_GEOSPATIAL_INTELLIGENCE_HOST_PORT:-50068}:50068"
+  # ── S8 / ADR-0030 (B20) — geospatial-intelligence-service merged →
+  # ontology-exploratory-analysis-service. GEOSPATIAL_SERVICE_URL callers
+  # route to ontology-exploratory-analysis-service:50131. ──
 
   notification-alerting-service:
     <<: *app-common
@@ -1717,7 +1658,8 @@ services:
       # S8 / ADR-0030: SQL_WAREHOUSING_SERVICE_URL retired —
       # warehousing CRUD is served by sql-bi-gateway-service (50133).
       SQL_WAREHOUSING_SERVICE_URL: http://sql-bi-gateway-service:50133
-      TIME_SERIES_DATA_SERVICE_URL: http://time-series-data-service:50124
+      # S8 / ADR-0030 (B20): time-series-data-service merged → ontology-exploratory-analysis-service.
+      TIME_SERIES_DATA_SERVICE_URL: http://ontology-exploratory-analysis-service:50131
       QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
       # S8 / ADR-0030: pipeline-authoring-service merged → pipeline-build-service.
       PIPELINE_AUTHORING_SERVICE_URL: http://pipeline-build-service:50081
@@ -1773,7 +1715,8 @@ services:
       PRODUCT_DISTRIBUTION_SERVICE_URL: http://product-distribution-service:50111
       FEDERATION_PRODUCT_EXCHANGE_SERVICE_URL: http://federation-product-exchange-service:50120
       NEXUS_SERVICE_URL: http://nexus-service:50067
-      GEOSPATIAL_INTELLIGENCE_SERVICE_URL: http://geospatial-intelligence-service:50068
+      # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
+      GEOSPATIAL_INTELLIGENCE_SERVICE_URL: http://ontology-exploratory-analysis-service:50131
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
       AUDIT_COMPLIANCE_SERVICE_URL: http://audit-compliance-service:50115
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
@@ -1788,7 +1731,8 @@ services:
       # tabular-analysis CRUD is served by sql-bi-gateway-service (50133).
       TABULAR_ANALYSIS_SERVICE_URL: http://sql-bi-gateway-service:50133
       ONTOLOGY_EXPLORATORY_ANALYSIS_SERVICE_URL: http://ontology-exploratory-analysis-service:50131
-      ONTOLOGY_TIMESERIES_ANALYTICS_SERVICE_URL: http://ontology-timeseries-analytics-service:50132
+      # S8 / ADR-0030 (B20): ontology-timeseries-analytics-service merged → ontology-exploratory-analysis-service.
+      ONTOLOGY_TIMESERIES_ANALYTICS_SERVICE_URL: http://ontology-exploratory-analysis-service:50131
       SQL_BI_GATEWAY_SERVICE_URL: http://sql-bi-gateway-service:50133
       NOTEBOOK_RUNTIME_SERVICE_URL: http://notebook-runtime-service:50134
       # S8 / ADR-0030: spreadsheet-computation-service merged → notebook-runtime-service.
@@ -1801,7 +1745,8 @@ services:
       # live behind WORKFLOW_AUTOMATION_SERVICE_URL.
       AUTOMATION_OPERATIONS_SERVICE_URL: http://workflow-automation-service:50137
       APPLICATION_COMPOSITION_SERVICE_URL: http://application-composition-service:50140
-      SCENARIO_SIMULATION_SERVICE_URL: http://scenario-simulation-service:50141
+      # S8 / ADR-0030 (B20): scenario-simulation-service merged → ontology-exploratory-analysis-service.
+      SCENARIO_SIMULATION_SERVICE_URL: http://ontology-exploratory-analysis-service:50131
       SOLUTION_DESIGN_SERVICE_URL: http://solution-design-service:50142
       # S8 / ADR-0030 (B19): developer-console-service merged → application-composition-service.
       DEVELOPER_CONSOLE_SERVICE_URL: http://application-composition-service:50140
@@ -1849,8 +1794,7 @@ services:
       # S8 / ADR-0030: event-streaming-service merged → ingestion-replication-service.
       # S8-13A: cdc-metadata-service merged into ingestion-replication-service.
       # S8 / ADR-0030: sql-warehousing-service merged into sql-bi-gateway-service (below).
-      time-series-data-service:
-        condition: service_started
+      # S8 / ADR-0030 (B20): time-series-data-service merged → ontology-exploratory-analysis-service.
       sql-bi-gateway-service:
         condition: service_started
       # S8 / ADR-0030: pipeline-authoring-service merged → pipeline-build-service.
@@ -1901,8 +1845,7 @@ services:
         condition: service_started
       nexus-service:
         condition: service_started
-      geospatial-intelligence-service:
-        condition: service_started
+      # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
       notification-alerting-service:
         condition: service_started
       audit-compliance-service:
@@ -1914,15 +1857,13 @@ services:
       # S8 / ADR-0030: tabular-analysis-service merged into sql-bi-gateway-service.
       ontology-exploratory-analysis-service:
         condition: service_started
-      ontology-timeseries-analytics-service:
-        condition: service_started
+      # S8 / ADR-0030 (B20): ontology-timeseries-analytics-service merged → ontology-exploratory-analysis-service.
       # S8 / ADR-0030: spreadsheet-computation-service merged → notebook-runtime-service.
       # S8 / ADR-0030: analytical-logic-service retired (now an internal crate).
       # S8 / ADR-0030: automation-operations-service merged → workflow-automation-service.
       application-composition-service:
         condition: service_started
-      scenario-simulation-service:
-        condition: service_started
+      # S8 / ADR-0030 (B20): scenario-simulation-service merged → ontology-exploratory-analysis-service.
       solution-design-service:
         condition: service_started
       # S8 / ADR-0030 (B19): developer-console-service merged → application-composition-service.

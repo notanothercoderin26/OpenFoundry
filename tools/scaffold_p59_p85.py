@@ -21,16 +21,8 @@ SERVICES = ROOT / "services"
 # (slug, description, port, primary_route, primary_table, primary_columns, secondary_table, secondary_columns)
 # primary_columns/secondary_columns: list of (name, sql_type, rust_type) — first column "id UUID" implicit.
 SERVICES_SPEC = [
-    (
-        "ontology-timeseries-analytics-service",
-        "Dashboards and analytics combining ontology entities with time-series workloads",
-        50132,
-        "/api/v1/ontology-timeseries/dashboards",
-        "ontology_timeseries_dashboards",
-        "definition JSONB NOT NULL DEFAULT '{}'::jsonb, owner_id UUID NOT NULL",
-        "ontology_timeseries_queries",
-        "dashboard_id UUID NOT NULL, payload JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `ontology-timeseries-analytics-service` (was port 50132) merged →
+    # `ontology-exploratory-analysis-service` per ADR-0030 (S8 / B20).
     (
         "sql-bi-gateway-service",
         "SQL and BI gateway: execute, explain, saved queries and BI tool compatibility",
@@ -92,16 +84,8 @@ SERVICES_SPEC = [
         "composition_bindings",
         "view_id UUID NOT NULL, target TEXT NOT NULL, expression JSONB NOT NULL DEFAULT '{}'::jsonb",
     ),
-    (
-        "scenario-simulation-service",
-        "What-if branches, immutable forks and scenario runs over actions and models",
-        50141,
-        "/api/v1/scenarios/simulations",
-        "scenario_simulations",
-        "name TEXT NOT NULL, base_state JSONB NOT NULL DEFAULT '{}'::jsonb, status TEXT NOT NULL DEFAULT 'draft'",
-        "scenario_runs",
-        "simulation_id UUID NOT NULL, status TEXT NOT NULL DEFAULT 'queued', result JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `scenario-simulation-service` (was port 50141) merged →
+    # `ontology-exploratory-analysis-service` per ADR-0030 (S8 / B20).
     (
         "solution-design-service",
         "Architecture knowledge base: diagrams, patterns and platform references",

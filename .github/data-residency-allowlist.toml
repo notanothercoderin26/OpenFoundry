@@ -354,14 +354,8 @@ tables = ["report_definitions", "report_executions"]
 # audit-compliance-service. Schema absorbed; `pg-policy` residency
 # preserved.
 
-[[entries]]
-component = "services/scenario-simulation-service"
-service = "scenario-simulation-service"
-migration_dir = "services/scenario-simulation-service/migrations"
-schema = "scenario_simulation"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/scenario-simulation-service/src/handlers.rs"], tables = ["scenario_runs", "scenario_simulations"] }
-tables = ["scenario_simulations", "scenario_runs"]
+# S8 / ADR-0030 (B20): scenario-simulation-service merged →
+# ontology-exploratory-analysis-service. Schema absorbed.
 
 [[entries]]
 component = "services/sdk-generation-service"
@@ -443,13 +437,8 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/tenancy-organizations-service/src/handlers/enrollments.rs", "services/tenancy-organizations-service/src/handlers/organizations.rs", "services/tenancy-organizations-service/src/handlers/recents.rs"], tables = ["resource_access_log", "tenancy_enrollments", "tenancy_organizations"] }
 tables = ["tenancy_organizations", "tenancy_enrollments", "user_favorites", "resource_access_log", "resource_shares"]
 
-[[entries]]
-component = "services/time-series-data-service"
-service = "time-series-data-service"
-migration_dir = "services/time-series-data-service/migrations"
-schema = "time_series_data"
-residency = "pg-runtime-config"
-tables = ["time_series", "time_series_points", "time_series_storage_partitions"]
+# S8 / ADR-0030 (B20): time-series-data-service merged →
+# ontology-exploratory-analysis-service. Schema absorbed.
 
 [[entries]]
 component = "services/workflow-automation-service"

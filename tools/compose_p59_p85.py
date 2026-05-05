@@ -2,7 +2,7 @@
 """Generate docker-compose blocks for the P59-P85 batch."""
 
 SERVICES = [
-    ("ontology-timeseries-analytics-service", 50132, "ontology_timeseries_analytics", "OPENFOUNDRY_ONTOLOGY_TIMESERIES_ANALYTICS_HOST_PORT"),
+    # `ontology-timeseries-analytics-service` (was 50132) merged → `ontology-exploratory-analysis-service` per ADR-0030 (S8 / B20).
     ("sql-bi-gateway-service", 50133, "sql_bi_gateway", "OPENFOUNDRY_SQL_BI_GATEWAY_HOST_PORT"),
     ("notebook-runtime-service", 50134, "notebook_runtime", "OPENFOUNDRY_NOTEBOOK_RUNTIME_HOST_PORT"),
     # `spreadsheet-computation-service` (was 50135) merged → `notebook-runtime-service` per ADR-0030 (S8).
@@ -12,7 +12,7 @@ SERVICES = [
     ("automation-operations-service", 50138, "automation_operations", "OPENFOUNDRY_AUTOMATION_OPERATIONS_HOST_PORT"),
     # `workflow-trace-service` (was 50139) merged → `lineage-service` per ADR-0030 (S8).
     ("application-composition-service", 50140, "application_composition", "OPENFOUNDRY_APPLICATION_COMPOSITION_HOST_PORT"),
-    ("scenario-simulation-service", 50141, "scenario_simulation", "OPENFOUNDRY_SCENARIO_SIMULATION_HOST_PORT"),
+    # `scenario-simulation-service` (was 50141) merged → `ontology-exploratory-analysis-service` per ADR-0030 (S8 / B20).
     ("solution-design-service", 50142, "solution_design", "OPENFOUNDRY_SOLUTION_DESIGN_HOST_PORT"),
     # `developer-console-service` (was 50143) merged → `application-composition-service` per ADR-0030 (S8 / B19).
     ("sdk-generation-service", 50144, "sdk_generation", "OPENFOUNDRY_SDK_GENERATION_HOST_PORT"),

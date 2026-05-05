@@ -126,14 +126,8 @@ services:
       DATABASE_READ_URL:
         secretName: report-db-dsn
         key: reader_url
-  scenario-simulation-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: scenario-simulation-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: scenario-simulation-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B20): scenario-simulation-service merged →
+  # ontology-exploratory-analysis-service.
   sdk-generation-service:
     envSecrets:
       DATABASE_URL:

@@ -396,18 +396,9 @@ services:
   # S8 / ADR-0030 (B22) — `execution-observability-service` merged →
   # `telemetry-governance-service`. No Deployment renders here.
 
-  geospatial-intelligence-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 (B20) — `geospatial-intelligence-service` merged →
+  # `ontology-exploratory-analysis-service` (lives in `of-ontology`).
+  # No Deployment renders here.
 
   # S8 / ADR-0030 (B19) — `managed-workspace-service` merged →
   # `application-composition-service`. No Deployment renders here.
@@ -480,18 +471,9 @@ services:
         cpu: "500m"
         memory: 512Mi
 
-  scenario-simulation-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 (B20) — `scenario-simulation-service` merged →
+  # `ontology-exploratory-analysis-service` (lives in `of-ontology`).
+  # No Deployment renders here.
 
   # S8 / ADR-0030 (B15) — `sds-service` merged →
   # `audit-compliance-service` (lives in `of-platform`). No

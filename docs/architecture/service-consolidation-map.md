@@ -11,9 +11,10 @@
 > notebook-runtime + agent-runtime + model-deployment +
 > dataset-versioning + pipeline-build + authorization-policy +
 > audit-compliance + identity-federation + connector-management +
-> ai-evaluation + telemetry-governance + application-composition
-> consolidation). The live repository has **50 directories** under
-> `services/` (`ls services/ | wc -l`). S8 is now measured as
+> ai-evaluation + telemetry-governance + application-composition +
+> ontology-exploratory-analysis consolidation). The live repository
+> has **46 directories** under `services/`
+> (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
 > `health-check-service`, `tool-registry-service` and
@@ -91,7 +92,7 @@
 | `event-streaming-service` | `ingestion-replication-service` | merged → `ingestion-replication-service` | S8: directory removed; ~100 source files (`backends/`, `domain/`, `grpc/`, `handlers/`, `models/`, `outbox`, `router/`, `runtime/`, `storage/`) absorbed under `services/ingestion-replication-service/src/event_streaming/` preserving the source `AppState`. Cargo features merged: `kafka-rdkafka`, `kafka-it`, `rocksdb-state`, `flink-runtime`. 20 SQL migrations moved to `services/ingestion-replication-service/migrations/streaming/` (schema namespace `event_streaming` on `pg-schemas` preserved). 18 integration tests moved to `services/ingestion-replication-service/tests/`. `proto/streaming/{router,streams}.proto` now compiled with both server and client stubs by the consolidated build.rs. Helm Deployment retired from `of-data-engine`; `EVENT_STREAMING_SERVICE_URL` repointed at `ingestion-replication-service:50121`. The streaming runtime wiring into the consolidated binary's main is a follow-up. |
 | `execution-observability-service` | `telemetry-governance-service` | merged → `telemetry-governance-service` | S8 (B22): directory removed; the source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD over `execution_runs` / `execution_logs`). Migration preserved. `EXECUTION_OBSERVABILITY_SERVICE_URL` callers retargeted at `telemetry-governance-service:50153`. |
 | `federation-product-exchange-service` | `federation-product-exchange-service` | keep | absorbs `marketplace-service`, `marketplace-catalog-service`, `product-distribution-service` |
-| `geospatial-intelligence-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
+| `geospatial-intelligence-service` | `ontology-exploratory-analysis-service` | merged → `ontology-exploratory-analysis-service` | S8 (B20): directory removed; 24 source files (config, domain, handlers, models, plus the substantial `geospatial_base/` substrate with engine/{aggregation,clustering,routing,spatial_query}, geocoding, indexer, tile_server) absorbed under `services/ontology-exploratory-analysis-service/src/geospatial/`. Stub binary; geospatial_base preserved via `#[path]` includes. Edge gateway routing for `/api/v1/geospatial` retargeted at `ontology-exploratory-analysis-service:50131`. |
 | `global-branch-service` | `code-repository-review-service` | merged → `code-repository-review-service` | S8: directory removed; sources moved under `services/code-repository-review-service/src/global_branch/` (handlers, store, subscriber, model). Migration `20260504000031_global_branches.sql` folded into `services/code-repository-review-service/migrations/`. Helm Deployment retired from `of-apps-ops`. |
 | `iceberg-catalog-service` | `iceberg-catalog-service` | keep | Foundry-flavoured Iceberg REST Catalog (ADR-0041); supersedes Lakekeeper for the internal catalog surface, owns Foundry transaction/markings/schema-evolution semantics. |
 | `identity-federation-service` | `identity-federation-service` | keep | absorbs `oauth-integration-service` (auth side), `session-governance-service` |
@@ -129,7 +130,7 @@
 | `ontology-indexer` | `ontology-indexer` | sink | |
 | `ontology-query-service` | `ontology-query-service` | keep | |
 | `ontology-security-service` | `ontology-actions-service` | merged → `ontology-actions-service` | crate removed (S8.1) |
-| `ontology-timeseries-analytics-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
+| `ontology-timeseries-analytics-service` | `ontology-exploratory-analysis-service` | merged → `ontology-exploratory-analysis-service` | S8 (B20): directory removed; `tools/scaffold_p59_p85.py` placeholder. `ONTOLOGY_TIMESERIES_ANALYTICS_SERVICE_URL` callers retargeted at `ontology-exploratory-analysis-service:50131`. |
 | `pipeline-authoring-service` | `pipeline-build-service` | merged → `pipeline-build-service` | S8: directory removed; 46 source files (config, domain with engine/executor/expressions/media_nodes/parameterized, handlers, models, plus the source's `lib.rs` re-rooting media-node + expression validators via `#[path]`) absorbed under `services/pipeline-build-service/src/pipeline_authoring/`. 6 source migrations preserved on `pg-pipeline`. Edge gateway routing for `/api/v1/pipelines` retargeted at `pipeline-build-service`. The pipeline-authoring runtime wiring into the consolidated binary's main is a follow-up. |
 | `pipeline-build-service` | `pipeline-build-service` | keep | absorbs authoring, schedule, compute modules |
 | `pipeline-runner` | `pipeline-runner` | image | Scala/SBT project (FASE 3 / Tarea 3.3) that builds the Spark/Iceberg image referenced by SparkApplication CRs launched by `pipeline-build-service`. **Not** a Rust workspace member, no service binary, no Helm Deployment of its own — it is a build artifact. Listed in `tools/regenerate_service_dockerfiles.py`'s `NON_RUST_SERVICES` skip set. |
@@ -140,7 +141,7 @@
 | `report-service` | (legacy) | delete | already covered by `document-reporting-service` |
 | `retention-policy-service` | `audit-compliance-service` | merged → `audit-compliance-service` | S8: directory removed; 14 source files (config, domain/retention, handlers/retention, models, metrics, retention runner) absorbed under `services/audit-compliance-service/src/retention_policy/`. 2 source migrations + 3 tests preserved on `pg-policy`. Edge gateway routing for `/api/v1/retention/*` and `/applicable-policies` / `/retention-preview` retargeted at `audit-compliance-service`. |
 | `retrieval-context-service` | `retrieval-context-service` | keep | absorbs `knowledge-index-service`, `document-intelligence-service` |
-| `scenario-simulation-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
+| `scenario-simulation-service` | `ontology-exploratory-analysis-service` | merged → `ontology-exploratory-analysis-service` | S8 (B20): directory removed; scaffold placeholder. Migration `20260427070600_09_scenario_simulations_foundation.sql` preserved. `SCENARIO_SIMULATION_SERVICE_URL` callers retargeted. |
 | `sdk-generation-service` | `sdk-generation-service` | keep | |
 | `sds-service` | `audit-compliance-service` | merged → `audit-compliance-service` | S8: directory removed; 8 source files (config, domain/sds, handlers/sds, models) absorbed under `services/audit-compliance-service/src/sds/`. Migration preserved on `pg-policy`. Edge gateway routing for `/api/v1/audit/sds` retargeted at `audit-compliance-service`. |
 | `security-governance-service` | `authorization-policy-service` | merged → `authorization-policy-service` | S8: directory removed; 12 source files (config, domain, handlers/governance, models) absorbed under `services/authorization-policy-service/src/security_governance/`. Migration `20260427020100_security_governance_foundation.sql` preserved on `pg-policy`. The namespace's `AppState` carries `audit_db` and `policy_db` fields used by the governance reports + template handlers. `SECURITY_GOVERNANCE_SERVICE_URL` callers retargeted at `authorization-policy-service:50093`. |
@@ -152,7 +153,7 @@
 | `tabular-analysis-service` | `sql-bi-gateway-service` | merged → `sql-bi-gateway-service` | S8: directory removed; `tabular_analysis_jobs` / `tabular_analysis_results` schemas folded into `services/sql-bi-gateway-service/migrations/`; CRUD served at `/api/v1/tabular/*`. |
 | `telemetry-governance-service` | `telemetry-governance-service` | keep | absorbs monitoring rules, health checks, execution observability |
 | `tenancy-organizations-service` | `tenancy-organizations-service` | keep | |
-| `time-series-data-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
+| `time-series-data-service` | `ontology-exploratory-analysis-service` | merged → `ontology-exploratory-analysis-service` | S8 (B20): directory removed; scaffold placeholder. Migration `20260427090000_time_series_foundation.sql` preserved. `TIME_SERIES_DATA_SERVICE_URL` callers retargeted. |
 | `virtual-table-service` | `connector-management-service` | merged → `connector-management-service` | S8 (B17): directory removed; 78 source files (config, connectors, domain with virtual_tables/iceberg_catalogs/capability_matrix, handlers, models, grpc, metrics) absorbed under `services/connector-management-service/src/virtual_table/`. 3 source migrations + 9 tests preserved on `pg-data-connector`. Source's `proto/virtual_tables/virtual_tables.proto` copied into target's `proto/` and compiled by the consolidated `build.rs`. Edge gateway routing for `/api/v1/connections/.../{discover,registrations,virtual-tables/query}` retargeted at `connector-management-service:50088`. |
 | `workflow-automation-service` | `workflow-automation-service` | keep | absorbs automation-operations, approvals |
 | `workflow-trace-service` | `lineage-service` | merged → `lineage-service` | S8: directory removed; source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD handlers, no production callers of `/api/v1/workflow-traces/*`). Migration `20260427070600_07_workflow_trace_runs_foundation.sql` moved to `services/lineage-service/migrations/` so the `workflow_trace_runs` / `workflow_trace_events` schemas remain on `lineage-pg`. Helm Deployment retired from `of-apps-ops`. |
@@ -173,12 +174,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 7 |
-| merged → X (completed) | 49 |
+| merge → X (pending) | 3 |
+| merged → X (completed) | 53 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **50** |
+| **Total current service directories** | **46** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

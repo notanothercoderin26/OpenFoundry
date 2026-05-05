@@ -4591,27 +4591,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "geospatial-intelligence-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "event-bus-control",
- "geospatial-core",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tonic",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "geospatial-tiles"
 version = "0.0.1"
 dependencies = [
@@ -7399,12 +7378,16 @@ dependencies = [
  "chrono",
  "config",
  "core-models",
+ "event-bus-control",
+ "geospatial-core",
  "http-body-util",
  "reqwest",
  "serde",
  "serde_json",
+ "sqlx",
  "storage-abstraction",
  "tokio",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7480,26 +7463,6 @@ dependencies = [
  "tokio",
  "tower 0.5.3",
  "tower-http 0.6.8",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "ontology-timeseries-analytics-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "http-body-util",
- "reqwest",
- "serde",
- "serde_json",
- "storage-abstraction",
- "tokio",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -9399,25 +9362,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scenario-simulation-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "schannel"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10901,25 +10845,6 @@ checksum = "2e70e4c5a0e0a8a4823ad65dfe1a6930e4f4d756dcd9dd7939022b5e8c501215"
 dependencies = [
  "num-conv",
  "time-core",
-]
-
-[[package]]
-name = "time-series-data-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
