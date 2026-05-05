@@ -597,9 +597,7 @@ services:
     # (`infra/helm/apps/of-data-engine/templates/sql-bi-gateway-migrations.yaml`).
     enabled: false
 
-  workflow-trace-service:
-    # S8 / ADR-0030: retired — merged into `lineage-service` under the
-    # of-data-engine release. The `workflow_trace_runs` and
-    # `workflow_trace_events` schemas now live in `lineage-pg`; CRUD is
-    # served at `/workflow-trace/*` by lineage-service in HTTP mode.
-    enabled: false
+  # S8 / ADR-0030: `workflow-trace-service` merged → `lineage-service`
+  # (lives in `of-data-engine`). `workflow_trace_runs` and
+  # `workflow_trace_events` schemas applied by lineage-service against
+  # the `lineage-pg` cluster. No Deployment renders here.

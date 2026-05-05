@@ -1,3 +1,5 @@
+-- S8 / ADR-0030: schema absorbed from the retired `workflow-trace-service`.
+-- Tables live on the `lineage-pg` cluster; runtime owner is `lineage-service`.
 CREATE TABLE IF NOT EXISTS workflow_trace_runs (
     id UUID PRIMARY KEY,
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,

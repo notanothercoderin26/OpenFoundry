@@ -7,9 +7,9 @@
 > Stream S8.1 of the Cassandra/Foundry parity migration plan.
 >
 > Audit date: 2026-05-05 (S8 workflow-automation + retrieval-context +
-> code-repository-review consolidation). The live repository has
-> **83 directories** under `services/` (`ls services/ | wc -l`). S8 is
-> now measured as
+> code-repository-review + workflow-trace consolidation). The live
+> repository has **82 directories** under `services/`
+> (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
 > `health-check-service`, `tool-registry-service` and
@@ -151,7 +151,7 @@
 | `time-series-data-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
 | `virtual-table-service` | `connector-management-service` | merge → `connector-management-service` | |
 | `workflow-automation-service` | `workflow-automation-service` | keep | absorbs automation-operations, approvals |
-| `workflow-trace-service` | `lineage-service` | merge → `lineage-service` | |
+| `workflow-trace-service` | `lineage-service` | merged → `lineage-service` | S8: directory removed; source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD handlers, no production callers of `/api/v1/workflow-traces/*`). Migration `20260427070600_07_workflow_trace_runs_foundation.sql` moved to `services/lineage-service/migrations/` so the `workflow_trace_runs` / `workflow_trace_events` schemas remain on `lineage-pg`. Helm Deployment retired from `of-apps-ops`. |
 
 ## Retired service directories
 
@@ -169,12 +169,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 40 |
-| merged → X (completed) | 16 |
+| merge → X (pending) | 39 |
+| merged → X (completed) | 17 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **83** |
+| **Total current service directories** | **82** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

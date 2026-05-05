@@ -85,16 +85,10 @@ SERVICES_SPEC = [
         "automation_queue_runs",
         "queue_id UUID NOT NULL, run_ref TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending'",
     ),
-    (
-        "workflow-trace-service",
-        "Workflow run history, traces, logs and provenance across functions, actions, models and apps",
-        50139,
-        "/api/v1/workflow-traces/runs",
-        "workflow_trace_runs",
-        "workflow_id UUID NOT NULL, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), status TEXT NOT NULL DEFAULT 'running'",
-        "workflow_trace_events",
-        "run_id UUID NOT NULL, kind TEXT NOT NULL, payload JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `workflow-trace-service` (was port 50139, /api/v1/workflow-traces/runs)
+    # merged → `lineage-service` per ADR-0030 (S8). The
+    # `workflow_trace_runs` / `workflow_trace_events` schemas were
+    # preserved and now live on the `lineage-pg` cluster.
     (
         "application-composition-service",
         "Composition runtime: views, state, bindings, page layout and event orchestration",

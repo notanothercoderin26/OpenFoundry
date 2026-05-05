@@ -210,7 +210,6 @@
 /services/notification-alerting-service/                @open-foundry/workflow-team
 /services/scenario-simulation-service/                  @open-foundry/workflow-team
 /services/workflow-automation-service/                  @open-foundry/workflow-team
-/services/workflow-trace-service/                       @open-foundry/workflow-team
 
 # --- Analytics / reports / geospatial / nexus ---
 /services/document-reporting-service/                   @open-foundry/analytics-team

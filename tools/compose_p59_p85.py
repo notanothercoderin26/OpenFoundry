@@ -10,7 +10,7 @@ SERVICES = [
     # `tools/scaffold_p59_p85.py` and `libs/analytical-logic`.
     ("workflow-automation-service", 50137, "workflow_automation", "OPENFOUNDRY_WORKFLOW_AUTOMATION_HOST_PORT"),
     ("automation-operations-service", 50138, "automation_operations", "OPENFOUNDRY_AUTOMATION_OPERATIONS_HOST_PORT"),
-    ("workflow-trace-service", 50139, "workflow_trace", "OPENFOUNDRY_WORKFLOW_TRACE_HOST_PORT"),
+    # `workflow-trace-service` (was 50139) merged → `lineage-service` per ADR-0030 (S8).
     ("application-composition-service", 50140, "application_composition", "OPENFOUNDRY_APPLICATION_COMPOSITION_HOST_PORT"),
     ("scenario-simulation-service", 50141, "scenario_simulation", "OPENFOUNDRY_SCENARIO_SIMULATION_HOST_PORT"),
     ("solution-design-service", 50142, "solution_design", "OPENFOUNDRY_SOLUTION_DESIGN_HOST_PORT"),

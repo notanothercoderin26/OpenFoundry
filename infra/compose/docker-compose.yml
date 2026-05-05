@@ -1190,8 +1190,9 @@ services:
 
   # S8 / ADR-0030: automation-operations-service merged →
   # workflow-automation-service (route at /api/v1/automations).
-  # S8 / ADR-0030: workflow-trace-service merged into lineage-service.
-  # Routes are now served at /workflow-trace/* by lineage-service.
+  # S8 / ADR-0030: workflow-trace-service merged → lineage-service
+  # (lives under `of-data-engine`; the dead scaffold's HTTP surface
+  # had no production callers, schema preserved on lineage-pg).
 
   application-composition-service:
     <<: *app-common
