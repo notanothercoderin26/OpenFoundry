@@ -42,6 +42,18 @@ export const router = createBrowserRouter([
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
+      {
+        path: 'monaco-demo',
+        lazy: async () => ({ Component: (await import('./routes/monaco-demo/MonacoDemoPage')).MonacoDemoPage }),
+      },
+      {
+        path: 'maplibre-demo',
+        lazy: async () => ({ Component: (await import('./routes/maplibre-demo/MapLibreDemoPage')).MapLibreDemoPage }),
+      },
+      {
+        path: 'cytoscape-demo',
+        lazy: async () => ({ Component: (await import('./routes/cytoscape-demo/CytoscapeDemoPage')).CytoscapeDemoPage }),
+      },
       // Migration pattern: add a route here as you port each SvelteKit folder under apps/web/src/routes/.
       { path: '*', element: <NotFound /> },
     ],

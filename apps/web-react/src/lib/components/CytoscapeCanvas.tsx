@@ -3,14 +3,14 @@ import type {
   Core,
   ElementDefinition,
   LayoutOptions,
-  Stylesheet,
+  StylesheetStyle,
 } from 'cytoscape';
 
 let fcoseRegistered = false;
 
 interface CytoscapeCanvasProps {
   elements: ElementDefinition[];
-  stylesheet?: Stylesheet[];
+  stylesheet?: StylesheetStyle[];
   layout?: LayoutOptions;
   height?: number | string;
   className?: string;

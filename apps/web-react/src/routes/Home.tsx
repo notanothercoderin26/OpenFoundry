@@ -4,6 +4,9 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/settings', title: 'Settings', description: 'Identity, RBAC, ABAC, MFA, API keys, SSO.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
+  { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },
+  { path: '/maplibre-demo', title: 'MapLibre demo', description: 'MapLibre map wrapper validator.' },
+  { path: '/cytoscape-demo', title: 'Cytoscape demo', description: 'Cytoscape graph wrapper validator.' },
 ];
 
 export function Home() {
