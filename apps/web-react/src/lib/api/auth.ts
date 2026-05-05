@@ -110,6 +110,61 @@ export interface RestrictedViewRecord {
   updated_at: string;
 }
 
+export interface ApiKeyRecord {
+  id: string;
+  user_id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export interface ApiKeyWithSecret {
+  id: string;
+  name: string;
+  prefix: string;
+  token: string;
+  scopes: string[];
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface MfaStatusResponse {
+  configured: boolean;
+  enabled: boolean;
+  recovery_codes_remaining: number;
+}
+
+export interface MfaEnrollmentResponse {
+  secret: string;
+  recovery_codes: string[];
+  otpauth_uri: string;
+}
+
+export interface SsoProviderRecord {
+  id: string;
+  slug: string;
+  name: string;
+  provider_type: string;
+  enabled: boolean;
+  client_id: string | null;
+  client_secret_configured: boolean;
+  issuer_url: string | null;
+  authorization_url: string | null;
+  token_url: string | null;
+  userinfo_url: string | null;
+  scopes: string[];
+  saml_metadata_url: string | null;
+  saml_entity_id: string | null;
+  saml_sso_url: string | null;
+  attribute_mapping: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export function getMe() {
   return api.get<UserProfile>('/users/me');
 }
@@ -233,4 +288,61 @@ export function createRestrictedView(data: {
 
 export function deleteRestrictedView(viewId: string) {
   return api.delete<void>(`/restricted-views/${viewId}`);
+}
+
+export function getMfaStatus() {
+  return api.get<MfaStatusResponse>('/auth/mfa');
+}
+
+export function enrollMfa() {
+  return api.post<MfaEnrollmentResponse>('/auth/mfa/enroll', {});
+}
+
+export function verifyMfaSetup(data: { code: string }) {
+  return api.post<{ enabled: boolean }>('/auth/mfa/verify', data);
+}
+
+export function disableMfa(data: { code: string }) {
+  return api.fetch<void>('/auth/mfa', { method: 'DELETE', body: data });
+}
+
+export function listApiKeys() {
+  return api.get<ApiKeyRecord[]>('/api-keys');
+}
+
+export function createApiKey(data: { name: string; scopes: string[]; expires_at?: string | null }) {
+  return api.post<ApiKeyWithSecret>('/api-keys', data);
+}
+
+export function revokeApiKey(apiKeyId: string) {
+  return api.delete<void>(`/api-keys/${apiKeyId}`);
+}
+
+export function listSsoProviders() {
+  return api.get<SsoProviderRecord[]>('/auth/sso/providers');
+}
+
+export function createSsoProvider(data: {
+  slug: string;
+  name: string;
+  provider_type: string;
+  enabled: boolean;
+  client_id?: string | null;
+  client_secret?: string | null;
+  issuer_url?: string | null;
+  authorization_url?: string | null;
+  token_url?: string | null;
+  userinfo_url?: string | null;
+  scopes: string[];
+  saml_metadata_url?: string | null;
+  saml_entity_id?: string | null;
+  saml_sso_url?: string | null;
+  saml_certificate?: string | null;
+  attribute_mapping: Record<string, unknown>;
+}) {
+  return api.post<SsoProviderRecord>('/auth/sso/providers', data);
+}
+
+export function deleteSsoProvider(providerId: string) {
+  return api.delete<void>(`/auth/sso/providers/${providerId}`);
 }

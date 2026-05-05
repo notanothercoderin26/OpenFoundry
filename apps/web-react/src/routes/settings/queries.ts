@@ -1,9 +1,12 @@
 import {
+  getMfaStatus,
+  listApiKeys,
   listGroups,
   listPermissions,
   listPolicies,
   listRestrictedViews,
   listRoles,
+  listSsoProviders,
   listUsers,
 } from '@api/auth';
 
@@ -14,6 +17,9 @@ export const settingsQueryKeys = {
   groups: ['settings', 'groups'] as const,
   policies: ['settings', 'policies'] as const,
   restrictedViews: ['settings', 'restricted-views'] as const,
+  mfa: ['settings', 'mfa'] as const,
+  apiKeys: ['settings', 'api-keys'] as const,
+  ssoProviders: ['settings', 'sso-providers'] as const,
 };
 
 export const usersQuery = {
@@ -44,4 +50,19 @@ export const policiesQuery = {
 export const restrictedViewsQuery = {
   queryKey: settingsQueryKeys.restrictedViews,
   queryFn: () => listRestrictedViews(),
+};
+
+export const mfaQuery = {
+  queryKey: settingsQueryKeys.mfa,
+  queryFn: () => getMfaStatus(),
+};
+
+export const apiKeysQuery = {
+  queryKey: settingsQueryKeys.apiKeys,
+  queryFn: () => listApiKeys(),
+};
+
+export const ssoProvidersQuery = {
+  queryKey: settingsQueryKeys.ssoProviders,
+  queryFn: () => listSsoProviders(),
 };

@@ -13,3 +13,14 @@ export function toList(value: string) {
 export function parseJson(value: string): Record<string, unknown> {
   return value.trim() ? JSON.parse(value) : {};
 }
+
+export function toScopes(value: string) {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+export function toIsoDateTime(value: string) {
+  return value ? new Date(value).toISOString() : null;
+}

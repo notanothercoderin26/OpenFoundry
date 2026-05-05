@@ -11,11 +11,14 @@ import {
   type AppLocale,
 } from '@/lib/i18n/store';
 
+import { ApiKeysSection } from './ApiKeysSection';
 import { GroupsSection } from './GroupsSection';
+import { MfaSection } from './MfaSection';
 import { PermissionsSection } from './PermissionsSection';
 import { PoliciesSection } from './PoliciesSection';
 import { RestrictedViewsSection } from './RestrictedViewsSection';
 import { RolesSection } from './RolesSection';
+import { SsoProvidersSection } from './SsoProvidersSection';
 import { UsersSection } from './UsersSection';
 
 export function SettingsPage() {
@@ -131,6 +134,13 @@ export function SettingsPage() {
       <PoliciesSection setNotice={setNotice} setError={setError} />
 
       <RestrictedViewsSection setNotice={setNotice} setError={setError} />
+
+      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' }}>
+        <MfaSection setNotice={setNotice} setError={setError} />
+        <ApiKeysSection setNotice={setNotice} setError={setError} />
+      </div>
+
+      <SsoProvidersSection setNotice={setNotice} setError={setError} />
     </section>
   );
 }
