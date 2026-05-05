@@ -318,31 +318,14 @@ services:
         cpu: "500m"
         memory: 512Mi
 
-  pipeline-authoring-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  pipeline-schedule-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 — `pipeline-authoring-service` and
+  # `pipeline-schedule-service` merged → `pipeline-build-service`.
+  # The authoring (job specs, expressions, media nodes, parameterized
+  # views) and scheduling (cron triggers, build dispatcher, run store)
+  # surfaces are now part of the consolidated pipeline-build runtime.
+  # The `compute-modules-control-plane-service` and
+  # `compute-modules-runtime-service` scaffolds were also retired in
+  # the same commit (their migrations preserved on `pg-pipeline`).
 
   sql-warehousing-service:
     # S8 / ADR-0030: retired — merged into `sql-bi-gateway-service` above.

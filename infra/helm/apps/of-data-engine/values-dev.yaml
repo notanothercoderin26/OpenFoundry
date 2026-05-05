@@ -113,14 +113,8 @@ services:
       DATABASE_READ_URL:
         secretName: lineage-deletion-db-dsn
         key: reader_url
-  pipeline-authoring-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: pipeline-authoring-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: pipeline-authoring-db-dsn
-        key: reader_url
+  # S8 / ADR-0030: pipeline-authoring-service merged → pipeline-build-service.
+  # The authoring schema reuses pipeline-build's DSN.
   retention-policy-service:
     envSecrets:
       DATABASE_URL:

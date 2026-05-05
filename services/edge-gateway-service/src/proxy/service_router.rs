@@ -198,13 +198,15 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/queries") {
         &config.query_service_url
     } else if path.starts_with("/api/v1/pipelines/triggers/cron/") {
-        &config.pipeline_schedule_service_url
+        // S8 / ADR-0030: pipeline-schedule-service merged → pipeline-build-service.
+        &config.pipeline_build_service_url
     } else if path.starts_with("/api/v1/pipelines/")
         && (path.ends_with("/run") || path.contains("/runs/") || path.ends_with("/runs"))
     {
         &config.pipeline_build_service_url
     } else if path.starts_with("/api/v1/pipelines") {
-        &config.pipeline_authoring_service_url
+        // S8 / ADR-0030: pipeline-authoring-service merged → pipeline-build-service.
+        &config.pipeline_build_service_url
     } else if path.starts_with("/api/v1/lineage") {
         &config.lineage_service_url
     } else if path.starts_with("/api/v1/ontology/functions")

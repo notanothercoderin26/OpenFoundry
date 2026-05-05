@@ -84,11 +84,9 @@ services:
     - control
   ontology-query-service:
     - control
-  pipeline-authoring-service:
-    - control
+  # S8 / ADR-0030: pipeline-authoring-service and pipeline-schedule-service
+  # merged → pipeline-build-service.
   pipeline-build-service:
-    - control
-  pipeline-schedule-service:
     - control
   product-distribution-service:
     - control

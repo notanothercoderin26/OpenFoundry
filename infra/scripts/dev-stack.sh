@@ -14,7 +14,6 @@ SERVICES=(
   connector-management-service
   data-asset-catalog-service
   sql-bi-gateway-service
-  pipeline-authoring-service
   ontology-definition-service
   model-catalog-service
   agent-runtime-service
