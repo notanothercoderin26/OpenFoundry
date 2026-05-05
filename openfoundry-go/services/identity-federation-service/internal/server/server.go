@@ -106,6 +106,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Get("/api-keys", rbac.ListAPIKeys)
 		api.Post("/api-keys", rbac.CreateAPIKey)
 		api.Delete("/api-keys/{id}", rbac.RevokeAPIKey)
+
+		// /restricted-views — slice 7a (CBAC restricted-view CRUD).
+		rv := handlers.NewRestrictedViews(rbac)
+		api.Get("/restricted-views", rv.List)
+		api.Post("/restricted-views", rv.Create)
+		api.Get("/restricted-views/{id}", rv.Get)
+		api.Patch("/restricted-views/{id}", rv.Update)
+		api.Delete("/restricted-views/{id}", rv.Delete)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
