@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/config"
@@ -29,10 +30,10 @@ import (
 //   POST   /api/v1/auth/login
 //   POST   /api/v1/auth/token/refresh
 //
-// Subsequent slices add: /auth/sessions/*, /auth/mfa/*, /auth/sso/*,
-// /users/*, /roles/*, /groups/*, /permissions/*, /policies/*,
-// /control-panel/*, /scim/v2/*, /jwks/rotate, /audit/metrics.
-func New(cfg *config.Config, auth *handlers.Auth, m *observability.Metrics) *http.Server {
+// Subsequent slices add: /auth/sessions/*, /auth/sso/*, /users/*,
+// /roles/*, /groups/*, /permissions/*, /policies/*, /control-panel/*,
+// /scim/v2/*, /jwks/rotate, /audit/metrics.
+func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *handlers.MFA, m *observability.Metrics) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -50,6 +51,16 @@ func New(cfg *config.Config, auth *handlers.Auth, m *observability.Metrics) *htt
 		api.Post("/register", auth.Register)
 		api.Post("/login", auth.Login)
 		api.Post("/token/refresh", auth.Refresh)
+		api.Post("/mfa/totp/complete-login", mfa.CompleteLogin)
+	})
+
+	// /api/v1/auth/mfa/* — bearer-protected MFA management.
+	r.Route("/api/v1/auth/mfa", func(api chi.Router) {
+		api.Use(authmw.Middleware(jwt))
+		api.Get("/status", mfa.Status)
+		api.Post("/totp/enroll", mfa.Enroll)
+		api.Post("/totp/verify", mfa.Verify)
+		api.Post("/totp/disable", mfa.Disable)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

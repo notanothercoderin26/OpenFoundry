@@ -105,16 +105,34 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// MFA hooks defer to slice 3 + slice 4.
-	if user.MFAEnforced {
-		// The Rust path issues an MFA challenge JWT and returns
-		// `LoginResponse::MfaRequired`. Slice 1 returns the same
-		// envelope shape minus the actual challenge token (clients
-		// shouldn't see this path in slice 1 since the table column
-		// is in the schema but defaults to false).
+	// Slice 3: TOTP. WebAuthn arrives in slice 4 — `methods` will
+	// grow accordingly. mfa_enforced=true users with no enrolment
+	// yet still land in the MFA-required branch; the frontend
+	// redirects them through the enrolment flow after the access
+	// token has been issued (cannot enrol before authenticating).
+	totpCfg, terr := a.Repo.FindTOTPConfig(r.Context(), user.ID)
+	if terr != nil {
+		slog.Error("login: find totp", slog.String("error", terr.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "login failed")
+		return
+	}
+	totpEnabled := totpCfg != nil && totpCfg.Enabled
+	if totpEnabled || user.MFAEnforced {
+		methods := []string{}
+		if totpEnabled {
+			methods = append(methods, "totp")
+		}
+		challenge, cerr := service.IssueMFAChallenge(a.Issuer.JWT, user, "password")
+		if cerr != nil {
+			slog.Error("login: mfa challenge", slog.String("error", cerr.Error()))
+			writeJSONErr(w, http.StatusInternalServerError, "login failed")
+			return
+		}
 		writeJSON(w, http.StatusOK, models.LoginResponse{
-			Status:  models.LoginStatusMFARequired,
-			Methods: []string{},
+			Status:         models.LoginStatusMFARequired,
+			ChallengeToken: challenge,
+			Methods:        methods,
+			ExpiresIn:      int64(service.ChallengeTTL.Seconds()),
 		})
 		return
 	}

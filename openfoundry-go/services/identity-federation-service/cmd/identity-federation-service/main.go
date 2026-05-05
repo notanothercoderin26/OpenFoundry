@@ -71,9 +71,10 @@ func main() {
 		RefreshTTL: cfg.RefreshTTL,
 	}
 	auth := &handlers.Auth{Repo: r, Issuer: issuer}
+	mfa := &handlers.MFA{JWT: jwt, Repo: r, Issuer: issuer}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, auth, metrics)
+	srv := server.New(cfg, jwt, auth, mfa, metrics)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
