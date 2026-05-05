@@ -209,6 +209,23 @@ services:
         cpu: "500m"
         memory: 512Mi
 
+  # ADR-0042 / ADR-0039 — sibling runtime to `media-sets-service`:
+  # executes the typed image/audio/video/document/spreadsheet access
+  # patterns, bills compute-seconds, emits the
+  # `media_set.access_pattern_invoked` audit envelope.
+  media-transform-runtime-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
   lineage-service:
     replicas: 2
     ports:

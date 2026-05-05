@@ -1,5 +1,13 @@
 # Service consolidation map — 99 service directories → 36 ownership boundaries
 
+> ✅ **S8 service consolidation completed on 2026-05-05.** Final
+> verification (C5 audit) closed cleanly: 36 ownership boundaries
+> + 3 sinks + 1 non-Rust runtime image = **40 dirs** under `services/`,
+> matching the ADR-0042 amended target. All 56 `merge → X` rows are
+> now `merged → X`; all 3 legacy deletes (app-builder, nexus,
+> report) are retired. See `/tmp/s8-final-audit-report.md` for the
+> complete C5 audit (3 passes: counting, helm, data).
+>
 > Companion to [ADR-0030](adr/ADR-0030-service-consolidation-30-targets.md)
 > and [ADR-0042](adr/ADR-0042-service-consolidation-map-reconciliation.md)
 > (reconciliation of 4 directories the original map did not enumerate).
