@@ -380,18 +380,9 @@ services:
         cpu: "500m"
         memory: 512Mi
 
-  checkpoints-purpose-service:
-    replicas: 1
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B14) — `checkpoints-purpose-service` merged →
+  # `authorization-policy-service` (lives in `of-platform`, not this
+  # release). No Deployment renders here.
 
   analytical-logic-service:
     # S8 / ADR-0030: retired — reusable expressions are now an internal

@@ -2364,24 +2364,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
-name = "checkpoints-purpose-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "chrono"
 version = "0.4.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2414,27 +2396,6 @@ checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
 dependencies = [
  "crypto-common 0.1.7",
  "inout",
-]
-
-[[package]]
-name = "cipher-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "base64 0.22.1",
- "chrono",
- "config",
- "core-models",
- "hmac 0.12.1",
- "rand 0.8.6",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "tokio",
- "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -7131,25 +7092,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "network-boundary-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9978,24 +9920,6 @@ checksum = "6ce2691df843ecc5d231c0b14ece2acc3efb62c0a398c7e1d875f3983ce020e3"
 dependencies = [
  "core-foundation-sys",
  "libc",
-]
-
-[[package]]
-name = "security-governance-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

@@ -59,14 +59,8 @@ services:
       DATABASE_READ_URL:
         secretName: cdc-metadata-db-dsn
         key: reader_url
-  checkpoints-purpose-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: checkpoints-purpose-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: checkpoints-purpose-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B14): checkpoints-purpose-service merged →
+  # authorization-policy-service (of-platform).
   connector-management-service:
     envSecrets:
       DATABASE_URL:

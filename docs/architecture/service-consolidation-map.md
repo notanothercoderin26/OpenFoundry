@@ -9,9 +9,9 @@
 > Audit date: 2026-05-05 (S8 workflow-automation + retrieval-context +
 > code-repository-review + workflow-trace + event-streaming +
 > notebook-runtime + agent-runtime + model-deployment +
-> dataset-versioning + pipeline-build consolidation). The live
-> repository has **68 directories** under `services/`
-> (`ls services/ | wc -l`). S8 is now measured as
+> dataset-versioning + pipeline-build + authorization-policy
+> consolidation). The live repository has **64 directories** under
+> `services/` (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
 > `health-check-service`, `tool-registry-service` and
@@ -69,8 +69,8 @@
 | `authorization-policy-service` | `authorization-policy-service` | keep | absorbs `cipher-service`, `network-boundary-service`, `checkpoints-purpose-service`, `security-governance-service` |
 | `automation-operations-service` | `workflow-automation-service` | merged → `workflow-automation-service` | S8: directory removed; saga substrate (`automation_operations` schema, `saga.state` table, `saga.step.requested.v1` consumer with the legacy `automation-operations-service` Kafka group id preserved) moved under `services/workflow-automation-service/src/automation_operations/`. |
 | `cdc-metadata-service` | `ingestion-replication-service` | merged → `ingestion-replication-service` | S8-13A: code moved under `services/ingestion-replication-service/src/cdc_metadata/`; migrations kept in `migrations/cdc_metadata/` and still run against `cdc-metadata-pg` via `CDC_METADATA_DATABASE_URL`. |
-| `checkpoints-purpose-service` | `authorization-policy-service` | merge → `authorization-policy-service` | |
-| `cipher-service` | `authorization-policy-service` | merge → `authorization-policy-service` | shares same secret store |
+| `checkpoints-purpose-service` | `authorization-policy-service` | merged → `authorization-policy-service` | S8: directory removed; 9 source files (config, domain, handlers/checkpoints, models) absorbed under `services/authorization-policy-service/src/checkpoints_purpose/`. Migration `20260427030100_checkpoints_purpose_foundation.sql` preserved on `pg-policy`. `CHECKPOINTS_PURPOSE_SERVICE_URL` callers retargeted at `authorization-policy-service:50093`. |
+| `cipher-service` | `authorization-policy-service` | merged → `authorization-policy-service` | S8: directory removed; 7 source files (config, domain, handlers/cipher, models) absorbed under `services/authorization-policy-service/src/cipher/`. Migration `20260427050100_cipher_foundation.sql` preserved on `pg-policy`. `CIPHER_SERVICE_URL` callers retargeted at `authorization-policy-service:50093`. The runtime wiring is a follow-up. |
 | `code-repository-review-service` | `code-repository-review-service` | keep | absorbs `global-branch-service`, `code-security-scanning-service` |
 | `code-security-scanning-service` | `code-repository-review-service` | merged → `code-repository-review-service` | S8: directory removed; handlers/config/models folded into `services/code-repository-review-service/src/code_security.rs`. Migration `20260427070600_22_code_security_scans_foundation.sql` moved to `services/code-repository-review-service/migrations/`. Helm Deployment retired from `of-apps-ops`. |
 | `compute-modules-control-plane-service` | `pipeline-build-service` | merged → `pipeline-build-service` | S8: directory removed; the source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD over `compute_modules` / `compute_module_deployments`); migration preserved on `pg-pipeline` for future work. |
@@ -113,7 +113,7 @@
 | `model-lifecycle-service` | `model-catalog-service` | merged → `model-catalog-service` | S8: directory removed; `modeling_objectives` / `model_submissions` / `model_lifecycle_events` migrations folded into `services/model-catalog-service/migrations/`. No table-name collision with the target's `ml_*` tables. |
 | `model-serving-service` | `model-deployment-service` | merged → `model-deployment-service` | S8: directory removed; the source was a substrate-only shim over `libs/ml-kernel` (re-exported `predictions` modules; identical scaffold to `model-inference-history-service`). Edge gateway routing for `/api/v1/ml/deployments/{id}/predict` retargeted at `model-deployment-service`. |
 | `monitoring-rules-service` | `telemetry-governance-service` | merge → `telemetry-governance-service` | |
-| `network-boundary-service` | `authorization-policy-service` | merge → `authorization-policy-service` | |
+| `network-boundary-service` | `authorization-policy-service` | merged → `authorization-policy-service` | S8: directory removed; 8 source files (config, domain/boundary, handlers/boundary, models) absorbed under `services/authorization-policy-service/src/network_boundary/`. Migration `20260427080100_network_boundary_foundation.sql` preserved on `pg-policy`. `NETWORK_BOUNDARY_SERVICE_URL` callers retargeted at `authorization-policy-service:50093`. |
 | `nexus-service` | (legacy) | delete | retire after `tenancy-organizations-service` and `federation-product-exchange-service` confirmed |
 | `notebook-runtime-service` | `notebook-runtime-service` | keep | absorbs `document-reporting-service`, `spreadsheet-computation-service` |
 | `notification-alerting-service` | `notification-alerting-service` | keep | |
@@ -141,7 +141,7 @@
 | `scenario-simulation-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
 | `sdk-generation-service` | `sdk-generation-service` | keep | |
 | `sds-service` | `audit-compliance-service` | merge → `audit-compliance-service` | |
-| `security-governance-service` | `authorization-policy-service` | merge → `authorization-policy-service` | |
+| `security-governance-service` | `authorization-policy-service` | merged → `authorization-policy-service` | S8: directory removed; 12 source files (config, domain, handlers/governance, models) absorbed under `services/authorization-policy-service/src/security_governance/`. Migration `20260427020100_security_governance_foundation.sql` preserved on `pg-policy`. The namespace's `AppState` carries `audit_db` and `policy_db` fields used by the governance reports + template handlers. `SECURITY_GOVERNANCE_SERVICE_URL` callers retargeted at `authorization-policy-service:50093`. |
 | `session-governance-service` | `identity-federation-service` | merge → `identity-federation-service` | |
 | `solution-design-service` | `solution-design-service` | keep | |
 | `spreadsheet-computation-service` | `notebook-runtime-service` | merged → `notebook-runtime-service` | S8: directory removed; source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD over `spreadsheet_sheets` / `spreadsheet_recalcs` with JSONB payloads, no production callers of `/api/v1/spreadsheets/*`). Migration `20260427070600_03_spreadsheet_sheets_foundation.sql` moved to `services/notebook-runtime-service/migrations/` so the schema remains on `notebook-pg`. Helm Deployment retired from `of-apps-ops`. |
@@ -171,12 +171,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 25 |
-| merged → X (completed) | 31 |
+| merge → X (pending) | 21 |
+| merged → X (completed) | 35 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **68** |
+| **Total current service directories** | **64** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

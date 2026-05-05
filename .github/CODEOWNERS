@@ -223,14 +223,10 @@
 # --- Security / governance / identity ---
 /services/audit-compliance-service/                     @open-foundry/security-team
 /services/authorization-policy-service/                 @open-foundry/security-team
-/services/checkpoints-purpose-service/                  @open-foundry/security-team
-/services/cipher-service/                               @open-foundry/security-team
 /services/code-security-scanning-service/               @open-foundry/security-team
 /services/identity-federation-service/                  @open-foundry/security-team
-/services/network-boundary-service/                     @open-foundry/security-team @open-foundry/platform-runtime
 /services/oauth-integration-service/                    @open-foundry/security-team
 /services/retention-policy-service/                     @open-foundry/security-team @open-foundry/data-platform
-/services/security-governance-service/                  @open-foundry/security-team
 /services/session-governance-service/                   @open-foundry/security-team
 /services/sds-service/                                  @open-foundry/security-team
 /services/telemetry-governance-service/                 @open-foundry/security-team @open-foundry/observability-team

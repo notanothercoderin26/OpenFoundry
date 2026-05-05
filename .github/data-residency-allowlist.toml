@@ -98,22 +98,10 @@ residency = "cdc-metadata-pg"
 allow_new_sqlx = { files = ["services/ingestion-replication-service/src/cdc_metadata/schema_registry.rs"], tables = ["schema_compatibility_audit", "schema_references", "schema_subjects", "schema_versions"] }
 tables = ["cdc_streams", "cdc_incremental_checkpoints", "cdc_resolution_state", "schema_subjects", "schema_versions", "schema_references", "schema_compatibility_audit"]
 
-[[entries]]
-component = "services/checkpoints-purpose-service"
-service = "checkpoints-purpose-service"
-migration_dir = "services/checkpoints-purpose-service/migrations"
-schema = "checkpoints_purpose"
-residency = "pg-policy"
-tables = ["checkpoint_policies", "sensitive_interaction_configs", "purpose_templates", "purpose_records"]
-
-[[entries]]
-component = "services/cipher-service"
-service = "cipher-service"
-migration_dir = "services/cipher-service/migrations"
-schema = "cipher"
-residency = "pg-policy"
-allow_new_sqlx = { files = ["services/cipher-service/src/handlers/cipher.rs"], tables = ["cipher_channels", "cipher_licenses", "cipher_permissions"] }
-tables = ["cipher_permissions", "cipher_channels", "cipher_licenses"]
+# S8 / ADR-0030 (B14): checkpoints-purpose-service and cipher-service
+# merged → authorization-policy-service. The schemas now live under
+# the consolidated authorization-policy entry; `pg-policy` residency
+# preserved.
 
 # S8 / ADR-0030 — `global-branch-service` and `code-security-scanning-service`
 # merged → `code-repository-review-service`. The `code_security_scanning`
@@ -352,14 +340,9 @@ residency = "pg-runtime-config"
 allow_new_sqlx = { files = ["services/monitoring-rules-service/src/handlers.rs"], tables = ["monitoring_rules", "monitoring_subscribers"] }
 tables = ["monitoring_rules", "monitoring_subscribers"]
 
-[[entries]]
-component = "services/network-boundary-service"
-service = "network-boundary-service"
-migration_dir = "services/network-boundary-service/migrations"
-schema = "network_boundary"
-residency = "pg-policy"
-allow_new_sqlx = { files = ["services/network-boundary-service/src/domain/boundary.rs"], tables = ["network_boundary_policies", "network_private_links", "network_proxy_definitions"] }
-tables = ["network_boundary_policies", "network_private_links", "network_proxy_definitions"]
+# S8 / ADR-0030 (B14): network-boundary-service merged →
+# authorization-policy-service. Schema absorbed; `pg-policy`
+# residency preserved.
 
 [[entries]]
 component = "services/nexus-service"
@@ -452,13 +435,9 @@ residency = "pg-policy"
 allow_new_sqlx = { files = ["services/sds-service/src/domain/sds.rs", "services/sds-service/src/handlers/sds.rs"], tables = ["sds_issues", "sds_scan_jobs"] }
 tables = ["sds_scan_jobs", "sds_issues", "sds_remediation_rules"]
 
-[[entries]]
-component = "services/security-governance-service"
-service = "security-governance-service"
-migration_dir = "services/security-governance-service/migrations"
-schema = "security_governance"
-residency = "pg-policy"
-tables = ["governance_template_applications", "project_constraints", "structural_security_rules"]
+# S8 / ADR-0030 (B14): security-governance-service merged →
+# authorization-policy-service. Schema absorbed; `pg-policy`
+# residency preserved.
 
 [[entries]]
 component = "services/solution-design-service"

@@ -618,23 +618,9 @@ services:
     ports:
       - "${OPENFOUNDRY_IDENTITY_FEDERATION_HOST_PORT:-50112}:50112"
 
-  cipher-service:
-    <<: *app-common
-    profiles: *profiles-foundation
-    build:
-      context: ..
-      dockerfile: services/cipher-service/Dockerfile
-    environment:
-      OPENFOUNDRY_ENV: development
-      HOST: 0.0.0.0
-      PORT: 50073
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_CIPHER_HOST_PORT:-50073}:50073"
+  # ── S8 / ADR-0030 (B14) — cipher-service merged →
+  # authorization-policy-service. CIPHER_SERVICE_URL callers route
+  # to authorization-policy-service:50093. ──
 
   session-governance-service:
     <<: *app-common
@@ -672,27 +658,9 @@ services:
     ports:
       - "${OPENFOUNDRY_AUTHORIZATION_POLICY_HOST_PORT:-50093}:50093"
 
-  security-governance-service:
-    <<: *app-common
-    profiles: *profiles-foundation
-    build:
-      context: ..
-      dockerfile: services/security-governance-service/Dockerfile
-    environment:
-      OPENFOUNDRY_ENV: development
-      HOST: 0.0.0.0
-      PORT: 50114
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_audit_service
-      AUDIT_DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_audit_service
-      POLICY_DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      authorization-policy-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_SECURITY_GOVERNANCE_HOST_PORT:-50114}:50114"
+  # ── S8 / ADR-0030 (B14) — security-governance-service merged →
+  # authorization-policy-service. SECURITY_GOVERNANCE_SERVICE_URL
+  # callers route to authorization-policy-service:50093. ──
 
   tenancy-organizations-service:
     <<: *app-common
@@ -734,23 +702,9 @@ services:
     ports:
       - "${OPENFOUNDRY_OAUTH_INTEGRATION_HOST_PORT:-50094}:50094"
 
-  network-boundary-service:
-    <<: *app-common
-    profiles: *profiles-foundation
-    build:
-      context: ..
-      dockerfile: services/network-boundary-service/Dockerfile
-    environment:
-      OPENFOUNDRY_ENV: development
-      HOST: 0.0.0.0
-      PORT: 50119
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_NETWORK_BOUNDARY_HOST_PORT:-50119}:50119"
+  # ── S8 / ADR-0030 (B14) — network-boundary-service merged →
+  # authorization-policy-service. NETWORK_BOUNDARY_SERVICE_URL
+  # callers route to authorization-policy-service:50093. ──
 
   connector-management-service:
     <<: *app-common
@@ -769,7 +723,8 @@ services:
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
       ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       INGESTION_REPLICATION_SERVICE_URL: http://ingestion-replication-service:50090
-      NETWORK_BOUNDARY_SERVICE_URL: http://network-boundary-service:50119
+      # S8 / ADR-0030 (B14): network-boundary-service merged → authorization-policy-service.
+      NETWORK_BOUNDARY_SERVICE_URL: http://authorization-policy-service:50093
       ALLOW_PRIVATE_NETWORK_EGRESS: "true"
     depends_on:
       postgres:
@@ -778,8 +733,7 @@ services:
         condition: service_started
       ingestion-replication-service:
         condition: service_started
-      network-boundary-service:
-        condition: service_started
+      # S8 / ADR-0030 (B14): network-boundary-service merged → authorization-policy-service.
     ports:
       - "${OPENFOUNDRY_CONNECTOR_MANAGEMENT_HOST_PORT:-50088}:50088"
 
@@ -1878,22 +1832,9 @@ services:
     ports:
       - "${OPENFOUNDRY_AUDIT_COMPLIANCE_HOST_PORT:-50115}:50115"
 
-  checkpoints-purpose-service:
-    <<: *app-common
-    profiles: *profiles-foundation
-    build:
-      context: ..
-      dockerfile: services/checkpoints-purpose-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50116
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_audit_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_CHECKPOINTS_PURPOSE_HOST_PORT:-50116}:50116"
+  # ── S8 / ADR-0030 (B14) — checkpoints-purpose-service merged →
+  # authorization-policy-service. CHECKPOINTS_PURPOSE_SERVICE_URL
+  # callers route to authorization-policy-service:50093. ──
 
   retention-policy-service:
     <<: *app-common
@@ -1975,10 +1916,12 @@ services:
       IDENTITY_FEDERATION_SERVICE_URL: http://identity-federation-service:50112
       SESSION_GOVERNANCE_SERVICE_URL: http://session-governance-service:50074
       AUTHORIZATION_POLICY_SERVICE_URL: http://authorization-policy-service:50093
-      SECURITY_GOVERNANCE_SERVICE_URL: http://security-governance-service:50114
+      # S8 / ADR-0030 (B14): security-governance-service merged → authorization-policy-service.
+      SECURITY_GOVERNANCE_SERVICE_URL: http://authorization-policy-service:50093
       TENANCY_ORGANIZATIONS_SERVICE_URL: http://tenancy-organizations-service:50113
       OAUTH_INTEGRATION_SERVICE_URL: http://oauth-integration-service:50094
-      CIPHER_SERVICE_URL: http://cipher-service:50073
+      # S8 / ADR-0030 (B14): cipher-service merged → authorization-policy-service.
+      CIPHER_SERVICE_URL: http://authorization-policy-service:50093
       DATA_CONNECTOR_SERVICE_URL: http://connector-management-service:50088
       CONNECTOR_MANAGEMENT_SERVICE_URL: http://connector-management-service:50088
       VIRTUAL_TABLE_SERVICE_URL: http://virtual-table-service:50089
@@ -2017,8 +1960,10 @@ services:
       MODEL_SERVING_SERVICE_URL: http://model-deployment-service:50086
       MODEL_INFERENCE_HISTORY_SERVICE_URL: http://model-deployment-service:50086
       AI_SERVICE_URL: http://agent-runtime-service:50127
-      CHECKPOINTS_PURPOSE_SERVICE_URL: http://checkpoints-purpose-service:50116
-      NETWORK_BOUNDARY_SERVICE_URL: http://network-boundary-service:50119
+      # S8 / ADR-0030 (B14): checkpoints-purpose-service merged → authorization-policy-service.
+      CHECKPOINTS_PURPOSE_SERVICE_URL: http://authorization-policy-service:50093
+      # S8 / ADR-0030 (B14): network-boundary-service merged → authorization-policy-service.
+      NETWORK_BOUNDARY_SERVICE_URL: http://authorization-policy-service:50093
       RETENTION_POLICY_SERVICE_URL: http://retention-policy-service:50117
       LINEAGE_DELETION_SERVICE_URL: http://lineage-deletion-service:50118
       LLM_CATALOG_SERVICE_URL: http://llm-catalog-service:50095
@@ -2088,24 +2033,20 @@ services:
     depends_on:
       valkey:
         condition: service_healthy
-      checkpoints-purpose-service:
-        condition: service_started
-      network-boundary-service:
-        condition: service_started
+      # S8 / ADR-0030 (B14): checkpoints-purpose-service merged → authorization-policy-service.
+      # S8 / ADR-0030 (B14): network-boundary-service merged → authorization-policy-service.
       retention-policy-service:
         condition: service_started
       lineage-deletion-service:
         condition: service_started
       identity-federation-service:
         condition: service_started
-      cipher-service:
-        condition: service_started
+      # S8 / ADR-0030 (B14): cipher-service merged → authorization-policy-service.
       session-governance-service:
         condition: service_started
       authorization-policy-service:
         condition: service_started
-      security-governance-service:
-        condition: service_started
+      # S8 / ADR-0030 (B14): security-governance-service merged → authorization-policy-service.
       tenancy-organizations-service:
         condition: service_started
       oauth-integration-service:

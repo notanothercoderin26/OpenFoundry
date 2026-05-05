@@ -245,44 +245,12 @@ services:
       minAvailable: 1
 
   # ── Platform-wide services completed (S8.6 — full coverage) ──────────
-  cipher-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  network-boundary-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  security-governance-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B14) — `cipher-service`, `network-boundary-service`,
+  # `checkpoints-purpose-service` and `security-governance-service`
+  # merged → `authorization-policy-service`. The cipher / network
+  # boundary / checkpoints+purpose / security governance domains now
+  # live as library namespaces in the consolidated authorization-policy
+  # binary; the runtime wiring into main is a follow-up.
 
   session-governance-service:
     replicas: 2
