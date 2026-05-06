@@ -18,7 +18,7 @@ sidecars that are STOP-and-ask). This document scopes what is left.
 | `llm-catalog-service` | 67 | `fn main(){}` shell + ai-kernel re-exports | blocked on ai-kernel-go |
 | `media-transform-runtime-service` | 800 | own main | medium foundation |
 | `model-catalog-service` | 465 | `fn main(){}` shell + ai-kernel re-exports | blocked on ai-kernel-go |
-| `model-deployment-service` | 122 | `fn main(){}` shell + ai-kernel re-exports | blocked on ai-kernel-go |
+| `model-deployment-service` | 122 | `fn main(){}` shell + **ml-kernel** re-exports | blocked on **ml-kernel-go** (not ai-kernel) — inventory correction 2026-05-06 |
 | `notebook-runtime-service` | 2065 | **pyo3 used** | Phase 5 sidecar — STOP and ask |
 | `ontology-actions-service` | — | **pyo3 used** | STOP and ask (existing guardrail) |
 | `ontology-exploratory-analysis-service` | 2125 | own main | architecture+slice |
