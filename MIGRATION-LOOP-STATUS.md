@@ -63,7 +63,10 @@ Stubs that were claimed pending but are now real production code:
 |---|------|--------|-------|
 | 3.7a | identity-federation slice 5b (SAML 2.0 + XML signing) | ⏳ pending | crewjam/saml + russellhaering/goxmldsig; needs IdP test certs + metadata fixtures. Rust source: handlers/sso.rs (850 LOC) + testdata/saml fixtures already exist. |
 | 3.7b.1 | slice 8: Cedar wiring (`internal/cedarauthz`) | ✅ done | commit `c465caf5` (789 LOC: cedarauthz.go + guard.go + 17 tests). AdminGuard middleware hydrates kind/mfa_age_secs/groups from claims.Attributes and emits Group/Role parent entities. |
-| 3.7b.2 | slice 8: JWKS rotation handler + Vault transit signer | ⏳ pending | hardening/jwks_rotation.rs (818 LOC) + vault_signer.rs (759 LOC) + handlers/security_ops.rs (239 LOC). Multi-iteration. Wires `AdminGuard(ActionRotateJwks, JwksKeyResource)` from 3.7b.1. |
+| 3.7b.2.1 | slice 8: JWKS orchestrator + interfaces + in-memory fake | ✅ done | commit `b841e89e` (1283 LOC: types.go + jwksrotation.go + inmemory.go + 24 tests). Service.{Rotate,Rollback,PublishedJwks,SignActive} + RotationPolicy (90/14 ASVS-L2 default) + JwksKeyStore + TransitKeyClient interfaces + InMemoryJwksKeyStore + FakeTransitKeyClient. |
+| 3.7b.2.2 | slice 8: PostgresJwksKeyStore | ⏳ pending | ~250 LOC pgx port of impl JwksKeyStore for PostgresJwksKeyStore. Uses the JwksKeysDDL/IndexDDL constants already exported. |
+| 3.7b.2.3 | slice 8: VaultTransitSigner (live HTTP) | ⏳ pending | hardening/vault_signer.rs (759 LOC) — full Vault transit HTTP client + Kubernetes-auth flow + retry policy. Multi-iteration on its own. |
+| 3.7b.2.4 | slice 8: HTTP handlers + server wiring | ⏳ pending | handlers/security_ops.rs (239 LOC) — wraps AdminGuard around Service.{Rotate,Rollback,PublishedJwks}. Lands after 2.2 + 2.3. |
 | 3.7b.3 | slice 8: SCIM endpoints | ⏳ pending | handlers/scim.rs (1951 LOC) + hardening/scim.rs (515 LOC). Multi-iteration. RFC 7644 conformance + bulk provision/deprovision User + Group. Wires `AdminGuard(ActionScimProvision*, Scim*Resource)`. |
 
 ### P4 — Phase 5 decision (HUMAN INPUT REQUIRED)
@@ -177,6 +180,33 @@ Vault transit signer) or 3.7b.3 (SCIM endpoints, multi-iter).
 3.7b.2 is the natural next step since it directly consumes the
 cedarauthz.AdminGuard(ActionRotateJwks, JwksKeyResource)
 middleware that landed in 3.7b.1.
+
+### Iter 5 — 2026-05-06 (autonomous loop wakeup)
+
+Closed P3.7b.2.1 (JWKS rotation orchestrator pure-logic slice).
+1 commit:
+
+| # | Commit    | Slice                                                  |
+|---|-----------|--------------------------------------------------------|
+| 1 | `b841e89e`| 3.7b.2.1 — internal/jwksrotation (types + interfaces + in-mem + Service orchestrator + 24 tests) |
+
+Linter previously updated libs/scheduling-cron/evaluator.go to
+walk on a UTC carrier (toNaive) so the wall-clock walker doesn't
+trigger DST normalisation mid-step. Verified workspace builds +
+tests green after the change before continuing.
+
+**P3.7 sub-slice ledger after iter 5:**
+- 3.7b.1 ✅ + 3.7b.2.1 ✅
+- 3.7b.2.2 (PostgresJwksKeyStore) — pending (~250 LOC pgx port)
+- 3.7b.2.3 (VaultTransitSigner HTTP client) — pending (~750 LOC)
+- 3.7b.2.4 (HTTP handlers + server wiring) — pending (~80 LOC)
+- 3.7b.3 (SCIM) — pending
+- 3.7a (SAML) — pending
+
+**Next action (iter 6):** P3.7b.2.2 PostgresJwksKeyStore — small
+clean port using the JwksKeysDDL constants already exported by
+the orchestrator slice. Consumes pgx.Pool + the JwksKeyStore
+interface contract pinned in iter 5.
 
 ---
 
