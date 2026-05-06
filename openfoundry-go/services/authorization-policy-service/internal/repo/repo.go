@@ -5,6 +5,7 @@ package repo
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -157,6 +158,127 @@ func scanCedarPolicy(r rowLikeT) (*models.CedarPolicy, error) {
 	p := &models.CedarPolicy{}
 	if err := r.Scan(&p.ID, &p.Version, &p.Source, &p.Description,
 		&p.Active, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// ─── ABAC policies ──────────────────────────────────────────────────
+
+const abacSelect = `SELECT id, name, description, effect, resource, action,
+	conditions, row_filter, enabled, created_by, created_at, updated_at
+	FROM abac_policies`
+
+func (r *Repo) ListABACPolicies(ctx context.Context) ([]models.ABACPolicy, error) {
+	rows, err := r.Pool.Query(ctx, abacSelect+` ORDER BY updated_at DESC LIMIT 500`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.ABACPolicy, 0)
+	for rows.Next() {
+		p, err := scanABACPolicy(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *p)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) GetABACPolicy(ctx context.Context, id uuid.UUID) (*models.ABACPolicy, error) {
+	row := r.Pool.QueryRow(ctx, abacSelect+` WHERE id = $1`, id)
+	p, err := scanABACPolicy(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return p, err
+}
+
+func (r *Repo) CreateABACPolicy(ctx context.Context, body *models.CreateABACPolicyRequest, callerID uuid.UUID) (*models.ABACPolicy, error) {
+	id := uuid.New()
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	conds := body.Conditions
+	if len(conds) == 0 {
+		conds = json.RawMessage(`{}`)
+	}
+	row := r.Pool.QueryRow(ctx,
+		`INSERT INTO abac_policies
+		    (id, name, description, effect, resource, action, conditions, row_filter, enabled, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		 RETURNING id, name, description, effect, resource, action, conditions,
+		           row_filter, enabled, created_by, created_at, updated_at`,
+		id, strings.TrimSpace(body.Name), body.Description,
+		body.Effect, strings.TrimSpace(body.Resource), strings.TrimSpace(body.Action),
+		conds, body.RowFilter, enabled, callerID,
+	)
+	return scanABACPolicy(row)
+}
+
+func (r *Repo) UpdateABACPolicy(ctx context.Context, id uuid.UUID, body *models.UpdateABACPolicyRequest) (*models.ABACPolicy, error) {
+	current, err := r.GetABACPolicy(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, nil
+	}
+	desc := current.Description
+	if body.Description != nil {
+		desc = body.Description
+	}
+	effect := current.Effect
+	if body.Effect != nil {
+		effect = *body.Effect
+	}
+	resource := current.Resource
+	if body.Resource != nil {
+		resource = *body.Resource
+	}
+	action := current.Action
+	if body.Action != nil {
+		action = *body.Action
+	}
+	conds := current.Conditions
+	if len(body.Conditions) > 0 {
+		conds = body.Conditions
+	}
+	rowFilter := current.RowFilter
+	if body.RowFilter != nil {
+		rowFilter = body.RowFilter
+	}
+	enabled := current.Enabled
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	row := r.Pool.QueryRow(ctx,
+		`UPDATE abac_policies SET
+		    description = $2, effect = $3, resource = $4, action = $5,
+		    conditions = $6, row_filter = $7, enabled = $8, updated_at = $9
+		  WHERE id = $1
+		  RETURNING id, name, description, effect, resource, action, conditions,
+		            row_filter, enabled, created_by, created_at, updated_at`,
+		id, desc, effect, resource, action, conds, rowFilter, enabled, time.Now().UTC(),
+	)
+	return scanABACPolicy(row)
+}
+
+func (r *Repo) DeleteABACPolicy(ctx context.Context, id uuid.UUID) (bool, error) {
+	cmd, err := r.Pool.Exec(ctx, `DELETE FROM abac_policies WHERE id = $1`, id)
+	if err != nil {
+		return false, err
+	}
+	return cmd.RowsAffected() > 0, nil
+}
+
+func scanABACPolicy(r rowLikeT) (*models.ABACPolicy, error) {
+	p := &models.ABACPolicy{}
+	if err := r.Scan(&p.ID, &p.Name, &p.Description, &p.Effect, &p.Resource,
+		&p.Action, &p.Conditions, &p.RowFilter, &p.Enabled,
+		&p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return p, nil

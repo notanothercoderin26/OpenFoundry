@@ -40,6 +40,12 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/cedar-policies/{id}", h.GetCedarPolicy)
 		api.Patch("/cedar-policies/{id}", h.UpdateCedarPolicy)
 		api.Delete("/cedar-policies/{id}", h.DeleteCedarPolicy)
+
+		api.Get("/abac-policies", h.ListABACPolicies)
+		api.Post("/abac-policies", h.CreateABACPolicy)
+		api.Get("/abac-policies/{id}", h.GetABACPolicy)
+		api.Patch("/abac-policies/{id}", h.UpdateABACPolicy)
+		api.Delete("/abac-policies/{id}", h.DeleteABACPolicy)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

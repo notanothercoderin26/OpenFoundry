@@ -6,6 +6,7 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,4 +57,50 @@ type UpdateCedarPolicyRequest struct {
 // the foundation-slice convention (organizations + enrollments).
 type ListResponse[T any] struct {
 	Items []T `json:"items"`
+}
+
+// ABACPolicy mirrors `abac_policies` rows — pre-Cedar legacy rules
+// kept around for backwards-compat with policies authored before
+// ADR-0027. The ABAC evaluator (follow-up slice) walks `Conditions`
+// against the request context.
+type ABACPolicy struct {
+	ID          uuid.UUID       `json:"id"`
+	Name        string          `json:"name"`
+	Description *string         `json:"description"`
+	Effect      string          `json:"effect"`
+	Resource    string          `json:"resource"`
+	Action      string          `json:"action"`
+	Conditions  json.RawMessage `json:"conditions"`
+	RowFilter   *string         `json:"row_filter"`
+	Enabled     bool            `json:"enabled"`
+	CreatedBy   *uuid.UUID      `json:"created_by"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+// CreateABACPolicyRequest is the body of POST /api/v1/abac-policies.
+//
+// `Effect` must be "allow" or "deny" (DB CHECK enforces it; we
+// validate up front so the client gets a 400 instead of a 500).
+type CreateABACPolicyRequest struct {
+	Name        string          `json:"name"`
+	Description *string         `json:"description,omitempty"`
+	Effect      string          `json:"effect"`
+	Resource    string          `json:"resource"`
+	Action      string          `json:"action"`
+	Conditions  json.RawMessage `json:"conditions,omitempty"`
+	RowFilter   *string         `json:"row_filter,omitempty"`
+	Enabled     *bool           `json:"enabled,omitempty"`
+}
+
+// UpdateABACPolicyRequest mirrors PATCH semantics — every field
+// optional; nil preserves the current value.
+type UpdateABACPolicyRequest struct {
+	Description *string         `json:"description,omitempty"`
+	Effect      *string         `json:"effect,omitempty"`
+	Resource    *string         `json:"resource,omitempty"`
+	Action      *string         `json:"action,omitempty"`
+	Conditions  json.RawMessage `json:"conditions,omitempty"`
+	RowFilter   *string         `json:"row_filter,omitempty"`
+	Enabled     *bool           `json:"enabled,omitempty"`
 }
