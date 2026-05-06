@@ -70,11 +70,11 @@ Order = recommended port order from leaf (no internal deps) to root
 | 0.4 | `models/graph.rs` | 61 | ✅ iter1 | `models/graph.go` |
 | 0.5 | `models/shared_property.rs` | 67 | ✅ iter1 | `models/shared_property.go` |
 | 0.6 | `models/search.rs` | 73 | ✅ iter1 | `models/search.go` |
-| 0.7 | `models/property.rs` | 81 | ⏳ | pure data + InlineEditConfig |
-| 0.8 | `models/interface.rs` | 91 | ⏳ | pure data |
-| 0.9 | `models/quiver.rs` | 117 | ⏳ | pure data |
-| 0.10 | `models/object_set.rs` | 156 | ⏳ | pure data |
-| 0.11 | `models/submission_criteria.rs` | 173 | ⏳ | pure data |
+| 0.7 | `models/property.rs` | 81 | ✅ iter2 | `models/property.go` (Option<Option<...>> via raw map dispatch) |
+| 0.8 | `models/interface.rs` | 91 | ✅ iter2 | `models/interface.go` |
+| 0.9 | `models/quiver.rs` | 117 | ✅ iter2 | `models/quiver.go` (`default_chart_kind`, `IntoDraft`, `StringUpdate`) |
+| 0.10 | `models/object_set.rs` | 156 | ✅ iter2 | `models/object_set.go` (policy/filters/traversals defaults) |
+| 0.11 | `models/submission_criteria.rs` | 173 | ✅ iter2 | `models/submission_criteria.go` (tag="kind"/tag="type" enums) |
 | 0.12 | `models/object_type_binding.rs` | 184 | ⏳ | depends on object_type |
 | 0.13 | `models/object_view.rs` | 228 | ⏳ | depends on object_type |
 | 0.14 | `models/project.rs` | 227 | ⏳ | pure data |
@@ -178,6 +178,33 @@ table-driven unit tests inside each ported file.
   Rust's `skip_serializing_if = "Option::is_none"` via `omitempty`.
 - `metadata` carries `json.RawMessage` to mirror Rust `serde_json::Value`.
 
+### iter 2 — leaf models (property / interface / quiver / object_set / submission_criteria)
+- `PropertyInlineEditConfig.input_name`: `omitempty` honours
+  `skip_serializing_if = "Option::is_none"`.
+- `UpdatePropertyRequest.inline_edit_config` and
+  `UpdateQuiverVisualFunctionRequest.selected_group` carry Rust
+  `Option<Option<T>>` three-way semantics (absent / null / value).
+  Implemented via custom `UnmarshalJSON` on the parent that does a
+  pre-pass over `map[string]json.RawMessage` to spot key presence —
+  Go's stdlib decoder bypasses inner `UnmarshalJSON` on JSON `null`
+  pointer fields, so detection has to live one level up.
+- `default_chart_kind() == "line"`: pinned by `DefaultChartKind` and
+  by `QuiverVisualFunctionDraft.UnmarshalJSON` falling back when
+  `chart_kind` is absent.
+- `CreateQuiverVisualFunctionRequest.IntoDraft()` mirrors the Rust
+  `unwrap_or_default` / `unwrap_or_else` chain verbatim.
+- `ObjectSetPolicy.allowed_markings` and `CreateObjectSetRequest.{filters,
+  traversals, projections}` apply `#[serde(default)]` so missing keys
+  decode to `[]` not `null`. `ObjectSetPolicy.MarshalJSON` also forces
+  `[]` on encode.
+- `ListObjectSetsResponse.next_token` honours `skip_serializing_if =
+  "Option::is_none"`.
+- `submission_criteria.Operand` (`tag = "kind"`) and
+  `SubmissionNode` (`tag = "type"`) enums emit Rust serde shapes
+  byte-for-byte (`{"kind": "param", "name": ...}` etc.) via custom
+  Marshal/Unmarshal. All 14 `Operator` snake_case tokens pinned.
+  `UserAttr` 6 snake_case tokens pinned.
+
 ---
 
 ## Iteration log
@@ -199,6 +226,26 @@ table-driven unit tests inside each ported file.
 `property.rs` (81), `interface.rs` (91), `quiver.rs` (117), and as much
 of `object_set.rs` (156) / `submission_criteria.rs` (173) as fits in a
 single coherent slice without breaking any test.
+
+### Iter 2 — 2026-05-06
+
+- Ported 5 more Tier 0 leaf models 1:1 (~620 LOC Rust → 720 LOC Go):
+  `property.go`, `interface.go`, `quiver.go`, `object_set.go`,
+  `submission_criteria.go`. 11 / 22 Tier 0 entries done.
+- Submission-criteria carries the most subtle wire-compat: tagged enums
+  with `tag = "kind"` / `tag = "type"` and 14 + 6 + 4 snake_case enum
+  variants pinned against the Rust round-trip test.
+- `Option<Option<T>>` three-way pattern landed twice (property +
+  quiver) — extracted as the parent-UnmarshalJSON-with-raw-map idiom
+  the rest of the kernel will reuse.
+- 9 new test cases in `models/iter2_test.go`. Workspace `go build`,
+  `go vet`, `go test -race` all green.
+
+**Next iteration target:** finish Tier 0 — `object_type_binding.rs`
+(184), `object_view.rs` (228), `project.rs` (227), `rule.rs` (269),
+`funnel.rs` (289). Skip `action_type.rs` (374) and
+`function_package.rs` (207) for the next-next iteration since they
+chain into property / function-runtime concerns.
 
 ---
 
