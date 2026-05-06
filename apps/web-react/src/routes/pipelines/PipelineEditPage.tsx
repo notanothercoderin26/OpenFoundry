@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { JsonEditor } from '@/lib/components/JsonEditor';
+import { PipelineNodeList } from '@/lib/components/pipeline/PipelineNodeList';
 import {
   getPipeline,
   listRuns,
@@ -10,6 +11,7 @@ import {
   updatePipeline,
   validatePipelineById,
   type Pipeline,
+  type PipelineNode,
   type PipelineRun,
   type PipelineValidationResponse,
 } from '@/lib/api/pipelines';
@@ -19,7 +21,7 @@ export function PipelineEditPage() {
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [validation, setValidation] = useState<PipelineValidationResponse | null>(null);
-  const [tab, setTab] = useState<'config' | 'runs' | 'validate'>('config');
+  const [tab, setTab] = useState<'nodes' | 'config' | 'runs' | 'validate'>('nodes');
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -184,7 +186,7 @@ export function PipelineEditPage() {
       )}
 
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-default)' }}>
-        {(['config', 'runs', 'validate'] as const).map((t) => (
+        {(['nodes', 'config', 'runs', 'validate'] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -206,6 +208,16 @@ export function PipelineEditPage() {
           </button>
         ))}
       </div>
+
+      {tab === 'nodes' && (
+        <PipelineNodeList
+          nodes={(() => {
+            try { return JSON.parse(nodesJson) as PipelineNode[]; }
+            catch { return []; }
+          })()}
+          onChange={(next) => setNodesJson(JSON.stringify(next, null, 2))}
+        />
+      )}
 
       {tab === 'config' && (
         <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 8 }}>

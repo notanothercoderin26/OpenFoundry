@@ -220,9 +220,7 @@ export function DatasetDetailPage() {
 
       {tab === 'schema' && (
         <section className="of-panel" style={{ padding: 16 }}>
-          <pre style={{ padding: 12, background: 'var(--bg-subtle)', fontSize: 11, fontFamily: 'var(--font-mono)', borderRadius: 12, overflow: 'auto' }}>
-            {schema ? JSON.stringify(schema, null, 2) : 'Loading…'}
-          </pre>
+          {schema ? <SchemaTable fields={schema.fields} /> : <p className="of-text-muted">Loading…</p>}
         </section>
       )}
 
@@ -294,5 +292,44 @@ export function DatasetDetailPage() {
         </section>
       )}
     </section>
+  );
+}
+
+interface SchemaField {
+  name?: string;
+  type?: string;
+  nullable?: boolean;
+  description?: string;
+}
+
+function SchemaTable({ fields }: { fields: unknown }) {
+  const rows: SchemaField[] = Array.isArray(fields) ? (fields as SchemaField[]) : [];
+  if (rows.length === 0) {
+    return (
+      <pre style={{ padding: 12, background: 'var(--bg-subtle)', fontSize: 11, fontFamily: 'var(--font-mono)', borderRadius: 12, overflow: 'auto' }}>
+        {JSON.stringify(fields, null, 2)}
+      </pre>
+    );
+  }
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <thead>
+        <tr>
+          {['Name', 'Type', 'Nullable', 'Description'].map((h) => (
+            <th key={h} style={{ textAlign: 'left', padding: 6, borderBottom: '1px solid var(--border-default)' }}>{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((f, i) => (
+          <tr key={i} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+            <td style={{ padding: 6, fontFamily: 'var(--font-mono)' }}>{f.name ?? '—'}</td>
+            <td style={{ padding: 6 }}>{f.type ?? '—'}</td>
+            <td style={{ padding: 6 }}>{f.nullable === undefined ? '—' : f.nullable ? '✓' : '✗'}</td>
+            <td style={{ padding: 6 }} className="of-text-muted">{f.description ?? '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

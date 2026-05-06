@@ -17,6 +17,7 @@ import {
   type AppVersion,
   type SlatePackageResponse,
 } from '@/lib/api/apps';
+import { AppPagesEditor } from '@/lib/components/apps/AppPagesEditor';
 import { JsonEditor } from '@/lib/components/JsonEditor';
 
 type Tab = 'definition' | 'pages' | 'settings' | 'theme' | 'versions' | 'slate';
@@ -361,12 +362,21 @@ export function AppsPage() {
           )}
 
           {tab === 'pages' && (
-            <div style={{ marginTop: 8 }}>
-              <JsonEditor
-                value={draft.pages_json}
+            <div style={{ marginTop: 8, display: 'grid', gap: 12 }}>
+              <AppPagesEditor
+                pagesJson={draft.pages_json}
                 onChange={(v) => setDraft((d) => ({ ...d, pages_json: v }))}
-                minHeight={360}
               />
+              <details>
+                <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>Raw JSON</summary>
+                <div style={{ marginTop: 8 }}>
+                  <JsonEditor
+                    value={draft.pages_json}
+                    onChange={(v) => setDraft((d) => ({ ...d, pages_json: v }))}
+                    minHeight={240}
+                  />
+                </div>
+              </details>
             </div>
           )}
 
