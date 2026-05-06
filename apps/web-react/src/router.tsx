@@ -267,6 +267,26 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/action-types/ActionTypesPage')).ActionTypesPage }),
       },
       {
+        path: 'datasets',
+        lazy: async () => ({ Component: (await import('./routes/datasets/DatasetsListPage')).DatasetsListPage }),
+      },
+      {
+        path: 'datasets/upload',
+        lazy: async () => ({ Component: (await import('./routes/datasets/DatasetUploadPage')).DatasetUploadPage }),
+      },
+      {
+        path: 'datasets/:id',
+        lazy: async () => ({ Component: (await import('./routes/datasets/DatasetDetailPage')).DatasetDetailPage }),
+      },
+      {
+        path: 'datasets/:id/branches',
+        lazy: async () => ({ Component: (await import('./routes/datasets/DatasetBranchesPage')).DatasetBranchesPage }),
+      },
+      {
+        path: 'datasets/:id/branches/:branch',
+        lazy: async () => ({ Component: (await import('./routes/datasets/DatasetBranchDetailPage')).DatasetBranchDetailPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
