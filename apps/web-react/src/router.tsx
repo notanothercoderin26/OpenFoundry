@@ -191,6 +191,14 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/object-monitors/ObjectMonitorsPage')).ObjectMonitorsPage }),
       },
       {
+        path: 'streaming',
+        lazy: async () => ({ Component: (await import('./routes/streaming/StreamingPage')).StreamingPage }),
+      },
+      {
+        path: 'streaming/:id',
+        lazy: async () => ({ Component: (await import('./routes/streaming/StreamingDetailPage')).StreamingDetailPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
