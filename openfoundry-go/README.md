@@ -5,10 +5,17 @@ Go re-implementation of the OpenFoundry platform, mirroring the Rust workspace
 topics) so a service in either language can interoperate with the other during
 the migration window.
 
-> **Status:** Phase 0 (foundations). The Rust workspace at the repo root is
-> still the production source of truth. Services here are migrated one at a time
-> following the strangler-fig plan in `docs/architecture/migration-rust-to-go.md`
-> (to be added).
+> **Status (2026-05-06):** Phases 0–6 complete. The Rust workspace at the
+> repo root remains the production source of truth, but the Go re-implementation
+> covers the foundational libs, edge gateway, audit/AI Kafka sinks, the
+> identity stack (federation incl. SAML 5b + SCIM 2.0 + Cedar authz + JWKS
+> rotation with Vault Transit), Phase 4 data libs (cassandra-kernel,
+> ontology-kernel, scheduling-cron, saga, search-abstraction, state-machine),
+> and Phase 5 ai/ml libs (ai-kernel-go llm runtime + agents/executor,
+> ml-kernel-go interop + training/runner). See `INVENTORY-PHASE6.md` for the
+> per-service port matrix. Phase 5 pyo3 sidecars
+> (notebook-runtime, pipeline-build, ontology-actions) are deferred pending
+> a go/no-go decision on the sidecar architecture.
 
 ## Repository layout
 
@@ -32,6 +39,13 @@ openfoundry-go/
 │   ├── edge-gateway-service/   # ✅ Phase 2 — HTTP edge (first cutover)
 │   ├── audit-sink/             # ✅ Phase 2 — Kafka → Iceberg (audit.events.v1)
 │   ├── ai-sink/                # ✅ Phase 2 — Kafka → Iceberg (ai.events.v1, 4 tables)
+│   ├── identity-federation-service/ # ✅ Phase 6 — full auth (OIDC + SAML + SCIM + MFA + WebAuthn + Cedar + JWKS)
+│   ├── tenancy-organizations-service/ # ✅ Phase 6
+│   ├── authorization-policy-service/  # ✅ Phase 6 (Cedar)
+│   ├── notification-alerting-service/ # ✅ Phase 2 cluster
+│   ├── sdk-generation-service/        # ✅ Phase 2 cluster
+│   ├── telemetry-governance-service/  # ✅ Phase 2 cluster
+│   ├── …                              # Phase 4 / 5 services landing per inventory
 │   └── template/               # reference layout (copy + rename)
 │
 ├── proto/                      # reserved (canonical .proto live at ../proto)
@@ -111,16 +125,24 @@ make ci             # full local CI gate (tidy + vet + lint + test)
 - ✅ `libs/testing/` — `BootPostgres` (testcontainers-go, integration
   build tag), `JWTConfig`, `DevToken`, `SeedDataset`.
 
-## Phase 1 — tier 2 (deferred)
+## Phase 1 — tier 2 (status as of 2026-05-06)
 
-Migrate when the first consuming service needs them, not speculatively:
+These were originally listed as "migrate on first consumer." Most have
+landed:
 
-- `cassandra-kernel` (gocqlx) — needed by identity-federation, ontology-actions
-- `authz-cedar` — needs cedar-go validation; first consumer is authorization-policy-service
-- `saga`, `state-machine`, `scheduling-cron`, `scheduling-linter`
-- `search-abstraction`, `storage-abstraction`, `query-engine`, `vector-store`
-- `geospatial-core`, `geospatial-tiles`, `media-scanner`
-- `ontology-kernel`, `pipeline-expression`, `plugin-sdk`, `analytical-logic`
+- ✅ `cassandra-kernel` — 5 stores ported (Object/Link/Schema/Session/ActionLog)
+  via gocql; `~3500` LOC + 60+ unit tests.
+- ✅ `authz-cedar` — wired through cedar-go (`cedarauthz.Service` +
+  `AdminGuard` middleware) inside identity-federation-service.
+- ✅ `state-machine`, `scheduling-cron`, `saga`, `search-abstraction` —
+  full ports with parser/evaluator/runner-style sub-modules where the
+  Rust crate had them.
+- ✅ `ontology-kernel` — domain layer foundation + handlers (in progress).
+- 🟡 `storage-abstraction` — search trait surface ported; HTTP backends
+  (vespa, opensearch) deferred to first consumer.
+- ⏸ `query-engine`, `vector-store`, `geospatial-core`, `geospatial-tiles`,
+  `media-scanner`, `pipeline-expression`, `plugin-sdk`, `analytical-logic`
+  — placeholder dirs only; consumed-on-demand.
 
 ## Phase 2 deliverables (this commit)
 
@@ -165,13 +187,47 @@ Migrate when the first consuming service needs them, not speculatively:
   for batch-commit semantics; matches segmentio/kafka-go's reader API
   and makes the runtimes trivially testable with stubs.
 
-### Phase 2 — remaining services
+### Phase 2 — remaining services (all landed)
 
-These follow the same template:
+- ✅ `notification-alerting-service`
+- ✅ `sdk-generation-service`
+- ✅ `telemetry-governance-service`
 
-- `notification-alerting-service`
-- `sdk-generation-service`
-- `telemetry-governance-service`
+## Phase 6 — Identity (this commit)
+
+The identity stack is now Go-native end to end:
+
+- ✅ `services/identity-federation-service/` — full re-implementation:
+  - **Slice 5a** OIDC SSO via `coreos/go-oidc` (Google, Microsoft,
+    GitHub, GitLab) + state row in oauth_state.
+  - **Slice 5b** SAML 2.0 via hand-rolled domain layer +
+    `russellhaering/goxmldsig` + `beevik/etree`. Covers: AuthnRequest
+    construction, IdP metadata parsing, response signature
+    verification (RSA-SHA1 supported for legacy IdP fixtures),
+    full RFC 7522 validation chain (status, destination,
+    in-response-to, conditions, audience, subject confirmation,
+    expected issuer), AttributeStatement extraction, byte-exact
+    OneLogin sample fixtures. POST /api/v1/auth/sso/{provider}/acs
+    endpoint for the HTTP-POST binding.
+  - **Slice 6** RBAC CRUD (users, roles, groups, permissions, api-keys).
+  - **Slice 7a** Restricted views.
+  - **Slice 8 (Cedar)** `internal/cedarauthz` — Cedar policy
+    evaluation + `AdminGuard` middleware emitting Group/Role parent
+    entities for hierarchy lookups.
+  - **Slice 8 (JWKS rotation)** `internal/jwksrotation` —
+    Service orchestrator + Postgres key store + Vault Transit signer
+    (Token + Kubernetes-role auth) + HTTP handlers
+    (PublishJwks/RotateJwks/RollbackJwks) + Hash/Sign/Verify
+    helpers. ~3520 LOC + ~75 tests.
+  - **Slice 8 (SCIM 2.0)** `internal/scim` — RFC 7643/7644 endpoints:
+    discovery (ServiceProviderConfig / Schemas / ResourceTypes),
+    User CRUD + Patch + Delete, Group CRUD + member operations +
+    Patch. PostgresUserStore + PostgresGroupStore for production +
+    in-memory stores for tests. ~5170 LOC + ~97 tests.
+  - **MFA TOTP + WebAuthn** ports.
+  - **Sessions in Cassandra** for the slice-2b cutover.
+- ✅ `services/tenancy-organizations-service/` and
+  `services/authorization-policy-service/`.
 
 ## Wire-compat invariants (do not break)
 
