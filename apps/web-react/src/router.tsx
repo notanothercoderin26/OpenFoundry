@@ -259,6 +259,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/schedules/ScheduleDetailPage')).ScheduleDetailPage }),
       },
       {
+        path: 'ml',
+        lazy: async () => ({ Component: (await import('./routes/ml/MlPage')).MlPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
