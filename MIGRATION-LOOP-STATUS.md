@@ -51,11 +51,11 @@ Stubs that were claimed pending but are now real production code:
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 2.5 | complete `libs/cassandra-kernel` with gocql | ⏳ pending | already 233 LOC + 4 files; ~50-100 LOC remaining |
-| 2.6a | port `libs/scheduling-cron` | ⏳ pending | currently 0 files |
-| 2.6b | port `libs/state-machine` | ⏳ pending | currently 0 files |
-| 2.6c | port `libs/saga` | ⏳ pending | currently 0 files |
-| 2.6d | port `libs/search-abstraction` | ⏳ pending | currently 0 files |
+| 2.5 | complete `libs/cassandra-kernel` with gocql | ✅ done | 5 stores ported (Object/Link/Schema/Session/ActionLog) — commits `cf324045..f95f700c`. Includes new `libs/storage-abstraction` (repositories interfaces). ~3500 LOC + 60+ unit tests across 6 slices. |
+| 2.6a | port `libs/state-machine` | ✅ done | commit `b1b9f73a` (282 LOC + 12 tests) |
+| 2.6b | port `libs/scheduling-cron` | ⏳ pending | currently 0 files. Rust source 1381 LOC across 7 files. Gating cron lib for workflow-automation + reindex-coordinator. |
+| 2.6c | port `libs/saga` | ⏳ pending | currently 0 files. Rust source 1591 LOC across 3 files. Gates workflow-automation saga consumer. |
+| 2.6d | port `libs/search-abstraction` | ⏳ pending | currently 0 files. Rust source 1465 LOC across 4 files. Vespa/OpenSearch backend traits + index/search/vector surfaces — paired with the `ObjectSet*` and `SearchBackend` types deferred from P2.5.1. |
 
 ### P3 — Identity / Authz follow-ups
 
@@ -91,6 +91,34 @@ Stubs that were claimed pending but are now real production code:
 - Created this file.
 
 **Next action (iter 2):** commit the runtime port, then start wiring `handlers/chat.CreateChatCompletion`.
+
+### Iter 2 — 2026-05-06 (later)
+
+User asked to keep going on P2.5 cassandra-kernel after waking up.
+6 commits, all on `frontend/settings-mfa-apikeys-sso`, never pushed:
+
+| # | Commit    | Slice                                                |
+|---|-----------|------------------------------------------------------|
+| 1 | `cf324045`| storage-abstraction repositories interfaces          |
+| 2 | `002bbb73`| cassandra-kernel ObjectStore + prepared statements   |
+| 3 | `844084ec`| cassandra-kernel LinkStore                           |
+| 4 | `c5c181be`| cassandra-kernel SchemaStore + SessionStore          |
+| 5 | `f95f700c`| cassandra-kernel ActionLogStore (closes P2.5)        |
+
+Discoveries:
+- The audit estimate of "50-100 LOC pending" for cassandra-kernel
+  was way off — repos.rs alone was 2.7k LOC across 5 stores. The
+  actual ports landed ~3500 LOC of Go (incl. 60+ unit tests).
+- storage-abstraction was empty in Go — needed to port the
+  interface surface (repositories.go) before any cassandra-kernel
+  store could compile. P2.5.1 was a hidden prereq.
+- All 5 stores satisfy their repos.* interfaces with compile-time
+  `var _ repos.X = ...` pins. Network-bound integration tests
+  land with object-database when it wires Cassandra.
+
+**Next action (iter 3):** pick from P2.6b/c/d (scheduling-cron /
+saga / search-abstraction). Each is 1.4-1.6k LOC of Rust → its
+own multi-iteration slice. Start with scheduling-cron (smallest).
 
 ---
 
