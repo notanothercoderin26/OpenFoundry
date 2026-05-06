@@ -355,3 +355,87 @@ Phase 3 follow-ups deferred by user choice:
 Phase 4: ontology-actions-service (pyo3 STOP-and-ask).
 Phase 5: pyo3 sidecars (notebook-runtime, pipeline-build,
 ontology-actions) — STOP-and-ask, gRPC sidecar pattern.
+
+---
+
+# Run 3 — 2026-05-06 (continuation)
+
+User requested continuation after Run 2's stop point. Worked through
+the kernel-library backlog that was blocking the ai-kernel- and
+ml-kernel-bound shells.
+
+## What landed
+
+5 new commits, all on `frontend/settings-mfa-apikeys-sso`, never pushed:
+
+| # | Commit    | Library / service                                              |
+|---|-----------|----------------------------------------------------------------|
+| 1 | `67b25a35`| libs/ml-kernel-go — skeleton + full models sub-domain (10 files) |
+| 2 | `70340389`| model-deployment-service — substrate + ml-kernel-go proof-point |
+| 3 | `fec8710b`| libs/ai-kernel-go — domain/llm slice + conversation models     |
+| 4 | `91a67a07`| libs/ml-kernel-go — domain/drift slice                         |
+| 5 | `4f522a62`| libs/ai-kernel-go — domain/agents + domain/rag                 |
+
+## Wire-compat invariants pinned this run
+
+ml-kernel-go models: defaults pinned (batch_schedule, freshness_sla,
+problem_type, deployment strategy/window, experiment task_type/
+primary_metric, objective status); HasSignal() methods on the 3
+descriptors mirror Rust trim().is_empty().
+
+ml-kernel-go drift: metricStatus thresholds; GenerateDriftReport
+defaults (baseline=10000, observed=1.12×baseline, volume_shift cap
+1.5, dataset_score base 0.12 / threshold 0.25, concept_score base
+0.09 / threshold 0.18, recommend_retraining trigger).
+
+ai-kernel-go conversation: DefaultGuardrailVerdict, all attachment/
+benchmark/fallback/sql/temperature/max_tokens defaults pinned.
+
+ai-kernel-go domain/llm: NormalizeText collapses whitespace runs;
+Fingerprint unit-magnitude 16-dim; CosineSimilarity handles zero
+magnitude; EvaluateText flag matrix (email/phone medium/non-blocking,
+hate/ignore-instructions blocked, clean=passed); InterpolateTemplate
+strict-vs-non-strict elision; RouteProviders filter+sort+preferred
+override; ProviderUsesPrivateNetwork case-insensitive scope match.
+
+ai-kernel-go domain/agents: UpdateMemory short_term Vec::truncate(6)
+semantics (drops trailing on overflow — verbatim Rust); long_term
+dedup+truncate(8); last_run_summary truncate(180); BuildPlan ordering
+(analyze→retrieve?→tool*→synthesize) with id case+space rules.
+
+ai-kernel-go domain/rag: EmbedText unit-magnitude 12-dim deterministic;
+ChunkText paragraph-then-sentence with buffer flush; Search ranks +
+truncates to max(top_k, 1); IndexDocument fine→320 / balanced→520
+chunk_chars + chunk.id format.
+
+## Tests added this run
+
+40+ new test cases across 5 commits, all green at every commit.
+
+## Decisions deferred for human review
+
+1. **agents/executor (1307 LOC)**: own iteration. Agent runtime's
+   plan-act-observe loop is too big for one commit.
+2. **domain/llm/runtime (581 LOC)**: own iteration. Mixes runtime/
+   driver concerns; depends on the primitives ported this run.
+3. **handlers (ml-kernel 3334 LOC, ai-kernel similar)**: each file
+   warrants its own iteration. Recommend smallest first
+   (overview 81 → predictions 301 → training 321 → features 378 →
+   deployments 405 → models 548 → experiments 1225). Same shape on
+   the ai-kernel side (chat/agents/knowledge/prompts/tools).
+4. **Service runtime slices** (Kafka subscribers, Iceberg writers,
+   Cassandra scanners) for already-ported services — each per service
+   is its own iteration.
+
+## Status snapshot after Run 3
+
+- ai-kernel-go: 7/7 models, domain/{llm pure-logic, agents memory+planner,
+  rag full}. Pending: llm/runtime, agents/executor, handlers.
+- ml-kernel-go: 10/10 models, domain/drift. Pending: domain/{serving,
+  training, monitoring, feature_store, predictions, interop}, handlers.
+- 1 new service (model-deployment-service) ported as the ml-kernel-go
+  consumer proof-point.
+
+The ai-kernel-go handlers slice is the next big unblock for
+llm-catalog, ai-evaluation, retrieval-context, and the tools surface
+of agent-runtime.
