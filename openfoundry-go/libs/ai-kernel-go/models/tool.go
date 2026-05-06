@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,3 +62,33 @@ const (
 	DefaultToolExecutionMode = "simulated"
 	DefaultToolStatus        = "active"
 )
+
+// SupportedExecutionModes mirrors Rust supported_execution_modes()
+// verbatim. Order is preserved for stable display in clients.
+func SupportedExecutionModes() []string {
+	return []string{
+		"simulated",
+		"http_json",
+		"openfoundry_api",
+		"native_sql",
+		"native_dataset",
+		"native_ontology",
+		"native_pipeline",
+		"native_report",
+		"native_workflow",
+		"native_code_repo",
+		"knowledge_search",
+	}
+}
+
+// ValidateExecutionMode returns true when mode is one of the
+// supported execution modes (case-insensitive). Mirrors Rust
+// validate_execution_mode in handlers/tools.rs.
+func ValidateExecutionMode(mode string) bool {
+	for _, candidate := range SupportedExecutionModes() {
+		if strings.EqualFold(candidate, mode) {
+			return true
+		}
+	}
+	return false
+}
