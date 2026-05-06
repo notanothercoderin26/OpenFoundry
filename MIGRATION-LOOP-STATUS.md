@@ -61,7 +61,7 @@ Stubs that were claimed pending but are now real production code:
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 3.7a | identity-federation slice 5b (SAML 2.0 + XML signing) | 🟡 domain layer done, handler wiring pending | 3.7a.1 ✅ types + helpers (`10fc262d`), 3.7a.2 ✅ metadata parser (`bd225401`), 3.7a.3 ✅ AuthnRequest builder (`4f8a96d8`), 3.7a.4a ✅ validators + element tree (`06063ffe`), 3.7a.4b ✅ signature verification with goxmldsig + etree (`e642f10c`), 3.7a.4c ✅ response parser orchestrator (`9de24cee`). Remaining: 3.7a.5 handlers/sso.go SAML routing (Start branch + POST /acs handler + provider-type lookup against sso_providers table). |
+| 3.7a | identity-federation slice 5b (SAML 2.0 + XML signing) | ✅ done | 8 commits, ~3000 LOC. Domain layer (3.7a.1/.2/.3/.4a/.4b/.4c) + registry+migration (3.7a.5a `cc8add75`) + handler wiring (3.7a.5b `9afe79a4`). Byte-exact OneLogin sample fixtures round-trip through both Rust and Go parsers. POST /acs endpoint on the SP side. ListProviders tags each entry with `kind: "oidc"|"saml"`. |
 | 3.7b.1 | slice 8: Cedar wiring (`internal/cedarauthz`) | ✅ done | commit `c465caf5` (789 LOC: cedarauthz.go + guard.go + 17 tests). AdminGuard middleware hydrates kind/mfa_age_secs/groups from claims.Attributes and emits Group/Role parent entities. |
 | 3.7b.2.1 | slice 8: JWKS orchestrator + interfaces + in-memory fake | ✅ done | commit `b841e89e` (1283 LOC + 24 tests). Service + InMemoryJwksKeyStore + FakeTransitKeyClient. |
 | 3.7b.2.2 | slice 8: PostgresJwksKeyStore | ✅ done | commit `876d41d2` (433 LOC + 10 tests). pgx-backed impl using the JwksKeysDDL constants from 2.1. |
@@ -307,6 +307,36 @@ Rust and Go parsers.
 - POST /api/v1/auth/sso/{provider}/acs: parse form body, call
   saml.ParseSamlResponse, resolve user via existing
   `resolveUser` shape (UserResolver pattern), issue tokens.
+
+### Iter 9 — 2026-05-06 (autonomous loop wakeup)
+
+User said keep going. Iter 9 closed P3.7a entirely — slice 5b SAML
+is feature-complete end-to-end. 2 commits:
+
+| # | Commit    | Slice                                                  |
+|---|-----------|--------------------------------------------------------|
+| 1 | `cc8add75`| 3.7a.5a — saml.Registry (in-memory provider catalog) + 0009_slice5b_saml.sql migration adding `saml_request_id` to oauth_state. Approach decision: extend the existing oauth_state table rather than create a sibling, since the lifecycle (TTL-bounded one-shot DELETE-on-consume) is identical for OIDC + SAML. The OIDC path leaves the column NULL, the SAML path fills it with the AuthnRequest.ID for InResponseTo validation. |
+| 2 | `9afe79a4`| 3.7a.5b — handlers/sso.go SAML routing. SSO struct gains a nil-safe `SAML *saml.Registry` field. Start dispatches OIDC → SAML on lookup miss. New AssertionConsumerService handler at POST /api/v1/auth/sso/{provider}/acs implements the HTTP-POST binding callback: ConsumeOAuthState by RelayState, ParseSamlResponse with the row's SamlRequestID pinned, resolveSamlUser (slice-5a policy mirror), LinkExternalIdentity + IssueTokens + redirect-with-fragment. server.go wires the new route. |
+
+**P3.7 sub-slice ledger after iter 9 — ALL DONE:**
+- 3.7a ✅ SAML slice 5b (8 commits — `10fc262d`..`9afe79a4`)
+- 3.7b.1 ✅ Cedar wiring
+- 3.7b.2 ✅ JWKS rotation half (4 sub-slices)
+- 3.7b.3 ✅ SCIM endpoints (4 sub-slices)
+
+P3.7 (identity-federation follow-ups) is now feature-complete.
+Combined with P1+P2 closing in earlier iterations, the **non-decisory
+backlog is now:**
+- P5.9 ⏳ CI buf-generate guard
+- P5.10 ⏳ refresh README + INVENTORY-PHASE6.md
+
+And the **decisory backlog (human input required):**
+- P4.8 ⏸ pyo3 sidecars go/no-go
+- P5.11 ⏸ 16 empty libs delete-or-stub
+
+**Next action (iter 10):** P5.9 CI buf-generate guard. Tractable
+small slice (~20-line GitHub Action workflow) or P5.10 docs
+refresh. Will pick the smaller one.
 
 ---
 
