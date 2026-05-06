@@ -331,6 +331,14 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/projects/ProjectFolderPage')).ProjectFolderPage }),
       },
       {
+        path: 'ontology-manager',
+        lazy: async () => ({ Component: (await import('./routes/ontology-manager/OntologyManagerPage')).OntologyManagerPage }),
+      },
+      {
+        path: 'ontology-manager/bindings',
+        lazy: async () => ({ Component: (await import('./routes/ontology-manager/BindingsWizardPage')).BindingsWizardPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },

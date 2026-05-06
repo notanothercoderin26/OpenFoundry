@@ -751,6 +751,100 @@ export function unbindProjectResource(id: string, resourceKind: string, resource
 }
 
 // ────────────────────────────────────────────────────────────────
+// Object-type bindings (dataset → object type materialization)
+// ────────────────────────────────────────────────────────────────
+
+export type ObjectTypeBindingSyncMode = 'snapshot' | 'incremental' | 'view';
+
+export interface ObjectTypeBindingPropertyMapping {
+  source_column: string;
+  target_property: string;
+  transform?: string | null;
+}
+
+export interface ObjectTypeBinding {
+  id: string;
+  object_type_id: string;
+  dataset_id: string;
+  dataset_branch?: string | null;
+  dataset_version?: number | null;
+  primary_key_column: string;
+  property_mapping: ObjectTypeBindingPropertyMapping[];
+  sync_mode: ObjectTypeBindingSyncMode;
+  default_marking: string;
+  preview_limit: number;
+  owner_id: string;
+  last_materialized_at?: string | null;
+  last_run_status?: string | null;
+  last_run_summary?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterializeBindingResponse {
+  binding_id: string;
+  status: string;
+  rows_read: number;
+  inserted: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  dry_run: boolean;
+  error_details?: unknown[];
+}
+
+export function listObjectTypeBindings(typeId: string) {
+  return api.get<{ data: ObjectTypeBinding[] }>(`/ontology/types/${typeId}/bindings`);
+}
+
+export function createObjectTypeBinding(
+  typeId: string,
+  body: {
+    dataset_id: string;
+    dataset_branch?: string;
+    dataset_version?: number;
+    primary_key_column: string;
+    property_mapping: ObjectTypeBindingPropertyMapping[];
+    sync_mode: ObjectTypeBindingSyncMode;
+    default_marking?: string;
+    preview_limit?: number;
+  },
+) {
+  return api.post<ObjectTypeBinding>(`/ontology/types/${typeId}/bindings`, body);
+}
+
+export function updateObjectTypeBinding(
+  typeId: string,
+  bindingId: string,
+  body: Partial<{
+    dataset_branch: string;
+    dataset_version: number;
+    primary_key_column: string;
+    property_mapping: ObjectTypeBindingPropertyMapping[];
+    sync_mode: ObjectTypeBindingSyncMode;
+    default_marking: string;
+    preview_limit: number;
+  }>,
+) {
+  return api.patch<ObjectTypeBinding>(`/ontology/types/${typeId}/bindings/${bindingId}`, body);
+}
+
+export function deleteObjectTypeBinding(typeId: string, bindingId: string) {
+  return api.delete(`/ontology/types/${typeId}/bindings/${bindingId}`);
+}
+
+export function materializeObjectTypeBinding(
+  typeId: string,
+  bindingId: string,
+  body?: { dataset_branch?: string; dataset_version?: number; limit?: number; dry_run?: boolean },
+) {
+  return api.post<MaterializeBindingResponse>(
+    `/ontology/types/${typeId}/bindings/${bindingId}/materialize`,
+    body ?? {},
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
 // Rules + machinery — used by /dynamic-scheduling.
 // ────────────────────────────────────────────────────────────────
 
