@@ -78,6 +78,21 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/cipher-licenses", h.CreateCipherLicense)
 		api.Patch("/cipher-licenses/{id}", h.UpdateCipherLicense)
 		api.Delete("/cipher-licenses/{id}", h.DeleteCipherLicense)
+
+		api.Get("/network-boundary-policies", h.ListNetworkBoundaryPolicies)
+		api.Post("/network-boundary-policies", h.CreateNetworkBoundaryPolicy)
+		api.Patch("/network-boundary-policies/{id}", h.UpdateNetworkBoundaryPolicy)
+		api.Delete("/network-boundary-policies/{id}", h.DeleteNetworkBoundaryPolicy)
+
+		api.Get("/network-private-links", h.ListNetworkPrivateLinks)
+		api.Post("/network-private-links", h.CreateNetworkPrivateLink)
+		api.Patch("/network-private-links/{id}", h.UpdateNetworkPrivateLink)
+		api.Delete("/network-private-links/{id}", h.DeleteNetworkPrivateLink)
+
+		api.Get("/network-proxy-definitions", h.ListNetworkProxyDefinitions)
+		api.Post("/network-proxy-definitions", h.CreateNetworkProxyDefinition)
+		api.Patch("/network-proxy-definitions/{id}", h.UpdateNetworkProxyDefinition)
+		api.Delete("/network-proxy-definitions/{id}", h.DeleteNetworkProxyDefinition)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
