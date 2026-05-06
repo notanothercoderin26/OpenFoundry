@@ -811,3 +811,42 @@ export function updateObject(
 ) {
   return api.patch<ObjectInstance>(`/ontology/types/${typeId}/objects/${objectId}`, body);
 }
+
+// ────────────────────────────────────────────────────────────────
+// Object views, rules, simulations — used by /object-views,
+// /object-explorer, /foundry-rules, /machinery, etc.
+// ────────────────────────────────────────────────────────────────
+
+export interface RuleMatchResponse {
+  rule_id: string;
+  matched: boolean;
+  trigger_payload: Record<string, unknown>;
+  effect_preview: Record<string, unknown> | null;
+}
+
+export interface OntologyRuleRun {
+  id: string;
+  rule_id: string;
+  object_id: string;
+  matched: boolean;
+  simulated: boolean;
+  trigger_payload: Record<string, unknown>;
+  effect_preview: Record<string, unknown> | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface ObjectViewResponse {
+  object: ObjectInstance;
+  summary: Record<string, unknown>;
+  neighbors: NeighborLink[];
+  graph: GraphResponse;
+  applicable_actions: ActionType[];
+  matching_rules: RuleMatchResponse[];
+  recent_rule_runs: OntologyRuleRun[];
+  timeline: Array<Record<string, unknown>>;
+}
+
+export function getObjectView(typeId: string, objectId: string) {
+  return api.get<ObjectViewResponse>(`/ontology/types/${typeId}/objects/${objectId}/view`);
+}
