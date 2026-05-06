@@ -62,6 +62,12 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/structural-security-rules", h.CreateStructuralSecurityRule)
 		api.Patch("/structural-security-rules/{id}", h.UpdateStructuralSecurityRule)
 		api.Delete("/structural-security-rules/{id}", h.DeleteStructuralSecurityRule)
+
+		api.Get("/checkpoint-policies", h.ListCheckpointPolicies)
+		api.Get("/sensitive-interaction-configs", h.ListSensitiveInteractionConfigs)
+		api.Get("/purpose-templates", h.ListPurposeTemplates)
+		api.Get("/purpose-records", h.ListPurposeRecordsByInteraction)
+		api.Post("/purpose-records", h.CreatePurposeRecord)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
