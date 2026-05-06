@@ -295,6 +295,30 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/apps/AppRuntimePage')).AppRuntimePage }),
       },
       {
+        path: 'data-connection',
+        lazy: async () => ({ Component: (await import('./routes/data-connection/DataConnectionPage')).DataConnectionPage }),
+      },
+      {
+        path: 'data-connection/agents',
+        lazy: async () => ({ Component: (await import('./routes/data-connection/AgentsPage')).AgentsPage }),
+      },
+      {
+        path: 'data-connection/egress-policies',
+        lazy: async () => ({ Component: (await import('./routes/data-connection/EgressPoliciesPage')).EgressPoliciesPage }),
+      },
+      {
+        path: 'data-connection/new',
+        lazy: async () => ({ Component: (await import('./routes/data-connection/NewSourcePage')).NewSourcePage }),
+      },
+      {
+        path: 'data-connection/new/streaming',
+        lazy: async () => ({ Component: (await import('./routes/data-connection/NewStreamingSourcePage')).NewStreamingSourcePage }),
+      },
+      {
+        path: 'data-connection/sources/:id',
+        lazy: async () => ({ Component: (await import('./routes/data-connection/SourceDetailPage')).SourceDetailPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
