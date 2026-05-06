@@ -61,7 +61,7 @@ Stubs that were claimed pending but are now real production code:
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 3.7a | identity-federation slice 5b (SAML 2.0 + XML signing) | ⏳ pending | crewjam/saml + russellhaering/goxmldsig; needs IdP test certs + metadata fixtures. Rust source: handlers/sso.rs (850 LOC) + testdata/saml fixtures already exist. |
+| 3.7a | identity-federation slice 5b (SAML 2.0 + XML signing) | 🟡 in progress | 3.7a.1 ✅ (types + helpers, commit `10fc262d`), 3.7a.2 ✅ (metadata parser + HTTP fetcher, commit `bd225401`), 3.7a.3 ✅ (AuthnRequest builder, commit `4f8a96d8`), 3.7a.4 pending (response parser + signature verification — needs `github.com/russellhaering/goxmldsig`), 3.7a.5 pending (handlers/sso.go SAML routing). |
 | 3.7b.1 | slice 8: Cedar wiring (`internal/cedarauthz`) | ✅ done | commit `c465caf5` (789 LOC: cedarauthz.go + guard.go + 17 tests). AdminGuard middleware hydrates kind/mfa_age_secs/groups from claims.Attributes and emits Group/Role parent entities. |
 | 3.7b.2.1 | slice 8: JWKS orchestrator + interfaces + in-memory fake | ✅ done | commit `b841e89e` (1283 LOC + 24 tests). Service + InMemoryJwksKeyStore + FakeTransitKeyClient. |
 | 3.7b.2.2 | slice 8: PostgresJwksKeyStore | ✅ done | commit `876d41d2` (433 LOC + 10 tests). pgx-backed impl using the JwksKeysDDL constants from 2.1. |
@@ -238,6 +238,39 @@ least 2 iterations to land User + Group provisioning. Could also
 tackle 3.7a (SAML) first since it's smaller — but needs IdP test
 fixtures already in services/identity-federation-service/src/
 testdata/saml so that's also tractable.
+
+### Iter 7 — 2026-05-06 (autonomous loop wakeup)
+
+User asked for 3.7a (SAML, slice 5b). Closed the construction half
+of the SAML port in 3 commits:
+
+| # | Commit    | Slice                                                  |
+|---|-----------|--------------------------------------------------------|
+| 1 | `10fc262d`| 3.7a.1 — SsoProvider model + saml types + pure helpers (xmlEscape, normalizeCertificatePem, parseSamlTime, claimFirstString) + 14 tests |
+| 2 | `bd225401`| 3.7a.2 — ParseMetadataDefaults (stdlib encoding/xml token-walker) + ResolveMetadataDefaults HTTP fetcher + 8 tests |
+| 3 | `4f8a96d8`| 3.7a.3 — BuildAuthnRequest + AuthorizationURL (decoupled from relay-state issuance) + 10 tests |
+
+**P3.7 sub-slice ledger after iter 7:**
+- 3.7a.1 ✅ types + helpers
+- 3.7a.2 ✅ metadata parser
+- 3.7a.3 ✅ AuthnRequest builder
+- 3.7a.4 ⏳ response parser + signature verification (needs `github.com/russellhaering/goxmldsig` + per-fixture validators)
+- 3.7a.5 ⏳ handlers/sso.go SAML routing
+
+**Next action (iter 8):** 3.7a.4 — response parser. Plan to split
+further:
+- 3.7a.4a: validation helpers (validateStatusSuccess,
+  validateConditions, validateAudience, validateSubjectConfirmation,
+  validateExpectedIssuer, validateOptionalDestination,
+  validateOptionalInResponseTo, validateRequiredAttributeMatch,
+  validateIssueInstant, extractAttributes) — works against
+  encoding/xml-parsed nodes, no new deps
+- 3.7a.4b: signature verification — `github.com/russellhaering/goxmldsig`
+  + cert PEM loading
+- 3.7a.4c: parse_saml_response orchestrator — pulls everything
+  together, fixtures from src/testdata/saml/
+- 3.7a.5: handlers/sso.go SAML routing — branches on
+  provider_type=="saml" in Start + Callback
 
 ---
 
