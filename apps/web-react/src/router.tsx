@@ -223,6 +223,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/builds/BuildDetailPage')).BuildDetailPage }),
       },
       {
+        path: 'foundry-rules',
+        lazy: async () => ({ Component: (await import('./routes/foundry-rules/FoundryRulesPage')).FoundryRulesPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },

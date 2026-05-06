@@ -1660,3 +1660,53 @@ export function updateLinkType(id: string, body: { display_name?: string; descri
 export function deleteLinkType(id: string) {
   return api.delete(`/ontology/links/${id}`);
 }
+
+// Rule mutations + simulation
+export function createRule(body: {
+  name: string;
+  display_name?: string;
+  description?: string;
+  object_type_id: string;
+  evaluation_mode?: RuleEvaluationMode;
+  trigger_spec?: RuleTriggerSpec;
+  effect_spec?: RuleEffectSpec;
+}) {
+  return api.post<OntologyRule>('/ontology/rules', body);
+}
+
+export function updateRule(
+  id: string,
+  body: {
+    display_name?: string;
+    description?: string;
+    evaluation_mode?: RuleEvaluationMode;
+    trigger_spec?: RuleTriggerSpec;
+    effect_spec?: RuleEffectSpec;
+  },
+) {
+  return api.patch<OntologyRule>(`/ontology/rules/${id}`, body);
+}
+
+export function simulateRule(id: string, body: { object_id: string; properties_patch?: Record<string, unknown> }) {
+  return api.post<{
+    rule: OntologyRule;
+    matched: boolean;
+    trigger_payload: Record<string, unknown>;
+    effect_preview: Record<string, unknown> | null;
+    object: ObjectInstance;
+  }>(`/ontology/rules/${id}/simulate`, body);
+}
+
+export function applyRule(id: string, body: { object_id: string; properties_patch?: Record<string, unknown> }) {
+  return api.post<{
+    rule: OntologyRule;
+    matched: boolean;
+    trigger_payload: Record<string, unknown>;
+    effect_preview: Record<string, unknown> | null;
+    object: ObjectInstance;
+  }>(`/ontology/rules/${id}/apply`, body);
+}
+
+export function deleteRule(id: string) {
+  return api.delete(`/ontology/rules/${id}`);
+}
