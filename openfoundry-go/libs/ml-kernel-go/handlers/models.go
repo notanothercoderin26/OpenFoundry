@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/domain/interop"
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
 )
 
@@ -105,65 +106,10 @@ func scanModelVersion(s predictionsScanner) (models.ModelVersion, error) {
 	} else {
 		v.Schema = json.RawMessage("{}")
 	}
-	v.ModelAdapter = modelAdapterFromSchema(v.Schema)
-	v.RegistrySource = registrySourceFromSchema(v.Schema)
-	v.ExternalTracking = trackingSourceFromSchema(v.Schema)
+	v.ModelAdapter = interop.ModelAdapterFromSchema(v.Schema)
+	v.RegistrySource = interop.RegistrySourceFromSchema(v.Schema)
+	v.ExternalTracking = interop.TrackingSourceFromSchema(v.Schema)
 	return v, nil
-}
-
-// modelAdapterFromSchema / registrySourceFromSchema / trackingSourceFromSchema
-// are shallow ports of the matching libs/ai-kernel/src/domain/
-// interop helpers. They each pluck a typed object out of the
-// model-version schema, filter on HasSignal(), and return the raw
-// shape verbatim. Whitespace + casing normalisation lands with the
-// full domain/interop port.
-
-func modelAdapterFromSchema(schema json.RawMessage) *models.ModelAdapterDescriptor {
-	if len(schema) == 0 {
-		return nil
-	}
-	var holder struct {
-		ModelAdapter *models.ModelAdapterDescriptor `json:"model_adapter"`
-	}
-	if err := json.Unmarshal(schema, &holder); err != nil || holder.ModelAdapter == nil {
-		return nil
-	}
-	if !holder.ModelAdapter.HasSignal() {
-		return nil
-	}
-	return holder.ModelAdapter
-}
-
-func registrySourceFromSchema(schema json.RawMessage) *models.RegistrySourceDescriptor {
-	if len(schema) == 0 {
-		return nil
-	}
-	var holder struct {
-		RegistrySource *models.RegistrySourceDescriptor `json:"registry_source"`
-	}
-	if err := json.Unmarshal(schema, &holder); err != nil || holder.RegistrySource == nil {
-		return nil
-	}
-	if !holder.RegistrySource.HasSignal() {
-		return nil
-	}
-	return holder.RegistrySource
-}
-
-func trackingSourceFromSchema(schema json.RawMessage) *models.ExternalTrackingSource {
-	if len(schema) == 0 {
-		return nil
-	}
-	var holder struct {
-		ExternalTracking *models.ExternalTrackingSource `json:"external_tracking"`
-	}
-	if err := json.Unmarshal(schema, &holder); err != nil || holder.ExternalTracking == nil {
-		return nil
-	}
-	if !holder.ExternalTracking.HasSignal() {
-		return nil
-	}
-	return holder.ExternalTracking
 }
 
 func (h *ModelsHandlers) loadModel(ctx context.Context, id uuid.UUID) (*models.RegisteredModel, error) {
@@ -316,10 +262,13 @@ func (h *ModelsHandlers) ListModelVersions(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, models.ListModelVersionsResponse{Data: out})
 }
 
-// CreateModelVersion handles `POST /api/v1/models/{id}/versions`. The
-// full path runs interop.normalize_model_version_schema +
-// merge_metrics + preferred_artifact_uri (deferred). Until those land
-// the stub returns 501 with input validation preserved.
+// CreateModelVersion handles `POST /api/v1/models/{id}/versions`.
+// Inserts a new ml_model_versions row using interop helpers to
+// normalise the schema + merge metrics + pick the preferred artifact
+// URI from the external tracking source. Mirrors fn create_model_
+// version verbatim including the production/staging promoted_at
+// auto-set, the autotune label fallback, and refreshing the model
+// rollup at the end.
 func (h *ModelsHandlers) CreateModelVersion(w http.ResponseWriter, r *http.Request, modelID uuid.UUID) {
 	var exists bool
 	if err := h.Pool.QueryRow(r.Context(),
@@ -336,8 +285,123 @@ func (h *ModelsHandlers) CreateModelVersion(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	_ = body
-	writeError(w, http.StatusNotImplemented, "model-version registration lands with libs/ml-kernel-go/domain/interop port")
+
+	var nextVersionNumber int32
+	if err := h.Pool.QueryRow(r.Context(),
+		`SELECT COALESCE(MAX(version_number), 0) + 1 FROM ml_model_versions WHERE model_id = $1`,
+		modelID).Scan(&nextVersionNumber); err != nil {
+		dbError(w, err)
+		return
+	}
+
+	stage := derefString(body.Stage, "candidate")
+	versionLabel := derefString(body.VersionLabel, "v"+itoa32(nextVersionNumber))
+
+	var externalTracking *models.ExternalTrackingSource
+	if body.ExternalTracking != nil && body.ExternalTracking.HasSignal() {
+		n := interop.NormalizeTrackingSource(*body.ExternalTracking)
+		externalTracking = &n
+	}
+
+	primaryMetrics := []models.MetricValue{}
+	if body.Metrics != nil {
+		primaryMetrics = *body.Metrics
+	}
+	var externalMetrics []models.MetricValue
+	if externalTracking != nil {
+		externalMetrics = externalTracking.Metrics
+	}
+	metrics := interop.MergeMetrics(primaryMetrics, externalMetrics)
+
+	var hyperparametersJSON json.RawMessage
+	if body.Hyperparameters != nil && len(*body.Hyperparameters) > 0 {
+		hyperparametersJSON = *body.Hyperparameters
+	} else if externalTracking != nil && len(externalTracking.Params) > 0 &&
+		strings.HasPrefix(strings.TrimSpace(string(externalTracking.Params)), "{") {
+		hyperparametersJSON = externalTracking.Params
+	} else {
+		hyperparametersJSON = json.RawMessage("{}")
+	}
+
+	artifactURI := ""
+	if body.ArtifactURI != nil {
+		artifactURI = *body.ArtifactURI
+	}
+	if artifactURI == "" {
+		artifactURI = interop.PreferredArtifactURI(externalTracking, nil)
+	}
+
+	var schemaRaw json.RawMessage
+	if body.Schema != nil {
+		schemaRaw = *body.Schema
+	}
+	schema := interop.NormalizeModelVersionSchema(
+		schemaRaw,
+		artifactURI,
+		nil,
+		body.ModelAdapter,
+		body.RegistrySource,
+		externalTracking,
+	)
+
+	var promotedAt *time.Time
+	if stage == "production" || stage == "staging" {
+		now := time.Now().UTC()
+		promotedAt = &now
+	}
+
+	metricsJSON, _ := json.Marshal(metrics)
+	var artifactURIArg any
+	if artifactURI != "" {
+		artifactURIArg = artifactURI
+	}
+
+	row := h.Pool.QueryRow(r.Context(),
+		`INSERT INTO ml_model_versions
+              (id, model_id, version_number, version_label, stage,
+               source_run_id, training_job_id, hyperparameters,
+               metrics, artifact_uri, schema, promoted_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING `+modelVersionColumns,
+		uuid.New(), modelID, nextVersionNumber, versionLabel, stage,
+		body.SourceRunID, body.TrainingJobID, hyperparametersJSON,
+		metricsJSON, artifactURIArg, schema, promotedAt)
+	v, err := scanModelVersion(row)
+	if err != nil {
+		dbError(w, err)
+		return
+	}
+	if err := h.refreshModelRollup(r.Context(), modelID); err != nil {
+		dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+// itoa32 inlines integer-to-string for version numbers — keeps
+// strconv out of the import surface for the small handler.
+func itoa32(n int32) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [11]byte
+	i := len(b)
+	negative := false
+	x := n
+	if x < 0 {
+		negative = true
+		x = -x
+	}
+	for x > 0 {
+		i--
+		b[i] = byte('0' + x%10)
+		x /= 10
+	}
+	if negative {
+		i--
+		b[i] = '-'
+	}
+	return string(b[i:])
 }
 
 // TransitionModelVersion handles `PATCH /api/v1/model-versions/{id}/transition`.

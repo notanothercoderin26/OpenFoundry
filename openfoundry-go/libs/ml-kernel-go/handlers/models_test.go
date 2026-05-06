@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/domain/interop"
 )
 
 func TestCreateModel_RejectsEmptyName(t *testing.T) {
@@ -56,15 +58,15 @@ func TestTransitionModelVersion_RejectsBadJSON(t *testing.T) {
 
 func TestExtractDescriptorsDropEmpty(t *testing.T) {
 	t.Parallel()
-	assert.Nil(t, modelAdapterFromSchema(nil))
-	assert.Nil(t, registrySourceFromSchema(json.RawMessage(`{}`)))
-	assert.Nil(t, trackingSourceFromSchema(json.RawMessage(`{"external_tracking":{}}`)))
+	assert.Nil(t, interop.ModelAdapterFromSchema(nil))
+	assert.Nil(t, interop.RegistrySourceFromSchema(json.RawMessage(`{}`)))
+	assert.Nil(t, interop.TrackingSourceFromSchema(json.RawMessage(`{"external_tracking":{}}`)))
 }
 
 func TestModelAdapterFromSchemaPickup(t *testing.T) {
 	t.Parallel()
 	schema := json.RawMessage(`{"model_adapter":{"framework":"xgboost"}}`)
-	got := modelAdapterFromSchema(schema)
+	got := interop.ModelAdapterFromSchema(schema)
 	require.NotNil(t, got)
 	assert.Equal(t, "xgboost", got.Framework)
 }
@@ -72,7 +74,7 @@ func TestModelAdapterFromSchemaPickup(t *testing.T) {
 func TestRegistrySourceFromSchemaPickup(t *testing.T) {
 	t.Parallel()
 	schema := json.RawMessage(`{"registry_source":{"system":"mlflow"}}`)
-	got := registrySourceFromSchema(schema)
+	got := interop.RegistrySourceFromSchema(schema)
 	require.NotNil(t, got)
 	assert.Equal(t, "mlflow", got.System)
 }
@@ -80,7 +82,7 @@ func TestRegistrySourceFromSchemaPickup(t *testing.T) {
 func TestTrackingSourceFromSchemaPickup(t *testing.T) {
 	t.Parallel()
 	schema := json.RawMessage(`{"external_tracking":{"system":"mlflow","run_id":"r1"}}`)
-	got := trackingSourceFromSchema(schema)
+	got := interop.TrackingSourceFromSchema(schema)
 	require.NotNil(t, got)
 	assert.Equal(t, "mlflow", got.System)
 	assert.Equal(t, "r1", got.RunID)

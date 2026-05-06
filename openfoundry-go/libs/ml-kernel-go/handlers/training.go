@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/domain/interop"
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
 )
 
@@ -73,31 +74,8 @@ func scanTrainingJob(s predictionsScanner) (models.TrainingJob, error) {
 	if j.Trials == nil {
 		j.Trials = []models.TrainingTrial{}
 	}
-	j.ExternalTraining = trackingSourceFromTrainingConfig(j.TrainingConfig)
+	j.ExternalTraining = interop.TrackingSourceFromTrainingConfig(j.TrainingConfig)
 	return j, nil
-}
-
-// trackingSourceFromTrainingConfig is a shallow port of the Rust
-// interop::tracking_source_from_training_config — pulls the
-// external_training field out of training_config and filters on
-// HasSignal(). The Rust source additionally normalises every string
-// (trim, system / framework / flavor casing). That normalisation
-// lands with the full domain/interop port — for now wire output uses
-// the field values verbatim.
-func trackingSourceFromTrainingConfig(trainingConfig json.RawMessage) *models.ExternalTrackingSource {
-	if len(trainingConfig) == 0 {
-		return nil
-	}
-	var holder struct {
-		ExternalTraining *models.ExternalTrackingSource `json:"external_training"`
-	}
-	if err := json.Unmarshal(trainingConfig, &holder); err != nil || holder.ExternalTraining == nil {
-		return nil
-	}
-	if !holder.ExternalTraining.HasSignal() {
-		return nil
-	}
-	return holder.ExternalTraining
 }
 
 // ListTrainingJobs handles `GET /api/v1/training-jobs`.

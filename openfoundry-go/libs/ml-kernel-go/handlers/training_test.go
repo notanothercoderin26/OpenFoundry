@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/domain/interop"
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
 )
 
@@ -45,16 +46,16 @@ func TestCreateTrainingJob_RejectsBadJSON(t *testing.T) {
 
 func TestTrackingSourceFromTrainingConfigDropsEmpty(t *testing.T) {
 	t.Parallel()
-	assert.Nil(t, trackingSourceFromTrainingConfig(nil))
-	assert.Nil(t, trackingSourceFromTrainingConfig(json.RawMessage(`{}`)))
-	assert.Nil(t, trackingSourceFromTrainingConfig(json.RawMessage(`{"external_training":{}}`)),
+	assert.Nil(t, interop.TrackingSourceFromTrainingConfig(nil))
+	assert.Nil(t, interop.TrackingSourceFromTrainingConfig(json.RawMessage(`{}`)))
+	assert.Nil(t, interop.TrackingSourceFromTrainingConfig(json.RawMessage(`{"external_training":{}}`)),
 		"empty fields → HasSignal=false → nil")
 }
 
 func TestTrackingSourceFromTrainingConfigPicksUpSignal(t *testing.T) {
 	t.Parallel()
 	cfg := json.RawMessage(`{"external_training":{"system":"mlflow","run_id":"run-42"}}`)
-	got := trackingSourceFromTrainingConfig(cfg)
+	got := interop.TrackingSourceFromTrainingConfig(cfg)
 	require.NotNil(t, got)
 	assert.Equal(t, "mlflow", got.System)
 	assert.Equal(t, "run-42", got.RunID)
@@ -62,7 +63,7 @@ func TestTrackingSourceFromTrainingConfigPicksUpSignal(t *testing.T) {
 
 func TestTrackingSourceFromTrainingConfigBadJSON(t *testing.T) {
 	t.Parallel()
-	assert.Nil(t, trackingSourceFromTrainingConfig(json.RawMessage(`not-json`)))
+	assert.Nil(t, interop.TrackingSourceFromTrainingConfig(json.RawMessage(`not-json`)))
 }
 
 func TestExternalTrackingSourceHasSignalRoundtrip(t *testing.T) {
