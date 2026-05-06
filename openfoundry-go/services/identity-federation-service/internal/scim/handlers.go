@@ -33,6 +33,7 @@ import (
 type Handlers struct {
 	BaseURL       string
 	Users         UserStore
+	Groups        GroupStore
 	Organizations OrganizationResolver
 }
 
