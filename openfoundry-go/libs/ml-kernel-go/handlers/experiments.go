@@ -280,16 +280,7 @@ func (h *ExperimentsHandlers) refreshExperimentRollup(ctx context.Context, exper
 	return err
 }
 
-// GetExperimentAssetLineage handles `GET /api/v1/experiments/{id}/lineage`.
-// The full path builds a 6-tier lineage graph (experiment → runs →
-// training jobs → model versions → models → deployments) with edges
-// drawn between every neighbour pair. That builder is ~459 LOC of
-// pure logic + interop helpers and lands in its own slice.
-func (h *ExperimentsHandlers) GetExperimentAssetLineage(w http.ResponseWriter, r *http.Request, experimentID uuid.UUID) {
-	if _, err := h.loadExperiment(r.Context(), experimentID); err != nil {
-		dbError(w, err)
-		return
-	}
-	writeError(w, http.StatusNotImplemented, "experiment asset lineage lands with libs/ml-kernel-go/domain/{interop,asset_lineage} port")
-}
+// GetExperimentAssetLineage moved to asset_lineage.go — the 6-tier
+// graph builder lives there to keep this file focused on
+// experiment + run CRUD.
 
