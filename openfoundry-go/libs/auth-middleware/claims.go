@@ -155,7 +155,7 @@ func (c *Claims) AllowsMarking(marking string) bool {
 		return true
 	}
 	for _, m := range c.AllowedMarkings() {
-		if strings.EqualFold(m, marking) {
+		if asciiEqualFold(m, marking) {
 			return true
 		}
 	}
@@ -168,44 +168,99 @@ func (c *Claims) AllowsHTTPMethod(method string) bool {
 		return true
 	}
 	for _, m := range c.SessionScope.AllowedMethods {
-		if strings.EqualFold(m, method) || m == "*" {
+		if asciiEqualFold(m, method) || m == "*" {
 			return true
 		}
 	}
 	return false
 }
 
-// AllowedOrgIDs returns the effective org-id allowlist. Admins receive
-// nil to mean "no restriction" (matches the Rust shape of returning
-// the full set unfiltered).
+// AllowedOrgIDs returns the effective org-id allowlist. When the
+// session scope carries an explicit list, that list wins; otherwise
+// the function falls back to a single-element slice with c.OrgID
+// (or empty when OrgID is nil) — same shape as the Rust source.
 func (c *Claims) AllowedOrgIDs() []uuid.UUID {
-	if c.SessionScope == nil {
-		return nil
+	if c.SessionScope != nil && len(c.SessionScope.AllowedOrgIDs) > 0 {
+		out := make([]uuid.UUID, len(c.SessionScope.AllowedOrgIDs))
+		copy(out, c.SessionScope.AllowedOrgIDs)
+		return out
 	}
-	out := make([]uuid.UUID, len(c.SessionScope.AllowedOrgIDs))
-	copy(out, c.SessionScope.AllowedOrgIDs)
-	return out
+	if c.OrgID != nil {
+		return []uuid.UUID{*c.OrgID}
+	}
+	return nil
 }
 
-// AllowsOrgID reports whether the resource's org id is reachable. Nil
-// resourceOrg means "unscoped" → only allowed when scope is unset, or
-// the caller is admin.
+// AllowsOrgID reports whether the subject may access the requested
+// organization boundary.
+//
+// Admins are always allowed. Otherwise: if the effective allowlist
+// (see [AllowedOrgIDs]) is empty the call passes through. With a
+// non-empty allowlist a concrete resourceOrg must be a member; nil
+// resourceOrg passes only when the session is not a guest session
+// (mirrors Rust's `org_id: None` branch).
 func (c *Claims) AllowsOrgID(resourceOrg *uuid.UUID) bool {
 	if c.HasRole("admin") {
 		return true
 	}
-	if c.SessionScope == nil || len(c.SessionScope.AllowedOrgIDs) == 0 {
+	allowed := c.AllowedOrgIDs()
+	if len(allowed) == 0 {
 		return true
 	}
 	if resourceOrg == nil {
-		return false
+		return !c.IsGuestSession()
 	}
-	for _, id := range c.SessionScope.AllowedOrgIDs {
+	for _, id := range allowed {
 		if id == *resourceOrg {
 			return true
 		}
 	}
 	return false
+}
+
+// AllowsSubjectID reports whether the session scope permits the
+// given subject identifier. A nil scope or an empty allowlist
+// matches everything; otherwise the candidate must be present and
+// non-nil.
+func (c *Claims) AllowsSubjectID(subjectID *string) bool {
+	if c.SessionScope == nil || len(c.SessionScope.AllowedSubjectIDs) == 0 {
+		return true
+	}
+	if subjectID == nil {
+		return false
+	}
+	for _, id := range c.SessionScope.AllowedSubjectIDs {
+		if id == *subjectID {
+			return true
+		}
+	}
+	return false
+}
+
+// Attribute fetches an attribute from the JWT's free-form attributes
+// claim. Returns the decoded value (any) and true when present; the
+// second return is false when Attributes is empty, malformed, or
+// missing the key.
+func (c *Claims) Attribute(key string) (any, bool) {
+	if len(c.Attributes) == 0 {
+		return nil, false
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(c.Attributes, &attrs); err != nil {
+		return nil, false
+	}
+	v, ok := attrs[key]
+	return v, ok
+}
+
+// IssuedAt returns the token's `iat` claim as a UTC time.Time.
+func (c *Claims) IssuedAt() time.Time {
+	return time.Unix(c.IAT, 0).UTC()
+}
+
+// ExpiresAt returns the token's `exp` claim as a UTC time.Time.
+func (c *Claims) ExpiresAt() time.Time {
+	return time.Unix(c.EXP, 0).UTC()
 }
 
 // RestrictedViewIDs returns scope.RestrictedViewIDs (empty when scope is nil).
