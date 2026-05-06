@@ -252,6 +252,16 @@ func TestFunctionPackageMetricsResponseShape(t *testing.T) {
 	}
 }
 
+// libs/ontology-kernel/src/models/object_type_binding.rs
+// `TryFrom<&str>` binds `other` to the result of `value.trim()`, so the
+// error message embeds the trimmed token, not the untrimmed input.
+func TestParseObjectTypeBindingSyncModeErrorTrims(t *testing.T) {
+	_, err := ParseObjectTypeBindingSyncMode("  bogus  ")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sync_mode 'bogus' is not supported")
+	assert.NotContains(t, err.Error(), "  bogus  ")
+}
+
 // libs/ontology-kernel/src/models/function_package.rs
 // `FunctionPackage.Summary()` mirrors `From<&FunctionPackage>`.
 func TestFunctionPackageSummary(t *testing.T) {
