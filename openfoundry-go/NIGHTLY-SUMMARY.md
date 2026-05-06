@@ -853,3 +853,122 @@ helpers + auth-middleware integration + isolated ml_runs handler
 scaffolding. There are no large pure-logic ports left between the
 Rust source and the Go workspace for libs/ai-kernel and
 libs/ml-kernel.
+
+---
+
+# Run 6 — 2026-05-06 (continuation)
+
+User asked "continua por favor". Cleared the remaining DB-side-effect
++ handler-scaffolding stubs in the ml-kernel-go handler surface.
+
+## What landed
+
+3 new commits, all on `frontend/settings-mfa-apikeys-sso`, never pushed:
+
+| # | Commit    | Slice                                                          |
+|---|-----------|----------------------------------------------------------------|
+| 1 | `638942b4`| libs/ml-kernel-go — handlers/runs slice (full ml_runs CRUD + compare) |
+| 2 | `c50679eb`| libs/ml-kernel-go — handlers/asset_lineage (full 6-tier graph builder) |
+| 3 | (this)    | docs(NIGHTLY-SUMMARY,migration-rust-to-go) — Run 6 close-out  |
+
+## Slices completed this run
+
+### libs/ml-kernel-go/handlers/runs (~260 LOC of Rust)
+
+Replaces 4 501-stubs in handlers/experiments.go. ListRuns(experimentID)
+returns ml_runs filtered by experiment_id ordered by created_at DESC.
+CreateRun defaults status="completed", auto-fills started_at to now
+and finished_at to now when status=completed and the body left them
+nil; folds external_tracking through interop.MergeRunParams +
+MergeMetrics + MergeRunArtifacts; refreshes experiment rollup
+afterwards. UpdateRun uses the per-field unwrap_or pattern; external
+tracking re-folds; refreshes rollup using the run's experiment_id.
+CompareRuns loads each run (404 on first miss), returns the union of
+metric names sorted alphabetically (matches Rust BTreeSet via
+sort.Strings).
+
+scanRun rebuilds ExperimentRun including the ExternalTracking re-
+derivation via interop.TrackingSourceFromParams so the wire shape
+stays identical to the Rust source.
+
+### libs/ml-kernel-go/handlers/asset_lineage (~459 LOC of Rust)
+
+Replaces the 501-stub on GetExperimentAssetLineage with the full
+6-tier graph builder mirroring fn get_experiment_asset_lineage
+verbatim. Walks runs + training_jobs + experiment.objective_spec to
+collect dataset_ids / model_ids / version_ids / frameworks; loads
+model_versions / models / deployments by ID array; emits nodes for
+each entity and edges for every neighbour pair using the verbatim
+Rust label taxonomy (targets_dataset, tracks_run,
+orchestrates_training, targets_model, consumes_dataset,
+logged_model_version, trains_on, produces_for_model, best_candidate,
+belongs_to_model, serves_model, monitors_against_dataset).
+
+Adds a narrower lineageDeploymentRow scanner (10 columns vs the 12
+needed by handlers/deployments.go), and uuidSet / stringSet helpers
+that mirror Rust BTreeSet sorted iteration via uuid.String() lex
+order / sort.Strings (stable test output across runs).
+
+The framework set folds 5 sources: run.external_tracking.framework,
+training_job.external_training.framework,
+training_job.training_config.engine, model_version.schema.engine,
+model_version.schema.model_adapter.framework.
+
+## Tests added this run
+
+13 new test cases:
+  - CreateRun rejects empty / whitespace name + bad JSON.
+  - CompareRuns rejects empty run_ids array (verbatim Rust message
+    "at least one run is required" — not "run id" as the prior
+    stub had).
+  - assetNodeID format roundtrip.
+  - stringFieldFromJSON + nestedStringFieldFromJSON path matrix
+    (nil / empty / mismatch / hit / malformed JSON).
+  - rawOrNullValue malformed-JSON tolerance.
+  - uuidSet / stringSet sorted iteration with dedupe.
+
+## Status snapshot after Run 6
+
+- **libs/ai-kernel-go**: 7/7 models, 5/5 handler files, every
+  pure-logic domain. ExecuteAgent fully wired through executor +
+  runtime. (Chat completion / copilot / benchmark are also wired
+  end-to-end via chat_runtime.go — the chat_runtime + chat_test +
+  chat changes in the working tree are user-authored and pending
+  the user's own commit.)
+- **libs/ml-kernel-go**: 10/10 models, 7/7 handler files, every
+  pure-logic domain. **Zero 501 stubs anywhere in the kernel
+  handler surfaces** — every endpoint defined by the Rust source is
+  wired to the same DB shape and same wire envelope.
+- 16 substrate-only or full-foundation service shells continue to
+  bind the kernel handlers cleanly. Workspace `go build ./...` and
+  `go test ./libs/...` both green.
+
+## Decisions deferred for human review
+
+The kernel-library backlog is now empty for handler / domain ports.
+What remains are integration items:
+
+1. **auth-middleware-go purpose-checkpoint** — `/api/v1/checkpoints/
+   purpose/enforce` integration in identity-federation-service.
+   Blocks the sensitive-tool agent path and the chat-completion
+   sensitive-PII path from doing operator-approval enforcement.
+   Both currently rely on per-tool policy / private-network routing
+   instead.
+2. **pyo3 sidecars** (notebook-runtime, pipeline-build,
+   ontology-actions) — STOP-and-ask, gRPC sidecar pattern.
+3. **Phase 3 follow-ups** — identity-federation slices (2b
+   Cassandra sessions, 5b SAML, 7b control panel + ABAC, 8 Cedar +
+   JWKS rotation + Vault + SCIM); tenancy-organizations RETIRED
+   spaces / projects / trash / resource_resolve; authz-cedar-go AWS
+   Cedar conformance suite mirror.
+4. **Phase 6 per-service runtime slices** — media-transform image
+   decoding, entity-resolution engine, ontology-exploratory
+   views/maps, reindex/lineage/workflow-automation runtime,
+   federation sub-domains, app-composition widgets, agent-runtime
+   tools+Kafka, ai-evaluation handlers, model-catalog ml-kernel.
+5. **Iceberg writers** in telemetry-governance / audit-sink / ai-sink
+   — pending iceberg-go writes.
+
+## Build warnings worth flagging
+
+None. Workspace clean at every commit.
