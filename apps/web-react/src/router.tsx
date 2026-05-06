@@ -243,6 +243,18 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionsPage')).FunctionsPage }),
       },
       {
+        path: 'pipelines',
+        lazy: async () => ({ Component: (await import('./routes/pipelines/PipelinesPage')).PipelinesPage }),
+      },
+      {
+        path: 'pipelines/new',
+        lazy: async () => ({ Component: (await import('./routes/pipelines/PipelineNewPage')).PipelineNewPage }),
+      },
+      {
+        path: 'pipelines/:id/edit',
+        lazy: async () => ({ Component: (await import('./routes/pipelines/PipelineEditPage')).PipelineEditPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },

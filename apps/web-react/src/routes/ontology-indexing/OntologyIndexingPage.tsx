@@ -20,7 +20,7 @@ import {
   type OntologyFunnelSource,
   type Property,
 } from '@/lib/api/ontology';
-import { listPipelines, type PipelineSummary } from '@/lib/api/pipelines';
+import { listPipelines, type Pipeline } from '@/lib/api/pipelines';
 
 interface SourceDraft {
   id?: string;
@@ -55,7 +55,7 @@ export function OntologyIndexingPage() {
   const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
   const [linkTypes, setLinkTypes] = useState<LinkType[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
-  const [pipelines, setPipelines] = useState<PipelineSummary[]>([]);
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [sources, setSources] = useState<OntologyFunnelSource[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [runs, setRuns] = useState<OntologyFunnelRun[]>([]);
