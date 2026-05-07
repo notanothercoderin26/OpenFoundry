@@ -57,3 +57,103 @@ type OntologyProject struct {
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
+
+// OntologyProjectMembership mirrors `models::project::OntologyProjectMembership`.
+type OntologyProjectMembership struct {
+	ProjectID uuid.UUID           `json:"project_id"`
+	UserID    uuid.UUID           `json:"user_id"`
+	Role      OntologyProjectRole `json:"role"`
+	CreatedAt time.Time           `json:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at"`
+}
+
+// OntologyProjectResourceBinding mirrors `models::project::OntologyProjectResourceBinding`.
+type OntologyProjectResourceBinding struct {
+	ProjectID    uuid.UUID `json:"project_id"`
+	ResourceKind string    `json:"resource_kind"`
+	ResourceID   uuid.UUID `json:"resource_id"`
+	BoundBy      uuid.UUID `json:"bound_by"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// OntologyProjectFolder mirrors `models::project::OntologyProjectFolder`.
+type OntologyProjectFolder struct {
+	ID             uuid.UUID  `json:"id"`
+	ProjectID      uuid.UUID  `json:"project_id"`
+	ParentFolderID *uuid.UUID `json:"parent_folder_id"`
+	Name           string     `json:"name"`
+	Slug           string     `json:"slug"`
+	Description    string     `json:"description"`
+	CreatedBy      uuid.UUID  `json:"created_by"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// CreateOntologyProjectFolderRequest is the body of POST /projects/:id/folders.
+type CreateOntologyProjectFolderRequest struct {
+	Name           string     `json:"name"`
+	Description    *string    `json:"description,omitempty"`
+	ParentFolderID *uuid.UUID `json:"parent_folder_id,omitempty"`
+}
+
+// CreateOntologyProjectRequest is the body of POST /projects.
+type CreateOntologyProjectRequest struct {
+	Slug          string                               `json:"slug"`
+	DisplayName   *string                              `json:"display_name,omitempty"`
+	Description   *string                              `json:"description,omitempty"`
+	WorkspaceSlug *string                              `json:"workspace_slug,omitempty"`
+	Folders       []CreateOntologyProjectFolderRequest `json:"folders,omitempty"`
+}
+
+// UpdateOntologyProjectRequest is the body of PATCH /projects/:id.
+//
+// Rust's `workspace_slug: Option<Option<String>>` is collapsed to `*string`
+// here, matching `UpdateOrganizationRequest`'s convention in models.go: the
+// triple-state (absent / null / set) is interpreted at the handler layer.
+type UpdateOntologyProjectRequest struct {
+	DisplayName   *string `json:"display_name,omitempty"`
+	Description   *string `json:"description,omitempty"`
+	WorkspaceSlug *string `json:"workspace_slug,omitempty"`
+}
+
+// ListOntologyProjectsQuery is the query string for GET /projects.
+type ListOntologyProjectsQuery struct {
+	Search  *string `json:"search,omitempty"`
+	Page    *int64  `json:"page,omitempty"`
+	PerPage *int64  `json:"per_page,omitempty"`
+}
+
+// ListOntologyProjectsResponse is the body of GET /projects.
+type ListOntologyProjectsResponse struct {
+	Data    []OntologyProject `json:"data"`
+	Total   int64             `json:"total"`
+	Page    int64             `json:"page"`
+	PerPage int64             `json:"per_page"`
+}
+
+// UpsertOntologyProjectMembershipRequest is the body of PUT /projects/:id/memberships.
+type UpsertOntologyProjectMembershipRequest struct {
+	UserID uuid.UUID           `json:"user_id"`
+	Role   OntologyProjectRole `json:"role"`
+}
+
+// ListOntologyProjectMembershipsResponse is the body of GET /projects/:id/memberships.
+type ListOntologyProjectMembershipsResponse struct {
+	Data []OntologyProjectMembership `json:"data"`
+}
+
+// BindOntologyProjectResourceRequest is the body of POST /projects/:id/resources.
+type BindOntologyProjectResourceRequest struct {
+	ResourceKind string    `json:"resource_kind"`
+	ResourceID   uuid.UUID `json:"resource_id"`
+}
+
+// ListOntologyProjectResourcesResponse is the body of GET /projects/:id/resources.
+type ListOntologyProjectResourcesResponse struct {
+	Data []OntologyProjectResourceBinding `json:"data"`
+}
+
+// ListOntologyProjectFoldersResponse is the body of GET /projects/:id/folders.
+type ListOntologyProjectFoldersResponse struct {
+	Data []OntologyProjectFolder `json:"data"`
+}
