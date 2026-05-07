@@ -19,11 +19,8 @@ import (
 
 // TrainingHandlers ports libs/ml-kernel/src/handlers/training.rs:
 //   - GET  list_training_jobs
-//   - POST create_training_job   (501 stub: chains
-//                                 interop::merge_training_config_with_external
-//                                 + training::execute_training; lands
-//                                 with the libs/ml-kernel-go/domain/
-//                                 interop port — 769 LOC of pure logic)
+//   - POST create_training_job   (chains external-config merge,
+//     training::execute_training, and optional model-version registration)
 type TrainingHandlers struct {
 	Pool *pgxpool.Pool
 }
@@ -166,9 +163,9 @@ func (h *TrainingHandlers) CreateTrainingJob(w http.ResponseWriter, r *http.Requ
 				"objective_metric": objectiveMetricName,
 				"generated_by":     "training-orchestrator",
 				"reproducibility": map[string]any{
-					"dataset_ids":            body.DatasetIDs,
-					"training_config":        rawMessageOrNull(resolvedConfig),
-					"hyperparameter_search":  rawMessageOrNull(search),
+					"dataset_ids":           body.DatasetIDs,
+					"training_config":       rawMessageOrNull(resolvedConfig),
+					"hyperparameter_search": rawMessageOrNull(search),
 				},
 			}
 			seedRaw, _ := json.Marshal(seed)

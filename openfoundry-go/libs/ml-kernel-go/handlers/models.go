@@ -22,11 +22,9 @@ import (
 //   - POST  create_model
 //   - PATCH update_model
 //   - GET   list_model_versions
-//   - POST  create_model_version    (501 stub: chains
-//                                    interop::merge_metrics +
-//                                    normalize_model_version_schema +
-//                                    preferred_artifact_uri — 769 LOC
-//                                    interop port)
+//   - POST  create_model_version    (chains interop::merge_metrics,
+//     normalize_model_version_schema, and
+//     preferred_artifact_uri)
 //   - PATCH transition_model_version
 //
 // list_model_versions + transition_model_version embed shallow
