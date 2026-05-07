@@ -72,6 +72,11 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *ha
 			wr.Delete("/shares/{id}", ws.RevokeShare)
 			wr.Get("/shared-with-me", ws.ListSharedWithMe)
 			wr.Get("/shared-by-me", ws.ListSharedByMe)
+			wr.Post("/resources/{kind}/{id}/move", ws.MoveResource)
+			wr.Post("/resources/{kind}/{id}/rename", ws.RenameResource)
+			wr.Post("/resources/{kind}/{id}/duplicate", ws.DuplicateResource)
+			wr.Delete("/resources/{kind}/{id}", ws.SoftDeleteResource)
+			wr.Post("/resources/batch", ws.BatchApply)
 		})
 	})
 
