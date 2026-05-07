@@ -90,3 +90,15 @@ func createThing(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.St
 		t.Fatalf("POST status mismatch: %#v", statuses)
 	}
 }
+
+func TestConnectorManagementRustRouteKeyCanonicalizesAPIV1Closure(t *testing.T) {
+	r := Route{Service: "connector-management-service", Side: "rust", Method: "GET", Path: "/data-connection/catalog"}
+	if got := routeKey(r); got != "GET /api/v1/data-connection/catalog" {
+		t.Fatalf("routeKey mismatch: %q", got)
+	}
+
+	health := Route{Service: "connector-management-service", Side: "rust", Method: "GET", Path: "/health"}
+	if got := routeKey(health); got != "GET /health" {
+		t.Fatalf("health routeKey mismatch: %q", got)
+	}
+}
