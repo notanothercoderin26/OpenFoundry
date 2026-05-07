@@ -473,8 +473,9 @@ func primitiveAvroToField(name string) (dataset.FieldType, bool) {
 }
 
 // numberAsUint64 normalises Avro numeric metadata that may arrive as
-// either a JSON number (float64) or a json.Number when the caller
-// decoded with UseNumber(). Returns (value, ok).
+// a JSON number (float64), a json.Number (when callers decode with
+// UseNumber), or a native Go int/uint when the bridge round-trips an
+// in-memory tree built by SchemaToAvro itself. Returns (value, ok).
 func numberAsUint64(v any) (uint64, bool) {
 	switch n := v.(type) {
 	case float64:
@@ -493,10 +494,33 @@ func numberAsUint64(v any) (uint64, bool) {
 			return 0, false
 		}
 		return uint64(n), true
+	case int8:
+		if n < 0 {
+			return 0, false
+		}
+		return uint64(n), true
+	case int16:
+		if n < 0 {
+			return 0, false
+		}
+		return uint64(n), true
+	case int32:
+		if n < 0 {
+			return 0, false
+		}
+		return uint64(n), true
 	case int64:
 		if n < 0 {
 			return 0, false
 		}
+		return uint64(n), true
+	case uint:
+		return uint64(n), true
+	case uint8:
+		return uint64(n), true
+	case uint16:
+		return uint64(n), true
+	case uint32:
 		return uint64(n), true
 	case uint64:
 		return n, true
