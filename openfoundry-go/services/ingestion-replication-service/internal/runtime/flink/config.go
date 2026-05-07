@@ -1,12 +1,20 @@
 // Package flink ports event_streaming::runtime::flink — the Flink
-// integration split that surfaces a pure DAG → Flink SQL emitter
-// (sql.go), an HTTP proxy for the JobManager job-graph endpoint
-// (job_graph.go), plus the shared runtime configuration / consistency
-// resolver from the Rust mod.rs.
+// integration split that surfaces:
 //
-// The deployer + metrics_poller live behind the `flink-runtime` feature
-// flag in Rust and are not part of IRF-2; this package focuses on the
-// pieces engine.processor (local) and the REST handlers already need.
+//   - sql.go            — pure DAG → Flink SQL emitter
+//   - job_graph.go      — JobManager /jobs/{id} proxy
+//   - deployer.go       — pure manifest renderer + Deployer/KubeApplier
+//     wiring (mirrors deployer.rs); production binding goes through a
+//     KubeApplier shim, same pattern reconcile.HTTPApplier already uses
+//   - metrics_poller.go — JobManager /jobs/{id}/metrics scraper
+//     (mirrors metrics_poller.rs); writes a TopologyRun per tick via
+//     the injected RunRecorder so the GetRuntime handler can surface
+//     the canonical KPI vector
+//
+// The Rust source gates deployer.rs + metrics_poller.rs behind the
+// `flink-runtime` cargo feature; here the wiring is always compiled in
+// but is opt-in at runtime — callers that don't construct a Deployer or
+// a MetricsPollerSupervisor get the legacy SQL-emitter-only behaviour.
 package flink
 
 import (
