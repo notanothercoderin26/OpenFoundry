@@ -407,6 +407,17 @@ func fileBaseName(cfg *parquetConfig, selector, fallbackExt string) string {
 			return base
 		}
 	}
+	if cfg.URL != "" {
+		if idx := strings.LastIndex(cfg.URL, "/"); idx >= 0 && idx < len(cfg.URL)-1 {
+			tail := cfg.URL[idx+1:]
+			if q := strings.Index(tail, "?"); q >= 0 {
+				tail = tail[:q]
+			}
+			if tail != "" {
+				return tail
+			}
+		}
+	}
 	stem := sanitizeStem(selector)
 	if stem == "" {
 		stem = "parquet_sync"
