@@ -3,6 +3,7 @@ package actions
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -257,5 +258,118 @@ func newTestState(t *testing.T) *ontologykernel.AppState {
 	return &ontologykernel.AppState{
 		Stores:    stores.NewInMemory(),
 		JWTConfig: authmw.NewJWTConfig("test-secret"),
+	}
+}
+
+type fakeInlineSidecar struct {
+	result      json.RawMessage
+	err         error
+	seenSource  string
+	seenInput   json.RawMessage
+	seenTimeout uint32
+}
+
+func (f *fakeInlineSidecar) ExecuteInline(_ context.Context, source string, inputJSON []byte, timeoutSeconds uint32) (*ontologykernel.InlineRuntimeResult, error) {
+	f.seenSource = source
+	f.seenInput = append([]byte(nil), inputJSON...)
+	f.seenTimeout = timeoutSeconds
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &ontologykernel.InlineRuntimeResult{ResultJSON: f.result, Stdout: "stdout", Stderr: "stderr"}, nil
+}
+
+func inlinePythonPlan(source string) actionPlan {
+	return actionPlan{
+		kind:       planInvokeFunction,
+		invocation: &httpInvocationConfig{URL: "inline://python", Method: "POST"},
+		parameters: map[string]json.RawMessage{"x": json.RawMessage(`1`)},
+		inlineFunction: &domain.ResolvedInlineFunction{
+			Config: domain.InlineFunctionConfig{
+				Kind:   domain.InlineFunctionPython,
+				Python: &domain.InlinePythonFunctionConfig{Runtime: "python", Source: source},
+			},
+			Capabilities: models.FunctionCapabilities{AllowOntologyRead: true, TimeoutSeconds: 9, MaxSourceBytes: 1024},
+		},
+	}
+}
+
+func TestExecutePlanInlinePythonActionSuccessViaSidecar(t *testing.T) {
+	t.Parallel()
+	state := newTestState(t)
+	fake := &fakeInlineSidecar{result: json.RawMessage(`{"ok":true}`)}
+	state.PythonRuntime = fake
+	justification := "approved"
+	plan := inlinePythonPlan("result = {'ok': True}")
+	plan.justification = &justification
+	action := models.ActionType{ID: uuid.New(), ObjectTypeID: uuid.New(), OperationKind: "invoke_function", Name: "run_py"}
+
+	executed, err := executePlan(context.Background(), state, &authmw.Claims{Sub: uuid.New()}, action, plan)
+	if err != nil {
+		t.Fatalf("executePlan: %v", err)
+	}
+	if string(executed.result) != `{"ok":true}` {
+		t.Fatalf("result drift: %s", executed.result)
+	}
+	if fake.seenSource != "result = {'ok': True}" || fake.seenTimeout != 9 {
+		t.Fatalf("sidecar request drift: source=%q timeout=%d", fake.seenSource, fake.seenTimeout)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(fake.seenInput, &envelope); err != nil {
+		t.Fatalf("input envelope json: %v", err)
+	}
+	ctxEnvelope := envelope["context"].(map[string]any)
+	if ctxEnvelope["justification"] != justification {
+		t.Fatalf("justification not preserved in envelope: %+v", ctxEnvelope)
+	}
+	if _, ok := ctxEnvelope["parameters"].(map[string]any)["x"]; !ok {
+		t.Fatalf("parameters not preserved in envelope: %+v", ctxEnvelope["parameters"])
+	}
+}
+
+func TestPlanInvokeFunctionValidationError(t *testing.T) {
+	t.Parallel()
+	state := newTestState(t)
+	action := models.ActionType{ID: uuid.New(), ObjectTypeID: uuid.New(), OperationKind: "invoke_function", Config: json.RawMessage(`{"runtime":"python","source":"   "}`)}
+	_, errs := planAction(context.Background(), state, &authmw.Claims{Sub: uuid.New()}, action, &models.ValidateActionRequest{Parameters: json.RawMessage(`{}`)})
+	if len(errs) == 0 || !strings.Contains(errs[0], "inline python function requires a non-empty source") {
+		t.Fatalf("expected inline source validation error, got %v", errs)
+	}
+}
+
+func TestExecutePlanInlinePythonException(t *testing.T) {
+	t.Parallel()
+	state := newTestState(t)
+	state.PythonRuntime = &fakeInlineSidecar{err: errors.New("Traceback: boom")}
+	action := models.ActionType{ID: uuid.New(), ObjectTypeID: uuid.New(), OperationKind: "invoke_function", Name: "run_py"}
+	_, err := executePlan(context.Background(), state, &authmw.Claims{Sub: uuid.New()}, action, inlinePythonPlan("raise Exception('boom')"))
+	if err == nil || !strings.Contains(err.Error(), "Traceback: boom") {
+		t.Fatalf("expected Python exception, got %v", err)
+	}
+}
+
+func TestExecutePlanInlinePythonPreservesRevertUndoAndMediaMetadata(t *testing.T) {
+	t.Parallel()
+	state := newTestState(t)
+	payload := json.RawMessage(`{"status":"ok","undo":{"kind":"restore_object","object_id":"obj-1"},"revert":{"kind":"patch","properties":{"status":"old"}},"media_upload":{"status":"placeholder","attachment_rid":"ri.attachments.test"}}`)
+	state.PythonRuntime = &fakeInlineSidecar{result: payload}
+	action := models.ActionType{ID: uuid.New(), ObjectTypeID: uuid.New(), OperationKind: "invoke_function", Name: "run_py"}
+	executed, err := executePlan(context.Background(), state, &authmw.Claims{Sub: uuid.New()}, action, inlinePythonPlan("result = {...}"))
+	if err != nil {
+		t.Fatalf("executePlan: %v", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(executed.result, &result); err != nil {
+		t.Fatalf("result json: %v", err)
+	}
+	if _, ok := result["undo"].(map[string]any); !ok {
+		t.Fatalf("undo metadata missing: %v", result)
+	}
+	if _, ok := result["revert"].(map[string]any); !ok {
+		t.Fatalf("revert metadata missing: %v", result)
+	}
+	media, ok := result["media_upload"].(map[string]any)
+	if !ok || media["status"] != "placeholder" {
+		t.Fatalf("media placeholder missing: %v", result)
 	}
 }

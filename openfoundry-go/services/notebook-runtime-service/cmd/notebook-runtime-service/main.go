@@ -24,7 +24,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/libs/observability"
+	pythonsidecar "github.com/openfoundry/openfoundry-go/libs/python-sidecar"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/kernel"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/server"
 )
 
@@ -84,8 +86,35 @@ func main() {
 		log.Warn("DATABASE_URL unset; CRUD endpoints will return empty envelopes")
 	}
 
+	var pyKernel *kernel.SidecarKernel
+	var pyMgr *pythonsidecar.Manager
+	if cfg.PythonSidecarBinary != "" {
+		pyMgr, err = pythonsidecar.New(pythonsidecar.Config{
+			BinaryPath: cfg.PythonSidecarBinary,
+			Env: []string{
+				"OPENFOUNDRY_NOTEBOOK_DATA_DIR=" + cfg.DataDir,
+			},
+			HardCallTimeout: time.Duration(cfg.PythonSidecarTimeoutSeconds+5) * time.Second,
+		}, log)
+		if err != nil {
+			log.Error("python sidecar config failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		startCtx, cancelStart := context.WithTimeout(ctx, 15*time.Second)
+		if err := pyMgr.Start(startCtx); err != nil {
+			cancelStart()
+			log.Error("python sidecar start failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		cancelStart()
+		defer func() { _ = pyMgr.Stop(context.Background()) }()
+		pyKernel = &kernel.SidecarKernel{Mgr: pyMgr}
+	} else {
+		log.Warn("PYTHON_SIDECAR_BINARY unset; Python ExecuteCell will return an explicit sidecar-not-configured error")
+	}
+
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, pool, metrics)
+	srv := server.NewWithKernel(cfg, pool, metrics, pyKernel)
 	if err := run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

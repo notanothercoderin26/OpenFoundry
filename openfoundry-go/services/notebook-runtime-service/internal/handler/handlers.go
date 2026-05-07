@@ -8,10 +8,9 @@
 //     keep round-tripping.
 //   - Workspace file CRUD: filesystem-backed via `domain/environment`.
 //   - Notepad export: HTML rendering via `domain/notepad`.
-//   - Cell execute (`ExecuteCell` / `ExecuteAllCells`): still substrate-
-//     only because the kernel runtime (Python/SQL/R/LLM) is PyO3-bound
-//     in Rust and requires a separate Go-side runtime that is not part
-//     of this port. Returns HTTP 501.
+//   - Cell execute (`ExecuteCell` / `ExecuteAllCells`): Python cells run
+//     through the python-sidecar gRPC boundary; SQL/R/LLM return explicit
+//     kernel-not-supported errors until equivalent sidecars exist.
 //
 // Notepad documents + presence still return the empty envelope; their
 // repository slice lands when the notepad UI ships its own backend.
@@ -36,8 +35,10 @@ import (
 
 // State carries the deps every handler needs.
 type State struct {
-	Cfg  *config.Config
-	Pool *pgxpool.Pool
+	Cfg          *config.Config
+	Pool         *pgxpool.Pool
+	PythonKernel NotebookPythonKernel
+	MemoryRepo   *MemoryNotebookRepo
 }
 
 // ── Workspace files (1:1 ported domain/environment) ──────────────────
@@ -92,16 +93,6 @@ func (s *State) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// ── Execute (kernel dispatch) ─────────────────────────────────────────
-
-func (s *State) ExecuteCell(w http.ResponseWriter, r *http.Request) {
-	notImplemented(w, r) // kernel runtime not ported
-}
-
-func (s *State) ExecuteAllCells(w http.ResponseWriter, r *http.Request) {
-	notImplemented(w, r)
 }
 
 // ── Notepad (export wired 1:1; CRUD stubbed) ──────────────────────────
