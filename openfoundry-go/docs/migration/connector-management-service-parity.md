@@ -63,6 +63,14 @@ This slice replaced the remaining connector-management route-parity placeholders
 
 Remaining non-parity gaps are connector-runtime depth rather than HTTP route availability: credentials/egress/dev-auth remain pending, sync run listing remains pending, and full per-adapter discovery/query/Arrow IPC fidelity remains future work.
 
+## 2026-05-07 CMA-0 update — adapter registry + 4-capability interface
+
+- New package [internal/adapters](../../services/connector-management-service/internal/adapters) defines the per-connector contract that the Rust dispatcher in `services/connector-management-service/src/domain/discovery.rs` plus the `connectors::*` modules expose. The Go interface collapses the four Rust capabilities — `discover_sources`, `query_virtual_table`, `stream_arrow_ipc`, `build_ingest_spec` — onto a single `ConnectorAdapter` interface in [adapter.go](../../services/connector-management-service/internal/adapters/adapter.go).
+- `adapters.Registry` ([registry.go](../../services/connector-management-service/internal/adapters/registry.go)) replaces the implicit `match connection.connector_type` arms with a first-class `Register(name, factory) / Get(name) / Lookup(name)` table, so per-connector slices (CMA-2 … CMA-14) can self-register without the dispatcher having to know about them. Factories (`Factory`, `FactoryFunc`, `SingletonFactory`) let stateful adapters (Snowflake driver pools, BigQuery HTTP clients) hold per-instance state without leaking it to callers.
+- Sentinels live in [errors.go](../../services/connector-management-service/internal/adapters/errors.go): `ErrNotImplemented` (returned by skeleton stubs and partial adapters; future dispatcher translates it to the existing `"discover is not supported for connector type: …"` / `"zero-copy is not supported for connector type: …"` envelopes Rust emits), `ErrAdapterNotFound`, and `ErrAlreadyRegistered`. `IngestSpec` is defined as a JSON-flavoured envelope to avoid an import cycle with `handlers.IngestJobSpec`; future per-connector slices will marshal through it.
+- Tests in [registry_test.go](../../services/connector-management-service/internal/adapters/registry_test.go) cover register/lookup/has/unregister, duplicate rejection, sorted Names, MustRegister panic semantics, FactoryFunc per-call freshness, EmptyArrowStream EOF behaviour, and concurrent register/get under `-race`.
+- Nothing on the read or write path is wired to the new registry yet: the existing dispatcher in `internal/domain/discovery/discovery.go` (Discover + QueryVirtualTable) and the `handlers.BuildIngestSpec` shim continue to serve traffic. CMA-2 through CMA-14 swap consumers over.
+
 ## Rust test corpus inspected
 
 - Connector/runtime integration: `tests/kafka_real_broker.rs`, `tests/postgres_cdc_e2e.rs`, `tests/s3_minio.rs`, `tests/schema_registry_compat.rs`.
