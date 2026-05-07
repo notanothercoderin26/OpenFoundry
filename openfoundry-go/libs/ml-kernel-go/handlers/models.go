@@ -23,6 +23,9 @@ import (
 //   - PATCH update_model
 //   - GET   list_model_versions
 //   - POST  create_model_version
+//   - POST  create_model_version    (chains interop::merge_metrics,
+//     normalize_model_version_schema, and
+//     preferred_artifact_uri)
 //   - PATCH transition_model_version
 //
 // create_model_version, list_model_versions, and transition_model_version

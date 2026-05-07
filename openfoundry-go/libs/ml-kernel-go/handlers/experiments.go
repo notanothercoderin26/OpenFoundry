@@ -24,6 +24,8 @@ import (
 // Runs, asset-lineage, and compare endpoints are now wired in their
 // own handler files (`runs.go`, `asset_lineage.go`) and use the
 // interop/domain helpers instead of returning 501 placeholders.
+// The run + compare endpoints remain separate slices; asset-lineage is
+// implemented in asset_lineage.go and shares this handler type.
 type ExperimentsHandlers struct {
 	Pool *pgxpool.Pool
 }

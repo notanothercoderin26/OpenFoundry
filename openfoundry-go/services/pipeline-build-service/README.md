@@ -4,8 +4,10 @@ Build / execution side of Pipeline Builder. The Rust crate is the
 largest in the workspace (≈36 KLOC of source + 86 integration tests
 covering DAG resolution, branch lock acquisition, multi-output
 atomicity, log streaming, Spark / Iceberg orchestration). This Go
-port lands the **substrate + the testable domain primitives** while
-the heavy domain modules are migrated incrementally.
+port now includes the resolver domain and wires the critical
+`CreateBuild` / `DryRunResolve` HTTP paths through injectable
+JobSpec, dataset-versioning, lock and build-persistence ports while
+the executor and external production adapters continue to migrate.
 
 ## Port status
 
@@ -27,6 +29,19 @@ The endpoint shape is no longer documented from memory: use
 truth for route parity. Current productive gaps are a mix of missing
 legacy Rust paths, explicit `501 Not Implemented` handlers, empty list
 envelopes, and config-gated log/runtime behavior.
+| Build resolution domain (`resolve_build`, input validation, branch lock acquisition, fan-out) | ✅ ported under `internal/domain/resolver` |
+| HTTP build resolution (`POST /api/v1/builds`) | ✅ wired to resolver through injected ports; returns Rust-compatible `202 Accepted` / `400` resolution failures |
+| Dry-run resolution (`POST /api/v1/dry-run/resolve`) | ✅ uses resolver load/cycle/branch-resolution steps without opening build records, output transactions or locks |
+| Production repo adapters for JobSpec / dataset-versioning / build persistence | ⏳ pending — handlers return explicit `503` until ports are injected; no silent stubs |
+| Build executor (DAG runner, multi-output transactions) | ⏳ pending |
+| Iceberg output client (ADR-0041) | ⏳ pending |
+| SparkApplication / kube-rs CR submission (FASE 3 / Tarea 3.4) | ✅ CR rendering/submission surface ported; returns 503 when kube client is unavailable |
+| SSE log streaming | ✅ live history/follow stream wired via injected log service |
+
+The endpoint shape is identical to the Rust crate so dashboards,
+clients and the Spark CR template can talk to either binary. Resolver-backed
+handlers no longer return `501`; remaining unported surfaces still respond
+with `501 Not Implemented` carrying a machine-parseable detail field.
 
 ## Build & run
 
@@ -42,7 +57,7 @@ go test ./services/pipeline-build-service/...
 | `HOST` | `0.0.0.0` |
 | `PORT` | `50081` |
 | `JWT_SECRET` | (required) |
-| `DATABASE_URL` | unset (handlers gated on this when the resolver lands) |
+| `DATABASE_URL` | unset (production build repositories still need explicit adapter wiring) |
 | `DATA_DIR` | `/var/lib/openfoundry/pipeline-build` |
 | `DATASET_SERVICE_URL` | `http://localhost:50079` |
 | `WORKFLOW_SERVICE_URL` | `http://localhost:50080` |
