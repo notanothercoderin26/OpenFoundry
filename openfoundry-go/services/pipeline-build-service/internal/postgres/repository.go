@@ -22,6 +22,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/handler"
 	livellogs "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/logs"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
+	sparkpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
 )
 
 // DB is the pgx/pgxmock surface used by the repository. *pgxpool.Pool and
@@ -879,4 +880,78 @@ func deriveJobSpecHash(kind string, req handler.CreateJobSpecRequest) string {
 		h.Write([]byte(output))
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// SaveSparkSubmission upserts the Rust-compatible SparkApplication submission row.
+func (r *Repository) SaveSparkSubmission(ctx context.Context, submission handler.SparkSubmission) error {
+	_, err := r.db.Exec(ctx, `INSERT INTO pipeline_run_submissions
+    (pipeline_run_id, spark_app_name, namespace, status, error_message)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (pipeline_run_id) DO UPDATE
+SET spark_app_name=EXCLUDED.spark_app_name,
+    namespace=EXCLUDED.namespace,
+    status=EXCLUDED.status,
+    error_message=EXCLUDED.error_message,
+    submitted_at=NOW(),
+    last_observed_at=NOW()`, submission.PipelineRunID, submission.SparkAppName, submission.Namespace, string(submission.Status), submission.ErrorMessage)
+	return err
+}
+
+// GetSparkSubmission loads the persisted SparkApplication control-plane mapping.
+func (r *Repository) GetSparkSubmission(ctx context.Context, pipelineRunID uuid.UUID) (*handler.SparkSubmission, error) {
+	var sub handler.SparkSubmission
+	var status string
+	err := r.db.QueryRow(ctx, `SELECT pipeline_run_id, namespace, spark_app_name, status, error_message, submitted_at, last_observed_at
+FROM pipeline_run_submissions WHERE pipeline_run_id=$1`, pipelineRunID).Scan(&sub.PipelineRunID, &sub.Namespace, &sub.SparkAppName, &status, &sub.ErrorMessage, &sub.SubmittedAt, &sub.LastObservedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	sub.Status = sparkStatus(status)
+	return &sub, nil
+}
+
+// UpdateSparkSubmissionStatus refreshes the observed SparkApplication status.
+func (r *Repository) UpdateSparkSubmissionStatus(ctx context.Context, pipelineRunID uuid.UUID, status sparkpkg.SparkRunStatus, errorMessage *string) error {
+	_, err := r.db.Exec(ctx, `UPDATE pipeline_run_submissions
+SET status=$2, error_message=$3, last_observed_at=NOW()
+WHERE pipeline_run_id=$1`, pipelineRunID, string(status), errorMessage)
+	return err
+}
+
+// ListSparkSubmissions returns recent SparkApplication submissions.
+func (r *Repository) ListSparkSubmissions(ctx context.Context, limit int64) ([]handler.SparkSubmission, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	rows, err := r.db.Query(ctx, `SELECT pipeline_run_id, namespace, spark_app_name, status, error_message, submitted_at, last_observed_at
+FROM pipeline_run_submissions
+ORDER BY submitted_at DESC
+LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []handler.SparkSubmission{}
+	for rows.Next() {
+		var sub handler.SparkSubmission
+		var status string
+		if err := rows.Scan(&sub.PipelineRunID, &sub.Namespace, &sub.SparkAppName, &status, &sub.ErrorMessage, &sub.SubmittedAt, &sub.LastObservedAt); err != nil {
+			return nil, err
+		}
+		sub.Status = sparkStatus(status)
+		items = append(items, sub)
+	}
+	return items, rows.Err()
+}
+
+func sparkStatus(status string) sparkpkg.SparkRunStatus {
+	switch sparkpkg.SparkRunStatus(status) {
+	case sparkpkg.SparkRunSubmitted, sparkpkg.SparkRunRunning, sparkpkg.SparkRunSucceeded, sparkpkg.SparkRunFailed, sparkpkg.SparkRunUnknown:
+		return sparkpkg.SparkRunStatus(status)
+	default:
+		return sparkpkg.SparkRunUnknown
+	}
 }
