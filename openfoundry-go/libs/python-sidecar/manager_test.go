@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,17 +14,17 @@ import (
 // TestSidecarEndToEnd starts a real openfoundry-pyruntime, drives the
 // three RPCs, and shuts down. Skipped when the binary path is not set.
 //
-// Set PYRUNTIME_BINARY to the absolute path of openfoundry-pyruntime
+// Set PYTHON_SIDECAR_BINARY to the absolute path of openfoundry-pyruntime
 // (e.g. the script installed in your dev venv) to enable.
 func TestSidecarEndToEnd(t *testing.T) {
-	bin := os.Getenv("PYRUNTIME_BINARY")
+	bin := os.Getenv("PYTHON_SIDECAR_BINARY")
 	if bin == "" {
-		t.Skip("PYRUNTIME_BINARY not set — install openfoundry-pyruntime in a venv and re-run")
+		t.Skip("PYTHON_SIDECAR_BINARY not set — install openfoundry-pyruntime in a venv and re-run")
 	}
 
 	mgr, err := New(Config{
-		BinaryPath:     bin,
-		StartupTimeout: 5 * time.Second,
+		BinaryPath:      bin,
+		StartupTimeout:  5 * time.Second,
 		HardCallTimeout: 10 * time.Second,
 	}, nil)
 	if err != nil {
@@ -37,12 +38,15 @@ func TestSidecarEndToEnd(t *testing.T) {
 	t.Cleanup(func() { _ = mgr.Stop(context.Background()) })
 
 	t.Run("inline", func(t *testing.T) {
-		out, err := mgr.ExecuteInline(ctx, `result = {"k": 1}`+"\n"+`print("hi")`, []byte("{}"), 0)
+		out, err := mgr.ExecuteInline(ctx, `import sys`+"\n"+`print("hi")`+"\n"+`print("err", file=sys.stderr)`+"\n"+`result = {"k": 1}`, []byte("{}"), 0)
 		if err != nil {
 			t.Fatalf("ExecuteInline: %v", err)
 		}
 		if out.Stdout != "hi\n" {
 			t.Fatalf("stdout = %q, want %q", out.Stdout, "hi\n")
+		}
+		if out.Stderr != "err\n" {
+			t.Fatalf("stderr = %q, want %q", out.Stderr, "err\n")
 		}
 		var payload map[string]any
 		if err := json.Unmarshal(out.ResultJSON, &payload); err != nil {
@@ -54,11 +58,21 @@ func TestSidecarEndToEnd(t *testing.T) {
 		}
 	})
 
+	t.Run("inline error", func(t *testing.T) {
+		_, err := mgr.ExecuteInline(ctx, `raise RuntimeError("inline boom")`, []byte("{}"), 0)
+		if err == nil || !strings.Contains(err.Error(), "inline boom") {
+			t.Fatalf("expected inline error to contain inline boom, got %v", err)
+		}
+	})
+
 	t.Run("pipeline", func(t *testing.T) {
 		src := "rows_affected = 3\nresult_rows = [{\"a\": 1}, {\"a\": 2}, {\"a\": 3}]\nprint(\"rows\")"
 		out, err := mgr.ExecutePipeline(ctx, src, []byte("{}"), []byte("[]"), nil, "", 0)
 		if err != nil {
 			t.Fatalf("ExecutePipeline: %v", err)
+		}
+		if out.Stdout != "rows\n" {
+			t.Fatalf("pipeline stdout = %q, want %q", out.Stdout, "rows\n")
 		}
 		if !out.RowsAffectedSet || out.RowsAffected != 3 {
 			t.Fatalf("rows_affected = %d (set=%v), want 3", out.RowsAffected, out.RowsAffectedSet)
@@ -69,6 +83,13 @@ func TestSidecarEndToEnd(t *testing.T) {
 		}
 		if len(rows) != 3 {
 			t.Fatalf("rows len = %d, want 3", len(rows))
+		}
+	})
+
+	t.Run("pipeline error", func(t *testing.T) {
+		_, err := mgr.ExecutePipeline(ctx, `raise RuntimeError("pipeline boom")`, []byte("{}"), []byte("[]"), nil, "", 0)
+		if err == nil || !strings.Contains(err.Error(), "pipeline boom") {
+			t.Fatalf("expected pipeline error to contain pipeline boom, got %v", err)
 		}
 	})
 
@@ -91,6 +112,13 @@ func TestSidecarEndToEnd(t *testing.T) {
 		}
 		if err := mgr.DropSession(ctx, sid); err != nil {
 			t.Fatalf("DropSession: %v", err)
+		}
+	})
+
+	t.Run("notebook error", func(t *testing.T) {
+		_, err := mgr.ExecuteNotebookCell(ctx, uuid.New(), uuid.New(), `raise RuntimeError("notebook boom")`, "", 0)
+		if err == nil || !strings.Contains(err.Error(), "notebook boom") {
+			t.Fatalf("expected notebook error to contain notebook boom, got %v", err)
 		}
 	})
 }

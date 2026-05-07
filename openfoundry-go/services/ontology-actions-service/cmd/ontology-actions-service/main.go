@@ -100,6 +100,7 @@ func main() {
 		state.PythonRuntime = pythonRuntimeAdapter{mgr: mgr}
 		log.Info("python sidecar wired", slog.String("binary", cfg.PythonSidecarBinary))
 	} else if state != nil {
+		log.Warn("PYTHON_SIDECAR_BINARY unset — inline Python functions will return ErrPythonRuntimeNotWired")
 		log.Warn("PYTHON_SIDECAR_BINARY unset — inline Python functions will explicitly return ErrPythonRuntimeNotWired")
 	}
 

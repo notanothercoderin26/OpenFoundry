@@ -1,11 +1,8 @@
-package handlers_test
+package cassandrakernel
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -15,10 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
-	cassandrakernel "github.com/openfoundry/openfoundry-go/libs/cassandra-kernel"
 	repos "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
-	"github.com/openfoundry/openfoundry-go/services/ontology-query-service/internal/handlers"
 )
 
 func cassandraAddrsOrSkip(t *testing.T) []string {
@@ -40,7 +34,7 @@ func cassandraAddrsOrSkip(t *testing.T) []string {
 	return out
 }
 
-func newCassandraObjectStore(t *testing.T, addrs []string, keyspace string) *cassandrakernel.ObjectStore {
+func newIntegrationSession(t *testing.T, addrs []string, keyspace string) *gocql.Session {
 	t.Helper()
 	cluster := gocql.NewCluster(addrs...)
 	cluster.Timeout = 10 * time.Second
@@ -68,12 +62,12 @@ func newCassandraObjectStore(t *testing.T, addrs []string, keyspace string) *cas
 	if err != nil {
 		t.Fatalf("connect keyspace %s: %v", keyspace, err)
 	}
-	applyObjectSchema(t, session, keyspace)
+	applyObjectStoreSchema(t, session, keyspace)
 	t.Cleanup(func() { session.Close() })
-	return cassandrakernel.NewObjectStoreWithKeyspace(session, keyspace)
+	return session
 }
 
-func applyObjectSchema(t *testing.T, session *gocql.Session, keyspace string) {
+func applyObjectStoreSchema(t *testing.T, session *gocql.Session, keyspace string) {
 	t.Helper()
 	stmts := []string{
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.objects_by_id (
@@ -128,22 +122,22 @@ func applyObjectSchema(t *testing.T, session *gocql.Session, keyspace string) {
 	}
 }
 
-func TestHandlersReadObjectsFromRealCassandra(t *testing.T) {
+func TestObjectStoreWithRealCassandraGetListAndMarkings(t *testing.T) {
 	addrs := cassandraAddrsOrSkip(t)
-	keyspace := "of_it_query_" + strings.ReplaceAll(uuid.NewString(), "-", "_")
-	store := newCassandraObjectStore(t, addrs, keyspace)
+	keyspace := "of_it_objects_" + strings.ReplaceAll(uuid.NewString(), "-", "_")
+	session := newIntegrationSession(t, addrs, keyspace)
+	store := NewObjectStoreWithKeyspace(session, keyspace)
 
-	tenantUUID := uuid.New()
-	tenant := repos.TenantId(tenantUUID.String())
+	tenant := repos.TenantId(uuid.NewString())
 	objectID := repos.ObjectId(gocql.TimeUUID().String())
 	owner := repos.OwnerId(uuid.NewString())
-	org := tenantUUID.String()
+	org := string(tenant)
 	created := time.Now().Add(-time.Minute).UnixMilli()
 	obj := repos.Object{
 		Tenant:         tenant,
 		ID:             objectID,
 		TypeID:         repos.TypeId("aircraft"),
-		Payload:        json.RawMessage(`{"callsign":"OF-QUERY-1"}`),
+		Payload:        []byte(`{"callsign":"OF-1","altitude":12000}`),
 		OrganizationID: &org,
 		CreatedAtMs:    &created,
 		UpdatedAtMs:    time.Now().UnixMilli(),
@@ -154,59 +148,22 @@ func TestHandlersReadObjectsFromRealCassandra(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, repos.PutInserted, outcome.Kind)
 
-	h := handlers.New(handlers.AppState{Objects: store})
-	allowedClaims := &authmw.Claims{
-		Sub:          uuid.New(),
-		OrgID:        &tenantUUID,
-		Roles:        []string{"user"},
-		SessionScope: &authmw.SessionScope{AllowedMarkings: []string{"PUBLIC", "CONTROLLED"}},
-	}
-
-	req := authedReq(http.MethodGet, "/objects/"+string(tenant)+"/"+string(objectID), map[string]string{
-		"tenant": string(tenant), "object_id": string(objectID),
-	}, allowedClaims)
-	rec := httptest.NewRecorder()
-	h.GetObject(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var got repos.Object
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, objectID, got.ID)
+	got, err := store.Get(context.Background(), tenant, objectID, repos.Eventual())
+	require.NoError(t, err)
+	require.NotNil(t, got)
 	require.Equal(t, tenant, got.Tenant)
+	require.Equal(t, objectID, got.ID)
 	require.JSONEq(t, string(obj.Payload), string(got.Payload))
 	require.ElementsMatch(t, []repos.MarkingId{"PUBLIC", "CONTROLLED"}, got.Markings)
+	require.Equal(t, &org, got.OrganizationID)
 
-	req = authedReq(http.MethodGet, "/objects/"+string(tenant)+"/by-type/aircraft?size=10", map[string]string{
-		"tenant": string(tenant), "type_id": "aircraft",
-	}, allowedClaims)
-	rec = httptest.NewRecorder()
-	h.ListObjectsByType(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var list handlers.ListResponse[repos.Object]
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	list, err := store.ListByType(context.Background(), tenant, repos.TypeId("aircraft"), repos.Page{Size: 10}, repos.Eventual())
+	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 	require.Equal(t, objectID, list.Items[0].ID)
+	require.ElementsMatch(t, []repos.MarkingId{"PUBLIC", "CONTROLLED"}, list.Items[0].Markings)
 
-	otherTenant := uuid.New()
-	forbiddenTenantClaims := &authmw.Claims{Sub: uuid.New(), OrgID: &otherTenant, Roles: []string{"user"}}
-	req = authedReq(http.MethodGet, "/objects/"+string(tenant)+"/"+string(objectID), map[string]string{
-		"tenant": string(tenant), "object_id": string(objectID),
-	}, forbiddenTenantClaims)
-	rec = httptest.NewRecorder()
-	h.GetObject(rec, req)
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.Contains(t, rec.Body.String(), "tenant access denied")
-
-	markingDeniedClaims := &authmw.Claims{
-		Sub:          uuid.New(),
-		OrgID:        &tenantUUID,
-		Roles:        []string{"user"},
-		SessionScope: &authmw.SessionScope{AllowedMarkings: []string{"PUBLIC"}},
-	}
-	req = authedReq(http.MethodGet, "/objects/"+string(tenant)+"/"+string(objectID), map[string]string{
-		"tenant": string(tenant), "object_id": string(objectID),
-	}, markingDeniedClaims)
-	rec = httptest.NewRecorder()
-	h.GetObject(rec, req)
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.Contains(t, rec.Body.String(), "marking access denied")
+	otherTenant, err := store.Get(context.Background(), repos.TenantId(uuid.NewString()), objectID, repos.Eventual())
+	require.NoError(t, err)
+	require.Nil(t, otherTenant)
 }

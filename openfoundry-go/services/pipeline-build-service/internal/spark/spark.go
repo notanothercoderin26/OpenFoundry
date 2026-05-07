@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,7 +41,7 @@ spec:
   mode: cluster
   image: ${pipeline_runner_image}
   imagePullPolicy: IfNotPresent
-  mainClass: ${main_class}
+  mainClass: "${main_class}"
   mainApplicationFile: ${main_application_file}
   arguments:
     - ${input_dataset_rid}
@@ -401,7 +403,10 @@ type kubeconfig struct {
 	Clusters       []struct {
 		Name    string `yaml:"name"`
 		Cluster struct {
-			Server string `yaml:"server"`
+			Server                   string `yaml:"server"`
+			CertificateAuthority     string `yaml:"certificate-authority"`
+			CertificateAuthorityData string `yaml:"certificate-authority-data"`
+			InsecureSkipTLSVerify    bool   `yaml:"insecure-skip-tls-verify"`
 		} `yaml:"cluster"`
 	} `yaml:"clusters"`
 	Users []struct {
@@ -450,9 +455,16 @@ func clientFromKubeconfig() (*KubernetesClient, error) {
 		}
 	}
 	var server, token string
-	for _, c := range cfg.Clusters {
-		if c.Name == clusterName {
-			server = c.Cluster.Server
+	var selectedCluster *struct {
+		Server                   string `yaml:"server"`
+		CertificateAuthority     string `yaml:"certificate-authority"`
+		CertificateAuthorityData string `yaml:"certificate-authority-data"`
+		InsecureSkipTLSVerify    bool   `yaml:"insecure-skip-tls-verify"`
+	}
+	for i := range cfg.Clusters {
+		if cfg.Clusters[i].Name == clusterName {
+			server = cfg.Clusters[i].Cluster.Server
+			selectedCluster = &cfg.Clusters[i].Cluster
 			break
 		}
 	}
@@ -465,5 +477,61 @@ func clientFromKubeconfig() (*KubernetesClient, error) {
 	if server == "" {
 		return nil, &UnavailableError{}
 	}
-	return NewKubernetesClient(server, token, nil)
+	httpClient, err := httpClientFromKubeCluster(selectedCluster, filepath.Dir(path))
+	if err != nil {
+		return nil, &UnavailableError{Err: err}
+	}
+	return NewKubernetesClient(server, token, httpClient)
+}
+
+func httpClientFromKubeCluster(cluster *struct {
+	Server                   string `yaml:"server"`
+	CertificateAuthority     string `yaml:"certificate-authority"`
+	CertificateAuthorityData string `yaml:"certificate-authority-data"`
+	InsecureSkipTLSVerify    bool   `yaml:"insecure-skip-tls-verify"`
+}, kubeconfigDir string) (*http.Client, error) {
+	if cluster == nil {
+		return nil, nil
+	}
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if cluster.InsecureSkipTLSVerify {
+		tlsCfg.InsecureSkipVerify = true //nolint:gosec // Mirrors explicit kubeconfig opt-out for local test clusters.
+	}
+	if strings.TrimSpace(cluster.CertificateAuthorityData) != "" {
+		pemBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(cluster.CertificateAuthorityData))
+		if err != nil {
+			return nil, fmt.Errorf("decode kubeconfig certificate-authority-data: %w", err)
+		}
+		pool, err := certPoolFromPEM(pemBytes)
+		if err != nil {
+			return nil, err
+		}
+		tlsCfg.RootCAs = pool
+	} else if strings.TrimSpace(cluster.CertificateAuthority) != "" {
+		caPath := cluster.CertificateAuthority
+		if !filepath.IsAbs(caPath) {
+			caPath = filepath.Join(kubeconfigDir, caPath)
+		}
+		pemBytes, err := os.ReadFile(caPath)
+		if err != nil {
+			return nil, fmt.Errorf("read kubeconfig certificate-authority: %w", err)
+		}
+		pool, err := certPoolFromPEM(pemBytes)
+		if err != nil {
+			return nil, err
+		}
+		tlsCfg.RootCAs = pool
+	}
+	if tlsCfg.RootCAs == nil && !tlsCfg.InsecureSkipVerify {
+		return nil, nil
+	}
+	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsCfg}}, nil
+}
+
+func certPoolFromPEM(pemBytes []byte) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		return nil, errors.New("kubeconfig certificate authority did not contain a valid PEM certificate")
+	}
+	return pool, nil
 }
