@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/models"
@@ -46,7 +47,32 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-type Repo struct{ Pool *pgxpool.Pool }
+// DB is the pgx subset used by Repo; both *pgxpool.Pool and pgxmock pools
+// satisfy it, so unit tests can drive Repo without a live database.
+type DB interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+type Repo struct{ Pool DB }
+
+// errAlreadyExists wraps the unique-violation surface from Postgres in a
+// stable error string. Mirrors Rust's `TableError::AlreadyExists` so the
+// REST handler can map it to HTTP 409 via statusFromErr ("already exists").
+func errAlreadyExists(name string) error {
+	return fmt.Errorf("table `%s` already exists in namespace", name)
+}
+
+// isUniqueViolation reports whether err is a Postgres unique_violation
+// (SQLSTATE 23505). pgconn.PgError surfaces this verbatim.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	return false
+}
 
 const namespaceSelect = `SELECT id, project_rid, name, parent_namespace_id,
 	properties, created_at, created_by FROM iceberg_namespaces`
@@ -211,6 +237,7 @@ func (r *Repo) CreateTable(ctx context.Context, projectRID string, namespace []s
 		markings = []string{"public"}
 	}
 	id := uuid.New()
+	tableName := strings.TrimSpace(body.Name)
 	row := r.Pool.QueryRow(ctx,
 		`INSERT INTO iceberg_tables (id, namespace_id, name, table_uuid, format_version, location,
 		    partition_spec, schema_json, sort_order, properties, markings)
@@ -219,11 +246,14 @@ func (r *Repo) CreateTable(ctx context.Context, projectRID string, namespace []s
 		           format_version, location, current_snapshot_id, current_metadata_location,
 		           last_sequence_number, partition_spec, schema_json, sort_order, properties,
 		           markings, created_at, updated_at`,
-		id, ns.ID, strings.TrimSpace(body.Name), uuid.NewString(), formatVersion, location,
+		id, ns.ID, tableName, uuid.NewString(), formatVersion, location,
 		partitionSpec, body.Schema, sortOrder, props, markings, ns.Name,
 	)
 	t, err := scanTable(row)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, "", errAlreadyExists(tableName)
+		}
 		return nil, "", err
 	}
 	metadataLocation := fmt.Sprintf("%s/metadata/v1.metadata.json", t.Location)
