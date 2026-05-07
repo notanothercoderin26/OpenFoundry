@@ -87,7 +87,7 @@ func TestMarketplaceV1InstallAliasContract(t *testing.T) {
 	decodeJSON(t, doJSON(t, "POST", srv.URL+"/v1/marketplace/installs", token, map[string]any{"listing_id": listing.ID.String(), "version": "1.0.0", "workspace_name": "staging"}, 200), &install)
 	assert.Equal(t, "installed", install.Status)
 
-	var installs models.PaginatedListResponse[models.InstallRecord]
+	var installs models.ListResponse[models.InstallRecord]
 	decodeJSON(t, doJSON(t, "GET", srv.URL+"/v1/marketplace/installs", token, nil, 200), &installs)
 	require.Len(t, installs.Items, 1)
 }

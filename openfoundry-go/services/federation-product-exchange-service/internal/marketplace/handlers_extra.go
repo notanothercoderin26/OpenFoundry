@@ -105,6 +105,15 @@ func (h *Handlers) IncludeActionInProduct(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, version)
 }
 
+func (h *Handlers) ListInstallsEnvelope(w http.ResponseWriter, r *http.Request) {
+	items, _, err := h.Repo.ListInstalls(r.Context(), 100, 0)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database operation failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, models.ListResponse[models.InstallRecord]{Items: items})
+}
+
 func (h *Handlers) CreateDatasetProduct(w http.ResponseWriter, r *http.Request) {
 	var req models.CreateDatasetProductRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

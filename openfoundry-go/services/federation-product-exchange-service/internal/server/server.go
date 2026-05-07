@@ -82,7 +82,7 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handl
 			api.Post("/listings/{id}/versions", h.PublishVersion)
 			api.Post("/listings/{id}/actions", h.IncludeActionInProduct)
 			api.Get("/search", h.SearchListings)
-			api.Get("/installs", h.ListInstalls)
+			api.Get("/installs", h.ListInstallsEnvelope)
 			api.Post("/installs", h.CreateInstall)
 			api.Post("/products/from-dataset/{rid}", h.CreateDatasetProduct)
 			api.Get("/products/{id}", h.GetDatasetProduct)
