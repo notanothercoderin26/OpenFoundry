@@ -25,9 +25,11 @@ import (
 // independently — nil entries skip route registration so the foundation
 // build stays lean for environments that haven't enabled a submodule.
 //
-// IRF-9 ships the Schemas slot; later slices add their own.
+// IRF-9 ships the Schemas slot; IRF-8 ships Branches; later slices add
+// their own.
 type StreamingMetadata struct {
-	Schemas *handlers.SchemasHandler
+	Schemas  *handlers.SchemasHandler
+	Branches *handlers.BranchesHandler
 }
 
 func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, sm StreamingMetadata) *http.Server {
@@ -66,6 +68,18 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 			// Rust binary keep working.
 			api.Post("/streams/{id}/schema:validate", sm.Schemas.ValidateSchema)
 			api.Get("/streams/{id}/schema/history", sm.Schemas.ListSchemaHistory)
+		}
+
+		if sm.Branches != nil {
+			// IRF-8 — six stream-branch endpoints. The `:merge` /
+			// `:archive` suffixes mirror the Rust router exactly so
+			// the same client SDK works against both implementations.
+			api.Get("/streams/{id}/branches", sm.Branches.ListBranches)
+			api.Post("/streams/{id}/branches", sm.Branches.CreateBranch)
+			api.Get("/streams/{id}/branches/{name}", sm.Branches.GetBranch)
+			api.Delete("/streams/{id}/branches/{name}", sm.Branches.DeleteBranch)
+			api.Post("/streams/{id}/branches/{name}:merge", sm.Branches.MergeBranch)
+			api.Post("/streams/{id}/branches/{name}:archive", sm.Branches.ArchiveBranch)
 		}
 
 		api.Get("/cdc/streams", h.ListCdcStreams)

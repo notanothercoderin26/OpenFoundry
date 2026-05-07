@@ -84,11 +84,19 @@ func main() {
 	// IRF-9: schema-validation + history endpoints, backed by the
 	// shared event-bus-control schema-registry helpers (parses Avro,
 	// runs Confluent compatibility, produces the canonical fingerprint).
+	//
+	// IRF-8: stream-branch CRUD plus best-effort cold-tier bridge to
+	// dataset-versioning-service when DATASET_SERVICE_URL is set.
+	branches := &handlers.BranchesHandler{Store: store}
+	if cfg.DatasetServiceURL != "" {
+		branches.Cold = &handlers.HTTPColdTierBridge{BaseURL: cfg.DatasetServiceURL}
+	}
 	streamingMeta := server.StreamingMetadata{
 		Schemas: &handlers.SchemasHandler{
 			Store:    store,
 			Registry: handlers.BusControlSchemaRegistry{},
 		},
+		Branches: branches,
 	}
 	srv := server.New(cfg, jwt, h, metrics, streamingMeta)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {

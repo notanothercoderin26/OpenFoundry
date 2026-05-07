@@ -17,6 +17,12 @@ type Config struct {
 	DatabaseURL string
 	JWTSecret   string
 	MetricsAddr string
+	// DatasetServiceURL is the base URL for dataset-versioning-service.
+	// IRF-8 archives forward branch metadata here for cold-tier commit.
+	// Empty disables the cold-tier bridge — archive succeeds locally
+	// but the cold copy is skipped (mirrors the Rust default of
+	// http://dataset-versioning:50080 which is overridable per env).
+	DatasetServiceURL string
 }
 
 func FromEnv() (*Config, error) {
@@ -34,6 +40,7 @@ func FromEnv() (*Config, error) {
 		return nil, &MissingEnvError{Key: "JWT_SECRET"}
 	}
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
+	cfg.DatasetServiceURL = os.Getenv("DATASET_SERVICE_URL")
 	return cfg, nil
 }
 
