@@ -145,6 +145,40 @@ func (r *Repo) GetNamespace(ctx context.Context, id uuid.UUID) (*models.IcebergN
 	return v, err
 }
 
+// ListTopLevelNamespaces mirrors Rust `domain::namespace::list(_, _, None)`:
+// rows under `project_rid` whose `parent_namespace_id IS NULL`, ordered by
+// name. Used by the diagnose endpoint to probe Postgres reachability.
+func (r *Repo) ListTopLevelNamespaces(ctx context.Context, projectRID string) ([]models.IcebergNamespace, error) {
+	rows, err := r.Pool.Query(ctx, namespaceSelect+` WHERE project_rid = $1 AND parent_namespace_id IS NULL ORDER BY name`, projectRID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.IcebergNamespace, 0)
+	for rows.Next() {
+		v, err := scanNamespace(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *v)
+	}
+	return out, rows.Err()
+}
+
+// FetchNamespaceByName mirrors Rust `domain::namespace::fetch`: encodes the
+// path with dot-separators and looks up `(project_rid, name)`. Returns
+// `(nil, nil)` when the namespace does not exist so callers can map that to
+// the soft-warn outcome the Iceberg diagnose probe expects.
+func (r *Repo) FetchNamespaceByName(ctx context.Context, projectRID string, path []string) (*models.IcebergNamespace, error) {
+	name := strings.Join(path, ".")
+	row := r.Pool.QueryRow(ctx, namespaceSelect+` WHERE project_rid = $1 AND name = $2`, projectRID, name)
+	v, err := scanNamespace(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
 func (r *Repo) CreateNamespace(ctx context.Context, body *models.CreateNamespaceRequest, createdBy uuid.UUID) (*models.IcebergNamespace, error) {
 	id := uuid.New()
 	props := body.Properties

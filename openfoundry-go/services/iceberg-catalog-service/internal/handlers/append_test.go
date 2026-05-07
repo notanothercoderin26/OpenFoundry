@@ -32,6 +32,12 @@ type fakeAppendStore struct {
 func (f *fakeAppendStore) ListNamespaces(context.Context, string) ([]models.IcebergNamespace, error) {
 	return nil, nil
 }
+func (f *fakeAppendStore) ListTopLevelNamespaces(context.Context, string) ([]models.IcebergNamespace, error) {
+	return nil, nil
+}
+func (f *fakeAppendStore) FetchNamespaceByName(context.Context, string, []string) (*models.IcebergNamespace, error) {
+	return nil, nil
+}
 func (f *fakeAppendStore) GetNamespace(context.Context, uuid.UUID) (*models.IcebergNamespace, error) {
 	return nil, nil
 }

@@ -60,7 +60,7 @@ func main() {
 	}
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
-	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}}
+	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}, WarehouseURI: cfg.WarehouseURI}
 	metrics := observability.NewMetrics()
 
 	srv := server.New(cfg, jwt, h, metrics)

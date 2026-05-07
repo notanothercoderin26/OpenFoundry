@@ -60,6 +60,8 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 
 	r.Route("/iceberg/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
+		api.Get("/config", h.GetConfig)
+		api.Post("/diagnose", h.RunDiagnose)
 		api.Get("/namespaces/{namespace}/tables", h.ListTables)
 		api.Post("/namespaces/{namespace}/tables", h.CreateTable)
 		api.Post("/tables/rename", h.RenameTable)
