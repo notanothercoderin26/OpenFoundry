@@ -2,10 +2,13 @@
 package handlers
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -15,7 +18,23 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/repo"
 )
 
-type Handlers struct{ Repo *repo.Repo }
+type Store interface {
+	ListDatasets(ctx context.Context, ownerID *uuid.UUID, limit int) ([]models.Dataset, error)
+	GetDataset(ctx context.Context, id uuid.UUID) (*models.Dataset, error)
+	GetDatasetForOwner(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (*models.Dataset, error)
+	CreateDataset(ctx context.Context, body *models.CreateDatasetRequest, ownerID uuid.UUID) (*models.Dataset, error)
+	UpdateDataset(ctx context.Context, id uuid.UUID, body *models.UpdateDatasetRequest) (*models.Dataset, error)
+	DeleteDataset(ctx context.Context, id uuid.UUID) (bool, error)
+	ListVersions(ctx context.Context, datasetID uuid.UUID) ([]models.DatasetVersion, error)
+	GetVersion(ctx context.Context, datasetID uuid.UUID, version int32) (*models.DatasetVersion, error)
+	CreateVersion(ctx context.Context, datasetID uuid.UUID, body *models.CreateDatasetVersionRequest) (*models.DatasetVersion, error)
+	EnsureDefaultBranch(ctx context.Context, dataset *models.Dataset) error
+	ListBranches(ctx context.Context, datasetID uuid.UUID) ([]models.DatasetBranch, error)
+	GetBranch(ctx context.Context, datasetID uuid.UUID, name string) (*models.DatasetBranch, error)
+	CreateBranch(ctx context.Context, dataset *models.Dataset, body *models.CreateDatasetBranchRequest) (*models.DatasetBranch, error)
+}
+
+type Handlers struct{ Repo Store }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -149,4 +168,206 @@ func (h *Handlers) DeleteDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func parsePage(r *http.Request) (offset int, limit int) {
+	limit = 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			limit = n
+		}
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if raw := r.URL.Query().Get("cursor"); raw != "" {
+		if decoded, err := base64.RawURLEncoding.DecodeString(raw); err == nil {
+			if text := string(decoded); strings.HasPrefix(text, "of:") {
+				if n, err := strconv.Atoi(strings.TrimPrefix(text, "of:")); err == nil && n > 0 {
+					offset = n
+				}
+			}
+		}
+	}
+	return offset, limit
+}
+
+func encodeCursor(offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte("of:" + strconv.Itoa(offset)))
+}
+
+func (h *Handlers) ownedDataset(w http.ResponseWriter, r *http.Request) (*authmw.Claims, *models.Dataset, bool) {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return nil, nil, false
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid id")
+		return nil, nil, false
+	}
+	dataset, err := h.Repo.GetDatasetForOwner(r.Context(), id, caller.Sub)
+	if err != nil {
+		slog.Error("load dataset", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to load dataset")
+		return nil, nil, false
+	}
+	if dataset == nil {
+		writeJSONErr(w, http.StatusNotFound, "dataset not found")
+		return nil, nil, false
+	}
+	return caller, dataset, true
+}
+
+func (h *Handlers) ListVersions(w http.ResponseWriter, r *http.Request) {
+	_, dataset, ok := h.ownedDataset(w, r)
+	if !ok {
+		return
+	}
+	versions, err := h.Repo.ListVersions(r.Context(), dataset.ID)
+	if err != nil {
+		slog.Error("list versions", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to list versions")
+		return
+	}
+	offset, limit := parsePage(r)
+	if offset > len(versions) {
+		offset = len(versions)
+	}
+	end := offset + limit
+	if end > len(versions) {
+		end = len(versions)
+	}
+	hasMore := end < len(versions)
+	var next *string
+	if hasMore {
+		v := encodeCursor(offset + limit)
+		next = &v
+	}
+	writeJSON(w, http.StatusOK, models.Page[models.DatasetVersion]{Data: versions[offset:end], NextCursor: next, HasMore: hasMore})
+}
+
+func (h *Handlers) GetVersion(w http.ResponseWriter, r *http.Request) {
+	_, dataset, ok := h.ownedDataset(w, r)
+	if !ok {
+		return
+	}
+	n, err := strconv.Atoi(chi.URLParam(r, "version"))
+	if err != nil || n < 1 {
+		writeJSONErr(w, http.StatusBadRequest, "invalid version")
+		return
+	}
+	v, err := h.Repo.GetVersion(r.Context(), dataset.ID, int32(n))
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if v == nil {
+		writeJSONErr(w, http.StatusNotFound, "version not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) CreateVersion(w http.ResponseWriter, r *http.Request) {
+	_, dataset, ok := h.ownedDataset(w, r)
+	if !ok {
+		return
+	}
+	var body models.CreateDatasetVersionRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if strings.TrimSpace(body.StoragePath) == "" {
+		writeJSONErr(w, http.StatusBadRequest, "storage_path required")
+		return
+	}
+	v, err := h.Repo.CreateVersion(r.Context(), dataset.ID, &body)
+	if repo.IsConflict(err) {
+		writeJSONErr(w, http.StatusConflict, "version already exists")
+		return
+	}
+	if err != nil {
+		slog.Error("create version", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to create version")
+		return
+	}
+	writeJSON(w, http.StatusCreated, v)
+}
+
+func (h *Handlers) ListBranches(w http.ResponseWriter, r *http.Request) {
+	_, dataset, ok := h.ownedDataset(w, r)
+	if !ok {
+		return
+	}
+	if err := h.Repo.EnsureDefaultBranch(r.Context(), dataset); err != nil {
+		slog.Error("ensure default branch", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to ensure default branch")
+		return
+	}
+	branches, err := h.Repo.ListBranches(r.Context(), dataset.ID)
+	if err != nil {
+		slog.Error("list branches", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to list branches")
+		return
+	}
+	writeJSON(w, http.StatusOK, branches)
+}
+
+func (h *Handlers) GetBranch(w http.ResponseWriter, r *http.Request) {
+	_, dataset, ok := h.ownedDataset(w, r)
+	if !ok {
+		return
+	}
+	name := chi.URLParam(r, "branch")
+	v, err := h.Repo.GetBranch(r.Context(), dataset.ID, name)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if v == nil {
+		writeJSONErr(w, http.StatusNotFound, "branch not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) CreateBranch(w http.ResponseWriter, r *http.Request) {
+	_, dataset, ok := h.ownedDataset(w, r)
+	if !ok {
+		return
+	}
+	var body models.CreateDatasetBranchRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" {
+		writeJSONErr(w, http.StatusBadRequest, "branch name is required")
+		return
+	}
+	if err := h.Repo.EnsureDefaultBranch(r.Context(), dataset); err != nil {
+		slog.Error("ensure default branch", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to ensure default branch")
+		return
+	}
+	v, err := h.Repo.CreateBranch(r.Context(), dataset, &body)
+	if repo.IsConflict(err) {
+		writeJSONErr(w, http.StatusConflict, "branch already exists")
+		return
+	}
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "source version does not exist") {
+			status = http.StatusBadRequest
+		}
+		writeJSONErr(w, status, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, v)
 }

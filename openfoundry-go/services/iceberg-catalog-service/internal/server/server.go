@@ -39,6 +39,19 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/namespaces/{id}", h.GetNamespace)
 		api.Patch("/namespaces/{id}", h.UpdateNamespace)
 		api.Delete("/namespaces/{id}", h.DeleteNamespace)
+
+		api.Get("/namespaces/{namespace}/tables", h.ListTables)
+		api.Post("/namespaces/{namespace}/tables", h.CreateTable)
+		api.Get("/namespaces/{namespace}/tables/{table}", h.LoadTable)
+		api.Post("/namespaces/{namespace}/tables/{table}", h.CommitTable)
+	})
+
+	r.Route("/iceberg/v1", func(api chi.Router) {
+		api.Use(authmw.Middleware(jwt))
+		api.Get("/namespaces/{namespace}/tables", h.ListTables)
+		api.Post("/namespaces/{namespace}/tables", h.CreateTable)
+		api.Get("/namespaces/{namespace}/tables/{table}", h.LoadTable)
+		api.Post("/namespaces/{namespace}/tables/{table}", h.CommitTable)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

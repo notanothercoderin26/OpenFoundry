@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/models"
@@ -46,7 +47,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// Repo wraps the SQL surface for the foundation slice (datasets).
+// Repo wraps the SQL surface for datasets, versions and branches.
 type Repo struct{ Pool *pgxpool.Pool }
 
 const datasetSelect = `SELECT id, name, description, format, storage_path,
@@ -105,11 +106,11 @@ func (r *Repo) CreateDataset(ctx context.Context, body *models.CreateDatasetRequ
 	}
 	row := r.Pool.QueryRow(ctx,
 		`INSERT INTO datasets
-		    (id, name, description, format, storage_path, owner_id, tags)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		    (id, rid, name, description, format, storage_path, owner_id, tags)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING id, name, description, format, storage_path, size_bytes,
 		           row_count, owner_id, tags, current_version, created_at, updated_at`,
-		id, strings.TrimSpace(body.Name), body.Description, format,
+		id, "ri.foundry.main.dataset."+id.String(), strings.TrimSpace(body.Name), body.Description, format,
 		strings.TrimSpace(body.StoragePath), ownerID, tags,
 	)
 	return scanDataset(row)
@@ -167,6 +168,196 @@ func scanDataset(r rowLikeT) (*models.Dataset, error) {
 	}
 	if v.Tags == nil {
 		v.Tags = []string{}
+	}
+	return v, nil
+}
+
+const versionSelect = `SELECT id, dataset_id, version, message, size_bytes,
+	row_count, storage_path, transaction_id, created_at FROM dataset_versions`
+
+// ErrConflict reports a unique-key conflict that should map to HTTP 409.
+var ErrConflict = errors.New("conflict")
+
+func IsConflict(err error) bool {
+	if errors.Is(err, ErrConflict) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func (r *Repo) GetDatasetForOwner(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (*models.Dataset, error) {
+	row := r.Pool.QueryRow(ctx, datasetSelect+` WHERE id = $1 AND owner_id = $2`, id, ownerID)
+	v, err := scanDataset(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (r *Repo) ListVersions(ctx context.Context, datasetID uuid.UUID) ([]models.DatasetVersion, error) {
+	rows, err := r.Pool.Query(ctx, versionSelect+` WHERE dataset_id = $1 ORDER BY version DESC`, datasetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.DatasetVersion, 0)
+	for rows.Next() {
+		v, err := scanVersion(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *v)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) GetVersion(ctx context.Context, datasetID uuid.UUID, version int32) (*models.DatasetVersion, error) {
+	row := r.Pool.QueryRow(ctx, versionSelect+` WHERE dataset_id = $1 AND version = $2`, datasetID, version)
+	v, err := scanVersion(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (r *Repo) CreateVersion(ctx context.Context, datasetID uuid.UUID, body *models.CreateDatasetVersionRequest) (*models.DatasetVersion, error) {
+	version := int32(0)
+	if body.Version != nil {
+		version = *body.Version
+	} else {
+		err := r.Pool.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) + 1 FROM dataset_versions WHERE dataset_id = $1`, datasetID).Scan(&version)
+		if err != nil {
+			return nil, err
+		}
+	}
+	row := r.Pool.QueryRow(ctx,
+		`INSERT INTO dataset_versions
+		    (id, dataset_id, version, message, size_bytes, row_count, storage_path, transaction_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING id, dataset_id, version, message, size_bytes, row_count, storage_path, transaction_id, created_at`,
+		uuid.New(), datasetID, version, body.Message, body.SizeBytes, body.RowCount,
+		strings.TrimSpace(body.StoragePath), body.TransactionID,
+	)
+	v, err := scanVersion(row)
+	if IsConflict(err) {
+		return nil, ErrConflict
+	}
+	if err != nil {
+		return nil, err
+	}
+	_, err = r.Pool.Exec(ctx, `UPDATE datasets SET current_version = GREATEST(current_version, $2), updated_at = $3 WHERE id = $1`, datasetID, version, time.Now().UTC())
+	return v, err
+}
+
+const branchSelect = `SELECT id,
+	COALESCE(rid, 'ri.foundry.main.branch.' || id::text) AS rid,
+	dataset_id,
+	COALESCE(dataset_rid, 'ri.foundry.main.dataset.' || dataset_id::text) AS dataset_rid,
+	name, parent_branch_id, head_transaction_id, created_from_transaction_id,
+	last_activity_at, labels, fallback_chain, version, base_version,
+	description, is_default, created_at, updated_at FROM dataset_branches`
+
+func (r *Repo) EnsureDefaultBranch(ctx context.Context, dataset *models.Dataset) error {
+	var exists bool
+	if err := r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM dataset_branches WHERE dataset_id = $1)`, dataset.ID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	_, err := r.Pool.Exec(ctx,
+		`INSERT INTO dataset_branches (id, dataset_id, dataset_rid, name, version, base_version, description, is_default)
+		 VALUES ($1, $2, 'ri.foundry.main.dataset.' || $2::text, 'main', $3, $3, 'Default branch', TRUE)`,
+		uuid.New(), dataset.ID, dataset.CurrentVersion,
+	)
+	if IsConflict(err) {
+		return nil
+	}
+	return err
+}
+
+func (r *Repo) ListBranches(ctx context.Context, datasetID uuid.UUID) ([]models.DatasetBranch, error) {
+	rows, err := r.Pool.Query(ctx, branchSelect+` WHERE dataset_id = $1 ORDER BY is_default DESC, name ASC`, datasetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.DatasetBranch, 0)
+	for rows.Next() {
+		v, err := scanBranch(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *v)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) GetBranch(ctx context.Context, datasetID uuid.UUID, name string) (*models.DatasetBranch, error) {
+	row := r.Pool.QueryRow(ctx, branchSelect+` WHERE dataset_id = $1 AND name = $2`, datasetID, name)
+	v, err := scanBranch(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (r *Repo) CreateBranch(ctx context.Context, dataset *models.Dataset, body *models.CreateDatasetBranchRequest) (*models.DatasetBranch, error) {
+	sourceVersion := dataset.CurrentVersion
+	if body.SourceVersion != nil {
+		sourceVersion = *body.SourceVersion
+	}
+	if sourceVersion != dataset.CurrentVersion {
+		var exists bool
+		if err := r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM dataset_versions WHERE dataset_id = $1 AND version = $2)`, dataset.ID, sourceVersion).Scan(&exists); err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, fmt.Errorf("source version does not exist")
+		}
+	}
+	row := r.Pool.QueryRow(ctx,
+		`INSERT INTO dataset_branches (id, dataset_id, dataset_rid, name, version, base_version, description, is_default)
+		 VALUES ($1, $2, 'ri.foundry.main.dataset.' || $2::text, $3, $4, $4, $5, FALSE)
+		 RETURNING id, COALESCE(rid, 'ri.foundry.main.branch.' || id::text), dataset_id,
+		           COALESCE(dataset_rid, 'ri.foundry.main.dataset.' || dataset_id::text), name,
+		           parent_branch_id, head_transaction_id, created_from_transaction_id,
+		           last_activity_at, labels, fallback_chain, version, base_version,
+		           description, is_default, created_at, updated_at`,
+		uuid.New(), dataset.ID, strings.TrimSpace(body.Name), sourceVersion, body.Description,
+	)
+	v, err := scanBranch(row)
+	if IsConflict(err) {
+		return nil, ErrConflict
+	}
+	return v, err
+}
+
+func scanVersion(r rowLikeT) (*models.DatasetVersion, error) {
+	v := &models.DatasetVersion{}
+	if err := r.Scan(&v.ID, &v.DatasetID, &v.Version, &v.Message, &v.SizeBytes,
+		&v.RowCount, &v.StoragePath, &v.TransactionID, &v.CreatedAt); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+func scanBranch(r rowLikeT) (*models.DatasetBranch, error) {
+	v := &models.DatasetBranch{}
+	var labels []byte
+	if err := r.Scan(&v.ID, &v.RID, &v.DatasetID, &v.DatasetRID, &v.Name,
+		&v.ParentBranchID, &v.HeadTransactionID, &v.CreatedFromTransactionID,
+		&v.LastActivityAt, &labels, &v.FallbackChain, &v.Version, &v.BaseVersion,
+		&v.Description, &v.IsDefault, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		return nil, err
+	}
+	if len(labels) == 0 {
+		labels = []byte(`{}`)
+	}
+	v.Labels = labels
+	if v.FallbackChain == nil {
+		v.FallbackChain = []string{}
 	}
 	return v, nil
 }
