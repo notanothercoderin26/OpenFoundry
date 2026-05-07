@@ -30,11 +30,14 @@ func TestDatasetJSONShape(t *testing.T) {
 	t.Parallel()
 	d := models.Dataset{
 		ID: uuid.New(), Name: "sales", Description: "fact",
-		Format: "parquet", StoragePath: "s3://x/y",
+		Format: "parquet", StoragePath: "bronze/abc",
 		SizeBytes: 1024, RowCount: 100,
 		OwnerID:        uuid.New(),
 		Tags:           []string{"finance", "daily"},
 		CurrentVersion: 1,
+		ActiveBranch:   "main",
+		Metadata:       []byte(`{}`),
+		HealthStatus:   "unknown",
 		CreatedAt:      time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
 		UpdatedAt:      time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
 	}
@@ -44,34 +47,141 @@ func TestDatasetJSONShape(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out, &view))
 	for _, k := range []string{
 		"id", "name", "description", "format", "storage_path", "size_bytes",
-		"row_count", "owner_id", "tags", "current_version", "created_at", "updated_at",
+		"row_count", "owner_id", "tags", "current_version", "active_branch",
+		"metadata", "health_status", "current_view_id", "created_at", "updated_at",
 	} {
 		assert.Contains(t, view, k)
 	}
 	assert.Equal(t, "parquet", view["format"])
+	assert.Equal(t, "main", view["active_branch"])
+	assert.Equal(t, "unknown", view["health_status"])
 }
 
 func TestCreateDatasetRequiresAuth(t *testing.T) {
 	t.Parallel()
 	h := &handlers.Handlers{}
 	req := httptest.NewRequest("POST", "/datasets",
-		strings.NewReader(`{"name":"x","storage_path":"s3://y"}`))
+		strings.NewReader(`{"name":"x"}`))
 	rec := httptest.NewRecorder()
 	h.CreateDataset(rec, req)
 	assert.Equal(t, 401, rec.Code)
 }
 
-func TestCreateDatasetRejectsEmptyFields(t *testing.T) {
+func TestCreateDatasetRejectsEmptyName(t *testing.T) {
 	t.Parallel()
 	h := &handlers.Handlers{}
-	c := &authmw.Claims{Sub: uuid.New()}
+	c := &authmw.Claims{Sub: uuid.New(), Roles: []string{"admin"}}
 	req := httptest.NewRequest("POST", "/datasets",
-		strings.NewReader(`{"name":"","storage_path":""}`))
+		strings.NewReader(`{"name":""}`))
 	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
 	rec := httptest.NewRecorder()
 	h.CreateDataset(rec, req)
 	assert.Equal(t, 400, rec.Code)
-	assert.Contains(t, rec.Body.String(), "name and storage_path required")
+	assert.Contains(t, rec.Body.String(), "dataset name is required")
+}
+
+func TestCreateDatasetRejectsUnsupportedFormat(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore(uuid.New())
+	h := &handlers.Handlers{Repo: store}
+	c := &authmw.Claims{Sub: uuid.New(), Roles: []string{"admin"}}
+	req := httptest.NewRequest("POST", "/datasets",
+		strings.NewReader(`{"name":"orders","format":"excel"}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateDataset(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "unsupported dataset format")
+}
+
+func TestCreateDatasetRejectsUnsupportedHealthStatus(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore(uuid.New())
+	h := &handlers.Handlers{Repo: store}
+	c := &authmw.Claims{Sub: uuid.New(), Roles: []string{"admin"}}
+	req := httptest.NewRequest("POST", "/datasets",
+		strings.NewReader(`{"name":"orders","health_status":"green"}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateDataset(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "health_status must be one of")
+}
+
+func TestCreateDatasetForbidsCallerWithoutWriteScope(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("POST", "/datasets",
+		strings.NewReader(`{"name":"orders"}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateDataset(rec, req)
+	assert.Equal(t, 403, rec.Code)
+	assert.Contains(t, rec.Body.String(), "dataset.write")
+}
+
+func TestCreateDatasetDefaultsAndPersists(t *testing.T) {
+	t.Parallel()
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	c := &authmw.Claims{Sub: owner, Roles: []string{"admin"}}
+	req := httptest.NewRequest("POST", "/datasets",
+		strings.NewReader(`{"name":"orders"}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateDataset(rec, req)
+	require.Equal(t, 201, rec.Code)
+	var got models.Dataset
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, "orders", got.Name)
+	assert.Equal(t, "parquet", got.Format)
+	assert.Equal(t, "unknown", got.HealthStatus)
+	assert.Equal(t, "main", got.ActiveBranch)
+	assert.True(t, strings.HasPrefix(got.StoragePath, "bronze/"))
+}
+
+func TestUpdateDatasetRejectsUnknownHealthStatus(t *testing.T) {
+	t.Parallel()
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	req := datasetReq("PATCH", store, owner, `{"health_status":"green"}`)
+	rec := httptest.NewRecorder()
+	h.UpdateDataset(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "health_status must be one of")
+}
+
+func TestUpdateDatasetAppliesPatch(t *testing.T) {
+	t.Parallel()
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	req := datasetReq("PATCH", store, owner, `{"description":"new","health_status":"healthy"}`)
+	rec := httptest.NewRecorder()
+	h.UpdateDataset(rec, req)
+	require.Equal(t, 200, rec.Code)
+	var got models.Dataset
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, "new", got.Description)
+	assert.Equal(t, "healthy", got.HealthStatus)
+}
+
+func TestDeleteDatasetRequiresWriteScope(t *testing.T) {
+	t.Parallel()
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	c := &authmw.Claims{Sub: owner}
+	target := store.datasets[0].ID.String()
+	req := httptest.NewRequest("DELETE", "/datasets/"+target, nil)
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	req = withRouteParam(req, "id", target)
+	rec := httptest.NewRecorder()
+	h.DeleteDataset(rec, req)
+	assert.Equal(t, 403, rec.Code)
 }
 
 func TestListDatasetsRequiresAuth(t *testing.T) {
@@ -194,12 +304,77 @@ func (f *fakeStore) GetInternalDatasetMetadata(ctx context.Context, datasetID uu
 	return out, nil
 }
 func (f *fakeStore) CreateDataset(_ context.Context, body *models.CreateDatasetRequest, ownerID uuid.UUID) (*models.Dataset, error) {
-	d := models.Dataset{ID: uuid.New(), Name: body.Name, StoragePath: body.StoragePath, Format: "parquet", OwnerID: ownerID, Tags: []string{}, CurrentVersion: 1, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	id := uuid.New()
+	format := "parquet"
+	if body.Format != nil && *body.Format != "" {
+		format = *body.Format
+	}
+	tags := body.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	description := ""
+	if body.Description != nil {
+		description = *body.Description
+	}
+	metadata := []byte(`{}`)
+	if len(body.Metadata) > 0 {
+		metadata = body.Metadata
+	}
+	health := "unknown"
+	if body.HealthStatus != nil && *body.HealthStatus != "" {
+		health = *body.HealthStatus
+	}
+	d := models.Dataset{
+		ID:             id,
+		Name:           strings.TrimSpace(body.Name),
+		Description:    description,
+		Format:         format,
+		StoragePath:    "bronze/" + id.String(),
+		OwnerID:        ownerID,
+		Tags:           tags,
+		CurrentVersion: 1,
+		ActiveBranch:   "main",
+		Metadata:       metadata,
+		HealthStatus:   health,
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+	}
 	f.datasets = append(f.datasets, d)
 	return &d, nil
 }
-func (f *fakeStore) UpdateDataset(_ context.Context, id uuid.UUID, _ *models.UpdateDatasetRequest) (*models.Dataset, error) {
-	return f.GetDataset(context.Background(), id)
+func (f *fakeStore) UpdateDataset(_ context.Context, id uuid.UUID, body *models.UpdateDatasetRequest) (*models.Dataset, error) {
+	for i := range f.datasets {
+		if f.datasets[i].ID != id {
+			continue
+		}
+		d := &f.datasets[i]
+		if body.Name != nil {
+			d.Name = *body.Name
+		}
+		if body.Description != nil {
+			d.Description = *body.Description
+		}
+		if body.Tags != nil {
+			d.Tags = body.Tags
+		}
+		if body.OwnerID != nil {
+			d.OwnerID = *body.OwnerID
+		}
+		if len(body.Metadata) > 0 {
+			d.Metadata = body.Metadata
+		}
+		if body.HealthStatus != nil {
+			d.HealthStatus = *body.HealthStatus
+		}
+		if body.CurrentViewID != nil {
+			d.CurrentViewID = body.CurrentViewID
+		}
+		d.UpdatedAt = time.Now().UTC()
+		copy := *d
+		return &copy, nil
+	}
+	return nil, nil
 }
 func (f *fakeStore) DeleteDataset(_ context.Context, id uuid.UUID) (bool, error) {
 	_, err := f.GetDataset(context.Background(), id)

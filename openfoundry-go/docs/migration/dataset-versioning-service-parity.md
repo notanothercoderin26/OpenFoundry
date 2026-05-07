@@ -258,3 +258,8 @@ Go has a copied/ported migration set under `openfoundry-go/services/dataset-vers
 7. **Quality/lint/health slice**: route handlers are ported for `/api/v1/datasets/*/quality`, lint, and dataset health. Follow-up can deepen live profiling/metrics recomputation beyond persisted profile/snapshot repository reads.
 8. **Retention worker slice**: add Go worker package and scheduling/config equivalents for branch/transaction retention.
 9. **Rust test migration matrix**: port the Rust integration tests listed above as Go tests in the same slice order, keeping route-audit and contract fixtures as required checks.
+
+
+## Status updates
+
+- 2026-05-07 (DV-1, dataset CRUD parity): `Dataset`, `CreateDatasetRequest`, and `UpdateDatasetRequest` now match Rust `data_asset_catalog::models::dataset` byte-for-byte (added `active_branch`, `metadata`, `health_status`, `current_view_id`). `POST /v1/datasets` and `/api/v1/datasets` validate name/format/health and default to Bronze-prefixed `storage_path`; `PATCH` uses COALESCE-based PATCH semantics; create/update/delete emit a `dataset.{create,update,delete}` audit event. New table tests cover format/health validation, RBAC denials, and PATCH application. Pre-existing `transactions:batchGet` placeholder test failure on `internal/server` predates this slice.

@@ -20,37 +20,47 @@ type Page[T any] struct {
 	HasMore    bool    `json:"has_more"`
 }
 
-// Dataset mirrors the `datasets` row.
+// Dataset mirrors the `datasets` row, byte-compatible with Rust
+// `data_asset_catalog::models::dataset::Dataset`.
 type Dataset struct {
-	ID             uuid.UUID `json:"id"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description"`
-	Format         string    `json:"format"`
-	StoragePath    string    `json:"storage_path"`
-	SizeBytes      int64     `json:"size_bytes"`
-	RowCount       int64     `json:"row_count"`
-	OwnerID        uuid.UUID `json:"owner_id"`
-	Tags           []string  `json:"tags"`
-	CurrentVersion int32     `json:"current_version"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             uuid.UUID       `json:"id"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	Format         string          `json:"format"`
+	StoragePath    string          `json:"storage_path"`
+	SizeBytes      int64           `json:"size_bytes"`
+	RowCount       int64           `json:"row_count"`
+	OwnerID        uuid.UUID       `json:"owner_id"`
+	Tags           []string        `json:"tags"`
+	CurrentVersion int32           `json:"current_version"`
+	ActiveBranch   string          `json:"active_branch"`
+	Metadata       json.RawMessage `json:"metadata"`
+	HealthStatus   string          `json:"health_status"`
+	CurrentViewID  *uuid.UUID      `json:"current_view_id"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
-// CreateDatasetRequest is the body of POST /api/v1/datasets.
+// CreateDatasetRequest is the body of POST /v1/datasets, mirroring Rust
+// `CreateDatasetRequest`.
 type CreateDatasetRequest struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Format      *string  `json:"format,omitempty"`
-	StoragePath string   `json:"storage_path"`
-	Tags        []string `json:"tags,omitempty"`
+	Name         string          `json:"name"`
+	Description  *string         `json:"description,omitempty"`
+	Format       *string         `json:"format,omitempty"`
+	Tags         []string        `json:"tags,omitempty"`
+	Metadata     json.RawMessage `json:"metadata,omitempty"`
+	HealthStatus *string         `json:"health_status,omitempty"`
 }
 
-// UpdateDatasetRequest mirrors PATCH semantics.
+// UpdateDatasetRequest mirrors Rust `UpdateDatasetRequest` PATCH semantics.
 type UpdateDatasetRequest struct {
-	Description *string  `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	SizeBytes   *int64   `json:"size_bytes,omitempty"`
-	RowCount    *int64   `json:"row_count,omitempty"`
+	Name          *string         `json:"name,omitempty"`
+	Description   *string         `json:"description,omitempty"`
+	OwnerID       *uuid.UUID      `json:"owner_id,omitempty"`
+	Tags          []string        `json:"tags,omitempty"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	HealthStatus  *string         `json:"health_status,omitempty"`
+	CurrentViewID *uuid.UUID      `json:"current_view_id,omitempty"`
 }
 
 // DatasetVersion mirrors the Rust DatasetVersion model.

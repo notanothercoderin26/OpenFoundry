@@ -177,10 +177,16 @@ func (h *Handlers) GetDataset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
+// CreateDataset ports Rust `create_dataset`: RBAC gate, name/format/health
+// validation, declarative defaults and a `dataset.create` audit emission.
 func (h *Handlers) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	caller, ok := authmw.FromContext(r.Context())
 	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if !canWriteDataset(caller) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden", "required_scope": "dataset.write", "dataset_rid": "new"})
 		return
 	}
 	var body models.CreateDatasetRequest
@@ -188,21 +194,50 @@ func (h *Handlers) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if body.Name == "" || body.StoragePath == "" {
-		writeJSONErr(w, http.StatusBadRequest, "name and storage_path required")
-		return
-	}
-	v, err := h.Repo.CreateDataset(r.Context(), &body, caller.Sub)
-	if err != nil {
-		slog.Error("create dataset", slog.String("error", err.Error()))
+	if err := validateDatasetName(body.Name); err != nil {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	format := "parquet"
+	if body.Format != nil && *body.Format != "" {
+		format = strings.ToLower(*body.Format)
+	}
+	if err := validateDatasetFormat(format); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	body.Format = &format
+	health := "unknown"
+	if body.HealthStatus != nil && *body.HealthStatus != "" {
+		health = *body.HealthStatus
+	}
+	if err := validateHealthStatus(health); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	body.HealthStatus = &health
+	v, err := h.Repo.CreateDataset(r.Context(), &body, caller.Sub)
+	if err != nil {
+		slog.Error("create dataset", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "create failed")
+		return
+	}
+	emitDatasetAudit(caller.Sub.String(), "dataset.create", v.StoragePath, map[string]any{
+		"dataset_id":      v.ID,
+		"name":            v.Name,
+		"format":          v.Format,
+		"tags":            v.Tags,
+		"runtime_owner":   "dataset-versioning-service",
+		"versioning_mode": "declarative-only",
+	})
 	writeJSON(w, http.StatusCreated, v)
 }
 
+// UpdateDataset ports Rust `update_dataset`: RBAC gate, name/health
+// validation and a `dataset.update` audit emission listing changed fields.
 func (h *Handlers) UpdateDataset(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -211,10 +246,26 @@ func (h *Handlers) UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
+	if !canWriteDataset(caller) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden", "required_scope": "dataset.write", "dataset_rid": id.String()})
+		return
+	}
 	var body models.UpdateDatasetRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid body")
 		return
+	}
+	if body.Name != nil {
+		if err := validateDatasetName(*body.Name); err != nil {
+			writeJSONErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if body.HealthStatus != nil {
+		if err := validateHealthStatus(*body.HealthStatus); err != nil {
+			writeJSONErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	v, err := h.Repo.UpdateDataset(r.Context(), id, &body)
 	if err != nil {
@@ -225,11 +276,16 @@ func (h *Handlers) UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusNotFound, "dataset not found")
 		return
 	}
+	emitDatasetAudit(caller.Sub.String(), "dataset.update", v.StoragePath, map[string]any{
+		"dataset_id":     v.ID,
+		"fields_changed": updateChangedFields(&body),
+	})
 	writeJSON(w, http.StatusOK, v)
 }
 
 func (h *Handlers) DeleteDataset(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -237,6 +293,14 @@ func (h *Handlers) DeleteDataset(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
+	}
+	if !canWriteDataset(caller) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden", "required_scope": "dataset.write", "dataset_rid": id.String()})
+		return
+	}
+	storagePath := "unknown"
+	if existing, _ := h.Repo.GetDataset(r.Context(), id); existing != nil {
+		storagePath = existing.StoragePath
 	}
 	deleted, err := h.Repo.DeleteDataset(r.Context(), id)
 	if err != nil {
@@ -247,7 +311,62 @@ func (h *Handlers) DeleteDataset(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusNotFound, "dataset not found")
 		return
 	}
+	emitDatasetAudit(caller.Sub.String(), "dataset.delete", storagePath, map[string]any{
+		"dataset_id": id,
+	})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func canWriteDataset(claims *authmw.Claims) bool {
+	if claims == nil {
+		return false
+	}
+	if claims.HasRole("admin") {
+		return true
+	}
+	return claims.HasPermissionKey("dataset.write") || claims.HasPermission("dataset", "write")
+}
+
+// updateChangedFields lists the columns the PATCH body explicitly targeted,
+// matching Rust's audit `fields_changed` array. The list keeps Rust's
+// declaration order so audit consumers can compare records byte-for-byte.
+func updateChangedFields(body *models.UpdateDatasetRequest) []string {
+	out := make([]string, 0, 7)
+	if body.Name != nil {
+		out = append(out, "name")
+	}
+	if body.Description != nil {
+		out = append(out, "description")
+	}
+	if body.Tags != nil {
+		out = append(out, "tags")
+	}
+	if body.OwnerID != nil {
+		out = append(out, "owner_id")
+	}
+	if len(body.Metadata) > 0 {
+		out = append(out, "metadata")
+	}
+	if body.HealthStatus != nil {
+		out = append(out, "health_status")
+	}
+	if body.CurrentViewID != nil {
+		out = append(out, "current_view_id")
+	}
+	return out
+}
+
+func emitDatasetAudit(actor, action, datasetRID string, extra map[string]any) {
+	encoded, err := json.Marshal(extra)
+	if err != nil {
+		encoded = []byte(`{}`)
+	}
+	slog.Info("audit",
+		slog.String("actor", actor),
+		slog.String("action", action),
+		slog.String("dataset_rid", datasetRID),
+		slog.String("details", string(encoded)),
+	)
 }
 
 func parsePage(r *http.Request) (offset int, limit int) {

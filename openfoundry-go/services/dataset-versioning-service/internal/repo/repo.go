@@ -59,7 +59,8 @@ type DB interface {
 type Repo struct{ Pool DB }
 
 const datasetSelect = `SELECT id, name, description, format, storage_path,
-	size_bytes, row_count, owner_id, tags, current_version, created_at, updated_at
+	size_bytes, row_count, owner_id, tags, current_version, active_branch,
+	metadata, health_status, current_view_id, created_at, updated_at
 	FROM datasets`
 
 func (r *Repo) ListDatasets(ctx context.Context, ownerID *uuid.UUID, limit int) ([]models.Dataset, error) {
@@ -74,9 +75,9 @@ func (r *Repo) ListDatasets(ctx context.Context, ownerID *uuid.UUID, limit int) 
 		err  error
 	)
 	if ownerID != nil {
-		rows, err = r.Pool.Query(ctx, datasetSelect+` WHERE owner_id = $1 ORDER BY updated_at DESC LIMIT $2`, *ownerID, limit)
+		rows, err = r.Pool.Query(ctx, datasetSelect+` WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2`, *ownerID, limit)
 	} else {
-		rows, err = r.Pool.Query(ctx, datasetSelect+` ORDER BY updated_at DESC LIMIT $1`, limit)
+		rows, err = r.Pool.Query(ctx, datasetSelect+` ORDER BY created_at DESC LIMIT $1`, limit)
 	}
 	if err != nil {
 		return nil, err
@@ -102,59 +103,90 @@ func (r *Repo) GetDataset(ctx context.Context, id uuid.UUID) (*models.Dataset, e
 	return v, err
 }
 
+// BuildDatasetStoragePath mirrors Rust `build_dataset_storage_path`: the
+// Bronze prefix is trimmed of surrounding whitespace and slashes; if it
+// ends up empty the path falls back to the literal `datasets` segment.
+func BuildDatasetStoragePath(prefix string, datasetID uuid.UUID) string {
+	normalized := strings.Trim(strings.TrimSpace(prefix), "/")
+	if normalized == "" {
+		return "datasets/" + datasetID.String()
+	}
+	return normalized + "/" + datasetID.String()
+}
+
+// CreateDataset inserts a fresh dataset row with declarative-only
+// defaults (storage path under the Bronze lakehouse prefix, format
+// `parquet`, health `unknown`, metadata `{}`). Runtime version rows are
+// owned by the versioning pipeline, not by this insert.
 func (r *Repo) CreateDataset(ctx context.Context, body *models.CreateDatasetRequest, ownerID uuid.UUID) (*models.Dataset, error) {
 	id := uuid.New()
 	format := "parquet"
 	if body.Format != nil && *body.Format != "" {
-		format = *body.Format
+		format = strings.ToLower(*body.Format)
 	}
 	tags := body.Tags
 	if tags == nil {
 		tags = []string{}
 	}
+	description := ""
+	if body.Description != nil {
+		description = *body.Description
+	}
+	metadata := []byte(`{}`)
+	if len(body.Metadata) > 0 {
+		metadata = body.Metadata
+	}
+	health := "unknown"
+	if body.HealthStatus != nil && *body.HealthStatus != "" {
+		health = *body.HealthStatus
+	}
+	storagePath := BuildDatasetStoragePath("bronze", id)
 	row := r.Pool.QueryRow(ctx,
 		`INSERT INTO datasets
-		    (id, rid, name, description, format, storage_path, owner_id, tags)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		    (id, rid, name, description, format, storage_path, owner_id, tags,
+		     active_branch, metadata, health_status)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'main', $9, $10)
 		 RETURNING id, name, description, format, storage_path, size_bytes,
-		           row_count, owner_id, tags, current_version, created_at, updated_at`,
-		id, "ri.foundry.main.dataset."+id.String(), strings.TrimSpace(body.Name), body.Description, format,
-		strings.TrimSpace(body.StoragePath), ownerID, tags,
+		           row_count, owner_id, tags, current_version, active_branch,
+		           metadata, health_status, current_view_id, created_at, updated_at`,
+		id, "ri.foundry.main.dataset."+id.String(), strings.TrimSpace(body.Name), description,
+		format, storagePath, ownerID, tags, metadata, health,
 	)
 	return scanDataset(row)
 }
 
+// UpdateDataset mirrors Rust's PATCH semantics: every column is folded
+// through COALESCE($n, column) so unspecified fields are left untouched.
 func (r *Repo) UpdateDataset(ctx context.Context, id uuid.UUID, body *models.UpdateDatasetRequest) (*models.Dataset, error) {
-	current, err := r.GetDataset(ctx, id)
-	if err != nil || current == nil {
-		return current, err
-	}
-	desc := current.Description
-	if body.Description != nil {
-		desc = *body.Description
-	}
-	tags := current.Tags
-	if body.Tags != nil {
-		tags = body.Tags
-	}
-	size := current.SizeBytes
-	if body.SizeBytes != nil {
-		size = *body.SizeBytes
-	}
-	rowCount := current.RowCount
-	if body.RowCount != nil {
-		rowCount = *body.RowCount
-	}
 	row := r.Pool.QueryRow(ctx,
 		`UPDATE datasets SET
-		    description = $2, tags = $3, size_bytes = $4, row_count = $5,
-		    updated_at = $6
+		    name           = COALESCE($2, name),
+		    description    = COALESCE($3, description),
+		    tags           = COALESCE($4, tags),
+		    owner_id       = COALESCE($5, owner_id),
+		    metadata       = COALESCE($6, metadata),
+		    health_status  = COALESCE($7, health_status),
+		    current_view_id = COALESCE($8, current_view_id),
+		    updated_at     = NOW()
 		  WHERE id = $1
 		  RETURNING id, name, description, format, storage_path, size_bytes,
-		            row_count, owner_id, tags, current_version, created_at, updated_at`,
-		id, desc, tags, size, rowCount, time.Now().UTC(),
+		            row_count, owner_id, tags, current_version, active_branch,
+		            metadata, health_status, current_view_id, created_at, updated_at`,
+		id, body.Name, body.Description, body.Tags, body.OwnerID,
+		jsonOrNil(body.Metadata), body.HealthStatus, body.CurrentViewID,
 	)
-	return scanDataset(row)
+	v, err := scanDataset(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func jsonOrNil(raw []byte) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	return raw
 }
 
 func (r *Repo) DeleteDataset(ctx context.Context, id uuid.UUID) (bool, error) {
@@ -171,11 +203,15 @@ func scanDataset(r rowLikeT) (*models.Dataset, error) {
 	v := &models.Dataset{}
 	if err := r.Scan(&v.ID, &v.Name, &v.Description, &v.Format, &v.StoragePath,
 		&v.SizeBytes, &v.RowCount, &v.OwnerID, &v.Tags, &v.CurrentVersion,
+		&v.ActiveBranch, &v.Metadata, &v.HealthStatus, &v.CurrentViewID,
 		&v.CreatedAt, &v.UpdatedAt); err != nil {
 		return nil, err
 	}
 	if v.Tags == nil {
 		v.Tags = []string{}
+	}
+	if len(v.Metadata) == 0 {
+		v.Metadata = []byte(`{}`)
 	}
 	return v, nil
 }
