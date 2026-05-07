@@ -39,6 +39,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/datasets/{id}", h.GetDataset)
 		api.Patch("/datasets/{id}", h.UpdateDataset)
 		api.Delete("/datasets/{id}", h.DeleteDataset)
+
+		api.Get("/datasets/{id}/versions", h.ListVersions)
+		api.Post("/datasets/{id}/versions", h.CreateVersion)
+		api.Get("/datasets/{id}/versions/{version}", h.GetVersion)
+
+		api.Get("/datasets/{id}/branches", h.ListBranches)
+		api.Post("/datasets/{id}/branches", h.CreateBranch)
+		api.Get("/datasets/{id}/branches/{branch}", h.GetBranch)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

@@ -39,6 +39,17 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/connections/{id}", h.GetConnection)
 		api.Patch("/connections/{id}", h.UpdateConnection)
 		api.Delete("/connections/{id}", h.DeleteConnection)
+
+		api.Get("/data-connection/sources/{id}/syncs", h.ListSyncJobs)
+		api.Post("/data-connection/syncs", h.CreateSyncJob)
+		api.Get("/data-connection/syncs/{sync_id}", h.GetSyncJob)
+		api.Patch("/data-connection/syncs/{sync_id}", h.UpdateSyncJob)
+		api.Post("/data-connection/syncs/{sync_id}/run", h.RunSyncJob)
+
+		api.Post("/virtual-table/sources/{source_rid}/enable", h.EnableVirtualTableSource)
+		api.Post("/virtual-table/sources/{source_rid}/virtual-tables", h.CreateVirtualTable)
+		api.Get("/virtual-tables", h.ListVirtualTables)
+		api.Get("/virtual-tables/{rid}", h.GetVirtualTable)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
