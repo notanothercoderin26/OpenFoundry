@@ -245,3 +245,82 @@ type AppendBatchResponse struct {
 	Rows             int    `json:"rows"`
 	MetadataLocation string `json:"metadata_location"`
 }
+
+// MultiTableCommitRequest is the body of POST /iceberg/v1/transactions/commit.
+//
+// Mirrors Rust's `MultiTableCommitRequest` in
+// services/iceberg-catalog-service/src/handlers/rest_catalog/transactions.rs.
+// Every entry in `TableChanges` either lands together or is rolled back —
+// row-level locks are taken in deterministic table-id order so concurrent
+// commits cannot deadlock.
+type MultiTableCommitRequest struct {
+	TableChanges []MultiTableChange `json:"table-changes"`
+	// BuildRID correlates the commit with the originating Foundry build
+	// (audit trail + metric labels). Optional: empty when the caller is
+	// not a build executor.
+	BuildRID string `json:"build_rid,omitempty"`
+}
+
+// MultiTableChange is one table's slice of a multi-table commit. Mirrors
+// the per-table shape of Rust's `TableChange` (note: this is the
+// handler-level wire shape, distinct from the domain-level
+// `foundry_transaction::TableChange` used by the wrapper).
+type MultiTableChange struct {
+	Identifier   TableIdentifier   `json:"identifier"`
+	Requirements []json.RawMessage `json:"requirements,omitempty"`
+	Updates      []json.RawMessage `json:"updates,omitempty"`
+}
+
+// MultiTableCommitResponse is returned by a successful multi-table commit.
+type MultiTableCommitResponse struct {
+	Committed []CommittedTable `json:"committed"`
+}
+
+// CommittedTable describes one table's outcome inside a multi-table commit.
+// `MetadataLocation` uses the kebab-case `metadata-location` JSON tag for
+// parity with the Iceberg REST spec (and Rust's `#[serde(rename = …)]`).
+type CommittedTable struct {
+	Identifier       TableIdentifier `json:"identifier"`
+	TableRID         string          `json:"table_rid"`
+	NewSnapshotID    *int64          `json:"new_snapshot_id"`
+	MetadataLocation string          `json:"metadata-location"`
+}
+
+// ConflictKind labels the source of a multi-table commit conflict so
+// dashboards can split user-job conflicts from compaction / maintenance
+// jobs. Mirrors Rust's `ConflictKind` enum (snake_case wire format).
+//
+// Mapping into the catalog:
+//
+//   - assert-uuid                  → ConflictKindUserJob
+//   - assert-current-schema-id     → ConflictKindCompaction
+//   - assert-ref-snapshot-id       → ConflictKindCompaction
+//   - row lock acquisition failure → ConflictKindUnknown
+type ConflictKind string
+
+const (
+	ConflictKindCompaction  ConflictKind = "compaction"
+	ConflictKindMaintenance ConflictKind = "maintenance"
+	ConflictKindUserJob     ConflictKind = "user_job"
+	ConflictKindUnknown     ConflictKind = "unknown"
+)
+
+// RetryableErrorEnvelope is the 409 body returned when a multi-table
+// commit hits a row-lock or requirement conflict. The pipeline-build
+// executor branches on `Error.ConflictingWith` to decide whether to
+// re-snapshot inputs and retry. Mirrors Rust's
+// `ApiError::Retryable` JSON shape verbatim.
+type RetryableErrorEnvelope struct {
+	Error RetryableErrorBody `json:"error"`
+}
+
+// RetryableErrorBody mirrors Rust's CONFLICTING_CONCURRENT_UPDATE
+// envelope: a structured body with `table_rid` and `conflicting_with`
+// pulled out so clients can branch without parsing the message.
+type RetryableErrorBody struct {
+	Message         string       `json:"message"`
+	Type            string       `json:"type"`
+	Code            int          `json:"code"`
+	TableRID        string       `json:"table_rid"`
+	ConflictingWith ConflictKind `json:"conflicting_with"`
+}

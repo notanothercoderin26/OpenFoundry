@@ -33,6 +33,7 @@ type Store interface {
 	GetTable(ctx context.Context, projectRID string, namespace []string, tableName string) (*models.IcebergTable, error)
 	CreateTable(ctx context.Context, projectRID string, namespace []string, body *models.CreateTableRequest, createdBy uuid.UUID) (*models.IcebergTable, string, error)
 	CommitTable(ctx context.Context, projectRID string, namespace []string, tableName string, body *models.CommitTableRequest) (*models.IcebergTable, string, error)
+	MultiTableCommit(ctx context.Context, projectRID string, body *models.MultiTableCommitRequest) ([]models.CommittedTable, error)
 	ListSnapshots(ctx context.Context, tableID uuid.UUID) ([]models.Snapshot, error)
 	GetSnapshot(ctx context.Context, tableID uuid.UUID, snapshotID int64) (*models.Snapshot, error)
 	ListRefs(ctx context.Context, tableID uuid.UUID) ([]models.TableRef, error)
@@ -707,4 +708,98 @@ func (h *Handlers) RenameTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// MultiTableCommit handles POST /iceberg/v1/transactions/commit. Mirrors
+// the Rust handler in
+// services/iceberg-catalog-service/src/handlers/rest_catalog/transactions.rs:
+// every change in the body lands together inside a single Postgres
+// transaction, with row-level SELECT … FOR UPDATE locks taken in
+// deterministic table-id order so concurrent multi-table commits never
+// deadlock. Conflicts surface as 409 Retryable so the pipeline-build
+// executor can re-snapshot inputs and retry the job.
+func (h *Handlers) MultiTableCommit(w http.ResponseWriter, r *http.Request) {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	var body models.MultiTableCommitRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	for i, change := range body.TableChanges {
+		if len(change.Identifier.Namespace) == 0 {
+			writeJSONErr(w, http.StatusBadRequest, fmt.Sprintf("table-changes[%d] missing namespace", i))
+			return
+		}
+		if strings.TrimSpace(change.Identifier.Name) == "" {
+			writeJSONErr(w, http.StatusBadRequest, fmt.Sprintf("table-changes[%d] missing table name", i))
+			return
+		}
+		t, err := h.Repo.GetTable(r.Context(), projectRID(r), change.Identifier.Namespace, change.Identifier.Name)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if t == nil {
+			writeJSONErr(w, http.StatusNotFound, fmt.Sprintf("table `%s` not found", change.Identifier.Name))
+			return
+		}
+		if !ensureMarkingsAllowed(w, caller, t.Markings) {
+			return
+		}
+	}
+
+	committed, err := h.Repo.MultiTableCommit(r.Context(), projectRID(r), &body)
+	if err != nil {
+		writeMultiTableFailure(w, err)
+		return
+	}
+	if committed == nil {
+		committed = []models.CommittedTable{}
+	}
+	writeJSON(w, http.StatusOK, models.MultiTableCommitResponse{Committed: committed})
+}
+
+// writeMultiTableFailure renders the 409/422 envelopes for the typed
+// errors a multi-table commit can surface:
+//
+//   - *repo.RetryableError → 409 Conflict with the
+//     CONFLICTING_CONCURRENT_UPDATE envelope (table_rid +
+//     conflicting_with), so the pipeline-build executor can branch on
+//     the conflict source without parsing the message.
+//   - *domain.SchemaIncompatibleError → 422 Unprocessable Entity with
+//     the structural diff (same surface as single-table CommitTable).
+//
+// Falls back to statusFromErr's heuristic for anything else.
+func writeMultiTableFailure(w http.ResponseWriter, err error) {
+	var retryErr *repo.RetryableError
+	if errors.As(err, &retryErr) {
+		writeJSON(w, http.StatusConflict, models.RetryableErrorEnvelope{Error: models.RetryableErrorBody{
+			Message:         err.Error(),
+			Type:            "CONFLICTING_CONCURRENT_UPDATE",
+			Code:            http.StatusConflict,
+			TableRID:        retryErr.TableRID,
+			ConflictingWith: retryErr.ConflictingWith,
+		}})
+		return
+	}
+	var schemaErr *domain.SchemaIncompatibleError
+	if errors.As(err, &schemaErr) {
+		writeJSON(w, http.StatusUnprocessableEntity, models.SchemaIncompatibleEnvelope{
+			Error: models.SchemaIncompatibleErrorBody{
+				Message:         err.Error(),
+				Type:            "UnprocessableEntityException",
+				Code:            http.StatusUnprocessableEntity,
+				CurrentSchema:   schemaErr.CurrentSchema,
+				AttemptedSchema: schemaErr.AttemptedSchema,
+				Diff:            schemaErr.Diff,
+			},
+		})
+		return
+	}
+	writeJSONErr(w, statusFromErr(err), err.Error())
 }

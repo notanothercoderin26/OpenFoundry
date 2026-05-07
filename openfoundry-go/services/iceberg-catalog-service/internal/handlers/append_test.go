@@ -70,6 +70,9 @@ func (f *fakeAppendStore) CommitTable(_ context.Context, _ string, _ []string, _
 	}
 	return f.table, "s3://warehouse/of_test/events/metadata/v2.metadata.json", nil
 }
+func (f *fakeAppendStore) MultiTableCommit(context.Context, string, *models.MultiTableCommitRequest) ([]models.CommittedTable, error) {
+	return nil, nil
+}
 func (f *fakeAppendStore) ListSnapshots(context.Context, uuid.UUID) ([]models.Snapshot, error) {
 	return nil, nil
 }

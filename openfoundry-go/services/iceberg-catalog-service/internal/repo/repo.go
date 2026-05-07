@@ -91,6 +91,26 @@ func (e *RequirementError) Error() string {
 	return e.Kind + " failed: " + e.Detail
 }
 
+// RetryableError is the typed-error surface for a multi-table commit
+// conflict. The handler maps it to HTTP 409 with the structured
+// `table_rid` + `conflicting_with` envelope so the pipeline-build
+// executor can decide whether to re-snapshot inputs and retry the job
+// without parsing the free-form message.
+//
+// Mirrors Rust's `ApiError::Retryable` body — the Go side keeps the
+// fields separate from the rendered message so the JSON shape stays
+// structured.
+type RetryableError struct {
+	TableRID        string
+	Reason          string
+	ConflictingWith models.ConflictKind
+}
+
+// Error implements `error`.
+func (e *RetryableError) Error() string {
+	return fmt.Sprintf("retryable conflict on `%s`: %s", e.TableRID, e.Reason)
+}
+
 // errAlreadyExists wraps the unique-violation surface from Postgres in a
 // stable error string. Mirrors Rust's `TableError::AlreadyExists` so the
 // REST handler can map it to HTTP 409 via statusFromErr ("already exists").
@@ -949,4 +969,185 @@ func scanMetadataFile(r rowLikeT) (*models.MetadataFile, error) {
 		return nil, err
 	}
 	return v, nil
+}
+
+// MultiTableCommit applies a batched all-or-nothing commit across
+// every table named in `body`. Mirrors the Rust handler's flow in
+// services/iceberg-catalog-service/src/handlers/rest_catalog/transactions.rs:
+//
+//  1. Resolve every (namespace, table) outside the lock.
+//  2. Sort the resolved tables by `id` so SELECT … FOR UPDATE locks
+//     are taken in a deterministic order — this is what prevents
+//     deadlocks between two commits that share two or more tables.
+//  3. BEGIN. For each (locked) table:
+//       a. SELECT … FOR UPDATE on iceberg_tables — Postgres blocks
+//          here until any other commit holding the row releases it.
+//       b. Validate every requirement against the *locked* row state.
+//          A failed assertion rolls back and surfaces as a typed
+//          RetryableError with the `ConflictKind` set per the Rust
+//          mapping (assert-uuid → user_job, schema/ref → compaction).
+//       c. Schema-strict: any add-schema update that diverges from
+//          the locked schema rolls back and surfaces as a
+//          domain.SchemaIncompatibleError so the handler returns 422.
+//       d. Apply updates (add-schema / set-properties / remove-properties /
+//          add-snapshot) inside the same transaction.
+//       e. Insert a metadata-file row + bump current_metadata_location +
+//          last_sequence_number on iceberg_tables.
+//  4. COMMIT.
+//
+// Empty `TableChanges` is a no-op (mirrors the Rust wrapper's
+// "commit_with_no_pending_ops_is_a_noop" semantics) and returns an
+// empty Committed slice without opening a transaction.
+func (r *Repo) MultiTableCommit(ctx context.Context, projectRID string, body *models.MultiTableCommitRequest) ([]models.CommittedTable, error) {
+	if body == nil || len(body.TableChanges) == 0 {
+		return []models.CommittedTable{}, nil
+	}
+
+	// Phase 1 — resolve every table (no locks yet). Surface a typed
+	// RetryableError with `unknown` kind when a referenced table does
+	// not exist; the executor cannot recover by retrying so this is a
+	// best-effort label.
+	type resolved struct {
+		table  *models.IcebergTable
+		change *models.MultiTableChange
+	}
+	resolvedSlice := make([]resolved, 0, len(body.TableChanges))
+	for i := range body.TableChanges {
+		change := &body.TableChanges[i]
+		if len(change.Identifier.Namespace) == 0 {
+			return nil, fmt.Errorf("table-changes[%d] missing namespace", i)
+		}
+		if strings.TrimSpace(change.Identifier.Name) == "" {
+			return nil, fmt.Errorf("table-changes[%d] missing table name", i)
+		}
+		t, err := r.GetTable(ctx, projectRID, change.Identifier.Namespace, change.Identifier.Name)
+		if err != nil {
+			return nil, err
+		}
+		if t == nil {
+			return nil, &RetryableError{
+				TableRID:        fmt.Sprintf("%s.%s", encodePath(change.Identifier.Namespace), change.Identifier.Name),
+				Reason:          fmt.Sprintf("table `%s` not found in namespace `%s`", change.Identifier.Name, encodePath(change.Identifier.Namespace)),
+				ConflictingWith: models.ConflictKindUnknown,
+			}
+		}
+		resolvedSlice = append(resolvedSlice, resolved{table: t, change: change})
+	}
+	// Deterministic lock order: sort by table.id so two commits sharing
+	// any subset of tables always acquire row-locks in the same order.
+	sort.Slice(resolvedSlice, func(i, j int) bool {
+		return strings.Compare(resolvedSlice[i].table.ID.String(), resolvedSlice[j].table.ID.String()) < 0
+	})
+
+	// Phase 2 — atomic commit.
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	committed := make([]models.CommittedTable, 0, len(resolvedSlice))
+	for _, item := range resolvedSlice {
+		out, err := commitOneInTx(ctx, tx, item.table, item.change)
+		if err != nil {
+			return nil, err
+		}
+		committed = append(committed, *out)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+	return committed, nil
+}
+
+// commitOneInTx runs the per-table portion of a multi-table commit
+// inside an open transaction. The locked-row state (snapshot id,
+// schema, sequence number) is fetched via SELECT … FOR UPDATE so
+// requirement checks evaluate against the latest committed view.
+func commitOneInTx(ctx context.Context, tx Executor, t *models.IcebergTable, change *models.MultiTableChange) (*models.CommittedTable, error) {
+	var (
+		lockedSnapshot *int64
+		lockedSchema   json.RawMessage
+		lockedSeq      int64
+	)
+	row := tx.QueryRow(ctx,
+		`SELECT current_snapshot_id, schema_json, last_sequence_number
+		 FROM iceberg_tables WHERE id = $1 FOR UPDATE`,
+		t.ID,
+	)
+	if err := row.Scan(&lockedSnapshot, &lockedSchema, &lockedSeq); err != nil {
+		// Row-lock acquisition (or row disappearance) failure — surface
+		// as Retryable with `unknown` kind so the executor knows the
+		// reason cannot be classified as user / compaction / maintenance.
+		return nil, &RetryableError{
+			TableRID:        t.RID,
+			Reason:          fmt.Sprintf("unable to acquire row lock: %v", err),
+			ConflictingWith: models.ConflictKindUnknown,
+		}
+	}
+
+	// Replace the cached requirement-check inputs with the locked-row
+	// view so requirements evaluate against the latest committed state.
+	locked := *t
+	locked.CurrentSnapshotID = lockedSnapshot
+	locked.SchemaJSON = lockedSchema
+	locked.LastSequenceNumber = lockedSeq
+
+	if err := validateRequirementsLocked(&locked, change.Requirements); err != nil {
+		return nil, err
+	}
+	if err := enforceSchemaStrict(&locked, change.Updates); err != nil {
+		return nil, err
+	}
+
+	body := &models.CommitTableRequest{
+		Identifier:   &change.Identifier,
+		Requirements: change.Requirements,
+		Updates:      change.Updates,
+	}
+	updated, metadataLocation, err := applyCommitInTx(ctx, tx, &locked, body, encodePath(t.Namespace))
+	if err != nil {
+		return nil, err
+	}
+	var newSnapshot *int64
+	if updated.CurrentSnapshotID != nil {
+		v := *updated.CurrentSnapshotID
+		newSnapshot = &v
+	} else if lockedSnapshot != nil {
+		v := *lockedSnapshot
+		newSnapshot = &v
+	}
+	return &models.CommittedTable{
+		Identifier:       models.TableIdentifier{Namespace: t.Namespace, Name: t.Name},
+		TableRID:         t.RID,
+		NewSnapshotID:    newSnapshot,
+		MetadataLocation: metadataLocation,
+	}, nil
+}
+
+// validateRequirementsLocked is a thin wrapper around
+// validateRequirements that promotes the typed RequirementError to a
+// RetryableError with the appropriate ConflictKind. The Rust handler
+// surfaces these as Retryable rather than RequirementError because the
+// pipeline-build executor must re-snapshot and retry — not branch on
+// the assertion `kind`.
+func validateRequirementsLocked(table *models.IcebergTable, reqs []json.RawMessage) error {
+	err := validateRequirements(table, reqs)
+	if err == nil {
+		return nil
+	}
+	var reqErr *RequirementError
+	if !errors.As(err, &reqErr) {
+		return err
+	}
+	kind := models.ConflictKindUserJob
+	switch reqErr.Kind {
+	case "assert-current-schema-id", "assert-default-spec-id", "assert-default-sort-order-id", "assert-ref-snapshot-id":
+		kind = models.ConflictKindCompaction
+	}
+	return &RetryableError{
+		TableRID:        table.RID,
+		Reason:          reqErr.Error(),
+		ConflictingWith: kind,
+	}
 }
