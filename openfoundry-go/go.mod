@@ -42,12 +42,15 @@ require (
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/andybalholm/brotli v1.2.1 // indirect
+	github.com/apache/thrift v0.22.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -134,5 +137,4 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260120221211-b8f7ae30c516 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260120221211-b8f7ae30c516 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
