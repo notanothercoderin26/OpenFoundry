@@ -7,7 +7,7 @@
 //
 //   - **Phase 5A**: action-type CRUD, `list_applicable_actions`,
 //     `get_action_metrics`, `upload_action_attachment`, what-if list
-//     + delete + a simulation-free CreateWhatIfBranch.
+//   - delete + a simulation-free CreateWhatIfBranch.
 //   - **Phase 5B**: `validate_action`, `execute_action` for
 //     `update_object` + `delete_object`. Routes through the
 //     writeback substrate shared with rules + funnel.
@@ -25,8 +25,9 @@
 //     `delete_interface`, `create_interface_link`, `delete_interface_link`):
 //     surface a `not_yet_executable` validation error pending
 //     interface_id → object_type resolution.
-//   - Inline function execution (Python sub-runtime returns
-//     `ErrPythonRuntimeNotWired`).
+//   - Inline function execution now dispatches through the injectable
+//     ActionFunctionRuntime; Python reaches python-sidecar when the
+//     host service wires AppState.PythonRuntime.
 //   - The deeper audit pipeline (Prometheus counters + structured
 //     audit-service POSTs + notification fan-out + webhook
 //     side-effects). The Go port emits the slimmest `action_attempt`

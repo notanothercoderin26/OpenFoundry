@@ -14,7 +14,7 @@
 //     operation kinds, including target loading + access-control
 //     checks (claims-side admin / clearance / org_id) and
 //     `UpdateObjectActionConfig` materialisation (property_mappings
-//     + static_patch + optional input_name resolution).
+//   - static_patch + optional input_name resolution).
 //   - `planPreview` for the two kinds, byte-identical to the Rust
 //     JSON output (`{"kind":"update_object","target_object_id":…,
 //     "patch":…}` / `{"kind":"delete_object","target_object_id":…}`).
@@ -87,9 +87,9 @@ type httpInvocationConfig struct {
 // per-variant payloads; the Go port uses one struct with optional
 // fields keyed by `kind` so the call sites can switch cleanly.
 type actionPlan struct {
-	kind  actionPlanKind
+	kind   actionPlanKind
 	target *domain.ObjectInstance
-	patch map[string]json.RawMessage
+	patch  map[string]json.RawMessage
 
 	// CreateLink fields.
 	counterpart      *domain.ObjectInstance
@@ -98,10 +98,26 @@ type actionPlan struct {
 	linkSourceObject uuid.UUID
 	linkTargetObject uuid.UUID
 
-	// InvokeFunction (HTTP) + InvokeWebhook fields.
-	invocation *httpInvocationConfig
-	payload    json.RawMessage
-	parameters map[string]json.RawMessage
+	// InvokeFunction (HTTP/inline) + InvokeWebhook fields.
+	invocation     *httpInvocationConfig
+	inlineFunction *domain.ResolvedInlineFunction
+	payload        json.RawMessage
+	parameters     map[string]json.RawMessage
+	justification  *string
+}
+
+// ActionFunctionRuntime is the injectable inline-function runtime used
+// by action execution. Production delegates to domain.ExecuteInlineFunction
+// (which uses AppState.PythonRuntime for Python sidecar execution); tests
+// can supply fakes without spawning a sidecar.
+type ActionFunctionRuntime interface {
+	ExecuteInlineFunction(ctx context.Context, state *ontologykernel.AppState, claims *authmw.Claims, action *models.ActionType, target *domain.ObjectInstance, parameters map[string]json.RawMessage, resolved *domain.ResolvedInlineFunction, justification *string) (json.RawMessage, error)
+}
+
+type defaultActionFunctionRuntime struct{}
+
+func (defaultActionFunctionRuntime) ExecuteInlineFunction(ctx context.Context, state *ontologykernel.AppState, claims *authmw.Claims, action *models.ActionType, target *domain.ObjectInstance, parameters map[string]json.RawMessage, resolved *domain.ResolvedInlineFunction, justification *string) (json.RawMessage, error) {
+	return domain.ExecuteInlineFunction(ctx, state, claims, action, target, parameters, resolved, justification)
 }
 
 // ── validate_action ─────────────────────────────────────────────────
@@ -171,6 +187,15 @@ func ValidateAction(state *ontologykernel.AppState) http.HandlerFunc {
 //  4. Notification fan-out to notification-service.
 //  5. Webhook side-effect fan-out (best-effort).
 func ExecuteAction(state *ontologykernel.AppState) http.HandlerFunc {
+	return ExecuteActionWithRuntime(state, defaultActionFunctionRuntime{})
+}
+
+// ExecuteActionWithRuntime is the dependency-injected variant used by tests
+// and by services that want to provide a custom function runtime.
+func ExecuteActionWithRuntime(state *ontologykernel.AppState, fnRuntime ActionFunctionRuntime) http.HandlerFunc {
+	if fnRuntime == nil {
+		fnRuntime = defaultActionFunctionRuntime{}
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := authmw.FromContext(r.Context())
 		if !ok {
@@ -255,12 +280,20 @@ func ExecuteAction(state *ontologykernel.AppState) http.HandlerFunc {
 			return
 		}
 
-		executed, err := executePlan(r.Context(), state, claims, action, plan)
+		plan.justification = body.Justification
+		executed, err := executePlanWithRuntime(r.Context(), state, claims, action, plan, fnRuntime)
 		if err != nil {
 			if auditErr := emitActionAuditEvent(r.Context(), state, claims, action, plan.target,
 				body.TargetObjectID, "failure", "high", err.Error(),
 				body.Justification, params, nil, nil); auditErr != nil {
 				logAuditFailure(action.ID, auditErr)
+			}
+			if errors.Is(err, domain.ErrPythonRuntimeNotWired) {
+				writeJSON(w, http.StatusNotImplemented, map[string]any{
+					"error":  "python_runtime_not_wired",
+					"detail": err.Error(),
+				})
+				return
 			}
 			dbError(w, err.Error())
 			return
@@ -322,6 +355,20 @@ func executePlan(
 	action models.ActionType,
 	plan actionPlan,
 ) (executedAction, error) {
+	return executePlanWithRuntime(ctx, state, claims, action, plan, defaultActionFunctionRuntime{})
+}
+
+func executePlanWithRuntime(
+	ctx context.Context,
+	state *ontologykernel.AppState,
+	claims *authmw.Claims,
+	action models.ActionType,
+	plan actionPlan,
+	fnRuntime ActionFunctionRuntime,
+) (executedAction, error) {
+	if fnRuntime == nil {
+		fnRuntime = defaultActionFunctionRuntime{}
+	}
 	preview := planPreview(plan)
 	startedAt := time.Now().UTC()
 
@@ -371,12 +418,29 @@ func executePlan(
 		if plan.invocation == nil {
 			return executedAction{}, errors.New("missing HTTP invocation config")
 		}
-		// Inline function dispatch surfaces a typed error until the
-		// `function_runtime.ExecuteInlineFunction` path is wired
-		// through the actions handler (Phase 5D / sidecar).
 		if strings.HasPrefix(plan.invocation.URL, "inline://") {
-			return executedAction{}, fmt.Errorf("inline function invocation not yet wired in actions handler (runtime: %s)",
-				strings.TrimPrefix(plan.invocation.URL, "inline://"))
+			if plan.inlineFunction == nil {
+				return executedAction{}, errors.New("missing inline function config")
+			}
+			actionCopy := action
+			result, err := fnRuntime.ExecuteInlineFunction(ctx, state, claims, &actionCopy, plan.target, plan.parameters, plan.inlineFunction, plan.justification)
+			if err != nil {
+				return executedAction{}, err
+			}
+			var targetID *uuid.UUID
+			if plan.target != nil {
+				id := plan.target.ID
+				targetID = &id
+			}
+			if len(result) == 0 {
+				result = json.RawMessage(`null`)
+			}
+			return executedAction{
+				targetObjectID: targetID,
+				preview:        preview,
+				result:         result,
+				startedAt:      startedAt,
+			}, nil
 		}
 		result, err := invokeHTTPAction(ctx, state, plan.invocation, plan.payload)
 		if err != nil {
@@ -821,17 +885,15 @@ func planInvokeFunctionAction(
 		return actionPlan{}, []string{err.Error()}
 	}
 	if resolved != nil {
-		// Inline runtime — ExecutePlan delegates to function_runtime
-		// (Phase 3); Python sub-runtime returns ErrPythonRuntimeNotWired.
+		// Inline runtime — ExecutePlan delegates to ActionFunctionRuntime.
 		return actionPlan{
-			kind:       planInvokeFunction,
-			target:     target,
-			payload:    payload,
-			parameters: params,
+			kind:           planInvokeFunction,
+			target:         target,
+			payload:        payload,
+			parameters:     params,
+			inlineFunction: resolved,
 			// Inline invocation is captured via a placeholder URL so
-			// the executor recognises the path. Resolved capabilities
-			// + source live on the resolved struct passed via the
-			// `invocation` slot's `Headers` payload below.
+			// the executor recognises the path.
 			invocation: &httpInvocationConfig{URL: "inline://" + resolved.RuntimeName(), Method: "POST"},
 		}, nil
 	}
@@ -850,10 +912,10 @@ func planInvokeFunctionAction(
 
 // createLinkActionConfig mirrors the private Rust struct.
 type createLinkActionConfig struct {
-	LinkTypeID           uuid.UUID `json:"link_type_id"`
-	TargetInputName      string    `json:"target_input_name"`
-	SourceRole           string    `json:"source_role"`
-	PropertiesInputName  *string   `json:"properties_input_name,omitempty"`
+	LinkTypeID          uuid.UUID `json:"link_type_id"`
+	TargetInputName     string    `json:"target_input_name"`
+	SourceRole          string    `json:"source_role"`
+	PropertiesInputName *string   `json:"properties_input_name,omitempty"`
 }
 
 func decodeParams(raw json.RawMessage) map[string]json.RawMessage {

@@ -261,7 +261,7 @@ func (s *State) AddCell(w http.ResponseWriter, r *http.Request) {
 			position = *body.Position
 		}
 		now := time.Now().UTC()
-		writeJSON(w, http.StatusCreated, models.Cell{
+		cell := models.Cell{
 			ID:         id,
 			NotebookID: notebookID,
 			CellType:   cellType,
@@ -270,7 +270,11 @@ func (s *State) AddCell(w http.ResponseWriter, r *http.Request) {
 			Position:   position,
 			CreatedAt:  now,
 			UpdatedAt:  now,
-		})
+		}
+		if s.MemoryRepo != nil {
+			s.MemoryRepo.putCell(cell)
+		}
+		writeJSON(w, http.StatusCreated, cell)
 		return
 	}
 	position := int32(0)
