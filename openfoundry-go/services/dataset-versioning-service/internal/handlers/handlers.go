@@ -100,6 +100,11 @@ type Handlers struct {
 	Repo       Store
 	BackingFS  storageabstraction.BackingFS
 	PresignTTL time.Duration
+	// Resolver computes effective dataset markings by walking lineage
+	// upstream. When nil, marking endpoints fall back to the direct rows
+	// returned by Repo.ListDatasetMarkings — keeps tests light and lets
+	// the service start before lineage-service is reachable.
+	Resolver *MarkingResolver
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

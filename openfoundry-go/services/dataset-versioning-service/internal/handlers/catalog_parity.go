@@ -1,10 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -70,6 +76,15 @@ func (h *Handlers) GetDatasetModel(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusNotFound, "dataset not found")
 		return
 	}
+	// When a resolver is wired, recompute markings via the lineage walk so
+	// the rich model reflects upstream-inherited entries the repo cannot
+	// discover on its own. We tolerate failures here: a partial model with
+	// direct-only markings is still useful and matches the Rust fallback.
+	if h.Resolver != nil {
+		if effective, err := h.Resolver.Compute(r.Context(), datasetID.String()); err == nil {
+			model.Markings = effective
+		}
+	}
 	writeJSON(w, http.StatusOK, model)
 }
 
@@ -78,7 +93,8 @@ func (h *Handlers) PatchDatasetMetadata(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	if _, ok := h.requireDatasetWrite(w, r, datasetID); !ok {
+	claims, ok := h.requireDatasetWrite(w, r, datasetID)
+	if !ok {
 		return
 	}
 	var body models.DatasetMetadataPatch
@@ -126,7 +142,50 @@ func (h *Handlers) PatchDatasetMetadata(w http.ResponseWriter, r *http.Request) 
 		writeJSONErr(w, http.StatusInternalServerError, "failed to update dataset metadata")
 		return
 	}
+	emitDatasetAudit(claims.Sub.String(), models.AuditActionDatasetMetadataUpdate, updated.StoragePath, map[string]any{
+		"dataset_id":      updated.ID,
+		"current_view_id": updated.CurrentViewID,
+		"fields_changed":  metadataPatchChangedFields(&body),
+	})
+	if h.Resolver != nil {
+		h.Resolver.Invalidate(updated.ID.String())
+	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// metadataPatchChangedFields lists the columns the patch explicitly targeted
+// so audit consumers can drive change-history queries. Order matches the
+// Rust audit emit so payload diffs stay byte-for-byte stable.
+func metadataPatchChangedFields(p *models.DatasetMetadataPatch) []string {
+	out := make([]string, 0, 9)
+	if p.Name != nil {
+		out = append(out, "name")
+	}
+	if p.Description != nil {
+		out = append(out, "description")
+	}
+	if p.OwnerID != nil {
+		out = append(out, "owner_id")
+	}
+	if p.Tags != nil {
+		out = append(out, "tags")
+	}
+	if p.Format != nil {
+		out = append(out, "format")
+	}
+	if len(p.Metadata) > 0 {
+		out = append(out, "metadata")
+	}
+	if len(p.Schema) > 0 {
+		out = append(out, "schema")
+	}
+	if p.HealthStatus != nil {
+		out = append(out, "health_status")
+	}
+	if p.CurrentViewID != nil {
+		out = append(out, "current_view_id")
+	}
+	return out
 }
 
 func (h *Handlers) ListDatasetMarkings(w http.ResponseWriter, r *http.Request) {
@@ -134,12 +193,40 @@ func (h *Handlers) ListDatasetMarkings(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	items, err := h.Repo.ListDatasetMarkings(r.Context(), datasetID)
+	items, err := h.effectiveMarkings(r.Context(), datasetID)
 	if err != nil {
+		if cycleErr, ok := asMarkingResolveError(err); ok && cycleErr.IsCycle() {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": cycleErr.Error(), "rid": cycleErr.RID})
+			return
+		}
 		writeJSONErr(w, http.StatusInternalServerError, "failed to list dataset markings")
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+// effectiveMarkings dispatches to the lineage-aware MarkingResolver when one
+// is wired (production), otherwise falls back to the repo's per-row read so
+// tests and small deployments keep working without a lineage-service. The
+// result is the same JSON shape: []EffectiveMarking with direct entries
+// preceding inherited ones, deduplicated by (id, source).
+func (h *Handlers) effectiveMarkings(ctx context.Context, datasetID uuid.UUID) ([]models.EffectiveMarking, error) {
+	if h.Resolver != nil {
+		return h.Resolver.Compute(ctx, datasetID.String())
+	}
+	items, err := h.Repo.ListDatasetMarkings(ctx, datasetID)
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func asMarkingResolveError(err error) (*models.MarkingResolveError, bool) {
+	var target *models.MarkingResolveError
+	if errors.As(err, &target) {
+		return target, true
+	}
+	return nil, false
 }
 
 func (h *Handlers) PutDatasetMarkings(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +246,13 @@ func (h *Handlers) PutDatasetMarkings(w http.ResponseWriter, r *http.Request) {
 	if err := h.Repo.ReplaceDatasetMarkings(r.Context(), datasetID, body.Markings, claims.Sub); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, "failed to replace dataset markings")
 		return
+	}
+	emitDatasetAudit(claims.Sub.String(), models.AuditActionDatasetMarkingsReplace, datasetID.String(), map[string]any{
+		"dataset_id":    datasetID,
+		"marking_count": len(body.Markings),
+	})
+	if h.Resolver != nil {
+		h.Resolver.Invalidate(datasetID.String())
 	}
 	h.ListDatasetMarkings(w, r)
 }
@@ -181,7 +275,8 @@ func (h *Handlers) PutDatasetPermissions(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	if _, ok := h.requireDatasetAdmin(w, r, datasetID); !ok {
+	claims, ok := h.requireDatasetAdmin(w, r, datasetID)
+	if !ok {
 		return
 	}
 	var body models.PutDatasetPermissionsRequest
@@ -190,7 +285,7 @@ func (h *Handlers) PutDatasetPermissions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	for _, edge := range body.Permissions {
-		source := "direct"
+		source := models.PermissionSourceDirect
 		if edge.Source != nil {
 			source = *edge.Source
 		}
@@ -207,6 +302,10 @@ func (h *Handlers) PutDatasetPermissions(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusInternalServerError, "failed to replace dataset permissions")
 		return
 	}
+	emitDatasetAudit(claims.Sub.String(), models.AuditActionDatasetPermissionsReplace, datasetID.String(), map[string]any{
+		"dataset_id": datasetID,
+		"edge_count": len(body.Permissions),
+	})
 	h.ListDatasetPermissions(w, r)
 }
 
@@ -228,7 +327,8 @@ func (h *Handlers) PutDatasetLineageLinks(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if _, ok := h.requireDatasetWrite(w, r, datasetID); !ok {
+	claims, ok := h.requireDatasetWrite(w, r, datasetID)
+	if !ok {
 		return
 	}
 	var body models.PutDatasetLineageLinksRequest
@@ -249,6 +349,15 @@ func (h *Handlers) PutDatasetLineageLinks(w http.ResponseWriter, r *http.Request
 		}
 		writeJSONErr(w, http.StatusInternalServerError, "failed to replace dataset lineage links")
 		return
+	}
+	emitDatasetAudit(claims.Sub.String(), models.AuditActionDatasetLineageReplace, datasetID.String(), map[string]any{
+		"dataset_id": datasetID,
+		"link_count": len(body.Links),
+	})
+	if h.Resolver != nil {
+		// Lineage edges feed the marking-inheritance walk; invalidate so the
+		// next read recomputes through the new graph shape.
+		h.Resolver.Invalidate(datasetID.String())
 	}
 	h.ListDatasetLineageLinks(w, r)
 }
@@ -271,7 +380,8 @@ func (h *Handlers) PutDatasetFileIndex(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, ok := h.requireDatasetWrite(w, r, datasetID); !ok {
+	claims, ok := h.requireDatasetWrite(w, r, datasetID)
+	if !ok {
 		return
 	}
 	var body models.PutDatasetFilesRequest
@@ -280,7 +390,7 @@ func (h *Handlers) PutDatasetFileIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, file := range body.Files {
-		entryType := "file"
+		entryType := models.FileEntryTypeFile
 		if file.EntryType != nil {
 			entryType = *file.EntryType
 		}
@@ -301,8 +411,17 @@ func (h *Handlers) PutDatasetFileIndex(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusInternalServerError, "failed to replace dataset file index")
 		return
 	}
+	emitDatasetAudit(claims.Sub.String(), models.AuditActionDatasetFilesReplace, datasetID.String(), map[string]any{
+		"dataset_id": datasetID,
+		"file_count": len(body.Files),
+	})
 	h.ListDatasetFileIndex(w, r)
 }
+
+// ===========================================================================
+// Validators — shared by the handlers above. Constants live in models/catalog.go
+// so handlers, repo and tests all reference the same enum literals.
+// ===========================================================================
 
 func validateDatasetName(name string) error {
 	trimmed := strings.TrimSpace(name)
@@ -316,26 +435,24 @@ func validateDatasetName(name string) error {
 }
 
 func validateDatasetFormat(format string) error {
-	switch strings.ToLower(format) {
-	case "parquet", "avro", "csv", "json", "text", "unknown":
+	if models.IsKnownDatasetFormat(format) {
 		return nil
-	default:
-		return errors.New("unsupported dataset format: " + format)
 	}
+	return errors.New("unsupported dataset format: " + format)
 }
 
 func validateHealthStatus(status string) error {
-	if containsString([]string{"unknown", "healthy", "warning", "degraded", "critical"}, status) {
+	if models.IsKnownHealthStatus(status) {
 		return nil
 	}
 	return errors.New("health_status must be one of: unknown, healthy, warning, degraded, critical")
 }
 
 func validatePermissionEdge(principalKind, principalID, role string, actions []string, source string, inheritedFrom *string) error {
-	if !containsString([]string{"user", "group", "role", "organization", "project", "service"}, principalKind) {
+	if !models.IsKnownPrincipalKind(principalKind) {
 		return errors.New("principal_kind must be one of: user, group, role, organization, project, service")
 	}
-	if !containsString([]string{"direct", "inherited_from_project", "inherited_from_folder", "inherited_from_parent"}, source) {
+	if !models.IsKnownPermissionSource(source) {
 		return errors.New("source must be one of: direct, inherited_from_project, inherited_from_folder, inherited_from_parent")
 	}
 	if strings.TrimSpace(principalID) == "" {
@@ -349,17 +466,17 @@ func validatePermissionEdge(principalKind, principalID, role string, actions []s
 			return errors.New("permission actions cannot be empty")
 		}
 	}
-	if source == "direct" && inheritedFrom != nil {
+	if source == models.PermissionSourceDirect && inheritedFrom != nil {
 		return errors.New("direct permissions cannot set inherited_from")
 	}
-	if source != "direct" && (inheritedFrom == nil || strings.TrimSpace(*inheritedFrom) == "") {
+	if source != models.PermissionSourceDirect && (inheritedFrom == nil || strings.TrimSpace(*inheritedFrom) == "") {
 		return errors.New("inherited permissions require inherited_from")
 	}
 	return nil
 }
 
 func validateLineageLink(direction, targetRID string) error {
-	if !containsString([]string{"upstream", "downstream"}, direction) {
+	if !models.IsKnownLineageDirection(direction) {
 		return errors.New("direction must be one of: upstream, downstream")
 	}
 	if strings.TrimSpace(targetRID) == "" {
@@ -375,7 +492,7 @@ func validateFileIndexEntry(path, storagePath, entryType string, sizeBytes int64
 	if strings.TrimSpace(storagePath) == "" {
 		return errors.New("storage_path is required")
 	}
-	if !containsString([]string{"file", "directory"}, entryType) {
+	if !models.IsKnownFileEntryType(entryType) {
 		return errors.New("entry_type must be one of: file, directory")
 	}
 	if sizeBytes < 0 {
@@ -384,6 +501,8 @@ func validateFileIndexEntry(path, storagePath, entryType string, sizeBytes int64
 	return nil
 }
 
+// containsString remains for any callers under this package that still use
+// the local helper. Newer code prefers models.IsKnown* membership checks.
 func containsString(values []string, needle string) bool {
 	for _, value := range values {
 		if value == needle {
@@ -391,4 +510,297 @@ func containsString(values []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// ===========================================================================
+// MarkingResolver — DV-12 port of data_asset_catalog::domain::markings.rs
+//
+// Effective markings = direct rows on the dataset ∪ for every immediate
+// upstream parent, that parent's effective markings re-tagged with
+// "inherited_from_upstream { upstream_rid }". The resolver caches results
+// in-process with a TTL so repeated reads short-circuit the lineage walk; an
+// invalidate hook is wired so any handler that mutates markings or lineage
+// edges can drop the stale entry.
+//
+// The Rust implementation uses moka. Go has no equivalent in this repo, so
+// we ship a tiny TTL map — the cache is bounded (max 10k entries, oldest
+// purged on overflow) and protected by a single mutex; under the catalog
+// load profile (read-mostly, low cardinality per process) this is fine.
+// ===========================================================================
+
+// LineageClient resolves the immediate upstream parents of a dataset RID.
+// Production binds it to lineage-service's
+// `GET /v1/lineage/{rid}/upstream` endpoint via [HTTPLineageClient]; tests
+// inject [InMemoryLineageClient] so marking propagation can be exercised
+// without a second HTTP server.
+type LineageClient interface {
+	Upstream(ctx context.Context, datasetRID string) ([]string, error)
+}
+
+// InMemoryLineageClient is the test-friendly implementation backed by a
+// child-RID → parents map. Mutations to Edges are not safe across goroutines;
+// fixtures should populate the map before sharing the client.
+type InMemoryLineageClient struct {
+	Edges map[string][]string
+}
+
+// Upstream implements [LineageClient]. Returns a copy so the caller cannot
+// mutate the test fixture by accident.
+func (c *InMemoryLineageClient) Upstream(_ context.Context, datasetRID string) ([]string, error) {
+	if c == nil || len(c.Edges) == 0 {
+		return nil, nil
+	}
+	parents := c.Edges[datasetRID]
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]string, len(parents))
+	copy(out, parents)
+	return out, nil
+}
+
+// HTTPLineageClient calls the lineage service over HTTP. The expected
+// response body is `{"upstream": ["ri.foo", ...]}` — same shape produced by
+// the Rust HttpLineageClient so either side of the migration boundary can
+// answer the question.
+type HTTPLineageClient struct {
+	BaseURL string
+	HTTP    *http.Client
+}
+
+// Upstream implements [LineageClient].
+func (c *HTTPLineageClient) Upstream(ctx context.Context, datasetRID string) ([]string, error) {
+	if c == nil || strings.TrimSpace(c.BaseURL) == "" {
+		return nil, fmt.Errorf("lineage client: base URL not configured")
+	}
+	endpoint := strings.TrimRight(c.BaseURL, "/") + "/v1/lineage/" + url.PathEscape(datasetRID) + "/upstream"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("lineage GET %s: %w", endpoint, err)
+	}
+	req.Header.Set("Accept", "application/json")
+	client := c.HTTP
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("lineage GET %s: %w", endpoint, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode/100 != 2 {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil, fmt.Errorf("lineage GET %s returned %d", endpoint, resp.StatusCode)
+	}
+	var body struct {
+		Upstream []string `json:"upstream"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("lineage GET %s body: %w", endpoint, err)
+	}
+	return body.Upstream, nil
+}
+
+// DirectMarkingsLoader loads the rows where dataset_markings.source = 'direct'
+// for the given dataset RID. Decoupled from the resolver so tests can inject
+// any backing store and so we don't drag the full Store interface into the
+// resolver constructor.
+type DirectMarkingsLoader func(ctx context.Context, datasetRID string) ([]models.EffectiveMarking, error)
+
+// MarkingResolverDefaultTTL matches the 60s recommended by the Rust spec.
+const MarkingResolverDefaultTTL = 60 * time.Second
+
+// MarkingResolverDefaultCapacity matches the moka 10k cap from Rust.
+const MarkingResolverDefaultCapacity = 10_000
+
+// MarkingResolver caches effective-marking computations and walks the
+// lineage graph on miss. Construction happens via [NewMarkingResolver]; the
+// zero value is unusable.
+type MarkingResolver struct {
+	loader   DirectMarkingsLoader
+	lineage  LineageClient
+	ttl      time.Duration
+	capacity int
+	now      func() time.Time
+
+	mu    sync.Mutex
+	cache map[string]markingCacheEntry
+	order []string
+}
+
+type markingCacheEntry struct {
+	items     []models.EffectiveMarking
+	expiresAt time.Time
+}
+
+// NewMarkingResolver builds a resolver with sensible defaults. `loader`
+// reads direct markings from persistence; `lineage` answers upstream
+// queries. Both are required.
+func NewMarkingResolver(loader DirectMarkingsLoader, lineage LineageClient) *MarkingResolver {
+	return NewMarkingResolverWithTTL(loader, lineage, MarkingResolverDefaultTTL)
+}
+
+// NewMarkingResolverWithTTL builds a resolver with a caller-supplied cache
+// TTL — useful for tests that want fast expiry to verify invalidation.
+func NewMarkingResolverWithTTL(loader DirectMarkingsLoader, lineage LineageClient, ttl time.Duration) *MarkingResolver {
+	if ttl <= 0 {
+		ttl = MarkingResolverDefaultTTL
+	}
+	return &MarkingResolver{
+		loader:   loader,
+		lineage:  lineage,
+		ttl:      ttl,
+		capacity: MarkingResolverDefaultCapacity,
+		now:      time.Now,
+		cache:    make(map[string]markingCacheEntry, 64),
+		order:    make([]string, 0, 64),
+	}
+}
+
+// Compute returns the effective markings for `datasetRID`. Cached results
+// are returned without touching either the loader or the lineage client.
+func (r *MarkingResolver) Compute(ctx context.Context, datasetRID string) ([]models.EffectiveMarking, error) {
+	if r == nil {
+		return nil, models.ErrMarkingResolverDisabled
+	}
+	if cached, ok := r.lookup(datasetRID); ok {
+		return cached, nil
+	}
+	visiting := make(map[string]struct{}, 8)
+	items, err := r.computeInner(ctx, datasetRID, visiting)
+	if err != nil {
+		return nil, err
+	}
+	r.store(datasetRID, items)
+	return items, nil
+}
+
+// Invalidate drops the cached entry for `datasetRID`. Idempotent.
+func (r *MarkingResolver) Invalidate(datasetRID string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.cache, datasetRID)
+	for i, key := range r.order {
+		if key == datasetRID {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
+}
+
+// InvalidateAll drops every cached entry. Useful on shutdown / tests.
+func (r *MarkingResolver) InvalidateAll() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cache = make(map[string]markingCacheEntry, 64)
+	r.order = r.order[:0]
+}
+
+func (r *MarkingResolver) computeInner(ctx context.Context, rid string, visiting map[string]struct{}) ([]models.EffectiveMarking, error) {
+	if _, present := visiting[rid]; present {
+		return nil, models.NewMarkingCycleError(rid)
+	}
+	visiting[rid] = struct{}{}
+	defer delete(visiting, rid)
+
+	if r.loader == nil {
+		return nil, models.ErrMarkingResolverDisabled
+	}
+	direct, err := r.loader(ctx, rid)
+	if err != nil {
+		return nil, models.NewMarkingDatabaseError(err)
+	}
+
+	var parents []string
+	if r.lineage != nil {
+		parents, err = r.lineage.Upstream(ctx, rid)
+		if err != nil {
+			return nil, models.NewMarkingLineageError(rid, err)
+		}
+	}
+
+	out := make([]models.EffectiveMarking, 0, len(direct)+len(parents))
+	out = append(out, direct...)
+	for _, parent := range parents {
+		parentMarks, err := r.computeInner(ctx, parent, visiting)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, models.ReTagAsInheritedFrom(parent, parentMarks)...)
+	}
+	return models.DedupeMarkings(out), nil
+}
+
+func (r *MarkingResolver) lookup(rid string) ([]models.EffectiveMarking, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.cache[rid]
+	if !ok {
+		return nil, false
+	}
+	if r.now().After(entry.expiresAt) {
+		delete(r.cache, rid)
+		for i, key := range r.order {
+			if key == rid {
+				r.order = append(r.order[:i], r.order[i+1:]...)
+				break
+			}
+		}
+		return nil, false
+	}
+	out := make([]models.EffectiveMarking, len(entry.items))
+	copy(out, entry.items)
+	return out, true
+}
+
+func (r *MarkingResolver) store(rid string, items []models.EffectiveMarking) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.cache[rid]; !exists {
+		if len(r.order) >= r.capacity {
+			oldest := r.order[0]
+			r.order = r.order[1:]
+			delete(r.cache, oldest)
+		}
+		r.order = append(r.order, rid)
+	}
+	stored := make([]models.EffectiveMarking, len(items))
+	copy(stored, items)
+	r.cache[rid] = markingCacheEntry{
+		items:     stored,
+		expiresAt: r.now().Add(r.ttl),
+	}
+}
+
+// MarkingResolverFromRepo builds a resolver whose direct-loader pulls rows
+// from the supplied Store via ListDatasetMarkings, filtering to the direct
+// subset. Convenience constructor for production wiring; tests should build
+// the resolver explicitly with custom loaders.
+func MarkingResolverFromRepo(store Store, lineage LineageClient) *MarkingResolver {
+	loader := func(ctx context.Context, datasetRID string) ([]models.EffectiveMarking, error) {
+		id, err := uuid.Parse(datasetRID)
+		if err != nil {
+			return nil, fmt.Errorf("marking resolver: invalid dataset rid %q: %w", datasetRID, err)
+		}
+		all, err := store.ListDatasetMarkings(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		// Keep only direct rows — inherited rows in the table are stale
+		// projections that the resolver recomputes on the fly.
+		filtered := make([]models.EffectiveMarking, 0, len(all))
+		for _, m := range all {
+			if m.IsDirect() {
+				filtered = append(filtered, m)
+			}
+		}
+		return filtered, nil
+	}
+	return NewMarkingResolver(loader, lineage)
 }
