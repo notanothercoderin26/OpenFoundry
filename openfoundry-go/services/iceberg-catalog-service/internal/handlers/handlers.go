@@ -20,6 +20,8 @@ import (
 
 type Store interface {
 	ListNamespaces(ctx context.Context, projectRID string) ([]models.IcebergNamespace, error)
+	ListTopLevelNamespaces(ctx context.Context, projectRID string) ([]models.IcebergNamespace, error)
+	FetchNamespaceByName(ctx context.Context, projectRID string, path []string) (*models.IcebergNamespace, error)
 	GetNamespace(ctx context.Context, id uuid.UUID) (*models.IcebergNamespace, error)
 	CreateNamespace(ctx context.Context, body *models.CreateNamespaceRequest, createdBy uuid.UUID) (*models.IcebergNamespace, error)
 	UpdateNamespaceProperties(ctx context.Context, id uuid.UUID, properties []byte) (*models.IcebergNamespace, error)
@@ -40,7 +42,10 @@ type Store interface {
 	RenameTable(ctx context.Context, projectRID string, sourceNS []string, sourceName string, destNS []string, destName string) (*models.IcebergTable, error)
 }
 
-type Handlers struct{ Repo Store }
+type Handlers struct {
+	Repo         Store
+	WarehouseURI string
+}
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
