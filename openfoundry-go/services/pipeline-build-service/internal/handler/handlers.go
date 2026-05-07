@@ -1,11 +1,9 @@
 // Package handler hosts the HTTP handlers for pipeline-build-service.
 //
 // Status: every URL the Rust crate exposes is mounted with the same
-// path / verb. Most handler bodies still use the empty-envelope or 501 shape while
-// Iceberg and remaining legacy CRUD surfaces finish migrating. The critical
-// resolver-backed CreateBuild / DryRunResolve paths and executor-backed
-// ExecutePipeline / TriggerPipelineRun paths are wired through injectable
-// ports; see the README for the full port-status breakdown.
+// path / verb. Handlers either execute repository/runtime-backed work or
+// return explicit machine-readable configuration errors when a production
+// adapter has not been wired; see the README for the full port-status breakdown.
 //
 // What IS ported 1:1 in this binary:
 //
@@ -46,13 +44,35 @@ type jobLogStreamConfig struct {
 	HeartbeatInterval time.Duration
 }
 
-var jobLogService atomic.Value        // stores *livellogs.Service
-var streamConfig atomic.Value         // stores jobLogStreamConfig
-var sparkClientValue atomic.Value     // stores *sparkClientSlot
-var buildQueryRepository atomic.Value // stores *buildQuerySlot
+var jobLogService atomic.Value             // stores *livellogs.Service
+var streamConfig atomic.Value              // stores jobLogStreamConfig
+var sparkClientValue atomic.Value          // stores *sparkClientSlot
+var sparkSubmissionRepository atomic.Value // stores *sparkSubmissionSlot
+var buildQueryRepository atomic.Value      // stores *buildQuerySlot
 
 type sparkClientSlot struct {
 	client sparkpkg.SparkClient
+}
+
+type SparkSubmissionRepository interface {
+	SaveSparkSubmission(ctx context.Context, submission SparkSubmission) error
+	GetSparkSubmission(ctx context.Context, pipelineRunID uuid.UUID) (*SparkSubmission, error)
+	UpdateSparkSubmissionStatus(ctx context.Context, pipelineRunID uuid.UUID, status sparkpkg.SparkRunStatus, errorMessage *string) error
+	ListSparkSubmissions(ctx context.Context, limit int64) ([]SparkSubmission, error)
+}
+
+type SparkSubmission struct {
+	PipelineRunID  uuid.UUID               `json:"pipeline_run_id"`
+	Namespace      string                  `json:"namespace"`
+	SparkAppName   string                  `json:"spark_app_name"`
+	Status         sparkpkg.SparkRunStatus `json:"status"`
+	ErrorMessage   *string                 `json:"error_message,omitempty"`
+	SubmittedAt    *time.Time              `json:"submitted_at,omitempty"`
+	LastObservedAt *time.Time              `json:"last_observed_at,omitempty"`
+}
+
+type sparkSubmissionSlot struct {
+	repo SparkSubmissionRepository
 }
 
 type BuildQueryRepository interface {
@@ -109,6 +129,22 @@ func SetSparkClient(client sparkpkg.SparkClient) func() {
 	}
 	sparkClientValue.Store(&sparkClientSlot{client: client})
 	return func() { sparkClientValue.Store(previous) }
+}
+
+// SetSparkSubmissionRepository injects the persistence adapter for Rust-compatible
+// /api/v1/pipeline/builds SparkApplication submission routes.
+func SetSparkSubmissionRepository(repo SparkSubmissionRepository) func() {
+	previous, _ := sparkSubmissionRepository.Load().(*sparkSubmissionSlot)
+	sparkSubmissionRepository.Store(&sparkSubmissionSlot{repo: repo})
+	return func() { sparkSubmissionRepository.Store(previous) }
+}
+
+func currentSparkSubmissionRepository() (SparkSubmissionRepository, bool) {
+	slot, _ := sparkSubmissionRepository.Load().(*sparkSubmissionSlot)
+	if slot == nil || slot.repo == nil {
+		return nil, false
+	}
+	return slot.repo, true
 }
 
 // SetBuildQueryRepository injects read-side build/job repositories for list/get
@@ -297,17 +333,46 @@ func StreamJobLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // Dry-run + execute (resolution preview / immediate trigger).
-func DryRunValidate(w http.ResponseWriter, r *http.Request) { notImplemented(w, r) }
+func DryRunValidate(w http.ResponseWriter, r *http.Request) {
+	if r.Body == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": "request body is required"})
+		return
+	}
+	var body dryRunResolveRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
+		return
+	}
+	errorsOut := []dryRunError{}
+	if strings.TrimSpace(body.PipelineRID) == "" {
+		errorsOut = append(errorsOut, dryRunError{Kind: "validation", Message: "pipeline_rid is required"})
+	}
+	if strings.TrimSpace(body.BuildBranch) == "" {
+		errorsOut = append(errorsOut, dryRunError{Kind: "validation", Message: "build_branch is required"})
+	}
+	if len(body.OutputDatasetRIDs) == 0 && len(body.InlineSpecs) == 0 {
+		errorsOut = append(errorsOut, dryRunError{Kind: "validation", Message: "output_dataset_rids or inline_specs is required"})
+	}
+	status := http.StatusOK
+	if len(errorsOut) > 0 {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, map[string]any{"valid": len(errorsOut) == 0, "errors": errorsOut})
+}
 
 // Pipeline CRUD (legacy surface that still owns the cron schedule rows).
 func ListPipelines(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"data": []any{}, "total": 0, "page": 1, "per_page": 20})
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipeline_authoring_repository_not_configured", "detail": "legacy pipeline authoring routes are read/write disabled in pipeline-build-service; use the data-integration run/build routes or configure an authoring repository"})
 }
-func CreatePipeline(w http.ResponseWriter, r *http.Request) { notImplemented(w, r) }
+func CreatePipeline(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipeline_authoring_repository_not_configured", "detail": "pipeline creation requires a configured authoring repository"})
+}
 func GetPipeline(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusNotFound, nil)
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipeline_authoring_repository_not_configured", "detail": "pipeline lookup requires a configured authoring repository"})
 }
-func UpdatePipeline(w http.ResponseWriter, r *http.Request) { notImplemented(w, r) }
+func UpdatePipeline(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipeline_authoring_repository_not_configured", "detail": "pipeline updates require a configured authoring repository"})
+}
 func DeletePipeline(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -317,7 +382,25 @@ func DeletePipeline(w http.ResponseWriter, _ *http.Request) {
 
 // SparkApplication-backed runs (FASE 3 / Tarea 3.4). When kube_client
 // is unavailable the Rust crate returns 503; we mirror that shape.
-func ListSparkRuns(w http.ResponseWriter, _ *http.Request) { writeEmptyList(w) }
+func ListSparkRuns(w http.ResponseWriter, r *http.Request) {
+	repo, ok := currentSparkSubmissionRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spark_submission_repository_not_configured", "detail": "ListSparkRuns requires DATABASE_URL-backed pipeline_run_submissions wiring"})
+		return
+	}
+	limit := int64(50)
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	items, err := repo.ListSparkSubmissions(r.Context(), limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list_spark_runs_failed", "detail": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items, "total": len(items)})
+}
 
 type submitSparkRunRequest struct {
 	PipelineRunID       *uuid.UUID                      `json:"pipeline_run_id,omitempty"`
@@ -368,7 +451,62 @@ func SubmitSparkRun(w http.ResponseWriter, r *http.Request) {
 		writeSparkError(w, err)
 		return
 	}
+	if repo, ok := currentSparkSubmissionRepository(); ok {
+		if err := repo.SaveSparkSubmission(r.Context(), SparkSubmission{PipelineRunID: runID, Namespace: namespace, SparkAppName: name, Status: sparkpkg.SparkRunSubmitted}); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "spark_submission_persist_failed", "detail": err.Error()})
+			return
+		}
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"pipeline_run_id": runID, "namespace": namespace, "spark_app_name": name, "status": string(sparkpkg.SparkRunSubmitted)})
+}
+
+func SubmitPipelineBuildRun(w http.ResponseWriter, r *http.Request) {
+	if _, ok := currentSparkSubmissionRepository(); !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spark_submission_repository_not_configured", "detail": "Rust-compatible /api/v1/pipeline/builds/run requires DATABASE_URL-backed pipeline_run_submissions persistence"})
+		return
+	}
+	SubmitSparkRun(w, r)
+}
+
+func GetPipelineBuildRunStatus(w http.ResponseWriter, r *http.Request) {
+	client, ok := currentSparkClient()
+	if !ok {
+		writeKubeUnavailable(w)
+		return
+	}
+	repo, ok := currentSparkSubmissionRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spark_submission_repository_not_configured", "detail": "status lookup requires DATABASE_URL-backed pipeline_run_submissions persistence"})
+		return
+	}
+	runID, err := uuid.Parse(chi.URLParam(r, "run_id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_run_id", "detail": err.Error()})
+		return
+	}
+	submission, err := repo.GetSparkSubmission(r.Context(), runID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "spark_submission_lookup_failed", "detail": err.Error()})
+		return
+	}
+	if submission == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown_pipeline_run_id"})
+		return
+	}
+	report, err := client.GetPipelineRunStatus(r.Context(), submission.Namespace, submission.SparkAppName)
+	if err != nil {
+		writeSparkError(w, err)
+		return
+	}
+	if report != nil {
+		if err := repo.UpdateSparkSubmissionStatus(r.Context(), runID, report.Status, report.ErrorMessage); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "spark_submission_status_update_failed", "detail": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"pipeline_run_id": runID, "namespace": submission.Namespace, "spark_app_name": submission.SparkAppName, "status": string(report.Status), "error_message": report.ErrorMessage})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pipeline_run_id": runID, "namespace": submission.Namespace, "spark_app_name": submission.SparkAppName, "status": string(submission.Status), "error_message": submission.ErrorMessage, "note": "SparkApplication CR no longer present in cluster"})
 }
 
 func GetSparkRun(w http.ResponseWriter, r *http.Request) {
@@ -562,17 +700,6 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	if body != nil {
 		_ = json.NewEncoder(w).Encode(body)
 	}
-}
-
-func writeEmptyList(w http.ResponseWriter) {
-	writeJSON(w, http.StatusOK, map[string]any{"data": []any{}, "total": 0})
-}
-
-func notImplemented(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{
-		"error":  "not_implemented",
-		"detail": "build resolver / DAG executor / Iceberg client not yet ported (see service README)",
-	})
 }
 
 func currentSparkClient() (sparkpkg.SparkClient, bool) {

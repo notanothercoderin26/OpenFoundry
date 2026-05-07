@@ -1,8 +1,8 @@
 // Command pipeline-build-service serves the build / execution side of
 // Pipeline Builder. The Go HTTP surface is intentionally audited
 // route-by-route rather than described as 1:1; see
-// docs/migration/route-parity-audit.md for missing Rust paths and
-// remaining 501 / empty-envelope / config-gated handlers.
+// docs/migration/route-parity-audit.md for generated route state and
+// remaining config-gated production adapters.
 package main
 
 import (
@@ -23,6 +23,7 @@ import (
 	livellogs "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/logs"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/postgres"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/server"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
 )
 
 var version = "dev"
@@ -69,10 +70,18 @@ func main() {
 		handler.SetBuildLifecyclePorts(handler.BuildLifecyclePorts{JobSpecs: repo, Versioning: repo, Locks: repo, Builds: repo})
 		handler.SetExecutionPorts(handler.ExecutionPorts{Plans: repo, Runs: repo, Transactions: repo, Committer: repo, Parallelism: cfg.DistributedPipelineWorkers})
 		handler.SetBuildQueryRepository(repo)
+		handler.SetSparkSubmissionRepository(repo)
 		handler.SetJobLogService(&livellogs.Service{Store: repo, Subscriber: livellogs.NewMemoryService()})
 		log.Info("postgres repositories wired", slog.String("database_url", "set"))
 	} else {
 		log.Warn("DATABASE_URL unset — production repositories disabled; supported handlers return explicit 503 instead of fake success")
+	}
+
+	if kubeClient, err := spark.NewKubernetesClientFromEnv(); err == nil {
+		handler.SetSparkClient(kubeClient)
+		log.Info("kubernetes SparkApplication client wired")
+	} else {
+		log.Warn("kubernetes client unavailable — SparkApplication endpoints return explicit 503", slog.String("error", err.Error()))
 	}
 
 	metrics := observability.NewMetrics()

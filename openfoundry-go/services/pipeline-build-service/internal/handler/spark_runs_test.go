@@ -8,6 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/stretchr/testify/require"
 
 	sparkpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
@@ -109,4 +112,78 @@ func (f *fakeSparkClient) GetPipelineRunStatus(_ context.Context, namespace, nam
 func validateByRendering(input sparkpkg.PipelineRunInput) error {
 	_, err := sparkpkg.RenderManifest(input)
 	return err
+}
+
+func TestPipelineBuildRunPersistsAndStatusRefreshes(t *testing.T) {
+	runID := "018f7a5c-0000-7000-8000-000000000001"
+	fakeClient := &fakeSparkClient{submittedName: "spark-app", status: &sparkpkg.SparkRunStatusReport{Status: sparkpkg.SparkRunRunning}}
+	repo := &fakeSparkSubmissionRepo{submissions: map[string]SparkSubmission{}}
+	restoreClient := SetSparkClient(fakeClient)
+	defer restoreClient()
+	restoreRepo := SetSparkSubmissionRepository(repo)
+	defer restoreRepo()
+
+	body := []byte(`{"pipeline_run_id":"` + runID + `","pipeline_id":"p","run_id":"r","input_dataset_rid":"in","output_dataset_rid":"out","pipeline_runner_image":"img"}`)
+	rr := httptest.NewRecorder()
+	SubmitPipelineBuildRun(rr, httptest.NewRequest(http.MethodPost, "/api/v1/pipeline/builds/run", bytes.NewReader(body)))
+	require.Equal(t, http.StatusAccepted, rr.Result().StatusCode)
+	require.Len(t, repo.submissions, 1)
+	require.Equal(t, sparkpkg.SparkRunSubmitted, repo.submissions[runID].Status)
+
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/pipeline/builds/"+runID+"/status", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("run_id", runID)
+	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	rr = httptest.NewRecorder()
+	GetPipelineBuildRunStatus(rr, r)
+	require.Equal(t, http.StatusOK, rr.Result().StatusCode)
+	var payload map[string]any
+	require.NoError(t, json.NewDecoder(rr.Result().Body).Decode(&payload))
+	require.Equal(t, "RUNNING", payload["status"])
+	require.Equal(t, "spark-app", fakeClient.gotName)
+	require.Equal(t, sparkpkg.SparkRunRunning, repo.submissions[runID].Status)
+}
+
+func TestListSparkRunsRequiresRepositoryInsteadOfEmptyEnvelope(t *testing.T) {
+	restore := SetSparkSubmissionRepository(nil)
+	defer restore()
+	rr := httptest.NewRecorder()
+	ListSparkRuns(rr, httptest.NewRequest(http.MethodGet, "/api/v1/data-integration/spark-runs", nil))
+	require.Equal(t, http.StatusServiceUnavailable, rr.Result().StatusCode)
+	var payload map[string]string
+	require.NoError(t, json.NewDecoder(rr.Result().Body).Decode(&payload))
+	require.Equal(t, "spark_submission_repository_not_configured", payload["error"])
+}
+
+type fakeSparkSubmissionRepo struct {
+	submissions map[string]SparkSubmission
+}
+
+func (f *fakeSparkSubmissionRepo) SaveSparkSubmission(_ context.Context, submission SparkSubmission) error {
+	f.submissions[submission.PipelineRunID.String()] = submission
+	return nil
+}
+
+func (f *fakeSparkSubmissionRepo) GetSparkSubmission(_ context.Context, pipelineRunID uuid.UUID) (*SparkSubmission, error) {
+	sub, ok := f.submissions[pipelineRunID.String()]
+	if !ok {
+		return nil, nil
+	}
+	return &sub, nil
+}
+
+func (f *fakeSparkSubmissionRepo) UpdateSparkSubmissionStatus(_ context.Context, pipelineRunID uuid.UUID, status sparkpkg.SparkRunStatus, errorMessage *string) error {
+	sub := f.submissions[pipelineRunID.String()]
+	sub.Status = status
+	sub.ErrorMessage = errorMessage
+	f.submissions[pipelineRunID.String()] = sub
+	return nil
+}
+
+func (f *fakeSparkSubmissionRepo) ListSparkSubmissions(_ context.Context, _ int64) ([]SparkSubmission, error) {
+	items := make([]SparkSubmission, 0, len(f.submissions))
+	for _, item := range f.submissions {
+		items = append(items, item)
+	}
+	return items, nil
 }

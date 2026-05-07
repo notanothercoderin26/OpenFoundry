@@ -1,47 +1,30 @@
 # `pipeline-build-service` (Go)
 
-Build / execution side of Pipeline Builder. The Rust crate is the
-largest in the workspace (≈36 KLOC of source + 86 integration tests
-covering DAG resolution, branch lock acquisition, multi-output
-atomicity, log streaming, Spark / Iceberg orchestration). This Go
-port now includes the resolver domain and wires the critical
-`CreateBuild` / `DryRunResolve` HTTP paths through injectable
-JobSpec, dataset-versioning, lock and build-persistence ports while
-the executor and external production adapters continue to migrate.
+Build / execution side of Pipeline Builder. The Go service now mounts the
+Rust route surface under `/api/v1/data-integration`, `/api/v1/pipeline/builds`
+and `/v1`, while keeping the older `/api/v1/*` compatibility aliases for
+callers that already moved to the Go namespace.
 
 ## Port status
 
 | Component | Status |
 |---|---|
 | Health (`/health`, `/healthz`) + Prometheus (`/metrics`) | ✅ |
-| HTTP surface | 🟡 partial — Go exposes the current `/api/v1` compatibility surface plus health/metrics; `docs/migration/route-parity-audit.md` lists remaining Rust `/v1`, `/api/v1/data-integration`, and `/api/v1/pipeline` gaps route-by-route |
-| `internal/models` (`Build`, `BuildState`, `AbortPolicy`, `Job`, `JobState`, `Pipeline*`, `PipelineRun`) | ✅ ported 1:1 with the Rust enums + JSON tags |
-| `internal/domain/joblifecycle` (Job state machine + `IsValidTransition` + `TransitionJob` + audit-log insert) | ✅ ported 1:1 with the four Rust unit tests |
-| `internal/domain/markings` (T3.4 marking propagation SQL + transaction wrapper) | ✅ ported 1:1; idempotency via `ON CONFLICT DO NOTHING` |
-| Build resolution (`resolve_build`, branch lock acquisition, fan-out) | ⏳ pending — handler paths that need this still return 501 |
-| Build executor (DAG runner, multi-output transactions) | ⏳ pending — execution/rerun/cancel paths still return 501 |
-| Iceberg output client (ADR-0041) | ⏳ pending — config warning remains accurate; multi-table atomicity is not enforced without the catalog URL |
-| SparkApplication / kube-rs CR submission (FASE 3 / Tarea 3.4) | 🟡 partially wired — Spark run submit/status helpers exist; remaining Rust pipeline Spark routes are tracked as missing in the route audit |
-| SSE log streaming | 🟡 config-gated placeholder — `/jobs/{id}/logs/stream` emits an initial event and then depends on log runtime wiring |
+| Rust route shape | ✅ route-audit reports no `missing`, `501`, or `empty-envelope` states for `pipeline-build-service` |
+| Build resolution (`CreateBuild`, `DryRunResolve`) | ✅ wired through injected JobSpec, dataset-versioning, lock and build persistence ports |
+| `/api/v1/data-integration` runs/build queue | ✅ backed by the production run repository when `DATABASE_URL` is configured; otherwise explicit `503` configuration errors |
+| `/v1/builds`, `/v1/jobs`, `/v1/job-specs` | ✅ mounted and backed by build/job/log repositories where data access is required |
+| SparkApplication `/api/v1/pipeline/builds/run` + status | ✅ mounted, Kubernetes-dispatched, and persisted in `pipeline_run_submissions` when `DATABASE_URL` is configured |
+| Spark run list compatibility alias | 🟡 config-gated; returns recent `pipeline_run_submissions` rows instead of an empty envelope once the repository is configured |
+| DAG executor / runtime dispatch | ✅ executor path accepts persisted plans or inline nodes; Python and job-runner dispatch are injectable runtime ports |
+| Logs | ✅ list/SSE/emit/ws surfaces are mounted; history/emit/ws paths are config-gated on live log store/subscriber wiring |
+| Iceberg output client (ADR-0041) | 🟡 config-gated by `FOUNDRY_ICEBERG_CATALOG_URL`; boot warning remains intentional |
+| Legacy pipeline authoring CRUD aliases | 🟡 explicit `503` configuration errors; they are compatibility aliases and no longer return `501` or fake empty data |
 
-The endpoint shape is no longer documented from memory: use
-`openfoundry-go/docs/migration/route-parity-audit.md` as the source of
-truth for route parity. Current productive gaps are a mix of missing
-legacy Rust paths, explicit `501 Not Implemented` handlers, empty list
-envelopes, and config-gated log/runtime behavior.
-| Build resolution domain (`resolve_build`, input validation, branch lock acquisition, fan-out) | ✅ ported under `internal/domain/resolver` |
-| HTTP build resolution (`POST /api/v1/builds`) | ✅ wired to resolver through injected ports; returns Rust-compatible `202 Accepted` / `400` resolution failures |
-| Dry-run resolution (`POST /api/v1/dry-run/resolve`) | ✅ uses resolver load/cycle/branch-resolution steps without opening build records, output transactions or locks |
-| Production repo adapters for JobSpec / dataset-versioning / build persistence | ⏳ pending — handlers return explicit `503` until ports are injected; no silent stubs |
-| Build executor (DAG runner, multi-output transactions) | ⏳ pending |
-| Iceberg output client (ADR-0041) | ⏳ pending |
-| SparkApplication / kube-rs CR submission (FASE 3 / Tarea 3.4) | ✅ CR rendering/submission surface ported; returns 503 when kube client is unavailable |
-| SSE log streaming | ✅ live history/follow stream wired via injected log service |
-
-The endpoint shape is identical to the Rust crate so dashboards,
-clients and the Spark CR template can talk to either binary. Resolver-backed
-handlers no longer return `501`; remaining unported surfaces still respond
-with `501 Not Implemented` carrying a machine-parseable detail field.
+Use `openfoundry-go/docs/migration/route-parity-audit.md` as the generated
+source of truth for route-shape parity. Productive handlers either execute real
+repository/runtime work or return a machine-readable configuration error that
+names the missing adapter.
 
 ## Build & run
 
@@ -56,8 +39,8 @@ go test ./services/pipeline-build-service/...
 |---|---|
 | `HOST` | `0.0.0.0` |
 | `PORT` | `50081` |
-| `JWT_SECRET` | (required) |
-| `DATABASE_URL` | unset (production build repositories still need explicit adapter wiring) |
+| `JWT_SECRET` | (required for authenticated route groups) |
+| `DATABASE_URL` | unset; repository-backed handlers return explicit `503` until configured |
 | `DATA_DIR` | `/var/lib/openfoundry/pipeline-build` |
 | `DATASET_SERVICE_URL` | `http://localhost:50079` |
 | `WORKFLOW_SERVICE_URL` | `http://localhost:50080` |
@@ -71,5 +54,7 @@ go test ./services/pipeline-build-service/...
 | `DISTRIBUTED_COMPUTE_TIMEOUT_SECS` | `1800` |
 | `SPARK_NAMESPACE` | `openfoundry-spark` |
 | `PIPELINE_RUNNER_IMAGE` | `openfoundry/pipeline-runner:dev` |
-| `FOUNDRY_ICEBERG_CATALOG_URL` | unset (boot-time warn matches Rust) |
+| `KUBERNETES_API_URL` / in-cluster service env | unset; SparkApplication handlers return explicit `503` until kube wiring is available |
+| `KUBERNETES_BEARER_TOKEN` | unset |
+| `FOUNDRY_ICEBERG_CATALOG_URL` | unset (boot-time warning matches Rust) |
 | `FOUNDRY_ICEBERG_CATALOG_BEARER` | unset |
