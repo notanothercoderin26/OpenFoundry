@@ -85,6 +85,47 @@ func (h *Handlers) DeletePeer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handlers) ListContracts(w http.ResponseWriter, r *http.Request) {
+	items, err := h.Repo.ListContracts(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database operation failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, models.ListResponse[models.SharingContract]{Items: items})
+}
+
+func (h *Handlers) CreateContract(w http.ResponseWriter, r *http.Request) {
+	var req models.CreateContractRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	contract, err := h.Repo.CreateContract(r.Context(), req)
+	if err != nil {
+		handleRepoError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, contract)
+}
+
+func (h *Handlers) UpdateContract(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+	var req models.UpdateContractRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	contract, err := h.Repo.UpdateContract(r.Context(), id, req)
+	if err != nil {
+		handleRepoError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, contract)
+}
+
 func (h *Handlers) ListShareManifests(w http.ResponseWriter, r *http.Request) {
 	items, err := h.Repo.ListShareManifests(r.Context())
 	if err != nil {

@@ -22,6 +22,9 @@ type Repository interface {
 	GetPeer(ctx context.Context, id uuid.UUID) (*models.PeerOrganization, error)
 	UpdatePeer(ctx context.Context, id uuid.UUID, req models.UpdatePeerRequest) (*models.PeerOrganization, error)
 	DeletePeer(ctx context.Context, id uuid.UUID) error
+	ListContracts(ctx context.Context) ([]models.SharingContract, error)
+	CreateContract(ctx context.Context, req models.CreateContractRequest) (*models.SharingContract, error)
+	UpdateContract(ctx context.Context, id uuid.UUID, req models.UpdateContractRequest) (*models.SharingContract, error)
 	ListShareManifests(ctx context.Context) ([]models.ShareManifest, error)
 	CreateShareManifest(ctx context.Context, req models.CreateShareRequest) (*models.ShareManifest, error)
 	GetShareManifest(ctx context.Context, id uuid.UUID) (*models.ShareManifest, error)
@@ -116,6 +119,112 @@ func (r *PGXRepository) DeletePeer(ctx context.Context, id uuid.UUID) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *PGXRepository) ListContracts(ctx context.Context) ([]models.SharingContract, error) {
+	rows, err := r.Pool.Query(ctx, contractSelect+` ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	contracts := []models.SharingContract{}
+	for rows.Next() {
+		contract, err := scanContract(rows)
+		if err != nil {
+			return nil, err
+		}
+		contracts = append(contracts, *contract)
+	}
+	return contracts, rows.Err()
+}
+
+func (r *PGXRepository) CreateContract(ctx context.Context, req models.CreateContractRequest) (*models.SharingContract, error) {
+	if strings.TrimSpace(req.Name) == "" {
+		return nil, fmt.Errorf("%w: contract name is required", ErrValidation)
+	}
+	peer, err := r.GetPeer(ctx, req.PeerID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("%w: peer does not exist", ErrValidation)
+		}
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if err := ValidateContract(peer, req.Name, req.QueryTemplate, req.AllowedPurposes, req.MaxRowsPerQuery, req.ReplicationMode, req.RetentionDays, req.Status, req.ExpiresAt, now); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrValidation, err.Error())
+	}
+	id, idErr := uuid.NewV7()
+	if idErr != nil {
+		id = uuid.New()
+	}
+	allowedPurposes, _ := json.Marshal(nonNilStrings(req.AllowedPurposes))
+	dataClasses, _ := json.Marshal(nonNilStrings(req.DataClasses))
+	var signedAt *time.Time
+	if req.Status == "active" {
+		t := now
+		signedAt = &t
+	}
+	row := r.Pool.QueryRow(ctx, `
+INSERT INTO nexus_contracts (id, peer_id, name, description, dataset_locator, allowed_purposes, data_classes, residency_region, query_template, max_rows_per_query, replication_mode, encryption_profile, retention_days, status, signed_at, expires_at, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+RETURNING `+contractColumns,
+		id, req.PeerID, req.Name, req.Description, req.DatasetLocator, allowedPurposes, dataClasses, req.ResidencyRegion, req.QueryTemplate, req.MaxRowsPerQuery, req.ReplicationMode, req.EncryptionProfile, req.RetentionDays, req.Status, signedAt, req.ExpiresAt, now, now)
+	contract, err := scanContract(row)
+	if err != nil {
+		return nil, mapPGError(err)
+	}
+	return contract, nil
+}
+
+func (r *PGXRepository) UpdateContract(ctx context.Context, id uuid.UUID, req models.UpdateContractRequest) (*models.SharingContract, error) {
+	current, err := r.getContractFull(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	peer, err := r.GetPeer(ctx, current.PeerID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("%w: contract peer does not exist", ErrValidation)
+		}
+		return nil, err
+	}
+	now := time.Now().UTC()
+	proposed := applyContractUpdate(current, req)
+	if err := ValidateContract(peer, proposed.Name, proposed.QueryTemplate, proposed.AllowedPurposes, proposed.MaxRowsPerQuery, proposed.ReplicationMode, proposed.RetentionDays, proposed.Status, proposed.ExpiresAt, now); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrValidation, err.Error())
+	}
+	allowedPurposes, _ := json.Marshal(nonNilStrings(proposed.AllowedPurposes))
+	dataClasses, _ := json.Marshal(nonNilStrings(proposed.DataClasses))
+	signedAt := current.SignedAt
+	if proposed.Status == "active" && signedAt == nil {
+		t := now
+		signedAt = &t
+	}
+	row := r.Pool.QueryRow(ctx, `
+UPDATE nexus_contracts
+SET name = $2,
+    description = $3,
+    dataset_locator = $4,
+    allowed_purposes = $5::jsonb,
+    data_classes = $6::jsonb,
+    residency_region = $7,
+    query_template = $8,
+    max_rows_per_query = $9,
+    replication_mode = $10,
+    encryption_profile = $11,
+    retention_days = $12,
+    status = $13,
+    signed_at = $14,
+    expires_at = $15,
+    updated_at = $16
+WHERE id = $1
+RETURNING `+contractColumns,
+		id, proposed.Name, proposed.Description, proposed.DatasetLocator, allowedPurposes, dataClasses, proposed.ResidencyRegion, proposed.QueryTemplate, proposed.MaxRowsPerQuery, proposed.ReplicationMode, proposed.EncryptionProfile, proposed.RetentionDays, proposed.Status, signedAt, proposed.ExpiresAt, now)
+	contract, err := scanContract(row)
+	if err != nil {
+		return nil, mapPGError(err)
+	}
+	return contract, nil
 }
 
 func (r *PGXRepository) ListShareManifests(ctx context.Context) ([]models.ShareManifest, error) {
@@ -258,6 +367,8 @@ RETURNING id, share_id, mode, status, rows_replicated, backlog_rows, encrypted_i
 const peerSelect = `SELECT id, slug, display_name, organization_type, region, endpoint_url, auth_mode, trust_level, public_key_fingerprint, shared_scopes, status, lifecycle_stage, admin_contacts, last_handshake_at, created_at, updated_at FROM nexus_peers`
 const shareSelect = `SELECT id, contract_id, provider_peer_id, consumer_peer_id, provider_space_id, consumer_space_id, dataset_name, selector, provider_schema, consumer_schema, sample_rows, replication_mode, status, last_sync_at, created_at, updated_at FROM nexus_shares`
 const syncStatusSelect = `SELECT id, share_id, mode, status, rows_replicated, backlog_rows, encrypted_in_transit, encrypted_at_rest, key_version, last_sync_at, next_sync_at, audit_cursor, updated_at FROM nexus_sync_statuses`
+const contractColumns = `id, peer_id, name, description, dataset_locator, allowed_purposes, data_classes, residency_region, query_template, max_rows_per_query, replication_mode, encryption_profile, retention_days, status, signed_at, expires_at, created_at, updated_at`
+const contractSelect = `SELECT ` + contractColumns + ` FROM nexus_contracts`
 
 type sharingContract struct {
 	ID                uuid.UUID
@@ -283,6 +394,14 @@ func (r *PGXRepository) getContract(ctx context.Context, id uuid.UUID) (*sharing
 		return nil, fmt.Errorf("decode allowed_purposes: %w", err)
 	}
 	return &contract, nil
+}
+
+func (r *PGXRepository) getContractFull(ctx context.Context, id uuid.UUID) (*models.SharingContract, error) {
+	contract, err := scanContract(r.Pool.QueryRow(ctx, contractSelect+` WHERE id = $1`, id))
+	if err != nil {
+		return nil, mapPGError(err)
+	}
+	return contract, nil
 }
 
 func (r *PGXRepository) listShares(ctx context.Context) ([]models.SharedDataset, error) {
@@ -346,6 +465,21 @@ func scanPeer(row scanner) (*models.PeerOrganization, error) {
 		return nil, fmt.Errorf("decode admin_contacts: %w", err)
 	}
 	return &peer, nil
+}
+
+func scanContract(row scanner) (*models.SharingContract, error) {
+	var contract models.SharingContract
+	var allowedPurposes, dataClasses []byte
+	if err := row.Scan(&contract.ID, &contract.PeerID, &contract.Name, &contract.Description, &contract.DatasetLocator, &allowedPurposes, &dataClasses, &contract.ResidencyRegion, &contract.QueryTemplate, &contract.MaxRowsPerQuery, &contract.ReplicationMode, &contract.EncryptionProfile, &contract.RetentionDays, &contract.Status, &contract.SignedAt, &contract.ExpiresAt, &contract.CreatedAt, &contract.UpdatedAt); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(allowedPurposes, &contract.AllowedPurposes); err != nil {
+		return nil, fmt.Errorf("decode allowed_purposes: %w", err)
+	}
+	if err := json.Unmarshal(dataClasses, &contract.DataClasses); err != nil {
+		return nil, fmt.Errorf("decode data_classes: %w", err)
+	}
+	return &contract, nil
 }
 
 func scanShare(row scanner) (*models.SharedDataset, error) {
@@ -419,6 +553,50 @@ func applyPeerUpdate(peer *models.PeerOrganization, req models.UpdatePeerRequest
 	if req.AdminContacts != nil {
 		peer.AdminContacts = *req.AdminContacts
 	}
+}
+
+func applyContractUpdate(current *models.SharingContract, req models.UpdateContractRequest) models.SharingContract {
+	proposed := *current
+	if req.Name != nil {
+		proposed.Name = *req.Name
+	}
+	if req.Description != nil {
+		proposed.Description = *req.Description
+	}
+	if req.DatasetLocator != nil {
+		proposed.DatasetLocator = *req.DatasetLocator
+	}
+	if req.AllowedPurposes != nil {
+		proposed.AllowedPurposes = *req.AllowedPurposes
+	}
+	if req.DataClasses != nil {
+		proposed.DataClasses = *req.DataClasses
+	}
+	if req.ResidencyRegion != nil {
+		proposed.ResidencyRegion = *req.ResidencyRegion
+	}
+	if req.QueryTemplate != nil {
+		proposed.QueryTemplate = *req.QueryTemplate
+	}
+	if req.MaxRowsPerQuery != nil {
+		proposed.MaxRowsPerQuery = *req.MaxRowsPerQuery
+	}
+	if req.ReplicationMode != nil {
+		proposed.ReplicationMode = *req.ReplicationMode
+	}
+	if req.EncryptionProfile != nil {
+		proposed.EncryptionProfile = *req.EncryptionProfile
+	}
+	if req.RetentionDays != nil {
+		proposed.RetentionDays = *req.RetentionDays
+	}
+	if req.Status != nil {
+		proposed.Status = *req.Status
+	}
+	if req.ExpiresAt != nil {
+		proposed.ExpiresAt = *req.ExpiresAt
+	}
+	return proposed
 }
 
 func applySyncStatusUpdate(status *models.SyncStatus, req models.SyncStatusUpdateRequest) {

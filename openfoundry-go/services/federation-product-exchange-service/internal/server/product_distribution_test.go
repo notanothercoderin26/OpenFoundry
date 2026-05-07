@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -77,6 +78,108 @@ func TestProductDistributionUpdateSyncStatus(t *testing.T) {
 	assert.Equal(t, "cursor/test", status.AuditCursor)
 }
 
+func TestProductDistributionContractLifecycle(t *testing.T) {
+	t.Parallel()
+	srv, token, repo := newDistributionTestServer(t)
+	provider, _, _ := repo.seedShareDependencies()
+
+	expires := time.Now().UTC().Add(72 * time.Hour)
+	createPayload := map[string]any{
+		"peer_id":            provider.ID.String(),
+		"name":               "Partner contract",
+		"description":        "claims sharing",
+		"dataset_locator":    "claims://eu",
+		"allowed_purposes":   []string{"analytics"},
+		"data_classes":       []string{"internal"},
+		"residency_region":   "eu-west-1",
+		"query_template":     "select * from claims",
+		"max_rows_per_query": 250,
+		"replication_mode":   "incremental_replication",
+		"encryption_profile": "aes256",
+		"retention_days":     30,
+		"status":             "active",
+		"expires_at":         expires.Format(time.RFC3339Nano),
+	}
+
+	body := doJSON(t, http.MethodPost, srv.URL+"/api/v1/product-distribution/contracts", token, createPayload, http.StatusOK)
+	var created models.SharingContract
+	require.NoError(t, json.Unmarshal(body, &created))
+	assert.Equal(t, "Partner contract", created.Name)
+	assert.Equal(t, "active", created.Status)
+	require.NotNil(t, created.SignedAt)
+	assert.WithinDuration(t, time.Now().UTC(), *created.SignedAt, 5*time.Second)
+
+	body = doJSON(t, http.MethodGet, srv.URL+"/api/v1/product-distribution/contracts", token, nil, http.StatusOK)
+	var listEnv struct {
+		Items []models.SharingContract `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(body, &listEnv))
+	require.Len(t, listEnv.Items, 2)
+
+	patchBody := map[string]any{"max_rows_per_query": 999, "description": "patched"}
+	body = doJSON(t, http.MethodPatch, srv.URL+"/api/v1/product-distribution/contracts/"+created.ID.String(), token, patchBody, http.StatusOK)
+	var updated models.SharingContract
+	require.NoError(t, json.Unmarshal(body, &updated))
+	assert.Equal(t, int64(999), updated.MaxRowsPerQuery)
+	assert.Equal(t, "patched", updated.Description)
+}
+
+func TestProductDistributionContractValidationErrors(t *testing.T) {
+	t.Parallel()
+	srv, token, repo := newDistributionTestServer(t)
+	provider, _, _ := repo.seedShareDependencies()
+	expires := time.Now().UTC().Add(72 * time.Hour)
+	base := map[string]any{
+		"peer_id":            provider.ID.String(),
+		"name":               "Partner contract",
+		"description":        "claims",
+		"dataset_locator":    "claims://eu",
+		"allowed_purposes":   []string{"analytics"},
+		"data_classes":       []string{"internal"},
+		"residency_region":   "eu-west-1",
+		"query_template":     "select * from claims",
+		"max_rows_per_query": 250,
+		"replication_mode":   "incremental_replication",
+		"encryption_profile": "aes256",
+		"retention_days":     30,
+		"status":             "active",
+		"expires_at":         expires.Format(time.RFC3339Nano),
+	}
+
+	bad := cloneMap(base)
+	bad["name"] = "  "
+	body := doJSON(t, http.MethodPost, srv.URL+"/api/v1/product-distribution/contracts", token, bad, http.StatusBadRequest)
+	var errBody map[string]string
+	require.NoError(t, json.Unmarshal(body, &errBody))
+	assert.Contains(t, errBody["error"], "contract name")
+
+	bad = cloneMap(base)
+	bad["replication_mode"] = "tape"
+	body = doJSON(t, http.MethodPost, srv.URL+"/api/v1/product-distribution/contracts", token, bad, http.StatusBadRequest)
+	require.NoError(t, json.Unmarshal(body, &errBody))
+	assert.Contains(t, errBody["error"], "replication mode")
+
+	bad = cloneMap(base)
+	bad["expires_at"] = time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano)
+	body = doJSON(t, http.MethodPost, srv.URL+"/api/v1/product-distribution/contracts", token, bad, http.StatusBadRequest)
+	require.NoError(t, json.Unmarshal(body, &errBody))
+	assert.Contains(t, errBody["error"], "expiry")
+
+	bad = cloneMap(base)
+	bad["peer_id"] = uuid.New().String()
+	body = doJSON(t, http.MethodPost, srv.URL+"/api/v1/product-distribution/contracts", token, bad, http.StatusBadRequest)
+	require.NoError(t, json.Unmarshal(body, &errBody))
+	assert.Contains(t, errBody["error"], "peer")
+}
+
+func cloneMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 func TestProductDistributionValidationAndAuth(t *testing.T) {
 	t.Parallel()
 	srv, token, repo := newDistributionTestServer(t)
@@ -118,25 +221,13 @@ func sharePayload(contractID, providerID, consumerID uuid.UUID) map[string]any {
 type distributionMemoryRepo struct {
 	mu        sync.Mutex
 	peers     map[uuid.UUID]models.PeerOrganization
-	contracts map[uuid.UUID]memoryContract
+	contracts map[uuid.UUID]models.SharingContract
 	shares    map[uuid.UUID]models.SharedDataset
 	statuses  map[uuid.UUID]models.SyncStatus
 }
 
-type memoryContract struct {
-	ID                uuid.UUID
-	PeerID            uuid.UUID
-	AllowedPurposes   []string
-	QueryTemplate     string
-	MaxRowsPerQuery   int64
-	ReplicationMode   string
-	EncryptionProfile string
-	Status            string
-	ExpiresAt         time.Time
-}
-
 func newDistributionMemoryRepo() *distributionMemoryRepo {
-	return &distributionMemoryRepo{peers: map[uuid.UUID]models.PeerOrganization{}, contracts: map[uuid.UUID]memoryContract{}, shares: map[uuid.UUID]models.SharedDataset{}, statuses: map[uuid.UUID]models.SyncStatus{}}
+	return &distributionMemoryRepo{peers: map[uuid.UUID]models.PeerOrganization{}, contracts: map[uuid.UUID]models.SharingContract{}, shares: map[uuid.UUID]models.SharedDataset{}, statuses: map[uuid.UUID]models.SyncStatus{}}
 }
 
 func (r *distributionMemoryRepo) ListPeers(context.Context) ([]models.PeerOrganization, error) {
@@ -202,6 +293,127 @@ func (r *distributionMemoryRepo) DeletePeer(_ context.Context, id uuid.UUID) err
 	}
 	delete(r.peers, id)
 	return nil
+}
+
+func (r *distributionMemoryRepo) ListContracts(context.Context) ([]models.SharingContract, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items := make([]models.SharingContract, 0, len(r.contracts))
+	for _, c := range r.contracts {
+		items = append(items, c)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].UpdatedAt.After(items[j].UpdatedAt) })
+	return items, nil
+}
+
+func (r *distributionMemoryRepo) CreateContract(_ context.Context, req models.CreateContractRequest) (*models.SharingContract, error) {
+	r.mu.Lock()
+	peer, ok := r.peers[req.PeerID]
+	r.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("%w: peer does not exist", productdistribution.ErrValidation)
+	}
+	now := time.Now().UTC()
+	if err := productdistribution.ValidateContract(&peer, req.Name, req.QueryTemplate, req.AllowedPurposes, req.MaxRowsPerQuery, req.ReplicationMode, req.RetentionDays, req.Status, req.ExpiresAt, now); err != nil {
+		return nil, fmt.Errorf("%w: %s", productdistribution.ErrValidation, err.Error())
+	}
+	id, _ := uuid.NewV7()
+	var signedAt *time.Time
+	if req.Status == "active" {
+		t := now
+		signedAt = &t
+	}
+	contract := models.SharingContract{
+		ID:                id,
+		PeerID:            req.PeerID,
+		Name:              req.Name,
+		Description:       req.Description,
+		DatasetLocator:    req.DatasetLocator,
+		AllowedPurposes:   append([]string(nil), req.AllowedPurposes...),
+		DataClasses:       append([]string(nil), req.DataClasses...),
+		ResidencyRegion:   req.ResidencyRegion,
+		QueryTemplate:     req.QueryTemplate,
+		MaxRowsPerQuery:   req.MaxRowsPerQuery,
+		ReplicationMode:   req.ReplicationMode,
+		EncryptionProfile: req.EncryptionProfile,
+		RetentionDays:     req.RetentionDays,
+		Status:            req.Status,
+		SignedAt:          signedAt,
+		ExpiresAt:         req.ExpiresAt,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	r.mu.Lock()
+	r.contracts[id] = contract
+	r.mu.Unlock()
+	return &contract, nil
+}
+
+func (r *distributionMemoryRepo) UpdateContract(_ context.Context, id uuid.UUID, req models.UpdateContractRequest) (*models.SharingContract, error) {
+	r.mu.Lock()
+	current, ok := r.contracts[id]
+	if !ok {
+		r.mu.Unlock()
+		return nil, productdistribution.ErrNotFound
+	}
+	peer, peerOK := r.peers[current.PeerID]
+	r.mu.Unlock()
+	if !peerOK {
+		return nil, fmt.Errorf("%w: contract peer does not exist", productdistribution.ErrValidation)
+	}
+	now := time.Now().UTC()
+	proposed := current
+	if req.Name != nil {
+		proposed.Name = *req.Name
+	}
+	if req.Description != nil {
+		proposed.Description = *req.Description
+	}
+	if req.DatasetLocator != nil {
+		proposed.DatasetLocator = *req.DatasetLocator
+	}
+	if req.AllowedPurposes != nil {
+		proposed.AllowedPurposes = *req.AllowedPurposes
+	}
+	if req.DataClasses != nil {
+		proposed.DataClasses = *req.DataClasses
+	}
+	if req.ResidencyRegion != nil {
+		proposed.ResidencyRegion = *req.ResidencyRegion
+	}
+	if req.QueryTemplate != nil {
+		proposed.QueryTemplate = *req.QueryTemplate
+	}
+	if req.MaxRowsPerQuery != nil {
+		proposed.MaxRowsPerQuery = *req.MaxRowsPerQuery
+	}
+	if req.ReplicationMode != nil {
+		proposed.ReplicationMode = *req.ReplicationMode
+	}
+	if req.EncryptionProfile != nil {
+		proposed.EncryptionProfile = *req.EncryptionProfile
+	}
+	if req.RetentionDays != nil {
+		proposed.RetentionDays = *req.RetentionDays
+	}
+	if req.Status != nil {
+		proposed.Status = *req.Status
+	}
+	if req.ExpiresAt != nil {
+		proposed.ExpiresAt = *req.ExpiresAt
+	}
+	if err := productdistribution.ValidateContract(&peer, proposed.Name, proposed.QueryTemplate, proposed.AllowedPurposes, proposed.MaxRowsPerQuery, proposed.ReplicationMode, proposed.RetentionDays, proposed.Status, proposed.ExpiresAt, now); err != nil {
+		return nil, fmt.Errorf("%w: %s", productdistribution.ErrValidation, err.Error())
+	}
+	if proposed.Status == "active" && proposed.SignedAt == nil {
+		t := now
+		proposed.SignedAt = &t
+	}
+	proposed.UpdatedAt = now
+	r.mu.Lock()
+	r.contracts[id] = proposed
+	r.mu.Unlock()
+	return &proposed, nil
 }
 
 func (r *distributionMemoryRepo) ListShareManifests(context.Context) ([]models.ShareManifest, error) {
@@ -314,7 +526,7 @@ func (r *distributionMemoryRepo) seedShareDependencies() (models.PeerOrganizatio
 	contractID := uuid.New()
 	r.peers[providerID] = provider
 	r.peers[consumerID] = consumer
-	r.contracts[contractID] = memoryContract{ID: contractID, PeerID: providerID, AllowedPurposes: []string{"claims"}, QueryTemplate: "SELECT * FROM claims", MaxRowsPerQuery: 100, ReplicationMode: "incremental_replication", EncryptionProfile: "key/test/v1", Status: "active", ExpiresAt: now.Add(24 * time.Hour)}
+	r.contracts[contractID] = models.SharingContract{ID: contractID, PeerID: providerID, Name: "Claims contract", Description: "claims share", DatasetLocator: "claims://eu", AllowedPurposes: []string{"claims"}, DataClasses: []string{"internal"}, ResidencyRegion: "eu-west-1", QueryTemplate: "SELECT * FROM claims", MaxRowsPerQuery: 100, ReplicationMode: "incremental_replication", EncryptionProfile: "key/test/v1", RetentionDays: 30, Status: "active", ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now, UpdatedAt: now}
 	return provider, consumer, contractID
 }
 
