@@ -61,6 +61,7 @@ func produceKafkaMessage(t *testing.T, brokers []string, topic string, value []b
 
 func newSubscribedKafkaReader(t *testing.T, brokers []string, group string, topics []string) KafkaReader {
 	t.Helper()
+	r := NewConsumerKafkaReader(brokers, group, []string{topic})
 	r := NewKafkaReader(brokers, group, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -112,6 +113,7 @@ func TestConsumerWithRealKafkaValidMalformedAndRetry(t *testing.T) {
 		produceKafkaMessage(t, brokers, topic, body)
 
 		backend := &recordingIndexBackend{}
+		consumer := &Consumer{Reader: NewConsumerKafkaReader(brokers, group, []string{topic}), Backend: backend}
 		consumer := &Consumer{Reader: newSubscribedKafkaReader(t, brokers, group, []string{topic}), Backend: backend}
 		t.Cleanup(func() { _ = consumer.Close() })
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -134,6 +136,7 @@ func TestConsumerWithRealKafkaValidMalformedAndRetry(t *testing.T) {
 		produceKafkaMessage(t, brokers, topic, body)
 
 		backend := &recordingIndexBackend{}
+		consumer := &Consumer{Reader: NewConsumerKafkaReader(brokers, group, []string{topic}), Backend: backend}
 		consumer := &Consumer{Reader: newSubscribedKafkaReader(t, brokers, group, []string{topic}), Backend: backend}
 		t.Cleanup(func() { _ = consumer.Close() })
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -155,6 +158,7 @@ func TestConsumerWithRealKafkaValidMalformedAndRetry(t *testing.T) {
 		body := []byte(`{"event_type":"ontology.object.changed.v1","object_id":"obj-2","op":"upsert"}`)
 		produceKafkaMessage(t, brokers, topic, body)
 
+		consumer := &Consumer{Reader: NewConsumerKafkaReader(brokers, group, []string{topic}), Backend: &recordingIndexBackend{err: errors.New("backend down")}}
 		consumer := &Consumer{Reader: newSubscribedKafkaReader(t, brokers, group, []string{topic}), Backend: &recordingIndexBackend{err: errors.New("backend down")}}
 		t.Cleanup(func() { _ = consumer.Close() })
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
