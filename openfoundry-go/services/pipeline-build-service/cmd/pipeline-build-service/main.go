@@ -70,6 +70,7 @@ func main() {
 		handler.SetBuildLifecyclePorts(handler.BuildLifecyclePorts{JobSpecs: repo, Versioning: repo, Locks: repo, Builds: repo})
 		handler.SetExecutionPorts(handler.ExecutionPorts{Plans: repo, Runs: repo, Transactions: repo, Committer: repo, Audit: repo, Parallelism: cfg.DistributedPipelineWorkers})
 		handler.SetBuildQueryRepository(repo)
+		handler.SetPipelineAuthoringRepository(repo)
 		handler.SetSparkSubmissionRepository(repo)
 		handler.SetJobLogService(&livellogs.Service{Store: repo, Subscriber: livellogs.NewMemoryService()})
 		log.Info("postgres repositories wired", slog.String("database_url", "set"))

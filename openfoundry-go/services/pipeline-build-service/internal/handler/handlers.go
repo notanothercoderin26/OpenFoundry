@@ -31,6 +31,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	livellogs "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/logs"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
 	sparkpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
@@ -44,11 +45,12 @@ type jobLogStreamConfig struct {
 	HeartbeatInterval time.Duration
 }
 
-var jobLogService atomic.Value             // stores *livellogs.Service
-var streamConfig atomic.Value              // stores jobLogStreamConfig
-var sparkClientValue atomic.Value          // stores *sparkClientSlot
-var sparkSubmissionRepository atomic.Value // stores *sparkSubmissionSlot
-var buildQueryRepository atomic.Value      // stores *buildQuerySlot
+var jobLogService atomic.Value               // stores *livellogs.Service
+var streamConfig atomic.Value                // stores jobLogStreamConfig
+var sparkClientValue atomic.Value            // stores *sparkClientSlot
+var sparkSubmissionRepository atomic.Value   // stores *sparkSubmissionSlot
+var buildQueryRepository atomic.Value        // stores *buildQuerySlot
+var pipelineAuthoringRepository atomic.Value // stores *pipelineAuthoringSlot
 
 type sparkClientSlot struct {
 	client sparkpkg.SparkClient
@@ -96,6 +98,18 @@ type LogAppendStore interface {
 
 type buildQuerySlot struct {
 	repo BuildQueryRepository
+}
+
+type PipelineAuthoringRepository interface {
+	ListPipelines(ctx context.Context, query models.ListPipelinesQuery) (models.ListPipelinesResponse, error)
+	CreatePipeline(ctx context.Context, req models.CreatePipelineRequest, ownerID uuid.UUID) (*models.Pipeline, error)
+	GetPipeline(ctx context.Context, id uuid.UUID) (*models.Pipeline, error)
+	UpdatePipeline(ctx context.Context, id uuid.UUID, req models.UpdatePipelineRequest) (*models.Pipeline, error)
+	DeletePipeline(ctx context.Context, id uuid.UUID) (bool, error)
+}
+
+type pipelineAuthoringSlot struct {
+	repo PipelineAuthoringRepository
 }
 
 func init() {
@@ -163,6 +177,34 @@ func currentBuildQueryRepository() (BuildQueryRepository, bool) {
 		return nil, false
 	}
 	return slot.repo, true
+}
+
+// SetPipelineAuthoringRepository injects the productive repository for legacy
+// /api/v1/pipelines CRUD aliases. Without it the handlers return explicit 503s.
+func SetPipelineAuthoringRepository(repo PipelineAuthoringRepository) func() {
+	previous, _ := pipelineAuthoringRepository.Load().(*pipelineAuthoringSlot)
+	if previous == nil {
+		previous = &pipelineAuthoringSlot{}
+	}
+	pipelineAuthoringRepository.Store(&pipelineAuthoringSlot{repo: repo})
+	return func() { pipelineAuthoringRepository.Store(previous) }
+}
+
+func currentPipelineAuthoringRepository() (PipelineAuthoringRepository, bool) {
+	slot, _ := pipelineAuthoringRepository.Load().(*pipelineAuthoringSlot)
+	if slot == nil || slot.repo == nil {
+		return nil, false
+	}
+	return slot.repo, true
+}
+
+func requirePipelineAuthoringRepository(w http.ResponseWriter, detail string) (PipelineAuthoringRepository, bool) {
+	repo, ok := currentPipelineAuthoringRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipeline_authoring_repository_not_configured", "detail": detail})
+		return nil, false
+	}
+	return repo, true
 }
 
 func requireBuildQueryRepository(w http.ResponseWriter, detail string) (BuildQueryRepository, bool) {
@@ -433,19 +475,128 @@ func DryRunValidate(w http.ResponseWriter, r *http.Request) {
 }
 
 // Pipeline CRUD (legacy surface that still owns the cron schedule rows).
-func ListPipelines(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipeline_authoring_repository_not_configured", "detail": "legacy pipeline authoring routes are read/write disabled in pipeline-build-service; use the data-integration run/build routes or configure an authoring repository"})
+func ListPipelines(w http.ResponseWriter, r *http.Request) {
+	repo, ok := requirePipelineAuthoringRepository(w, "ListPipelines requires DATABASE_URL-backed pipeline authoring repository wiring")
+	if !ok {
+		return
+	}
+	query := models.ListPipelinesQuery{}
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_page"})
+			return
+		}
+		query.Page = &parsed
+	}
+	if raw := r.URL.Query().Get("per_page"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_per_page"})
+			return
+		}
+		query.PerPage = &parsed
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("search")); raw != "" {
+		query.Search = &raw
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("status")); raw != "" {
+		query.Status = &raw
+	}
+	out, err := repo.ListPipelines(r.Context(), query)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list_pipelines_failed", "detail": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
-func CreatePipeline(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipeline_authoring_repository_not_configured", "detail": "pipeline creation requires a configured authoring repository"})
+func CreatePipeline(w http.ResponseWriter, r *http.Request) {
+	repo, ok := requirePipelineAuthoringRepository(w, "CreatePipeline requires DATABASE_URL-backed pipeline authoring repository wiring")
+	if !ok {
+		return
+	}
+	var req models.CreatePipelineRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
+		return
+	}
+	ownerID := uuid.Nil
+	if claims, ok := authmw.FromContext(r.Context()); ok {
+		ownerID = claims.Sub
+	}
+	pipeline, err := repo.CreatePipeline(r.Context(), req, ownerID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "create_pipeline_failed", "detail": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, pipeline)
 }
-func GetPipeline(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipeline_authoring_repository_not_configured", "detail": "pipeline lookup requires a configured authoring repository"})
+func GetPipeline(w http.ResponseWriter, r *http.Request) {
+	repo, ok := requirePipelineAuthoringRepository(w, "GetPipeline requires DATABASE_URL-backed pipeline authoring repository wiring")
+	if !ok {
+		return
+	}
+	id, err := pipelineIDFromRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_pipeline_id", "detail": err.Error()})
+		return
+	}
+	pipeline, err := repo.GetPipeline(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "get_pipeline_failed", "detail": err.Error()})
+		return
+	}
+	if pipeline == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, pipeline)
 }
-func UpdatePipeline(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipeline_authoring_repository_not_configured", "detail": "pipeline updates require a configured authoring repository"})
+func UpdatePipeline(w http.ResponseWriter, r *http.Request) {
+	repo, ok := requirePipelineAuthoringRepository(w, "UpdatePipeline requires DATABASE_URL-backed pipeline authoring repository wiring")
+	if !ok {
+		return
+	}
+	id, err := pipelineIDFromRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_pipeline_id", "detail": err.Error()})
+		return
+	}
+	var req models.UpdatePipelineRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
+		return
+	}
+	pipeline, err := repo.UpdatePipeline(r.Context(), id, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "update_pipeline_failed", "detail": err.Error()})
+		return
+	}
+	if pipeline == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, pipeline)
 }
-func DeletePipeline(w http.ResponseWriter, _ *http.Request) {
+func DeletePipeline(w http.ResponseWriter, r *http.Request) {
+	repo, ok := requirePipelineAuthoringRepository(w, "DeletePipeline requires DATABASE_URL-backed pipeline authoring repository wiring")
+	if !ok {
+		return
+	}
+	id, err := pipelineIDFromRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_pipeline_id", "detail": err.Error()})
+		return
+	}
+	deleted, err := repo.DeletePipeline(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete_pipeline_failed", "detail": err.Error()})
+		return
+	}
+	if !deleted {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
