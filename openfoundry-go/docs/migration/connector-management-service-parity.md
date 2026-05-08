@@ -50,6 +50,16 @@ Machine-readable pending errors use this shape:
 ```
 
 
+
+## 2026-05-08 background workers update
+
+This slice ports the Rust background-worker primitives for connector-management-service:
+
+- Auto-registration now has a Go `RunOnce`/`RunLoop` worker with Clock/Store interfaces, per-connection `config.auto_registration` parsing, update-detection skip semantics, in-memory last-run status, and the same service-level opt-in gate as Rust: `OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS > 0`.
+- Update detection now exposes Rust-compatible `first_seen`, `unknown`, `unchanged`, and `changed` outcomes for discovered-source signatures and records the latest signature after successful auto-registration upserts.
+- The legacy sync scheduler has a Clock/Store-backed `RunOnce`/`RunLoop`; the SQL store is intentionally a no-op because the local sync runtime remains disabled pending the ingestion-replication runtime slice. It is gated by `OPENFOUNDRY_SYNC_SCHEDULER_INTERVAL_SECS > 0` and is disabled by default.
+- Agent registry resolution now mirrors Rust precedence and validation: inline `agent_url`, then `agent_id` lookup, online status enforcement, and stale-heartbeat rejection using the configured stale-after duration.
+
 ## 2026-05-08 encrypted credentials + vending update
 
 This slice ports the Rust credential storage/vending semantics that sit behind the existing route surface:
@@ -235,10 +245,10 @@ No Rust routes are mounted directly under adapter modules, but Rust request hand
 
 | Worker | Rust implementation | Trigger/config | Go parity state | Tables/migrations | Rust tests |
 | --- | --- | --- | --- | --- | --- |
-| Auto registration scheduler | `domain::auto_registration::run/tick` | `OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS` > 0 | routes mounted; worker pending | `virtual_table_sources_link`, `auto_register_runs`; `20260504000121_auto_registration.sql` | auto-registration tests |
-| Sync scheduler/runtime | `domain::scheduler::run_scheduler`, `domain::sync_engine::run_due_jobs` | service/runtime config | route surface partial/runtime-pending | `batch_sync_defs`, `sync_runs` | sync/dataset versioning tests |
-| Update detection | `domain::update_detection` and virtual-table counterpart | virtual table polling settings | pending | `update_detection_polls`, `virtual_tables`; `20260504000122_update_detection.sql` | update-detection tests |
-| Agent registry resolution | `domain::agent_registry` | connector agent config | pending | `connector_agents`; `20260425153000_enterprise_connectivity.sql` | enterprise connector tests |
+| Auto registration scheduler | `domain::auto_registration::run/tick` | `OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS` > 0 | Clock/Store `RunOnce`/`RunLoop` worker ported; status reads in-memory last run | `virtual_table_sources_link`, `auto_register_runs`; `20260504000121_auto_registration.sql` | auto-registration tests |
+| Sync scheduler/runtime | `domain::scheduler::run_scheduler`, `domain::sync_engine::run_due_jobs` | opt-in `OPENFOUNDRY_SYNC_SCHEDULER_INTERVAL_SECS` > 0 | Clock/Store scheduler shim ported; store remains no-op while runtime is disabled | `batch_sync_defs`, `sync_runs` | sync/dataset versioning tests |
+| Update detection | `domain::update_detection` and virtual-table counterpart | per-registration/auto-registration settings | registration signature evaluator ported for auto-registration; virtual-table polling remains pending | `update_detection_polls`, `virtual_tables`; `20260504000122_update_detection.sql` | update-detection tests |
+| Agent registry resolution | `domain::agent_registry` | connector agent config | resolver ported with inline URL, registry lookup, online/stale validation | `connector_agents`; `20260425153000_enterprise_connectivity.sql` | enterprise connector tests |
 
 ### conformance/tests
 

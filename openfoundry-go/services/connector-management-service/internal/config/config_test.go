@@ -16,7 +16,7 @@ func setBaseEnv(t *testing.T) {
 		"DATASET_SERVICE_URL", "PIPELINE_SERVICE_URL", "ONTOLOGY_SERVICE_URL", "INGESTION_REPLICATION_GRPC_URL",
 		"NETWORK_BOUNDARY_SERVICE_URL", "SYNC_POLL_INTERVAL_SECS", "ALLOW_PRIVATE_NETWORK_EGRESS", "ALLOWED_EGRESS_HOSTS",
 		"AGENT_STALE_AFTER_SECS", "MEDIA_SETS_SERVICE_URL", "CREDENTIAL_ENCRYPTION_KEY", "SECRET_MANAGER_URL",
-		"OUTBOX_ENABLED", "OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS", "OPENFOUNDRY_DEV_AUTH", "OPENFOUNDRY_VENDED_CREDENTIALS_TTL_SECS",
+		"OUTBOX_ENABLED", "OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS", "OPENFOUNDRY_SYNC_SCHEDULER_INTERVAL_SECS", "OPENFOUNDRY_DEV_AUTH", "OPENFOUNDRY_VENDED_CREDENTIALS_TTL_SECS",
 	} {
 		t.Setenv(key, "")
 	}
@@ -50,6 +50,7 @@ func TestFromEnvRustCompatibleDefaults(t *testing.T) {
 	require.Empty(t, cfg.SecretManagerURL)
 	require.True(t, cfg.OutboxEnabled)
 	require.Zero(t, cfg.AutoRegistrationIntervalSecs)
+	require.Zero(t, cfg.SyncSchedulerIntervalSecs)
 	require.False(t, cfg.OpenFoundryDevAuth)
 	require.Equal(t, int64(config.DefaultVendedCredentialsTTL), cfg.VendedCredentialsTTLSeconds)
 }
@@ -75,6 +76,7 @@ func TestFromEnvOverridesAndParsesListsAndBools(t *testing.T) {
 	t.Setenv("SECRET_MANAGER_URL", "http://secrets")
 	t.Setenv("OUTBOX_ENABLED", "false")
 	t.Setenv("OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS", "60")
+	t.Setenv("OPENFOUNDRY_SYNC_SCHEDULER_INTERVAL_SECS", "15")
 	t.Setenv("OPENFOUNDRY_DEV_AUTH", "true")
 	t.Setenv("OPENFOUNDRY_VENDED_CREDENTIALS_TTL_SECS", "1200")
 
@@ -99,6 +101,7 @@ func TestFromEnvOverridesAndParsesListsAndBools(t *testing.T) {
 	require.Equal(t, "http://secrets", cfg.SecretManagerURL)
 	require.False(t, cfg.OutboxEnabled)
 	require.Equal(t, uint64(60), cfg.AutoRegistrationIntervalSecs)
+	require.Equal(t, uint64(15), cfg.SyncSchedulerIntervalSecs)
 	require.True(t, cfg.OpenFoundryDevAuth)
 	require.Equal(t, int64(1200), cfg.VendedCredentialsTTLSeconds)
 }

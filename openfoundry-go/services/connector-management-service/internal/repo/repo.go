@@ -739,3 +739,44 @@ func scanRegistration(r rowLikeT) (*models.ConnectionRegistration, error) {
 	}
 	return v, nil
 }
+
+func (r *Repo) GetRegistrationSignature(ctx context.Context, sourceID uuid.UUID, selector string) (*string, error) {
+	row := r.Pool.QueryRow(ctx, `SELECT last_source_signature FROM connection_registrations WHERE connection_id = $1 AND selector = $2`, sourceID, selector)
+	var sig *string
+	if err := row.Scan(&sig); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return sig, nil
+}
+
+func (r *Repo) RecordRegistrationSignature(ctx context.Context, sourceID uuid.UUID, selector string, signature *string) error {
+	if signature == nil {
+		return nil
+	}
+	_, err := r.Pool.Exec(ctx, `UPDATE connection_registrations SET last_source_signature = $3, updated_at = NOW() WHERE connection_id = $1 AND selector = $2`, sourceID, selector, *signature)
+	return err
+}
+
+func (r *Repo) RunDueSyncJobs(ctx context.Context, now time.Time) (int, error) {
+	// Rust's scheduler delegates to sync_engine::run_due_jobs. The local sync
+	// runtime is disabled in this Go slice, so this remains a compatibility
+	// no-op until the ingestion-replication runtime is ported.
+	_ = ctx
+	_ = now
+	return 0, nil
+}
+
+func (r *Repo) GetConnectorAgent(ctx context.Context, id uuid.UUID) (*models.ConnectorAgent, error) {
+	row := r.Pool.QueryRow(ctx, `SELECT id, name, agent_url, owner_id, status, capabilities, metadata, last_heartbeat_at, created_at, updated_at FROM connector_agents WHERE id = $1`, id)
+	agent := &models.ConnectorAgent{}
+	if err := row.Scan(&agent.ID, &agent.Name, &agent.AgentURL, &agent.OwnerID, &agent.Status, &agent.Capabilities, &agent.Metadata, &agent.LastHeartbeatAt, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return agent, nil
+}

@@ -21,6 +21,7 @@ import (
 
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/domain"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/models"
+	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/workers"
 )
 
 func normalizeRegistrationMode(mode *string) (string, error) {
@@ -310,13 +311,11 @@ func (h *Handlers) AutoRegisterStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var cfg map[string]any
-	_ = json.Unmarshal(c.Config, &cfg)
-	settings, _ := cfg["auto_registration"].(map[string]any)
+	settings := any(workers.AutoRegistrationSettingsViewFromConfig(c.Config))
 	if settings == nil {
 		settings = map[string]any{"enabled": false}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"connection_id": id, "settings": settings, "last_run": nil})
+	writeJSON(w, http.StatusOK, map[string]any{"connection_id": id, "settings": settings, "last_run": workers.DefaultAutoRegistrationRecorder.LastRun(id)})
 }
 
 func (h *Handlers) UpdateAutoRegistration(w http.ResponseWriter, r *http.Request) {

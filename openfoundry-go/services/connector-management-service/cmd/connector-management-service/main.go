@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/server"
+	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/workers"
 )
 
 var version = "dev"
@@ -58,9 +60,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	store := &repo.Repo{Pool: pool}
+	if cfg.AutoRegistrationIntervalSecs > 0 {
+		worker := &workers.AutoRegistrationWorker{Store: store, Clock: workers.RealClock{}, Recorder: workers.DefaultAutoRegistrationRecorder}
+		interval := time.Duration(cfg.AutoRegistrationIntervalSecs) * time.Second
+		go func() {
+			if err := worker.RunLoop(ctx, interval); err != nil && !errors.Is(err, context.Canceled) {
+				log.Warn("auto-registration scheduler exited", slog.String("error", err.Error()))
+			}
+		}()
+		log.Info("auto-registration scheduler enabled", slog.Duration("interval", interval))
+	}
+	if cfg.SyncSchedulerIntervalSecs > 0 {
+		worker := &workers.SyncSchedulerWorker{Store: store, Clock: workers.RealClock{}}
+		interval := time.Duration(cfg.SyncSchedulerIntervalSecs) * time.Second
+		go func() {
+			if err := worker.RunLoop(ctx, interval); err != nil && !errors.Is(err, context.Canceled) {
+				log.Warn("sync scheduler exited", slog.String("error", err.Error()))
+			}
+		}()
+		log.Info("sync scheduler enabled", slog.Duration("interval", interval))
+	}
+
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	h := &handlers.Handlers{
-		Repo:            &repo.Repo{Pool: pool},
+		Repo:            store,
 		MediaSetRuntime: &handlers.HTTPMediaSetRuntime{MediaSetsBaseURL: cfg.MediaSetsServiceURL},
 		Config: handlers.RuntimeConfig{
 			DatasetServiceURL:            cfg.DatasetServiceURL,

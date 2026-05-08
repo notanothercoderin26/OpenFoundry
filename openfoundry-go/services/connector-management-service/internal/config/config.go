@@ -51,6 +51,7 @@ type Config struct {
 	SecretManagerURL             string
 	OutboxEnabled                bool
 	AutoRegistrationIntervalSecs uint64
+	SyncSchedulerIntervalSecs    uint64
 	OpenFoundryDevAuth           bool
 	VendedCredentialsTTLSeconds  int64
 }
@@ -106,6 +107,10 @@ func FromEnv() (*Config, error) {
 		return nil, err
 	}
 	cfg.AutoRegistrationIntervalSecs, err = parseUint64("OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS", os.Getenv("OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS"), 0)
+	if err != nil {
+		return nil, err
+	}
+	cfg.SyncSchedulerIntervalSecs, err = parseUint64("OPENFOUNDRY_SYNC_SCHEDULER_INTERVAL_SECS", os.Getenv("OPENFOUNDRY_SYNC_SCHEDULER_INTERVAL_SECS"), 0)
 	if err != nil {
 		return nil, err
 	}
