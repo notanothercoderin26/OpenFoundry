@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/domain"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/models"
 )
 
@@ -808,12 +809,33 @@ func (h *Handlers) IcebergLoadTable(w http.ResponseWriter, r *http.Request) {
 			loc := fmt.Sprintf("openfoundry://catalog/%s/%s/v0.metadata.json", c.ID, reg.ID)
 			var meta map[string]any
 			_ = json.Unmarshal(reg.Metadata, &meta)
+			upstreamMetadata := false
 			if u, ok := meta["upstream"].(map[string]any); ok {
 				if s, ok := u["metadata_location"].(string); ok {
 					loc = s
+					upstreamMetadata = true
 				}
 			}
-			cfg, _ := json.Marshal(map[string]any{"connection_id": c.ID.String(), "registration_id": reg.ID.String(), "connector_type": c.ConnectorType, "source_kind": reg.SourceKind, "foundry-vended": fmt.Sprintf("/api/v1/data-connection/sources/%s/registrations/%s/query", c.ID, reg.ID)})
+			if d, ok := meta["discovery"].(map[string]any); ok {
+				if u, ok := d["upstream"].(map[string]any); ok {
+					if s, ok := u["metadata_location"].(string); ok {
+						loc = s
+						upstreamMetadata = true
+					}
+				}
+			}
+			cfgMap := map[string]any{"connection_id": c.ID.String(), "registration_id": reg.ID.String(), "connector_type": c.ConnectorType, "source_kind": reg.SourceKind}
+			if !upstreamMetadata {
+				cfgMap["foundry-vended"] = fmt.Sprintf("/api/v1/data-connection/sources/%s/registrations/%s/query", c.ID, reg.ID)
+			}
+			ttl := h.Config.VendedCredentialsTTLSeconds
+			if ttl <= 0 {
+				ttl = 900
+			}
+			for k, v := range domain.VendCredentials(c, ttl, time.Now()).Entries {
+				cfgMap[k] = v
+			}
+			cfg, _ := json.Marshal(cfgMap)
 			md, _ := json.Marshal(map[string]any{"format-version": 2, "table-uuid": reg.ID.String(), "location": loc, "last-updated-ms": time.Now().UnixMilli(), "current-schema-id": 0, "schemas": []any{map[string]any{"schema-id": 0, "type": "struct", "fields": []any{}}}, "properties": map[string]any{"openfoundry.selector": reg.Selector}})
 			writeJSON(w, http.StatusOK, models.IcebergLoadTableResponse{MetadataLocation: loc, Metadata: md, Config: cfg})
 			return
