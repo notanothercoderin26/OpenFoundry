@@ -11,15 +11,13 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/excel"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/graphql"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/ldap"
-	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/mssql"
-	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/oracle"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/sftp"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/models"
 )
 
 // TestSkeletonStubsRegisterAndReportNotImplemented mirrors the CMA-14
-// contract: the six placeholder connectors (Rust modules
-// `connectors::{excel,graphql,ldap,mssql,oracle,sftp}.rs` are empty files)
+// contract: the remaining placeholder connectors (Rust modules
+// `connectors::{excel,graphql,ldap,sftp}.rs` are empty files)
 // must (a) be registrable under their Rust module names, and (b) return
 // [adapters.ErrNotImplemented] from every capability so the dispatcher in
 // `internal/domain/discovery` translates the failure into the existing
@@ -33,8 +31,6 @@ func TestSkeletonStubsRegisterAndReportNotImplemented(t *testing.T) {
 		{excel.ConnectorType, excel.Factory()},
 		{graphql.ConnectorType, graphql.Factory()},
 		{ldap.ConnectorType, ldap.Factory()},
-		{mssql.ConnectorType, mssql.Factory()},
-		{oracle.ConnectorType, oracle.Factory()},
 		{sftp.ConnectorType, sftp.Factory()},
 	}
 
@@ -42,7 +38,7 @@ func TestSkeletonStubsRegisterAndReportNotImplemented(t *testing.T) {
 	for _, tc := range cases {
 		require.NoError(t, r.Register(tc.name, tc.factory), "register %s", tc.name)
 	}
-	require.Equal(t, []string{"excel", "graphql", "ldap", "mssql", "oracle", "sftp"}, r.Names())
+	require.Equal(t, []string{"excel", "graphql", "ldap", "sftp"}, r.Names())
 
 	ctx := context.Background()
 	conn := &models.Connection{}
