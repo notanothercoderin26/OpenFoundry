@@ -649,11 +649,8 @@ type cachedChatPayload struct {
 //  2. resolve base prompt (template + variables, or system_prompt
 //     fallback, or the canned "OpenFoundry copilot" line).
 //  3. evaluate guardrail + derive privacy/required_modalities.
-//  4. (Rust additionally calls enforce_purpose_checkpoint here when
-//     require_private_network or PII is detected — that integration
-//     is deferred until the auth-middleware-go purpose-checkpoint
-//     surface lands; route-level gating + guardrail.blocked covers
-//     the policy outcomes for now.)
+//  4. call enforce_purpose_checkpoint when require_private_network
+//     or PII is detected, matching the Rust sensitive routing gate.
 //  5. retrieve KB hits when knowledge_base_id is set.
 //  6. build prompt_used signature + route via gateway.
 //  7. cache fast-path: cosine ≥ 0.92, skipping cached row when
@@ -710,6 +707,10 @@ func (h *ChatHandlers) CreateChatCompletion(w http.ResponseWriter, r *http.Reque
 	guardrail := llm.EvaluateText(body.UserMessage)
 	required := requiredModalities(body.Attachments)
 	privacy := privacyReason(guardrail, body.RequirePrivateNetwork)
+	if err := h.enforceChatPurposeCheckpoint(ctx, body.PurposeJustification, body.RequirePrivateNetwork, guardrail, privacy); err != nil {
+		writePurposeCheckpointError(w, err)
+		return
+	}
 
 	// 5. Knowledge retrieval
 	knowledgeHits := []models.KnowledgeSearchResult{}

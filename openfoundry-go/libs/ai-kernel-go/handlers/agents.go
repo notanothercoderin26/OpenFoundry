@@ -16,6 +16,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/llm"
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/rag"
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/models"
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 )
 
 // AgentsHandlers exposes the agent-catalog CRUD surface mirroring
@@ -27,7 +28,8 @@ import (
 //     approval enforced by per-tool policy checks;
 //     see ExecuteAgent for purpose-checkpoint notes)
 type AgentsHandlers struct {
-	Pool *pgxpool.Pool
+	Pool              *pgxpool.Pool
+	PurposeCheckpoint *authmw.PurposeCheckpointClient
 }
 
 const agentColumns = `id, name, description, status, system_prompt,
@@ -219,13 +221,9 @@ func (h *AgentsHandlers) UpdateAgent(w http.ResponseWriter, r *http.Request, age
 //  7. update agent memory via agents.UpdateMemory and persist the
 //     bumped memory + last_execution_at column.
 //
-// The Rust source additionally calls enforce_purpose_checkpoint when
-// any tool requires sensitive approval. That hook depends on the
-// auth-middleware-go purpose-checkpoint integration which lands with
-// its own slice — for now sensitive-approval gating delegates to the
-// per-tool policy check inside ExecutePlan, which already returns
-// status="blocked" + approval_required for sensitive tools without
-// matching context approval.
+// Sensitive tool execution now mirrors Rust enforce_purpose_checkpoint:
+// when any tool requires approval, the configured purpose-checkpoint
+// client must approve the request before planning or execution continues.
 func (h *AgentsHandlers) ExecuteAgent(w http.ResponseWriter, r *http.Request, agentID uuid.UUID) {
 	var body models.ExecuteAgentRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -250,6 +248,10 @@ func (h *AgentsHandlers) ExecuteAgent(w http.ResponseWriter, r *http.Request, ag
 	tools, err := h.loadToolsForAgent(r.Context(), current.ToolIDs)
 	if err != nil {
 		dbError(w, err)
+		return
+	}
+	if err := h.enforceAgentPurposeCheckpoint(r.Context(), current.ID, tools, body.PurposeJustification); err != nil {
+		writePurposeCheckpointError(w, err)
 		return
 	}
 

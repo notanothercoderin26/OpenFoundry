@@ -15,6 +15,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/evaluation"
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/llm"
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/models"
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 )
 
 // ChatHandlers exposes the chat / providers / conversations / guardrails
@@ -23,8 +24,9 @@ import (
 // Runtime so tests can use a fake provider while production wiring uses
 // the HTTP provider runtime.
 type ChatHandlers struct {
-	Pool    *pgxpool.Pool
-	Runtime llm.Runtime
+	Pool              *pgxpool.Pool
+	Runtime           llm.Runtime
+	PurposeCheckpoint *authmw.PurposeCheckpointClient
 }
 
 // GetOverview handles `GET /api/v1/overview` — aggregate counts +
