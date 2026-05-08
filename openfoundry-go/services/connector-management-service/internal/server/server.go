@@ -52,6 +52,27 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
 
+	// Rust main.rs builds some route groups under nested Axum routers before mounting
+	// them below /api/v1. The parity audit reports those inner groups separately,
+	// so keep focused root aliases for complete vertical batches while the
+	// canonical app surface remains /api/v1/data-connection/*.
+	r.Route("/data-connection", func(dc chi.Router) {
+		dc.Use(authmw.Middleware(jwt, authmw.Options{AllowAnonymous: true}))
+
+		// Virtual table registration surface: discovery, bulk registration,
+		// auto-registration configuration/status, deletion, and query endpoints.
+		dc.Get("/sources/{id}/registrations", h.ListRegistrations)
+		dc.Post("/sources/{id}/registrations/discover", h.DiscoverRegistrations)
+		dc.Post("/sources/{id}/registrations/bulk", h.BulkRegister)
+		dc.Post("/sources/{id}/registrations/bulk/preview", h.BulkRegisterPreview)
+		dc.Post("/sources/{id}/registrations/auto", h.AutoRegister)
+		dc.Put("/sources/{id}/registrations/auto", h.UpdateAutoRegistration)
+		dc.Get("/sources/{id}/registrations/auto/status", h.AutoRegisterStatus)
+		dc.Delete("/sources/{source_id}/registrations/{registration_id}", h.DeleteRegistration)
+		dc.Post("/sources/{source_id}/registrations/{registration_id}/query", h.QueryRegistration)
+		dc.Post("/sources/{source_id}/registrations/{registration_id}/query/arrow", h.QueryRegistrationArrow)
+	})
+
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt, authmw.Options{AllowAnonymous: true}))
 
