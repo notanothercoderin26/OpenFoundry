@@ -324,3 +324,78 @@ type RetryableErrorBody struct {
 	TableRID        string       `json:"table_rid"`
 	ConflictingWith ConflictKind `json:"conflicting_with"`
 }
+
+// ListIcebergTablesQuery captures Foundry admin table-list filters.
+type ListIcebergTablesQuery struct {
+	ProjectRID string
+	Namespace  string
+	Name       string
+	Sort       string
+}
+
+// IcebergTableSummary is the UI-facing row returned by /api/v1/iceberg-tables.
+type IcebergTableSummary struct {
+	ID               uuid.UUID  `json:"id"`
+	RID              string     `json:"rid"`
+	ProjectRID       string     `json:"project_rid,omitempty"`
+	Namespace        []string   `json:"namespace"`
+	Name             string     `json:"name"`
+	FormatVersion    int32      `json:"format_version"`
+	Location         string     `json:"location"`
+	Markings         []string   `json:"markings"`
+	LastSnapshotAt   *time.Time `json:"last_snapshot_at,omitempty"`
+	RowCountEstimate *int64     `json:"row_count_estimate,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+}
+
+type IcebergTableListResponse struct {
+	Tables []IcebergTableSummary `json:"tables"`
+}
+
+type IcebergTableDetail struct {
+	Summary                 IcebergTableSummary `json:"summary"`
+	Schema                  json.RawMessage     `json:"schema"`
+	Properties              json.RawMessage     `json:"properties"`
+	PartitionSpec           json.RawMessage     `json:"partition_spec"`
+	SortOrder               json.RawMessage     `json:"sort_order"`
+	CurrentMetadataLocation *string             `json:"current_metadata_location"`
+	CurrentSnapshotID       *int64              `json:"current_snapshot_id"`
+	LastSequenceNumber      int64               `json:"last_sequence_number"`
+}
+
+type SnapshotEntry struct {
+	SnapshotID       int64           `json:"snapshot_id"`
+	ParentSnapshotID *int64          `json:"parent_snapshot_id"`
+	Operation        string          `json:"operation"`
+	Timestamp        time.Time       `json:"timestamp"`
+	SequenceNumber   int64           `json:"sequence_number"`
+	ManifestList     string          `json:"manifest_list"`
+	SchemaID         int32           `json:"schema_id"`
+	Summary          json.RawMessage `json:"summary"`
+}
+
+type SnapshotListResponse struct {
+	Snapshots []SnapshotEntry `json:"snapshots"`
+}
+
+type MetadataResponse struct {
+	Metadata         json.RawMessage        `json:"metadata"`
+	MetadataLocation string                 `json:"metadata_location"`
+	History          []MetadataHistoryEntry `json:"history"`
+}
+
+type MetadataHistoryEntry struct {
+	Version   int32     `json:"version"`
+	Path      string    `json:"path"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type BranchEntry struct {
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	SnapshotID int64  `json:"snapshot_id"`
+}
+
+type BranchListResponse struct {
+	Branches []BranchEntry `json:"branches"`
+}

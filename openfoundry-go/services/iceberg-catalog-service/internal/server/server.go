@@ -46,15 +46,28 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.
 		r.Use(instrument(deps.Metrics))
 	}
 
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	healthHandler := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
-	})
+	}
+	r.Get("/healthz", healthHandler)
+	r.Get("/health", healthHandler)
 	r.Get("/version", versionHandler(cfg))
 	r.Method(http.MethodGet, "/metrics", m.Handler())
 
+	// /api/v1 is the Go management surface retained for clients that
+	// integrated before the Rust REST Catalog route table was ported.
+	// Rust-only admin routes are mounted here as /api/v1/iceberg-tables
+	// while Go-only namespace/table aliases remain documented in the
+	// route-parity audit as management aliases.
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
+
+		api.Get("/iceberg-tables", h.ListIcebergTables)
+		api.Get("/iceberg-tables/{id}", h.GetIcebergTableDetail)
+		api.Get("/iceberg-tables/{id}/snapshots", h.ListIcebergTableSnapshots)
+		api.Get("/iceberg-tables/{id}/metadata", h.GetIcebergTableMetadata)
+		api.Get("/iceberg-tables/{id}/branches", h.ListIcebergTableBranches)
 
 		api.Get("/namespaces", h.ListNamespaces)
 		api.Post("/namespaces", h.CreateNamespace)
@@ -66,6 +79,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.
 		api.Post("/namespaces/{namespace}/tables", h.CreateTable)
 		api.Post("/tables/rename", h.RenameTable)
 		api.Get("/namespaces/{namespace}/tables/{table}", h.LoadTable)
+		api.Head("/namespaces/{namespace}/tables/{table}", h.TableExists)
 		api.Post("/namespaces/{namespace}/tables/{table}", h.CommitTable)
 		api.Delete("/namespaces/{namespace}/tables/{table}", h.DropTable)
 		api.Get("/namespaces/{namespace}/tables/{table}/refs", h.ListRefs)
@@ -113,14 +127,24 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.
 		})
 	}
 
+	// /iceberg/v1 mirrors the Rust Apache Iceberg REST Catalog surface;
+	// where Go also exposes /api/v1 equivalents, this route keeps the
+	// Rust/Lakekeeper envelope and status semantics.
 	r.Route("/iceberg/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 		api.Get("/config", h.GetConfig)
 		api.Post("/diagnose", h.RunDiagnose)
+		api.Get("/namespaces", h.ListCatalogNamespaces)
+		api.Post("/namespaces", h.CreateCatalogNamespace)
+		api.Get("/namespaces/{namespace}", h.LoadCatalogNamespace)
+		api.Delete("/namespaces/{namespace}", h.DropCatalogNamespace)
+		api.Get("/namespaces/{namespace}/properties", h.GetNamespaceProperties)
+		api.Post("/namespaces/{namespace}/properties", h.UpdateNamespacePropertiesREST)
 		api.Get("/namespaces/{namespace}/tables", h.ListTables)
 		api.Post("/namespaces/{namespace}/tables", h.CreateTable)
 		api.Post("/tables/rename", h.RenameTable)
 		api.Get("/namespaces/{namespace}/tables/{table}", h.LoadTable)
+		api.Head("/namespaces/{namespace}/tables/{table}", h.TableExists)
 		api.Post("/namespaces/{namespace}/tables/{table}", h.CommitTable)
 		api.Delete("/namespaces/{namespace}/tables/{table}", h.DropTable)
 		api.Get("/namespaces/{namespace}/tables/{table}/refs", h.ListRefs)
@@ -131,6 +155,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.
 		api.Get("/namespaces/{namespace}/tables/{table}/metadata/{version}", h.GetMetadataFile)
 		api.Get("/namespaces/{namespace}/tables/{table}/snapshots", h.ListSnapshots)
 		api.Get("/namespaces/{namespace}/tables/{table}/snapshots/{snapshot_id}", h.GetSnapshot)
+		api.Post("/namespaces/{namespace}/tables/{table}/alter-schema", h.AlterSchema)
 		api.Post("/transactions/commit", h.MultiTableCommit)
 	})
 

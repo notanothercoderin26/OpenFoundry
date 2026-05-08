@@ -980,19 +980,19 @@ func scanMetadataFile(r rowLikeT) (*models.MetadataFile, error) {
 //     are taken in a deterministic order — this is what prevents
 //     deadlocks between two commits that share two or more tables.
 //  3. BEGIN. For each (locked) table:
-//       a. SELECT … FOR UPDATE on iceberg_tables — Postgres blocks
-//          here until any other commit holding the row releases it.
-//       b. Validate every requirement against the *locked* row state.
-//          A failed assertion rolls back and surfaces as a typed
-//          RetryableError with the `ConflictKind` set per the Rust
-//          mapping (assert-uuid → user_job, schema/ref → compaction).
-//       c. Schema-strict: any add-schema update that diverges from
-//          the locked schema rolls back and surfaces as a
-//          domain.SchemaIncompatibleError so the handler returns 422.
-//       d. Apply updates (add-schema / set-properties / remove-properties /
-//          add-snapshot) inside the same transaction.
-//       e. Insert a metadata-file row + bump current_metadata_location +
-//          last_sequence_number on iceberg_tables.
+//     a. SELECT … FOR UPDATE on iceberg_tables — Postgres blocks
+//     here until any other commit holding the row releases it.
+//     b. Validate every requirement against the *locked* row state.
+//     A failed assertion rolls back and surfaces as a typed
+//     RetryableError with the `ConflictKind` set per the Rust
+//     mapping (assert-uuid → user_job, schema/ref → compaction).
+//     c. Schema-strict: any add-schema update that diverges from
+//     the locked schema rolls back and surfaces as a
+//     domain.SchemaIncompatibleError so the handler returns 422.
+//     d. Apply updates (add-schema / set-properties / remove-properties /
+//     add-snapshot) inside the same transaction.
+//     e. Insert a metadata-file row + bump current_metadata_location +
+//     last_sequence_number on iceberg_tables.
 //  4. COMMIT.
 //
 // Empty `TableChanges` is a no-op (mirrors the Rust wrapper's
@@ -1150,4 +1150,84 @@ func validateRequirementsLocked(table *models.IcebergTable, reqs []json.RawMessa
 		Reason:          reqErr.Error(),
 		ConflictingWith: kind,
 	}
+}
+
+// UpdateTableSchema persists an explicit ALTER TABLE schema result.
+func (r *Repo) UpdateTableSchema(ctx context.Context, tableID uuid.UUID, schema json.RawMessage) (*models.IcebergTable, error) {
+	row := r.Pool.QueryRow(ctx,
+		`UPDATE iceberg_tables t SET schema_json = $2, updated_at = NOW()
+		 WHERE t.id = $1
+		 RETURNING t.id, t.rid, t.namespace_id,
+		   (SELECT n.name FROM iceberg_namespaces n WHERE n.id = t.namespace_id) AS namespace_name,
+		   t.name, t.table_uuid, t.format_version, t.location, t.current_snapshot_id,
+		   t.current_metadata_location, t.last_sequence_number, t.partition_spec,
+		   t.schema_json, t.sort_order, t.properties, t.markings, t.created_at, t.updated_at`,
+		tableID, schema)
+	v, err := scanTable(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+// GetTableByRID loads a table by the stable Foundry RID used by the admin UI.
+func (r *Repo) GetTableByRID(ctx context.Context, rid string) (*models.IcebergTable, error) {
+	row := r.Pool.QueryRow(ctx, tableSelect+` WHERE t.rid = $1`, rid)
+	v, err := scanTable(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+// ListAdminTables mirrors the Rust /api/v1/iceberg-tables query surface.
+func (r *Repo) ListAdminTables(ctx context.Context, query models.ListIcebergTablesQuery) ([]models.IcebergTableSummary, error) {
+	sql := `SELECT t.id, t.rid, n.project_rid, n.name AS namespace_name, t.name,
+	       t.format_version, t.location, t.markings, t.created_at,
+	       (SELECT MAX(timestamp_ms) FROM iceberg_snapshots WHERE table_id = t.id) AS last_ts_ms,
+	       (SELECT (summary->>'total-records')::BIGINT FROM iceberg_snapshots
+	          WHERE table_id = t.id ORDER BY timestamp_ms DESC LIMIT 1) AS row_count_estimate
+	       FROM iceberg_tables t JOIN iceberg_namespaces n ON n.id = t.namespace_id WHERE 1=1`
+	args := make([]any, 0, 3)
+	if query.ProjectRID != "" {
+		args = append(args, query.ProjectRID)
+		sql += fmt.Sprintf(" AND n.project_rid = $%d", len(args))
+	}
+	if query.Namespace != "" {
+		args = append(args, query.Namespace)
+		sql += fmt.Sprintf(" AND n.name = $%d", len(args))
+	}
+	if query.Name != "" {
+		args = append(args, "%"+query.Name+"%")
+		sql += fmt.Sprintf(" AND t.name ILIKE $%d", len(args))
+	}
+	switch query.Sort {
+	case "name":
+		sql += " ORDER BY t.name ASC"
+	case "created_at":
+		sql += " ORDER BY t.created_at DESC"
+	default:
+		sql += " ORDER BY t.updated_at DESC"
+	}
+	rows, err := r.Pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []models.IcebergTableSummary{}
+	for rows.Next() {
+		var s models.IcebergTableSummary
+		var namespaceName string
+		var lastTS *int64
+		if err := rows.Scan(&s.ID, &s.RID, &s.ProjectRID, &namespaceName, &s.Name, &s.FormatVersion, &s.Location, &s.Markings, &s.CreatedAt, &lastTS, &s.RowCountEstimate); err != nil {
+			return nil, err
+		}
+		s.Namespace = decodePath(namespaceName)
+		if lastTS != nil {
+			t := time.UnixMilli(*lastTS).UTC()
+			s.LastSnapshotAt = &t
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
