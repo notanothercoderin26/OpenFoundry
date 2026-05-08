@@ -19,6 +19,14 @@ workspace files, notepad documents + presence + export.
 | Cell execute (Python) | ✅ wired through `libs/python-sidecar` when `PYTHON_SIDECAR_BINARY` is set; unset config returns an explicit `python kernel sidecar is not configured` execution error rather than a placeholder envelope |
 | Cell execute (SQL / R / LLM) | ✅ adapters are wired: SQL posts to query-service, R shells out to `Rscript`, LLM posts to ai-service chat completions and tracks session conversation IDs |
 
+## Production vs smoke matrix
+
+| Mode | Required configuration | Notebook / cell / session CRUD | Python execution |
+|---|---|---|---|
+| Production | `DATABASE_URL` set, `NOTEBOOK_RUNTIME_SMOKE_MODE=false` (default) | Uses Postgres via pgx. If the DB pool cannot be created, CRUD responds `503` instead of silently synthesising resources. | Uses the managed gRPC sidecar only when `PYTHON_SIDECAR_BINARY` points at `openfoundry-pyruntime`; otherwise Python cell execution returns an explicit not-configured error payload. |
+| Production misconfigured | `DATABASE_URL` unset, `NOTEBOOK_RUNTIME_SMOKE_MODE=false` | Stable `503` for notebook, cell, and session CRUD with `DATABASE_URL is required unless NOTEBOOK_RUNTIME_SMOKE_MODE=true`. | Same as production: sidecar is configured independently from the DB. |
+| Smoke / tests | `DATABASE_URL` unset, `NOTEBOOK_RUNTIME_SMOKE_MODE=true` | Uses the in-memory repository for real create/list/get/update/delete round trips. Data is process-local and is lost on restart. | May use a real sidecar, a fake gRPC sidecar in tests, or return the explicit not-configured error when no Python sidecar is wired. |
+
 ## Smoke mode contract
 
 `NOTEBOOK_RUNTIME_SMOKE_MODE=true` is the only documented mode where notebook,

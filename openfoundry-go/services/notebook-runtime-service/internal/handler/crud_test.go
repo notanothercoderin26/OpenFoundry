@@ -1,7 +1,8 @@
 // Tests for the notebook + cell + session CRUD endpoints. The
-// no-DB path is the fallback shape every smoke cluster + the unit
-// tests use; the real DB path is exercised by integration tests
-// against the migrations (out of scope here).
+// no-DB path is only allowed when explicit smoke mode is enabled;
+// production-like no-DB states must return a stable 503 instead of
+// silently synthesising data. The real DB path is exercised by
+// integration tests against the migrations (out of scope here).
 package handler
 
 import (
@@ -50,6 +51,8 @@ func withClaims(req *http.Request, sub uuid.UUID) *http.Request {
 	ctx := authmw.ContextWithClaims(req.Context(), &authmw.Claims{Sub: sub})
 	return req.WithContext(ctx)
 }
+
+func testStringPtr(s string) *string { return &s }
 
 // ── Notebook CRUD (no-DB path) ──────────────────────────────────────
 
@@ -102,6 +105,63 @@ func TestListNotebooksSmokeModeReturnsPersistedEnvelope(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &env)
 	if env["page"].(float64) != 2 || env["per_page"].(float64) != 5 || env["total"].(float64) != 1 {
 		t.Errorf("pagination drift: %+v", env)
+	}
+}
+
+func TestNotebookCRUDRequiresDatabaseOutsideSmokeMode(t *testing.T) {
+	t.Parallel()
+	owner := uuid.New()
+	notebookID := uuid.New()
+	cellID := uuid.New()
+	sessionID := uuid.New()
+	state := &State{Cfg: &config.Config{SmokeMode: false}, Pool: nil}
+	r := mountTestRouter(state)
+
+	jsonBody := func(v any) []byte {
+		body, err := json.Marshal(v)
+		if err != nil {
+			t.Fatalf("marshal body: %v", err)
+		}
+		return body
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   []byte
+		claims bool
+	}{
+		{name: "list notebooks", method: http.MethodGet, path: "/api/v1/notebooks"},
+		{name: "create notebook", method: http.MethodPost, path: "/api/v1/notebooks", body: jsonBody(models.CreateNotebookRequest{Name: "prod"}), claims: true},
+		{name: "get notebook", method: http.MethodGet, path: "/api/v1/notebooks/" + notebookID.String()},
+		{name: "update notebook", method: http.MethodPatch, path: "/api/v1/notebooks/" + notebookID.String(), body: jsonBody(models.UpdateNotebookRequest{Name: testStringPtr("prod-renamed")})},
+		{name: "delete notebook", method: http.MethodDelete, path: "/api/v1/notebooks/" + notebookID.String()},
+		{name: "add cell", method: http.MethodPost, path: "/api/v1/notebooks/" + notebookID.String() + "/cells", body: jsonBody(models.CreateCellRequest{Source: testStringPtr("print(1)")})},
+		{name: "update cell", method: http.MethodPatch, path: "/api/v1/notebooks/" + notebookID.String() + "/cells/" + cellID.String(), body: jsonBody(models.UpdateCellRequest{Source: testStringPtr("print(2)")})},
+		{name: "delete cell", method: http.MethodDelete, path: "/api/v1/notebooks/" + notebookID.String() + "/cells/" + cellID.String()},
+		{name: "list sessions", method: http.MethodGet, path: "/api/v1/notebooks/" + notebookID.String() + "/sessions"},
+		{name: "create session", method: http.MethodPost, path: "/api/v1/notebooks/" + notebookID.String() + "/sessions", body: jsonBody(models.CreateSessionRequest{}), claims: true},
+		{name: "stop session", method: http.MethodPost, path: "/api/v1/notebooks/" + notebookID.String() + "/sessions/" + sessionID.String() + "/stop"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			body := bytes.NewReader(tc.body)
+			req := httptest.NewRequest(tc.method, tc.path, body)
+			req.ContentLength = int64(len(tc.body))
+			if tc.claims {
+				req = withClaims(req, owner)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if w.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+			if !bytes.Contains(w.Body.Bytes(), []byte("DATABASE_URL is required unless NOTEBOOK_RUNTIME_SMOKE_MODE=true")) {
+				t.Fatalf("database-required error drift: %s", w.Body.String())
+			}
+		})
 	}
 }
 
