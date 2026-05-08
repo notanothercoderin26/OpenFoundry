@@ -1,6 +1,9 @@
 package models
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 type rustWireFixture struct {
 	BranchCompare    BranchCompareResponse                 `json:"branch_compare"`
@@ -26,6 +29,38 @@ type rustWireFixture struct {
 
 func TestRustWireJSONContractFixture(t *testing.T) {
 	assertFixtureRoundTrip(t, "testdata/rust_wire_models.json", &rustWireFixture{})
+}
+
+func TestRustParityEnvelopeJSONShapes(t *testing.T) {
+	tests := map[string]struct {
+		value any
+		want  string
+	}{
+		"legacy_list_response": {
+			value: ListResponse[string]{Items: []string{"alpha"}},
+			want:  `{"items":["alpha"]}`,
+		},
+		"cursor_page_without_next_cursor": {
+			value: Page[string]{Data: []string{"v1"}, HasMore: false},
+			want:  `{"data":["v1"],"has_more":false}`,
+		},
+		"catalog_paged_datasets_empty": {
+			value: PagedDatasets{Data: []CatalogDataset{}, Page: 1, PerPage: 20, Total: 0, TotalPages: 0},
+			want:  `{"data":[],"page":1,"per_page":20,"total":0,"total_pages":0}`,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := json.Marshal(tc.value)
+			if err != nil {
+				t.Fatalf("marshal envelope: %v", err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("unexpected JSON envelope:\n got: %s\nwant: %s", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestRustWireTokens(t *testing.T) {

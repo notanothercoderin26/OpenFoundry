@@ -93,6 +93,7 @@ func TestRustParityRoutesRequireAuth(t *testing.T) {
 		{http.MethodPost, "/v1/datasets/ri.foundry.main.dataset.example/upload"},
 		{http.MethodGet, "/v1/datasets/ri.foundry.main.dataset.example/preview"},
 		{http.MethodGet, "/v1/datasets/ri.foundry.main.dataset.example/schema"},
+		{http.MethodPost, "/v1/datasets/ri.foundry.main.dataset.example/schema:validate"},
 		{http.MethodGet, "/v1/datasets/ri.foundry.main.dataset.example/health"},
 	}
 
