@@ -3,9 +3,6 @@ package handlers
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -21,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/domain"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/repo"
 )
@@ -251,7 +249,7 @@ func (h *Handlers) SetCredential(w http.ResponseWriter, r *http.Request) {
 	}
 	digest := sha256.Sum256([]byte(body.Value))
 	fingerprint := fmt.Sprintf("%x", digest[:])
-	ciphertext, err := encryptCredential(h.Config.CredentialKey, []byte(body.Value))
+	ciphertext, err := domain.EncryptCredential(h.Config.CredentialKey, []byte(body.Value))
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, "credential encryption failed")
 		return
@@ -266,23 +264,6 @@ func (h *Handlers) SetCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
-}
-
-func encryptCredential(key [32]byte, plaintext []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	out := append([]byte("ofcm1"), nonce...)
-	return gcm.Seal(out, nonce, plaintext, nil), nil
 }
 
 func (h *Handlers) ListSourcePolicies(w http.ResponseWriter, r *http.Request) {

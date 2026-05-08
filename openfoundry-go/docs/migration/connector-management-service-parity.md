@@ -1,6 +1,6 @@
 # connector-management-service Rust → Go parity inventory
 
-Date: 2026-05-07
+Date: 2026-05-08
 
 Scope:
 
@@ -16,7 +16,7 @@ Generated route baseline:
 cd openfoundry-go && go run ./tools/route-audit -services connector-management-service
 ```
 
-Current route-audit result after this parity slice: 47 Rust routes and 59 Go routes, with **0 Rust routes reported as `missing`**. The audit classifies 42 routes as implemented, with remaining 501/config-gated/empty-envelope items outside the requested connector-management parity group (dev-auth, credentials/egress, sync run listing, and optional media/webhook runtime depth). The extra Go routes are existing foundation/read-update helpers (`PATCH /connections/{id}`, `GET/PATCH /data-connection/syncs/{id}`, media-set get/update/run, and the Go virtual-table primitive surface). The audit canonicalizes connector-management Rust routes mounted inside Rust's `/api/v1` closure so the comparison reflects the externally effective HTTP surface.
+Current route-audit result after this parity slice: 47 Rust routes and 59 Go routes, with **0 Rust routes reported as `missing`**. The audit classifies 48 routes as implemented; remaining 501/config-gated/empty-envelope items are outside this encrypted-credential/vending parity slice (dev-auth, optional media/webhook runtime depth, and heuristic Iceberg empty-envelope classification for the synthetic table metadata response). The extra Go routes are existing foundation/read-update helpers (`PATCH /connections/{id}`, `GET/PATCH /data-connection/syncs/{id}`, media-set get/update/run, and the Go virtual-table primitive surface). The audit canonicalizes connector-management Rust routes mounted inside Rust's `/api/v1` closure so the comparison reflects the externally effective HTTP surface.
 
 ## Status vocabulary
 
@@ -50,6 +50,15 @@ Machine-readable pending errors use this shape:
 ```
 
 
+## 2026-05-08 encrypted credentials + vending update
+
+This slice ports the Rust credential storage/vending semantics that sit behind the existing route surface:
+
+- `source_credentials` list/upsert now encrypts plaintext values with the Rust-compatible AES-256-GCM envelope: byte `1` version prefix, 12-byte random nonce, then ciphertext+tag. The key derivation remains compatible with Rust: base64 `CREDENTIAL_ENCRYPTION_KEY` must decode to 32 bytes; otherwise the dev fallback is SHA-256 over `openfoundry/credential-encryption/v1\0` plus `JWT_SECRET`.
+- Go includes decrypt support and golden tests for the Rust blob layout, malformed-blob errors, unsupported-version errors, and dev-key derivation.
+- Iceberg `LoadTable` config now applies the credential-vending helper used by Rust: `expires-at-ms` is always emitted; S3 static/passthrough entries include region, endpoint, path-style, access key, secret key, and session token; Azure/ADLS/OneLake emits account name plus either container-scoped service SAS, account SAS, or a static SAS fallback; GCS emits static OAuth token/project entries.
+- Azure SAS generation mirrors Rust's canonical strings, signed version `2022-11-02`, HMAC-SHA256 signing, and conservative percent encoding; tests pin account-SAS and service-SAS golden query strings.
+
 ## 2026-05-07 parity close update
 
 This slice replaced the remaining connector-management route-parity placeholders for the requested groups:
@@ -58,10 +67,10 @@ This slice replaced the remaining connector-management route-parity placeholders
 - `test-connection` now returns the Rust-style success/message/latency/details response and updates connection status; it does not yet dispatch into every Rust connector runtime.
 - `/api/v1/data-connection/streaming-sources` serves the static streaming-source contract catalog.
 - `/api/v1/webhooks/{id}/invoke` loads webhook definitions from connection config, forwards the HTTP call, and returns `status`, `response`, and `output_parameters`.
-- `/iceberg/v1/config`, namespaces, tables, and table loading are backed by zero-copy registrations. Load-table returns upstream `metadata_location` when registration metadata carries it, otherwise a Foundry-vended synthetic metadata/config response.
+- `/iceberg/v1/config`, namespaces, tables, and table loading are backed by zero-copy registrations. Load-table returns upstream `metadata_location` when registration metadata carries it, otherwise a Foundry-vended synthetic metadata/config response; in both cases the config map now includes Rust-compatible credential-vending entries.
 - Handler tests now cover registration, auto-registration, connection test, webhook invoke, streaming/catalog golden surfaces, and the Iceberg REST catalog group.
 
-Remaining non-parity gaps are connector-runtime depth rather than HTTP route availability: credentials/egress/dev-auth remain pending, sync run listing remains pending, and full per-adapter discovery/query/Arrow IPC fidelity remains future work.
+Remaining non-parity gaps are connector-runtime depth rather than HTTP route availability: dev-auth remains pending, optional media/webhook runtime depth depends on configured services, and full per-adapter discovery/query/Arrow IPC fidelity remains future work.
 
 ## 2026-05-07 CMA-0 update — adapter registry + 4-capability interface
 
@@ -115,8 +124,8 @@ Remaining non-parity gaps are connector-runtime depth rather than HTTP route ava
 
 | Method | Rust path | Rust handler | Go path | Go handler | State | Tables/migrations | Rust tests |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/v1/data-connection/sources/{id}/credentials` | `handlers::data_connection::list_credentials` | `/api/v1/data-connection/sources/{id}/credentials` | `h.ListCredentials` | implemented | `source_credentials`; `20260430120000_data_connection_mvp.sql` | `src/credential_crypto.rs`, `src/handlers/credentials_vending.rs` |
-| POST | `/api/v1/data-connection/sources/{id}/credentials` | `handlers::data_connection::set_credential` | `/api/v1/data-connection/sources/{id}/credentials` | `h.SetCredential` | implemented | `source_credentials`; `20260430120000_data_connection_mvp.sql` | `src/credential_crypto.rs`, `src/handlers/credentials_vending.rs` |
+| GET | `/api/v1/data-connection/sources/{id}/credentials` | `handlers::data_connection::list_credentials` | `/api/v1/data-connection/sources/{id}/credentials` | `h.ListCredentials` | implemented | `source_credentials`; `20260430120000_data_connection_mvp.sql` | Go golden tests mirror `src/credential_crypto.rs` |
+| POST | `/api/v1/data-connection/sources/{id}/credentials` | `handlers::data_connection::set_credential` | `/api/v1/data-connection/sources/{id}/credentials` | `h.SetCredential` | implemented | `source_credentials`; `20260430120000_data_connection_mvp.sql` | AES-GCM envelope/key-derivation golden tests; vending golden tests mirror `src/handlers/credentials_vending.rs` |
 
 ### egress policies/network boundary
 
