@@ -155,6 +155,14 @@ func TestSidecarEndToEndWithFakeBinary(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = mgr.Stop(context.Background()) })
 
+	healthResp, err := mgr.health.Check(ctx, &healthpb.HealthCheckRequest{})
+	if err != nil {
+		t.Fatalf("fake sidecar health check: %v", err)
+	}
+	if healthResp.Status != healthpb.HealthCheckResponse_SERVING {
+		t.Fatalf("fake sidecar health status = %s, want SERVING", healthResp.Status)
+	}
+
 	inline, err := mgr.ExecuteInline(ctx, "anything", []byte(`{"k":1}`), 1)
 	if err != nil {
 		t.Fatalf("ExecuteInline fake: %v", err)
