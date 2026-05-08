@@ -23,12 +23,12 @@ type Config struct {
 	WorkflowServiceURL string
 	AIServiceURL       string
 
-	StorageBackend  string
-	StorageBucket   string
-	S3Endpoint      string
-	S3Region        string
-	S3AccessKey     string
-	S3SecretKey     string
+	StorageBackend   string
+	StorageBucket    string
+	S3Endpoint       string
+	S3Region         string
+	S3AccessKey      string
+	S3SecretKey      string
 	LocalStorageRoot string
 
 	DistributedPipelineWorkers       int
@@ -36,12 +36,18 @@ type Config struct {
 	DistributedComputeTimeoutSecs    uint64
 
 	// FASE 3 / Tarea 3.4 — kube + Spark wiring.
-	SparkNamespace        string
-	PipelineRunnerImage   string
+	SparkNamespace      string
+	PipelineRunnerImage string
 
 	// ADR-0041 — Foundry Iceberg catalog client.
 	FoundryIcebergCatalogURL    string
 	FoundryIcebergCatalogBearer string
+
+	// Python sidecar replaces the former Rust PyO3 embedded interpreter
+	// for pipeline transform execution. Empty disables Python runtime
+	// execution and leaves callers with an explicit runner_not_wired error.
+	PythonSidecarBinary         string
+	PythonSidecarTimeoutSeconds uint32
 }
 
 func FromEnv() (*Config, error) {
@@ -70,6 +76,8 @@ func FromEnv() (*Config, error) {
 	c.PipelineRunnerImage = defaultStr(os.Getenv("PIPELINE_RUNNER_IMAGE"), "openfoundry/pipeline-runner:dev")
 	c.FoundryIcebergCatalogURL = os.Getenv("FOUNDRY_ICEBERG_CATALOG_URL")
 	c.FoundryIcebergCatalogBearer = os.Getenv("FOUNDRY_ICEBERG_CATALOG_BEARER")
+	c.PythonSidecarBinary = os.Getenv("PYTHON_SIDECAR_BINARY")
+	c.PythonSidecarTimeoutSeconds = parseUint32(os.Getenv("PYTHON_SIDECAR_TIMEOUT_SECONDS"), 60)
 	return c, nil
 }
 
@@ -89,6 +97,17 @@ func parseUint16(v string, fallback uint16) uint16 {
 		return fallback
 	}
 	return uint16(n)
+}
+
+func parseUint32(v string, fallback uint32) uint32 {
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.ParseUint(v, 10, 32)
+	if err != nil {
+		return fallback
+	}
+	return uint32(n)
 }
 
 func parseUint64(v string, fallback uint64) uint64 {

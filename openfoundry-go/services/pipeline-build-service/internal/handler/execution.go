@@ -398,12 +398,21 @@ func (r runtimeNodeRunner) Run(ctx context.Context, node executor.NodeContext) (
 }
 
 func (r runtimeNodeRunner) runPython(ctx context.Context, node executor.NodeContext, payload json.RawMessage) (executor.NodeResult, error) {
+	// Go -> sidecar contract for pipeline nodes:
+	//   - source: logic_payload.source or logic_payload.code (required by runtime executor)
+	//   - config_json: logic_payload.config when present, otherwise the complete logic_payload object
+	//   - prepared_inputs_json: logic_payload.prepared_inputs or [] until dataset materialization is wired
+	//   - input_dataset_ids/output_dataset_id: copied from node metadata/outputs
+	//   - timeout_seconds: logic_payload.timeout_seconds or the sidecar executor default
 	var cfg map[string]json.RawMessage
 	if len(payload) > 0 {
 		_ = json.Unmarshal(payload, &cfg)
 	}
 	source := firstString(cfg, "source", "code")
 	configJSON := cfg["config"]
+	if len(configJSON) == 0 && len(payload) > 0 {
+		configJSON = payload
+	}
 	preparedInputsJSON := cfg["prepared_inputs"]
 	if len(preparedInputsJSON) == 0 {
 		preparedInputsJSON = []byte("[]")
@@ -413,7 +422,7 @@ func (r runtimeNodeRunner) runPython(ctx context.Context, node executor.NodeCont
 	if outputID == "" && len(node.Node.Outputs) > 0 {
 		outputID = node.Node.Outputs[0].DatasetRID
 	}
-	result, err := r.Python.ExecutePythonTransform(ctx, runtimepkg.TransformRequest{Source: source, ConfigJSON: configJSON, PreparedInputsJSON: preparedInputsJSON, InputDatasetIDs: inputIDs, OutputDatasetID: outputID})
+	result, err := r.Python.ExecutePythonTransform(ctx, runtimepkg.TransformRequest{Source: source, ConfigJSON: configJSON, PreparedInputsJSON: preparedInputsJSON, InputDatasetIDs: inputIDs, OutputDatasetID: outputID, TimeoutSeconds: firstUint32(cfg, "timeout_seconds")})
 	if err != nil {
 		return executor.NodeResult{}, err
 	}
@@ -577,4 +586,14 @@ func firstString(cfg map[string]json.RawMessage, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstUint32(cfg map[string]json.RawMessage, keys ...string) uint32 {
+	for _, key := range keys {
+		var n uint32
+		if len(cfg[key]) > 0 && json.Unmarshal(cfg[key], &n) == nil {
+			return n
+		}
+	}
+	return 0
 }

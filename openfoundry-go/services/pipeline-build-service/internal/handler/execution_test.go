@@ -99,6 +99,31 @@ func TestExecutePipelineMultiOutputPartialCommitFailure(t *testing.T) {
 	require.Equal(t, []string{"out.one", "out.two"}, tx.datasets)
 }
 
+func TestExecutePipelinePythonSidecarContractSuccess(t *testing.T) {
+	py := &recordingPython{result: &runtimepkg.TransformResult{
+		RowsAffected: uint64Ptr(5),
+		Output:       json.RawMessage(`{"status":"ok"}`),
+	}}
+	restore := SetExecutionPorts(ExecutionPorts{Python: py, Committer: &recordingCommitter{}, Transactions: &recordingTransactions{}})
+	defer restore()
+
+	body := `{"nodes":[{"id":"py","transform_type":"python","logic_payload":{"source":"print('ok')","config":{"mode":"unit"},"prepared_inputs":[{"dataset_id":"in.a"}],"timeout_seconds":9},"input_dataset_ids":["in.a"],"output_dataset_id":"out.py","outputs":[{"DatasetRID":"out.py","TransactionRID":"txn.py"}]}]}`
+	rr := httptest.NewRecorder()
+	ExecutePipeline(rr, httptest.NewRequest(http.MethodPost, "/api/v1/execute", bytes.NewReader([]byte(body))))
+
+	require.Equal(t, http.StatusOK, rr.Result().StatusCode)
+	var payload executePipelineResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&payload))
+	require.Equal(t, string(models.BuildCompleted), payload.State)
+	require.Equal(t, executor.NodeCompleted, payload.Nodes["py"])
+	require.Equal(t, "print('ok')", py.seen.Source)
+	require.JSONEq(t, `{"mode":"unit"}`, string(py.seen.ConfigJSON))
+	require.JSONEq(t, `[{"dataset_id":"in.a"}]`, string(py.seen.PreparedInputsJSON))
+	require.Equal(t, []string{"in.a"}, py.seen.InputDatasetIDs)
+	require.Equal(t, "out.py", py.seen.OutputDatasetID)
+	require.Equal(t, uint32(9), py.seen.TimeoutSeconds)
+}
+
 func TestExecutePipelinePythonRuntimeError(t *testing.T) {
 	restore := SetExecutionPorts(ExecutionPorts{Python: failingPython{err: errors.New("python exploded")}, Committer: &recordingCommitter{}, Transactions: &recordingTransactions{}})
 	defer restore()
@@ -178,6 +203,22 @@ func (t *recordingTransactions) Abort(_ context.Context, tx executor.OutputTrans
 	t.datasets = append(t.datasets, tx.DatasetRID)
 	return nil
 }
+
+type recordingPython struct {
+	result *runtimepkg.TransformResult
+	err    error
+	seen   runtimepkg.TransformRequest
+}
+
+func (r *recordingPython) ExecutePythonTransform(_ context.Context, req runtimepkg.TransformRequest) (*runtimepkg.TransformResult, error) {
+	r.seen = req
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.result, nil
+}
+
+func uint64Ptr(v uint64) *uint64 { return &v }
 
 type failingPython struct{ err error }
 

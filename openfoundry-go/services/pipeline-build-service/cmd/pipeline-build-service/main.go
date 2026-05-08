@@ -18,10 +18,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/libs/observability"
+	pythonsidecar "github.com/openfoundry/openfoundry-go/libs/python-sidecar"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/handler"
 	livellogs "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/logs"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/postgres"
+	runtimepkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/runtime"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/server"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
 )
@@ -54,6 +56,31 @@ func main() {
 			"(set FOUNDRY_ICEBERG_CATALOG_URL to enable; ADR-0041)")
 	}
 
+	var pythonRuntime runtimepkg.TransformExecutor
+	var pyMgr *pythonsidecar.Manager
+	if cfg.PythonSidecarBinary != "" {
+		pyMgr, err = pythonsidecar.New(pythonsidecar.Config{
+			BinaryPath:      cfg.PythonSidecarBinary,
+			HardCallTimeout: time.Duration(cfg.PythonSidecarTimeoutSeconds+5) * time.Second,
+		}, log)
+		if err != nil {
+			log.Error("python sidecar config failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		startCtx, cancelStart := context.WithTimeout(ctx, 15*time.Second)
+		if err := pyMgr.Start(startCtx); err != nil {
+			cancelStart()
+			log.Error("python sidecar start failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		cancelStart()
+		defer func() { _ = pyMgr.Stop(context.Background()) }()
+		pythonRuntime = runtimepkg.NewSidecarTransformExecutor(runtimepkg.SidecarTransform{Mgr: pyMgr})
+		log.Info("python sidecar runtime wired")
+	} else {
+		log.Warn("PYTHON_SIDECAR_BINARY unset; Python pipeline transforms require an injected test fake or will fail explicitly")
+	}
+
 	var pool *pgxpool.Pool
 	if cfg.DatabaseURL != "" {
 		pool, err = pgxpool.New(ctx, cfg.DatabaseURL)
@@ -68,7 +95,7 @@ func main() {
 		}
 		repo := postgres.NewRepositoryFromPool(pool)
 		handler.SetBuildLifecyclePorts(handler.BuildLifecyclePorts{JobSpecs: repo, Versioning: repo, Locks: repo, Builds: repo})
-		handler.SetExecutionPorts(handler.ExecutionPorts{Plans: repo, Runs: repo, Transactions: repo, Committer: repo, Audit: repo, Parallelism: cfg.DistributedPipelineWorkers})
+		handler.SetExecutionPorts(handler.ExecutionPorts{Plans: repo, Runs: repo, Python: pythonRuntime, Transactions: repo, Committer: repo, Audit: repo, Parallelism: cfg.DistributedPipelineWorkers})
 		handler.SetBuildQueryRepository(repo)
 		handler.SetSparkSubmissionRepository(repo)
 		handler.SetJobLogService(&livellogs.Service{Store: repo, Subscriber: livellogs.NewMemoryService()})

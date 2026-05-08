@@ -16,9 +16,10 @@ import (
 const defaultTransformTimeoutSeconds uint32 = 60
 
 // TransformRequest is the sidecar-ready envelope for one Python
-// transform. It mirrors the locals Rust injected into PyO3:
-// config_json, prepared_inputs_json, input_dataset_ids and
-// output_dataset_id plus the user source.
+// transform. It is the Go replacement for the locals Rust injected
+// into PyO3 and maps 1:1 to runtime.ExecutePipelineTransformRequest:
+// source, config_json, prepared_inputs_json, input_dataset_ids,
+// output_dataset_id and timeout_seconds.
 type TransformRequest struct {
 	Source             string
 	ConfigJSON         []byte
