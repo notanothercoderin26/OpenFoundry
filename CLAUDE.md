@@ -72,18 +72,33 @@ pnpm --filter @open-foundry/web test   # vitest
   backlog: `golangci-lint run --new-from-rev= ./...` (mostly spelling
   + staticcheck style nits, tracked as tech debt rather than a feature
   gate).
-- **No Go CI actually runs on PRs today.** Two workflows are broken:
-  - `.github/workflows/ci.yml` is the legacy Rust workflow (uses
-    `cargo`). Its path filters include `libs/**`, `services/**`,
-    `proto/**` and `justfile`, so it **triggers on Go-side PRs and
-    fails** — there is no `Cargo.toml` in the tree.
-  - `.github/workflows/openfoundry-go.yml` is the intended Go CI but
-    its `paths:` filter is `openfoundry-go/**`, which does not match
-    this layout (Go code is at the repo root), so it **never
-    triggers**.
-  - If a PR shows a green or skipped Go check, treat it as "not run",
-    not "passed". Run `make ci` locally as the real gate, and expect
-    to fix the workflows themselves before any CI claim is meaningful.
+- **Go CI lives in `.github/workflows/openfoundry-go.yml`.** Jobs:
+  `lint` (golangci-lint), `vet`, `tidy` (drift check on go.mod/go.sum),
+  `proto` (`buf lint` + `buf generate` drift check on `libs/proto-gen`),
+  `sqlc` (`sqlc generate` drift check), `test` (unit, race +
+  coverage), `integration` (build tag `integration`, runs after
+  lint+test, uses GH runner Docker for testcontainers). It mirrors
+  `make ci` plus full generation drift checks. The legacy `ci.yml`
+  (cargo-based, Rust era) has been removed.
+- **Other Go-side CI workflows.** `proto-check.yml` validates the
+  OpenAPI + TS/Python/Java SDK drift via `go run ./tools/of-cli`.
+  `security-audit.yml` runs `govulncheck` on schedule and on
+  `go.mod`/`go.sum` changes. `chaos-smoke.yml` is nightly-only
+  (`workflow_dispatch` + cron) and builds `of-cli` with `go build`
+  before invoking `smoke/chaos/run.sh`.
+- **Removed CI gates (no Go replacement yet).** Three things were
+  retired in the Rust→Go cleanup and are not enforced today: (1) the
+  `bus-contract` lint that walked `services/*/Cargo.toml` against
+  `.github/bus-allowlist.yaml`; (2) the `data-residency` registry
+  check (`.github/data-residency-allowlist.toml`) that gated
+  migration directories and `sqlx::query*` hot-path calls;
+  (3) the per-service Iceberg `cargo llvm-cov ≥ 72%` coverage
+  threshold and the `pyiceberg` / `playwright iceberg` E2E suites.
+  The `integration-foundry-pattern` workflow (saga + state-machine +
+  outbox + idempotency Postgres tests) is now covered by the
+  `integration` job's `go test -tags=integration ./...`. If any of
+  these gates need to come back, they have to be reimplemented
+  against the Go tree from scratch.
 - **Single Go module, root `go.mod`.** Don't create per-service modules.
 - **`libs/proto-gen/` is generated.** Don't edit by hand — re-run `make gen`.
 

@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
@@ -39,26 +39,20 @@ jobs:
           printf '%s' "$CHAOS_KUBECONFIG" > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-chaos-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-chaos-
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: Build of-cli
-        run: cargo build -p of-cli --release
+        run: |
+          mkdir -p bin
+          go build -trimpath -o bin/of ./tools/of-cli
 
       - name: Run chaos suite
         env:
-          OF_CLI: "./target/release/of-cli"
+          OF_CLI: "./bin/of"
         run: ./smoke/chaos/run.sh
 
       - name: Upload chaos results
