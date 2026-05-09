@@ -1,15 +1,19 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { createPermission } from '@api/auth';
 import { usePermissions } from '@/lib/auth/permissions';
 import { permissionsQuery, settingsQueryKeys } from './queries';
+import { SettingsModal } from './SettingsModal';
+import { SettingsSectionHeader } from './SettingsSectionHeader';
 import { toOptionalString } from './utils';
 
 interface PermissionsSectionProps {
   setNotice: (msg: string) => void;
   setError: (msg: string) => void;
 }
+
+const DEFAULT_FORM = { resource: '', action: '', description: '' };
 
 export function PermissionsSection({ setNotice, setError }: PermissionsSectionProps) {
   const perms = usePermissions();
@@ -18,19 +22,32 @@ export function PermissionsSection({ setNotice, setError }: PermissionsSectionPr
   const result = useQuery({ ...permissionsQuery, enabled: perms.canReadPermissions });
   const permissions = result.data ?? [];
 
-  const [resource, setResource] = useState('');
-  const [action, setAction] = useState('');
-  const [description, setDescription] = useState('');
+  const [filter, setFilter] = useState('');
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(DEFAULT_FORM);
+
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return permissions;
+    return permissions.filter(
+      (permission) =>
+        permission.resource.toLowerCase().includes(q) ||
+        permission.action.toLowerCase().includes(q) ||
+        (permission.description ?? '').toLowerCase().includes(q),
+    );
+  }, [filter, permissions]);
 
   const createMutation = useMutation({
     mutationFn: () =>
-      createPermission({ resource, action, description: toOptionalString(description) }),
+      createPermission({
+        resource: form.resource,
+        action: form.action,
+        description: toOptionalString(form.description),
+      }),
     onSuccess: async () => {
-      setResource('');
-      setAction('');
-      setDescription('');
+      setForm(DEFAULT_FORM);
+      setOpen(false);
       await qc.invalidateQueries({ queryKey: settingsQueryKeys.permissions });
-      // A new permission shifts the role-creation form, so refresh roles too.
       await qc.invalidateQueries({ queryKey: settingsQueryKeys.roles });
       setNotice('Permission created.');
     },
@@ -41,67 +58,108 @@ export function PermissionsSection({ setNotice, setError }: PermissionsSectionPr
   if (!perms.canReadPermissions) return null;
 
   return (
-    <section className="of-panel" style={{ padding: 24 }}>
-      <p className="of-eyebrow">Permission catalog</p>
-      <h2 className="of-heading-lg">Permission registry</h2>
+    <section className="settings-section">
+      <SettingsSectionHeader
+        title="Permissions"
+        description="Permissions are the atomic resource:action pairs that roles bundle together."
+        filter={{
+          value: filter,
+          placeholder: 'Filter resource or action…',
+          onChange: setFilter,
+        }}
+        actions={
+          perms.canManagePermissions ? (
+            <button
+              type="button"
+              className="of-btn of-btn-primary"
+              onClick={() => {
+                setForm(DEFAULT_FORM);
+                setOpen(true);
+              }}
+            >
+              + Create permission
+            </button>
+          ) : null
+        }
+      />
 
-      <div style={{ display: 'grid', gap: 8, marginTop: 24 }}>
-        {permissions.map((permission) => (
-          <div key={permission.id} className="of-panel-muted" style={{ padding: '12px 16px', fontSize: 13 }}>
-            <div style={{ fontWeight: 500, color: 'var(--text-strong)' }}>
-              {permission.resource}:{permission.action}
-            </div>
-            <div className="of-text-muted">{permission.description ?? 'No description'}</div>
-          </div>
-        ))}
-        {result.isLoading && <p className="of-text-muted">Loading permissions…</p>}
-        {!result.isLoading && permissions.length === 0 && (
-          <p className="of-text-muted">No permissions registered.</p>
-        )}
-      </div>
+      {result.isLoading ? (
+        <div className="settings-empty">Loading permissions…</div>
+      ) : filtered.length === 0 ? (
+        <div className="settings-empty">
+          {filter ? 'No permissions match the filter.' : 'No permissions registered.'}
+        </div>
+      ) : (
+        <table className="settings-table">
+          <thead>
+            <tr>
+              <th style={{ width: '24%' }}>Resource</th>
+              <th style={{ width: '24%' }}>Action</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((permission) => (
+              <tr key={permission.id}>
+                <td>
+                  <span className="settings-table__name">{permission.resource}</span>
+                </td>
+                <td>
+                  <span className="of-chip">{permission.action}</span>
+                </td>
+                <td>
+                  <span className="of-text-muted">
+                    {permission.description ?? 'No description'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
-      {perms.canManagePermissions && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createMutation.mutate();
-          }}
-          style={{
-            display: 'grid',
-            gap: 12,
-            marginTop: 24,
-            padding: 20,
-            border: '1px dashed var(--border-default)',
-            borderRadius: 'var(--radius-md)',
-          }}
-        >
-          <div className="of-eyebrow">Create permission</div>
+      <SettingsModal
+        open={open}
+        title="Create permission"
+        description="Register a new resource:action pair that roles can grant."
+        primaryLabel="Create permission"
+        primaryBusyLabel="Saving…"
+        primaryDisabled={!form.resource.trim() || !form.action.trim()}
+        busy={createMutation.isPending}
+        onSubmit={() => createMutation.mutate()}
+        onClose={() => setOpen(false)}
+      >
+        <label style={{ display: 'grid', gap: 6, fontSize: 13 }}>
+          <span style={{ fontWeight: 500 }}>Resource</span>
           <input
             className="of-input"
-            value={resource}
-            onChange={(e) => setResource(e.target.value)}
-            placeholder="Resource, e.g. notebooks"
+            value={form.resource}
+            onChange={(e) => setForm((f) => ({ ...f, resource: e.target.value }))}
+            placeholder="e.g. notebooks"
             required
           />
+        </label>
+        <label style={{ display: 'grid', gap: 6, fontSize: 13 }}>
+          <span style={{ fontWeight: 500 }}>Action</span>
           <input
             className="of-input"
-            value={action}
-            onChange={(e) => setAction(e.target.value)}
-            placeholder="Action, e.g. read"
+            value={form.action}
+            onChange={(e) => setForm((f) => ({ ...f, action: e.target.value }))}
+            placeholder="e.g. read"
             required
           />
+        </label>
+        <label style={{ display: 'grid', gap: 6, fontSize: 13 }}>
+          <span style={{ fontWeight: 500 }}>Description (optional)</span>
           <textarea
             className="of-textarea"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            placeholder="Description"
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            rows={3}
+            placeholder="Explain what this permission grants."
           />
-          <button type="submit" className="of-btn of-btn-primary" disabled={createMutation.isPending}>
-            {createMutation.isPending ? 'Saving…' : 'Create permission'}
-          </button>
-        </form>
-      )}
+        </label>
+      </SettingsModal>
     </section>
   );
 }

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
+import type { QueryResult } from '@/lib/api/queries';
 import {
   cloneDashboard,
   createWidget,
@@ -7,39 +8,117 @@ import {
   type DashboardWidgetType,
 } from '@/lib/utils/dashboards';
 
+import { ChartSettings } from './ChartSettings';
+import { QueryPicker } from './QueryPicker';
+
+type WidgetConfigTab = 'basics' | 'query' | 'settings';
+
 interface WidgetConfigProps {
   open: boolean;
   initialWidget: DashboardWidget | null;
-  onSave?: (widget: DashboardWidget) => void;
+  onSave?: (widget: DashboardWidget) => void | Promise<void>;
   onClose?: () => void;
+}
+
+const TABS: Array<{ id: WidgetConfigTab; label: string }> = [
+  { id: 'basics', label: 'Basics' },
+  { id: 'query', label: 'Query' },
+  { id: 'settings', label: 'Settings' },
+];
+
+function parseSeriesColumns(value: string) {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function finalizeWidget(widget: DashboardWidget, seriesColumnsInput: string) {
+  const final = cloneDashboard(widget);
+  if (final.type === 'chart') {
+    final.seriesColumns = parseSeriesColumns(seriesColumnsInput);
+  }
+  return final;
+}
+
+function validateWidget(widget: DashboardWidget, seriesColumnsInput: string) {
+  if (!widget.title.trim()) return 'Title is required.';
+  if (!widget.query.sql.trim()) return 'SQL query is required.';
+  if (!Number.isFinite(widget.query.limit) || widget.query.limit < 1) return 'Query limit must be at least 1.';
+  if (widget.layout.colSpan < 1 || widget.layout.colSpan > 12) return 'Columns must be between 1 and 12.';
+  if (widget.layout.rowSpan < 1 || widget.layout.rowSpan > 4) return 'Rows must be between 1 and 4.';
+
+  if (widget.type === 'chart') {
+    if (!widget.categoryColumn.trim()) return 'Category column is required.';
+    if (parseSeriesColumns(seriesColumnsInput).length === 0) return 'At least one series column is required.';
+  }
+
+  if (widget.type === 'kpi' && !widget.valueColumn.trim()) return 'Value column is required.';
+
+  return '';
 }
 
 export function WidgetConfig({ open, initialWidget, onSave, onClose }: WidgetConfigProps) {
   const [draft, setDraft] = useState<DashboardWidget | null>(null);
+  const [activeTab, setActiveTab] = useState<WidgetConfigTab>('basics');
   const [seriesColumnsInput, setSeriesColumnsInput] = useState('');
+  const [previewResult, setPreviewResult] = useState<QueryResult | null>(null);
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const next = initialWidget ? cloneDashboard(initialWidget) : null;
     setDraft(next);
     setSeriesColumnsInput(next && next.type === 'chart' ? next.seriesColumns.join(', ') : '');
+    setPreviewResult(null);
+    setSaveError('');
+    setSaving(false);
+    setActiveTab('basics');
   }, [initialWidget]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleKeydown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose?.();
+    }
+
+    window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
+  }, [open, onClose]);
+
+  const validationMessage = useMemo(() => {
+    return draft ? validateWidget(draft, seriesColumnsInput) : '';
+  }, [draft, seriesColumnsInput]);
+
+  const dirty = useMemo(() => {
+    if (!draft || !initialWidget) return false;
+    return JSON.stringify(finalizeWidget(draft, seriesColumnsInput)) !== JSON.stringify(initialWidget);
+  }, [draft, initialWidget, seriesColumnsInput]);
+
+  const previewColumns = useMemo(() => {
+    return previewResult?.columns.map((column) => column.name) ?? [];
+  }, [previewResult]);
 
   if (!open || !draft) return null;
 
   function patchDraft(patch: Partial<DashboardWidget>) {
     setDraft((current) => (current ? ({ ...current, ...patch } as DashboardWidget) : current));
+    setSaveError('');
   }
 
   function patchLayout(patch: Partial<DashboardWidget['layout']>) {
     setDraft((current) =>
       current ? ({ ...current, layout: { ...current.layout, ...patch } } as DashboardWidget) : current,
     );
+    setSaveError('');
   }
 
   function patchQuery(patch: Partial<DashboardWidget['query']>) {
     setDraft((current) =>
       current ? ({ ...current, query: { ...current.query, ...patch } } as DashboardWidget) : current,
     );
+    setSaveError('');
   }
 
   function switchType(type: DashboardWidgetType) {
@@ -55,291 +134,155 @@ export function WidgetConfig({ open, initialWidget, onSave, onClose }: WidgetCon
     } as DashboardWidget;
     setDraft(nextDraft);
     setSeriesColumnsInput(nextDraft.type === 'chart' ? nextDraft.seriesColumns.join(', ') : '');
+    setPreviewResult(null);
+    setSaveError('');
+    setActiveTab('settings');
   }
 
-  function save() {
+  async function save() {
     if (!draft) return;
-    let final = cloneDashboard(draft);
-    if (final.type === 'chart') {
-      final.seriesColumns = seriesColumnsInput
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean);
+    const message = validateWidget(draft, seriesColumnsInput);
+    if (message) {
+      setSaveError(message);
+      return;
     }
-    onSave?.(final);
-    onClose?.();
+
+    setSaving(true);
+    setSaveError('');
+
+    try {
+      await onSave?.(finalizeWidget(draft, seriesColumnsInput));
+      onClose?.();
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : 'Unable to save widget.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 50,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(15, 23, 42, 0.6)',
-        padding: 16,
-      }}
-    >
-      <div
-        className="of-panel"
-        style={{ width: '100%', maxWidth: 720, maxHeight: '90vh', overflow: 'auto', padding: 24 }}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 24 }}>
+    <div className="widget-config-drawer" role="dialog" aria-modal="true" aria-labelledby="widget-config-title">
+      <button
+        type="button"
+        className="widget-config-drawer__backdrop"
+        aria-label="Close widget configuration"
+        onClick={() => onClose?.()}
+      />
+
+      <aside className="widget-config-drawer__panel of-panel">
+        <header className="widget-config-drawer__header">
           <div>
-            <p className="of-eyebrow">Widget editor</p>
-            <h2 className="of-heading-lg" style={{ marginTop: 4 }}>
-              Configure widget
-            </h2>
+            <p className="of-eyebrow">Widget inspector</p>
+            <h2 id="widget-config-title">{draft.title || 'Untitled widget'}</h2>
+            <div className="widget-config-drawer__meta">
+              <span className="of-chip">{draft.type}</span>
+              {dirty && <span className="of-chip of-chip-active">Dirty</span>}
+            </div>
           </div>
-          <button type="button" className="of-btn" onClick={() => onClose?.()}>
-            Close
+
+          <button type="button" className="widget-config-drawer__close" aria-label="Close" onClick={() => onClose?.()}>
+            x
           </button>
-        </div>
+        </header>
 
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-            <span style={{ display: 'block', marginBottom: 6 }}>Title</span>
-            <input
-              type="text"
-              className="of-input"
-              value={draft.title}
-              onChange={(e) => patchDraft({ title: e.target.value })}
-            />
-          </label>
-
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-            <span style={{ display: 'block', marginBottom: 6 }}>Widget type</span>
-            <select
-              className="of-select"
-              value={draft.type}
-              onChange={(e) => switchType(e.target.value as DashboardWidgetType)}
+        <nav className="widget-config-drawer__tabs" role="tablist" aria-label="Widget configuration sections">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={activeTab === tab.id ? 'widget-config-tab widget-config-tab--active' : 'widget-config-tab'}
+              onClick={() => setActiveTab(tab.id)}
             >
-              <option value="chart">Chart</option>
-              <option value="table">Table</option>
-              <option value="kpi">KPI</option>
-            </select>
-          </label>
-        </div>
+              {tab.label}
+            </button>
+          ))}
+        </nav>
 
-        <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginTop: 16 }}>
-          <span style={{ display: 'block', marginBottom: 6 }}>Description</span>
-          <textarea
-            className="of-textarea"
-            rows={2}
-            value={draft.description}
-            onChange={(e) => patchDraft({ description: e.target.value })}
-          />
-        </label>
+        <div className="widget-config-drawer__body of-scrollbar">
+          {activeTab === 'basics' && (
+            <div className="widget-config-section">
+              <div className="widget-config-section__header">
+                <div>
+                  <h3>Basics</h3>
+                  <span>dashboard.edit_mode</span>
+                </div>
+              </div>
 
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr 2fr', marginTop: 16 }}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-            <span style={{ display: 'block', marginBottom: 6 }}>Columns</span>
-            <input
-              type="number"
-              className="of-input"
-              min={1}
-              max={12}
-              value={draft.layout.colSpan}
-              onChange={(e) => patchLayout({ colSpan: Number(e.target.value) })}
+              <label className="widget-config-field">
+                <span>Title</span>
+                <input
+                  type="text"
+                  className="of-input"
+                  value={draft.title}
+                  onChange={(event) => patchDraft({ title: event.target.value })}
+                />
+              </label>
+
+              <label className="widget-config-field">
+                <span>Description</span>
+                <textarea
+                  className="of-textarea"
+                  rows={4}
+                  value={draft.description}
+                  onChange={(event) => patchDraft({ description: event.target.value })}
+                />
+              </label>
+
+              <div className="widget-config-field">
+                <span>Widget type</span>
+                <div className="of-pill-toggle widget-config-type-toggle" role="group" aria-label="Widget type">
+                  {(['chart', 'table', 'kpi'] satisfies DashboardWidgetType[]).map((type) => (
+                    <button key={type} type="button" data-active={draft.type === type} onClick={() => switchType(type)}>
+                      {type.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'query' && (
+            <QueryPicker value={draft.query} widgetType={draft.type} onChange={patchQuery} onPreview={setPreviewResult} />
+          )}
+
+          {activeTab === 'settings' && (
+            <ChartSettings
+              draft={draft}
+              columnOptions={previewColumns}
+              seriesColumnsInput={seriesColumnsInput}
+              onPatchDraft={patchDraft}
+              onPatchLayout={patchLayout}
+              onSeriesColumnsInputChange={(value) => {
+                setSeriesColumnsInput(value);
+                setSaveError('');
+              }}
             />
-          </label>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-            <span style={{ display: 'block', marginBottom: 6 }}>Rows</span>
-            <input
-              type="number"
-              className="of-input"
-              min={1}
-              max={4}
-              value={draft.layout.rowSpan}
-              onChange={(e) => patchLayout({ rowSpan: Number(e.target.value) })}
-            />
-          </label>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-            <span style={{ display: 'block', marginBottom: 6 }}>Query limit</span>
-            <input
-              type="number"
-              className="of-input"
-              min={1}
-              max={1000}
-              value={draft.query.limit}
-              onChange={(e) => patchQuery({ limit: Number(e.target.value) })}
-            />
-          </label>
+          )}
         </div>
 
-        <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginTop: 16 }}>
-          <span style={{ display: 'block', marginBottom: 6 }}>SQL query</span>
-          <textarea
-            className="of-textarea"
-            rows={8}
-            value={draft.query.sql}
-            onChange={(e) => patchQuery({ sql: e.target.value })}
-            style={{ fontFamily: 'var(--font-mono)', background: '#0f172a', color: '#e2e8f0' }}
-          />
-        </label>
-
-        <div
-          style={{
-            marginTop: 12,
-            border: '1px dashed var(--border-default)',
-            borderRadius: 'var(--radius-md)',
-            padding: '8px 12px',
-            fontSize: 12,
-            color: 'var(--text-muted)',
-          }}
-        >
-          Available placeholders: <code>{'{{search}}'}</code>, <code>{'{{date_from}}'}</code>,{' '}
-          <code>{'{{date_to}}'}</code>
-        </div>
-
-        {draft.type === 'chart' && (
-          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr', marginTop: 24 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-              <span style={{ display: 'block', marginBottom: 6 }}>Chart type</span>
-              <select
-                className="of-select"
-                value={draft.chartType}
-                onChange={(e) => patchDraft({ chartType: e.target.value as typeof draft.chartType } as Partial<DashboardWidget>)}
-              >
-                <option value="bar">Bar</option>
-                <option value="line">Line</option>
-                <option value="area">Area</option>
-                <option value="pie">Pie</option>
-                <option value="scatter">Scatter</option>
-              </select>
-            </label>
-
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-              <span style={{ display: 'block', marginBottom: 6 }}>Category column</span>
-              <input
-                type="text"
-                className="of-input"
-                value={draft.categoryColumn}
-                onChange={(e) => patchDraft({ categoryColumn: e.target.value } as Partial<DashboardWidget>)}
-              />
-            </label>
-
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, gridColumn: '1 / -1' }}>
-              <span style={{ display: 'block', marginBottom: 6 }}>Series columns</span>
-              <input
-                type="text"
-                className="of-input"
-                value={seriesColumnsInput}
-                onChange={(e) => setSeriesColumnsInput(e.target.value)}
-                placeholder="ingested, published"
-              />
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-              <input
-                type="checkbox"
-                checked={draft.stacked}
-                onChange={(e) => patchDraft({ stacked: e.target.checked } as Partial<DashboardWidget>)}
-              />
-              Stack series
-            </label>
+        <footer className="widget-config-drawer__footer">
+          {(saveError || validationMessage) && (
+            <div className={saveError ? 'widget-config-save-state widget-config-save-state--error' : 'widget-config-save-state'}>
+              {saveError || validationMessage}
+            </div>
+          )}
+          <div className="widget-config-drawer__actions">
+            <button type="button" className="of-btn" onClick={() => onClose?.()} disabled={saving}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="of-btn of-btn-primary"
+              onClick={() => void save()}
+              disabled={saving || Boolean(validationMessage)}
+            >
+              {saving ? 'Saving...' : 'Save widget'}
+            </button>
           </div>
-        )}
-
-        {draft.type === 'table' && (
-          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(3, 1fr)', marginTop: 24 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-              <span style={{ display: 'block', marginBottom: 6 }}>Page size</span>
-              <input
-                type="number"
-                className="of-input"
-                min={3}
-                max={50}
-                value={draft.pageSize}
-                onChange={(e) => patchDraft({ pageSize: Number(e.target.value) } as Partial<DashboardWidget>)}
-              />
-            </label>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-              <span style={{ display: 'block', marginBottom: 6 }}>Default sort column</span>
-              <input
-                type="text"
-                className="of-input"
-                value={draft.defaultSortColumn}
-                onChange={(e) => patchDraft({ defaultSortColumn: e.target.value } as Partial<DashboardWidget>)}
-              />
-            </label>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-              <span style={{ display: 'block', marginBottom: 6 }}>Sort direction</span>
-              <select
-                className="of-select"
-                value={draft.defaultSortDirection}
-                onChange={(e) => patchDraft({ defaultSortDirection: e.target.value as 'asc' | 'desc' } as Partial<DashboardWidget>)}
-              >
-                <option value="asc">Ascending</option>
-                <option value="desc">Descending</option>
-              </select>
-            </label>
-          </div>
-        )}
-
-        {draft.type === 'kpi' && (
-          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr', marginTop: 24 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-              <span style={{ display: 'block', marginBottom: 6 }}>Value column</span>
-              <input
-                type="text"
-                className="of-input"
-                value={draft.valueColumn}
-                onChange={(e) => patchDraft({ valueColumn: e.target.value } as Partial<DashboardWidget>)}
-              />
-            </label>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-              <span style={{ display: 'block', marginBottom: 6 }}>Delta column</span>
-              <input
-                type="text"
-                className="of-input"
-                value={draft.deltaColumn}
-                onChange={(e) => patchDraft({ deltaColumn: e.target.value } as Partial<DashboardWidget>)}
-              />
-            </label>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-              <span style={{ display: 'block', marginBottom: 6 }}>Sparkline column</span>
-              <input
-                type="text"
-                className="of-input"
-                value={draft.sparklineColumn}
-                onChange={(e) => patchDraft({ sparklineColumn: e.target.value } as Partial<DashboardWidget>)}
-              />
-            </label>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>
-              <span style={{ display: 'block', marginBottom: 6 }}>Value format</span>
-              <select
-                className="of-select"
-                value={draft.valueFormat}
-                onChange={(e) => patchDraft({ valueFormat: e.target.value as typeof draft.valueFormat } as Partial<DashboardWidget>)}
-              >
-                <option value="number">Number</option>
-                <option value="currency">Currency</option>
-                <option value="percent">Percent</option>
-              </select>
-            </label>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 32 }}>
-          <button type="button" className="of-btn" onClick={() => onClose?.()}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="of-btn of-btn-primary"
-            onClick={save}
-            disabled={!draft.title.trim() || !draft.query.sql.trim()}
-          >
-            Save widget
-          </button>
-        </div>
-      </div>
+        </footer>
+      </aside>
     </div>
   );
 }

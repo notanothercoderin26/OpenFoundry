@@ -74,6 +74,10 @@ const STYLESHEET = [
     style: { 'border-color': '#fbbf24', 'border-width': 4 },
   },
   {
+    selector: 'node.selected',
+    style: { 'border-color': '#fbbf24', 'border-width': 4 },
+  },
+  {
     selector: 'edge',
     style: {
       width: 1.5,
@@ -164,11 +168,11 @@ export function BranchGraph({ branches, extras = {}, selectedBranch, onSelect, o
         }}
       />
 
-      <div style={{ display: 'flex', gap: 12, fontSize: 10, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-        <span>● <strong style={{ color: '#3b82f6' }}>blue</strong> = default branch</span>
-        <span>○ <strong style={{ color: '#f59e0b' }}>amber border</strong> = open transaction</span>
-        <span>┄ <strong style={{ color: '#94a3b8' }}>dashed</strong> = archived</span>
-        <span>tip: dblclick a node to open its detail · short ids: {shortId(visible[0]?.head_transaction_id)}</span>
+      <div style={{ display: 'flex', gap: 8, fontSize: 10, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+        <span className="of-chip">Default</span>
+        <span className="of-chip">Open transaction</span>
+        <span className="of-chip">Archived</span>
+        <span style={{ marginLeft: 'auto' }}>Head pointer {shortId(visible[0]?.head_transaction_id)}</span>
       </div>
     </div>
   );

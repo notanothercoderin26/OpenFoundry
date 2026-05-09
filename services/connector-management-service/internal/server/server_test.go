@@ -26,10 +26,11 @@ var errReadyTest = errors.New("db unavailable")
 type routerStore struct {
 	owner  uuid.UUID
 	source uuid.UUID
+	agent  uuid.UUID
 }
 
 func newRouterStore() *routerStore {
-	return &routerStore{owner: uuid.New(), source: uuid.New()}
+	return &routerStore{owner: uuid.New(), source: uuid.New(), agent: uuid.New()}
 }
 
 func (s *routerStore) ListConnections(context.Context, *uuid.UUID) ([]models.Connection, error) {
@@ -82,6 +83,19 @@ func (s *routerStore) ListCredentials(context.Context, uuid.UUID, uuid.UUID) ([]
 }
 func (s *routerStore) SetCredential(context.Context, uuid.UUID, uuid.UUID, string, []byte, string) (*models.CredentialResponse, error) {
 	return &models.CredentialResponse{ID: uuid.New(), SourceID: s.source, Kind: "api_key", Fingerprint: "abc"}, nil
+}
+func (s *routerStore) ListConnectorAgents(context.Context, uuid.UUID) ([]models.ConnectorAgent, error) {
+	return []models.ConnectorAgent{{ID: s.agent, Name: "edge", AgentURL: "https://agent.local", OwnerID: s.owner, Status: "online", Capabilities: json.RawMessage(`{}`), Metadata: json.RawMessage(`{}`)}}, nil
+}
+func (s *routerStore) RegisterConnectorAgent(context.Context, *models.RegisterAgentRequest, uuid.UUID) (*models.ConnectorAgent, error) {
+	return &models.ConnectorAgent{ID: s.agent, Name: "edge", AgentURL: "https://agent.local", OwnerID: s.owner, Status: "online", Capabilities: json.RawMessage(`{}`), Metadata: json.RawMessage(`{}`)}, nil
+}
+func (s *routerStore) HeartbeatConnectorAgent(context.Context, uuid.UUID, *models.AgentHeartbeatRequest, uuid.UUID) (*models.ConnectorAgent, error) {
+	now := time.Now().UTC()
+	return &models.ConnectorAgent{ID: s.agent, Name: "edge", AgentURL: "https://agent.local", OwnerID: s.owner, Status: "online", Capabilities: json.RawMessage(`{}`), Metadata: json.RawMessage(`{}`), LastHeartbeatAt: &now}, nil
+}
+func (s *routerStore) DeleteConnectorAgent(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return true, nil
 }
 func (s *routerStore) ListSourcePolicies(context.Context, uuid.UUID, uuid.UUID) ([]models.SourcePolicyBindingResponse, error) {
 	return []models.SourcePolicyBindingResponse{}, nil
@@ -187,6 +201,7 @@ func TestRustRouteSurfaceIsMounted(t *testing.T) {
 	srv, jwt, store := testServer(t, false)
 	token := bearer(t, jwt)
 	id := store.source.String()
+	agentID := store.agent.String()
 	syncID := uuid.NewString()
 	regID := uuid.NewString()
 
@@ -207,6 +222,10 @@ func TestRustRouteSurfaceIsMounted(t *testing.T) {
 		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/capabilities", "", ""},
 		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/credentials", token, ""},
 		{http.MethodPost, "/api/v1/data-connection/sources/" + id + "/credentials", token, "{}"},
+		{http.MethodGet, "/api/v1/data-connection/agents", token, ""},
+		{http.MethodPost, "/api/v1/data-connection/agents", token, `{"name":"edge","agent_url":"https://agent.local"}`},
+		{http.MethodPost, "/api/v1/data-connection/agents/" + agentID + "/heartbeat", token, "{}"},
+		{http.MethodDelete, "/api/v1/data-connection/agents/" + agentID, token, ""},
 		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/egress-policies", token, ""},
 		{http.MethodPost, "/api/v1/data-connection/sources/" + id + "/egress-policies", token, "{}"},
 		{http.MethodDelete, "/api/v1/data-connection/sources/" + id + "/egress-policies/" + uuid.NewString(), token, ""},

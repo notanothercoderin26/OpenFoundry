@@ -134,6 +134,35 @@ export interface SetCredentialRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Connector agents
+// ---------------------------------------------------------------------------
+
+export interface ConnectorAgent {
+  id: string;
+  name: string;
+  agent_url: string;
+  owner_id: string;
+  status: string;
+  capabilities: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  last_heartbeat_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RegisterConnectorAgentRequest {
+  name: string;
+  agent_url: string;
+  capabilities?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ConnectorAgentHeartbeatRequest {
+  capabilities?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
 // Egress policies
 // ---------------------------------------------------------------------------
 
@@ -223,6 +252,31 @@ export interface TestConnectionResult {
 }
 
 // ---------------------------------------------------------------------------
+// Streaming source contracts
+// ---------------------------------------------------------------------------
+
+export type StreamingSourceFieldKind = 'string' | 'int' | 'secret';
+
+export interface StreamingSourceFieldDescriptor {
+  name: string;
+  kind: StreamingSourceFieldKind;
+  required: boolean;
+  description: string;
+}
+
+export interface StreamingSourceContract {
+  kind: string;
+  display_name: string;
+  description: string;
+  requires_agent: boolean;
+  config_fields: StreamingSourceFieldDescriptor[];
+}
+
+export interface StreamingSourceContractResponse {
+  data: StreamingSourceContract[];
+}
+
+// ---------------------------------------------------------------------------
 // Media-set syncs (Foundry "Set up a media set sync" — S3 / ABFS)
 //
 // Mirrors `services/connector-management-service/src/handlers/media_set_syncs.rs`.
@@ -263,16 +317,26 @@ export interface CreateMediaSetSyncRequest {
 
 // Registrations / discovery payloads ----------------------------------------
 
+export type RegistrationMode = 'sync' | 'zero_copy';
+
 export interface DiscoveredSource {
   selector: string;
+  display_name?: string | null;
   source_kind?: string | null;
+  supports_sync?: boolean;
+  supports_zero_copy?: boolean;
+  source_signature?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 
 export interface BulkRegistrationItem {
   selector: string;
+  display_name?: string;
   source_kind?: string;
-  registration_mode?: 'append' | 'snapshot' | 'cdc' | null;
+  registration_mode?: RegistrationMode | null;
+  auto_sync?: boolean;
+  update_detection?: boolean;
+  target_dataset_id?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -280,9 +344,17 @@ export interface ConnectionRegistration {
   id: string;
   connection_id: string;
   selector: string;
+  display_name: string;
   source_kind: string | null;
-  registration_mode: string | null;
+  registration_mode: RegistrationMode | string | null;
+  auto_sync: boolean;
+  update_detection: boolean;
+  target_dataset_id: string | null;
+  last_source_signature: string | null;
+  last_dataset_version: number | null;
+  metadata?: Record<string, unknown> | null;
   created_at: string;
+  updated_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,10 +363,23 @@ export interface ConnectionRegistration {
 
 const BASE = '/data-connection';
 
+interface ApiListEnvelope<T> {
+  data?: T[];
+  items?: T[];
+}
+
+function listItems<T>(payload: ApiListEnvelope<T> | T[]): T[] {
+  if (Array.isArray(payload)) return payload;
+  return payload.data ?? payload.items ?? [];
+}
+
 export const dataConnection = {
   // Catalog ----------------------------------------------------------------
   getCatalog(): Promise<ConnectorCatalog> {
     return api.get(`${BASE}/catalog`);
+  },
+  listStreamingSourceContracts(): Promise<StreamingSourceContractResponse> {
+    return api.get(`${BASE}/streaming-sources`);
   },
 
   // Sources ----------------------------------------------------------------
@@ -325,11 +410,20 @@ export const dataConnection = {
   discoverSources(sourceId: string): Promise<{ sources: DiscoveredSource[] }> {
     return api.post(`${BASE}/sources/${sourceId}/registrations/discover`, {});
   },
+  async listRegistrations(sourceId: string): Promise<ConnectionRegistration[]> {
+    const response = await api.get<{ registrations: ConnectionRegistration[] }>(
+      `${BASE}/sources/${sourceId}/registrations`,
+    );
+    return response.registrations;
+  },
   bulkRegister(
     sourceId: string,
     registrations: BulkRegistrationItem[],
   ): Promise<{ created: ConnectionRegistration[]; errors?: { selector: string; error: string }[] }> {
     return api.post(`${BASE}/sources/${sourceId}/registrations/bulk`, { registrations });
+  },
+  deleteRegistration(sourceId: string, registrationId: string): Promise<void> {
+    return api.delete(`${BASE}/sources/${sourceId}/registrations/${registrationId}`);
   },
 
   // Credentials ------------------------------------------------------------
@@ -338,6 +432,28 @@ export const dataConnection = {
   },
   listCredentials(sourceId: string): Promise<Credential[]> {
     return api.get(`${BASE}/sources/${sourceId}/credentials`);
+  },
+
+  // Connector agents --------------------------------------------------------
+  async listConnectorAgents(): Promise<ConnectorAgent[]> {
+    const res = await api.get<ApiListEnvelope<ConnectorAgent> | ConnectorAgent[]>(`${BASE}/agents`);
+    return listItems(res);
+  },
+  registerConnectorAgent(body: RegisterConnectorAgentRequest): Promise<ConnectorAgent> {
+    return api.post(`${BASE}/agents`, {
+      ...body,
+      capabilities: body.capabilities ?? {},
+      metadata: body.metadata ?? {},
+    });
+  },
+  heartbeatConnectorAgent(id: string, body: ConnectorAgentHeartbeatRequest = {}): Promise<ConnectorAgent> {
+    return api.post(`${BASE}/agents/${id}/heartbeat`, {
+      capabilities: body.capabilities ?? {},
+      metadata: body.metadata ?? {},
+    });
+  },
+  deleteConnectorAgent(id: string): Promise<void> {
+    return api.delete(`${BASE}/agents/${id}`);
   },
 
   // Egress policy bindings -------------------------------------------------
@@ -521,6 +637,80 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     workers: ['foundry'],
     available: false,
     family: 'SaaS',
+  },
+];
+
+export const FALLBACK_STREAMING_SOURCE_CONTRACTS: StreamingSourceContract[] = [
+  {
+    kind: 'streaming_kafka',
+    display_name: 'Apache Kafka',
+    description: 'Pull records from a Kafka topic via consumer-group offsets.',
+    requires_agent: false,
+    config_fields: [
+      { name: 'bootstrap_servers', kind: 'string', required: true, description: 'Comma-separated host:port list.' },
+      { name: 'topic', kind: 'string', required: true, description: 'Topic the sync subscribes to.' },
+      { name: 'consumer_group', kind: 'string', required: true, description: 'Kafka consumer group id.' },
+      { name: 'auto_offset_reset', kind: 'string', required: false, description: 'earliest / latest.' },
+    ],
+  },
+  {
+    kind: 'streaming_kinesis',
+    display_name: 'Amazon Kinesis',
+    description: 'Pull records from a Kinesis stream shard.',
+    requires_agent: false,
+    config_fields: [
+      { name: 'stream_name', kind: 'string', required: true, description: 'Kinesis stream name.' },
+      { name: 'region', kind: 'string', required: true, description: 'AWS region.' },
+      { name: 'shard_iterator_type', kind: 'string', required: false, description: 'LATEST / TRIM_HORIZON.' },
+      { name: 'max_records_per_shard', kind: 'int', required: false, description: 'Soft cap per pull.' },
+    ],
+  },
+  {
+    kind: 'streaming_sqs',
+    display_name: 'Amazon SQS',
+    description: 'Long-poll an SQS queue with explicit per-message ack.',
+    requires_agent: false,
+    config_fields: [
+      { name: 'queue_url', kind: 'string', required: true, description: 'Full queue URL.' },
+      { name: 'region', kind: 'string', required: true, description: 'AWS region.' },
+      { name: 'wait_time_seconds', kind: 'int', required: false, description: 'Long-poll seconds (0..=20).' },
+      { name: 'visibility_timeout_seconds', kind: 'int', required: false, description: 'Per-message visibility timeout.' },
+    ],
+  },
+  {
+    kind: 'streaming_pubsub',
+    display_name: 'Google Cloud Pub/Sub',
+    description: 'REST-based pull + ack against a subscription.',
+    requires_agent: false,
+    config_fields: [
+      { name: 'project_id', kind: 'string', required: true, description: 'GCP project id.' },
+      { name: 'subscription_id', kind: 'string', required: true, description: 'Subscription id.' },
+      { name: 'max_messages', kind: 'int', required: false, description: 'Soft cap per pull.' },
+      { name: 'ack_deadline_seconds', kind: 'int', required: false, description: 'Per-pull ack-deadline override.' },
+    ],
+  },
+  {
+    kind: 'streaming_aveva_pi',
+    display_name: 'Aveva PI',
+    description: 'Poll the PI Web API for observation deltas.',
+    requires_agent: false,
+    config_fields: [
+      { name: 'base_url', kind: 'string', required: true, description: 'PI Web API base URL.' },
+      { name: 'event_stream_web_id', kind: 'string', required: true, description: 'WebID of the event stream.' },
+      { name: 'poll_interval_ms', kind: 'int', required: false, description: 'Polling cadence.' },
+      { name: 'auth_header', kind: 'secret', required: false, description: 'Authorization header (Bearer / Basic).' },
+    ],
+  },
+  {
+    kind: 'streaming_external',
+    display_name: 'External transform',
+    description: 'Generic webhook hook for sources without a dedicated connector.',
+    requires_agent: true,
+    config_fields: [
+      { name: 'agent_label', kind: 'string', required: true, description: 'Free-form label for the catalogue.' },
+      { name: 'agent_token', kind: 'secret', required: true, description: 'Bearer token the agent uses to push records.' },
+      { name: 'protocol', kind: 'string', required: true, description: 'activemq | rabbitmq | mqtt | sns | ibm_mq | solace.' },
+    ],
   },
 ];
 

@@ -2,6 +2,7 @@ import api from './client';
 
 export interface Dataset {
   id: string;
+  rid?: string;
   name: string;
   description: string;
   format: string;
@@ -12,6 +13,9 @@ export interface Dataset {
   tags: string[];
   current_version: number;
   active_branch: string;
+  metadata?: Record<string, unknown> | null;
+  health_status?: string | null;
+  current_view_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -22,6 +26,19 @@ export interface DatasetListResponse {
   per_page: number;
   total: number;
   total_pages: number;
+}
+
+interface DatasetListItemsResponse {
+  items: Dataset[];
+}
+
+export interface ListDatasetsParams {
+  page?: number;
+  per_page?: number;
+  limit?: number;
+  search?: string;
+  tag?: string;
+  owner_id?: string;
 }
 
 export interface CreateDatasetParams {
@@ -430,6 +447,39 @@ export interface DatasetQualityResponse {
   profiled_at: string | null;
 }
 
+export interface DatasetBuildParams {
+  branch?: string;
+  reason?: string;
+}
+
+export interface DatasetBuildResponse {
+  id?: string;
+  rid?: string;
+  build_id?: string;
+  status?: string;
+  state?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
+export interface DatasetExportParams {
+  format: 'CSV' | 'PARQUET';
+  branch?: string;
+  version?: number;
+  include_schema?: boolean;
+}
+
+export interface DatasetExportResponse {
+  id?: string;
+  rid?: string;
+  export_id?: string;
+  status?: string;
+  state?: string;
+  download_url?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
 export interface DatasetLintSummary {
   resource_posture: string;
   total_findings: number;
@@ -496,15 +546,52 @@ export interface UpdateDatasetQualityRuleParams {
   config?: Record<string, unknown>;
 }
 
-export function listDatasets(params?: { page?: number; per_page?: number; search?: string; tag?: string; owner_id?: string }) {
+export async function listDatasets(params?: ListDatasetsParams): Promise<DatasetListResponse> {
   const query = new URLSearchParams();
-  if (params?.page) query.set('page', String(params.page));
-  if (params?.per_page) query.set('per_page', String(params.per_page));
+  const page = Math.max(1, params?.page ?? 1);
+  const perPage = Math.max(1, params?.per_page ?? params?.limit ?? 100);
+  const needsClientFiltering = Boolean(params?.search || params?.tag || params?.owner_id);
+  const limit = params?.limit ?? (needsClientFiltering ? Math.max(perPage, 500) : perPage);
+
+  query.set('page', String(page));
+  query.set('per_page', String(perPage));
+  query.set('limit', String(limit));
   if (params?.search) query.set('search', params.search);
   if (params?.tag) query.set('tag', params.tag);
   if (params?.owner_id) query.set('owner_id', params.owner_id);
   const qs = query.toString();
-  return api.get<DatasetListResponse>(`/datasets${qs ? `?${qs}` : ''}`);
+  const response = await api.get<DatasetListResponse | DatasetListItemsResponse>(`/datasets${qs ? `?${qs}` : ''}`);
+
+  if ('data' in response) return response;
+
+  const search = params?.search?.trim().toLowerCase();
+  const tag = params?.tag?.trim().toLowerCase();
+  const ownerId = params?.owner_id?.trim().toLowerCase();
+  const filtered = response.items.filter((dataset) => {
+    const datasetTags = dataset.tags ?? [];
+    const searchable = [
+      dataset.name,
+      dataset.description,
+      dataset.id,
+      dataset.rid,
+    ].filter(Boolean).join(' ').toLowerCase();
+    const matchesSearch = !search
+      || searchable.includes(search)
+      || datasetTags.some((item) => item.toLowerCase().includes(search));
+    const matchesTag = !tag || datasetTags.some((item) => item.toLowerCase() === tag);
+    const matchesOwner = !ownerId || dataset.owner_id?.toLowerCase() === ownerId;
+    return matchesSearch && matchesTag && matchesOwner;
+  });
+  const start = (page - 1) * perPage;
+  const data = filtered.slice(start, start + perPage);
+
+  return {
+    data,
+    page,
+    per_page: perPage,
+    total: filtered.length,
+    total_pages: Math.max(1, Math.ceil(filtered.length / perPage)),
+  };
 }
 
 export function getCatalogFacets() {
@@ -527,6 +614,15 @@ export function previewDataset(datasetId: string, params?: { limit?: number; off
 
 export function getDatasetSchema(datasetId: string) {
   return api.get<DatasetSchema>(`/datasets/${datasetId}/schema`);
+}
+
+export function getDatasetSchemaForBranch(datasetId: string, branch: string) {
+  const query = new URLSearchParams();
+  if (branch) query.set('branch', branch);
+  const qs = query.toString();
+  return api.get<DatasetSchema | DatasetSchemaResponse>(
+    `/datasets/${datasetId}/schema${qs ? `?${qs}` : ''}`,
+  );
 }
 
 export function getViewSchema(datasetId: string, viewId: string) {
@@ -691,6 +787,14 @@ export function updateDataset(id: string, params: UpdateDatasetParams) {
 
 export function deleteDataset(id: string) {
   return api.delete(`/datasets/${id}`);
+}
+
+export function startDatasetBuild(datasetId: string, params: DatasetBuildParams = {}) {
+  return api.post<DatasetBuildResponse>(`/datasets/${datasetId}/builds`, params);
+}
+
+export function exportDataset(datasetId: string, params: DatasetExportParams) {
+  return api.post<DatasetExportResponse>(`/datasets/${datasetId}/exports`, params);
 }
 
 export function getVersions(datasetId: string) {
@@ -1035,9 +1139,12 @@ export function installDatasetProduct(
   );
 }
 
-export async function uploadData(datasetId: string, file: File) {
+export async function uploadData(datasetId: string, file: File, options: { logicalPath?: string } = {}) {
   const formData = new FormData();
   formData.append('file', file);
+  if (options.logicalPath) {
+    formData.append('logical_path', options.logicalPath);
+  }
   const headers: Record<string, string> = {};
   const authHeader = api.authorizationHeaders().Authorization;
   if (authHeader) {

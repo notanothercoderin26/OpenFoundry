@@ -17,6 +17,7 @@ export function CommandPalette() {
 
   const staticCommands: CommandAction[] = useMemo(
     () => [
+      { id: 'search.open', label: 'Open search', hint: 'Workspace results', shortcut: '/', run: () => navigate('/search') },
       { id: 'builds.open', label: 'Open builds', hint: 'Cross-pipeline build queue', shortcut: 'g b', run: () => navigate('/builds') },
       { id: 'builds.run', label: 'Run build', hint: 'Open the Run-build modal in /builds', shortcut: 'r', run: () => navigate('/builds?run=1') },
       { id: 'pipelines.open', label: 'Open Pipeline Builder', hint: 'Browse and edit pipelines', run: () => navigate('/pipelines') },
@@ -47,6 +48,12 @@ export function CommandPalette() {
         run: () => navigate(`/builds/${encodeURIComponent(rid)}`),
       });
     }
+    result.push({
+      id: `search.query.${trimmed}`,
+      label: `Search for "${trimmed}"`,
+      hint: '/search',
+      run: () => navigate(`/search?q=${encodeURIComponent(trimmed)}`),
+    });
     return result;
   }
 

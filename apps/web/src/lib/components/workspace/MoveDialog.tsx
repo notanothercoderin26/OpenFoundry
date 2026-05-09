@@ -17,6 +17,7 @@ interface MoveDialogProps {
   projects: OntologyProject[];
   initialProjectId?: string | null;
   targets?: BulkTarget[];
+  canSelectFolder?: (folderId: string) => boolean;
   onClose?: () => void;
   onMoved?: () => void;
 }
@@ -29,6 +30,7 @@ export function MoveDialog({
   projects,
   initialProjectId,
   targets,
+  canSelectFolder,
   onClose,
   onMoved,
 }: MoveDialogProps) {
@@ -59,6 +61,10 @@ export function MoveDialog({
 
   async function submit() {
     if (!targetProjectId) { setError('Pick a destination project.'); return; }
+    if (targetFolderId && canSelectFolder && !canSelectFolder(targetFolderId)) {
+      setError('Pick a valid destination folder.');
+      return;
+    }
     setSubmitting(true);
     setError('');
     try {
@@ -106,7 +112,11 @@ export function MoveDialog({
             Folder (optional)
             <select value={targetFolderId} onChange={(e) => setTargetFolderId(e.target.value)} className="of-input" style={{ marginTop: 4 }}>
               <option value="">— root —</option>
-              {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              {folders.map((f) => (
+                <option key={f.id} value={f.id} disabled={canSelectFolder ? !canSelectFolder(f.id) : false}>
+                  {f.name}
+                </option>
+              ))}
             </select>
           </label>
           {error && <p style={{ color: '#fca5a5', fontSize: 11, margin: 0 }}>{error}</p>}

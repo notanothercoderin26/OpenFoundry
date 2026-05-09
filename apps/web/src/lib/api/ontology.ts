@@ -20,7 +20,9 @@ export interface ObjectType {
 }
 
 export interface PropertyInlineEditConfig {
-  enabled: boolean;
+  action_type_id?: string;
+  input_name?: string | null;
+  enabled?: boolean;
   permission_keys?: string[];
 }
 
@@ -150,7 +152,7 @@ export function executeInlineEdit(
   body: { value: unknown; justification?: string },
 ) {
   return api.post<ExecuteActionResponse>(
-    `/ontology/types/${typeId}/objects/${objectId}/inline-edit/${propertyId}`,
+    `/ontology/types/${typeId}/properties/${propertyId}/objects/${objectId}/inline-edit`,
     body,
   );
 }
@@ -272,6 +274,10 @@ export function listObjects(typeId: string, params?: { page?: number; per_page?:
   );
 }
 
+export function getObject(typeId: string, objectId: string) {
+  return api.get<ObjectInstance>(`/ontology/types/${typeId}/objects/${objectId}`);
+}
+
 export function getOntologyGraph(params?: {
   root_object_id?: string;
   root_type_id?: string;
@@ -368,6 +374,14 @@ export interface SearchResult {
   score: number;
   route: string;
   metadata: Record<string, unknown>;
+  score_breakdown?: {
+    fusion_strategy: string;
+    lexical_rank: number | null;
+    semantic_rank: number | null;
+    lexical_score: number;
+    semantic_score: number;
+    title_bonus: number;
+  };
 }
 
 export interface ScenarioSimulationOperation {
@@ -424,6 +438,9 @@ export function searchOntology(body: {
   object_type_id?: string;
   limit?: number;
   semantic?: boolean;
+  hybrid_strategy?: 'rrf' | 'weighted';
+  embedding_provider?: string;
+  semantic_candidate_limit?: number;
 }) {
   return api.post<{ query: string; total: number; data: SearchResult[] }>('/ontology/search', body);
 }
@@ -755,7 +772,7 @@ export function createActionType(body: CreateActionTypeBody) {
 }
 
 export function updateActionType(id: string, body: UpdateActionTypeBody) {
-  return api.put<ActionType>(`/ontology/actions/${id}`, body);
+  return api.patch<ActionType>(`/ontology/actions/${id}`, body);
 }
 
 export function deleteActionType(id: string) {
@@ -919,7 +936,7 @@ export function getObjectInstance(typeId: string, objectId: string) {
 export type ObjectTypeBindingSyncMode = 'snapshot' | 'incremental' | 'view';
 
 export interface ObjectTypeBindingPropertyMapping {
-  source_column: string;
+  source_field: string;
   target_property: string;
   transform?: string | null;
 }
@@ -1241,8 +1258,12 @@ export function listTypeInterfaces(typeId: string) {
     .then((response) => response.data);
 }
 
+export function implementInterface(interfaceId: string, body: { object_type_id: string }) {
+  return api.post<ObjectTypeInterfaceBinding>(`/ontology/interfaces/${interfaceId}/implementations`, body);
+}
+
 export function attachInterfaceToType(typeId: string, interfaceId: string) {
-  return api.post<ObjectTypeInterfaceBinding>(`/ontology/types/${typeId}/interfaces/${interfaceId}`, {});
+  return implementInterface(interfaceId, { object_type_id: typeId });
 }
 
 export function detachInterfaceFromType(typeId: string, interfaceId: string) {
@@ -1294,6 +1315,96 @@ export interface ObjectViewResponse {
 
 export function getObjectView(typeId: string, objectId: string) {
   return api.get<ObjectViewResponse>(`/ontology/types/${typeId}/objects/${objectId}/view`);
+}
+
+export type ObjectViewMode = 'standard' | 'configured';
+export type ObjectViewFormFactor = 'full' | 'panel';
+export type ObjectViewSectionKind =
+  | 'summary'
+  | 'properties'
+  | 'links'
+  | 'timeline'
+  | 'actions'
+  | 'graph'
+  | 'comments'
+  | 'apps';
+
+export interface ObjectViewSectionDefinition {
+  id: string;
+  title: string;
+  kind: ObjectViewSectionKind;
+  description: string;
+}
+
+export interface ObjectViewSidebarLinkDefinition {
+  id: string;
+  label: string;
+  href: string;
+}
+
+export interface ObjectViewConfig {
+  mode: ObjectViewMode;
+  form_factor: ObjectViewFormFactor;
+  title_template: string;
+  subtitle_property: string;
+  prominent_properties: string[];
+  panel_properties: string[];
+  sections: ObjectViewSectionDefinition[];
+  sidebar_links: ObjectViewSidebarLinkDefinition[];
+  comments_enabled: boolean;
+  branch_label: string;
+  auto_publish: boolean;
+}
+
+export interface ObjectViewDefinition {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  object_type_id: string;
+  mode: ObjectViewMode;
+  form_factor: ObjectViewFormFactor;
+  config?: ObjectViewConfig;
+  branch_label?: string | null;
+  published?: boolean;
+  status?: string;
+  created_by?: string;
+  owner_id?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateObjectViewBody {
+  name: string;
+  display_name?: string;
+  description?: string;
+  object_type_id: string;
+  mode?: ObjectViewMode;
+  form_factor?: ObjectViewFormFactor;
+  config?: ObjectViewConfig;
+  branch_label?: string;
+  published?: boolean;
+}
+
+export function listObjectViews(params?: {
+  object_type_id?: string;
+  form_factor?: ObjectViewFormFactor;
+  page?: number;
+  per_page?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.object_type_id) qs.set('object_type_id', params.object_type_id);
+  if (params?.form_factor) qs.set('form_factor', params.form_factor);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  const tail = qs.toString();
+  return api.get<{ data: ObjectViewDefinition[]; total: number; page?: number; per_page?: number }>(
+    `/object-views${tail ? `?${tail}` : ''}`,
+  );
+}
+
+export function createObjectView(body: CreateObjectViewBody) {
+  return api.post<ObjectViewDefinition>('/object-views', body);
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1356,8 +1467,13 @@ export interface ObjectSetEvaluationResponse {
   materialized: boolean;
 }
 
-export function listObjectSets() {
-  return api.get<{ data: ObjectSetDefinition[] }>('/ontology/object-sets');
+export function listObjectSets(params?: { size?: number; token?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.size) qs.set('size', String(params.size));
+  if (params?.token) qs.set('token', params.token);
+  return api.get<{ data: ObjectSetDefinition[]; next_token?: string }>(
+    `/ontology/object-sets${qs.toString() ? `?${qs}` : ''}`,
+  );
 }
 
 export function createObjectSet(body: {
@@ -1578,6 +1694,24 @@ export function triggerOntologyFunnelRun(
   },
 ) {
   return api.post<OntologyFunnelRun>(`/ontology/funnel/sources/${id}/run`, body ?? {});
+}
+
+export interface OntologyReindexRequest {
+  page_size?: number;
+  trigger_context?: Record<string, unknown>;
+}
+
+export interface OntologyReindexResponse {
+  job_id?: string;
+  request_id?: string;
+  type_id?: string;
+  status?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
+export function reindexOntologyType(typeId: string, body?: OntologyReindexRequest) {
+  return api.post<OntologyReindexResponse>(`/ontology/types/${typeId}/reindex`, body ?? {});
 }
 
 export function listOntologyFunnelRuns(id: string, params?: { page?: number; per_page?: number }) {
@@ -1832,6 +1966,16 @@ export interface FunctionCapabilities {
   max_source_bytes: number;
 }
 
+export interface FunctionPackageSummary {
+  id: string;
+  name: string;
+  version: string;
+  display_name: string;
+  runtime: string;
+  entrypoint: string;
+  capabilities: FunctionCapabilities;
+}
+
 export interface FunctionPackage {
   id: string;
   name: string;
@@ -1845,6 +1989,32 @@ export interface FunctionPackage {
   owner_id: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface FunctionAuthoringTemplate {
+  id: string;
+  runtime: string;
+  display_name: string;
+  description: string;
+  entrypoint: string;
+  starter_source: string;
+  default_capabilities: FunctionCapabilities;
+  recommended_use_cases: string[];
+  cli_scaffold_template: string | null;
+  sdk_packages: string[];
+}
+
+export interface FunctionSDKPackageReference {
+  language: string;
+  path: string;
+  package_name: string;
+  generated_by: string;
+}
+
+export interface FunctionAuthoringSurface {
+  templates: FunctionAuthoringTemplate[];
+  sdk_packages: FunctionSDKPackageReference[];
+  cli_commands: string[];
 }
 
 export interface FunctionPackageRun {
@@ -1867,15 +2037,7 @@ export interface FunctionPackageRun {
 }
 
 export interface FunctionPackageMetrics {
-  package: {
-    id: string;
-    name: string;
-    version: string;
-    display_name: string;
-    runtime: string;
-    entrypoint: string;
-    capabilities: FunctionCapabilities;
-  };
+  package: FunctionPackageSummary;
   total_runs: number;
   successful_runs: number;
   failed_runs: number;
@@ -1888,6 +2050,30 @@ export interface FunctionPackageMetrics {
   last_run_at: string | null;
   last_success_at: string | null;
   last_failure_at: string | null;
+}
+
+export interface FunctionPackageInvocationBody {
+  object_type_id?: string;
+  target_object_id?: string;
+  parameters?: Record<string, unknown>;
+  justification?: string;
+}
+
+export interface ValidateFunctionPackageResponse {
+  valid: boolean;
+  package: FunctionPackageSummary;
+  preview: unknown;
+  errors: string[];
+}
+
+export interface SimulateFunctionPackageResponse {
+  package: FunctionPackageSummary;
+  preview: unknown;
+  result: unknown;
+}
+
+export function getFunctionAuthoringSurface() {
+  return api.get<FunctionAuthoringSurface>('/ontology/functions/authoring-surface');
 }
 
 export function listFunctionPackages(params?: { runtime?: string; search?: string; page?: number; per_page?: number }) {
@@ -1931,33 +2117,37 @@ export function deleteFunctionPackage(id: string) {
   return api.delete(`/ontology/functions/${id}`);
 }
 
-export function listFunctionPackageRuns(params?: {
-  function_package_id?: string;
+export function listFunctionPackageRuns(id: string, params?: {
   invocation_kind?: string;
   status?: string;
   page?: number;
   per_page?: number;
 }) {
   const qs = new URLSearchParams();
-  if (params?.function_package_id) qs.set('function_package_id', params.function_package_id);
   if (params?.invocation_kind) qs.set('invocation_kind', params.invocation_kind);
   if (params?.status) qs.set('status', params.status);
   if (params?.page) qs.set('page', String(params.page));
   if (params?.per_page) qs.set('per_page', String(params.per_page));
+  const tail = qs.toString() ? `?${qs}` : '';
   return api.get<{ data: FunctionPackageRun[]; total: number; page: number; per_page: number }>(
-    `/ontology/functions/runs?${qs}`,
+    `/ontology/functions/${id}/runs${tail}`,
   );
 }
 
-export function listFunctionPackageMetrics() {
-  return api.get<{ data: FunctionPackageMetrics[] }>('/ontology/functions/metrics');
+export function listFunctionPackageMetrics(id: string) {
+  return api.get<FunctionPackageMetrics>(`/ontology/functions/${id}/metrics`);
 }
 
-export function executeFunctionPackage(id: string, body: { input: Record<string, unknown> }) {
-  return api.post<{ result: unknown; logs: unknown[]; duration_ms: number }>(
-    `/ontology/functions/${id}/execute`,
-    body,
-  );
+export function validateFunctionPackage(id: string, body: FunctionPackageInvocationBody) {
+  return api.post<ValidateFunctionPackageResponse>(`/ontology/functions/${id}/validate`, body);
+}
+
+export function simulateFunctionPackage(id: string, body: FunctionPackageInvocationBody & { object_type_id: string }) {
+  return api.post<SimulateFunctionPackageResponse>(`/ontology/functions/${id}/simulate`, body);
+}
+
+export function executeFunctionPackage(id: string, body: FunctionPackageInvocationBody & { object_type_id: string }) {
+  return simulateFunctionPackage(id, body);
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1966,7 +2156,7 @@ export function executeFunctionPackage(id: string, body: { input: Record<string,
 // ────────────────────────────────────────────────────────────────
 
 export interface PropertyInlineEditConfig {
-  action_type_id: string;
+  action_type_id?: string;
   input_name?: string | null;
 }
 

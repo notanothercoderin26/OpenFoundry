@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
-import { JsonEditor } from '@/lib/components/JsonEditor';
-import { Tabs } from '@/lib/components/Tabs';
-import { PipelineCanvas } from '@/lib/components/pipeline/PipelineCanvas';
-import { PipelineNodeList } from '@/lib/components/pipeline/PipelineNodeList';
 import {
   getPipeline,
   listRuns,
@@ -17,13 +13,25 @@ import {
   type PipelineRun,
   type PipelineValidationResponse,
 } from '@/lib/api/pipelines';
+import { JsonEditor } from '@/lib/components/JsonEditor';
+import { Tabs } from '@/lib/components/Tabs';
+import { PipelineCanvas } from '@/lib/components/pipeline/PipelineCanvas';
+import { PipelineNodeList } from '@/lib/components/pipeline/PipelineNodeList';
+
+function parseJson<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
 
 export function PipelineEditPage() {
-  const { id = '' } = useParams<{ id: string }>();
+  const { id = '', runId } = useParams<{ id: string; runId?: string }>();
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [validation, setValidation] = useState<PipelineValidationResponse | null>(null);
-  const [tab, setTab] = useState<'canvas' | 'nodes' | 'config' | 'runs' | 'validate'>('canvas');
+  const [tab, setTab] = useState<'canvas' | 'nodes' | 'config' | 'runs' | 'validate'>(runId ? 'runs' : 'canvas');
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -42,14 +50,14 @@ export function PipelineEditPage() {
     setLoading(true);
     setError('');
     try {
-      const p = await getPipeline(id);
-      setPipeline(p);
-      setName(p.name);
-      setDescription(p.description);
-      setStatusValue(p.status);
-      setNodesJson(JSON.stringify(p.dag, null, 2));
-      setScheduleJson(JSON.stringify(p.schedule_config, null, 2));
-      setRetryJson(JSON.stringify(p.retry_policy, null, 2));
+      const nextPipeline = await getPipeline(id);
+      setPipeline(nextPipeline);
+      setName(nextPipeline.name);
+      setDescription(nextPipeline.description);
+      setStatusValue(nextPipeline.status);
+      setNodesJson(JSON.stringify(nextPipeline.dag, null, 2));
+      setScheduleJson(JSON.stringify(nextPipeline.schedule_config, null, 2));
+      setRetryJson(JSON.stringify(nextPipeline.retry_policy, null, 2));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to load pipeline');
     } finally {
@@ -63,7 +71,7 @@ export function PipelineEditPage() {
       const res = await listRuns(id, { per_page: 50 });
       setRuns(res.data);
     } catch {
-      // ignore — runs are non-critical
+      // Runs are helpful context, but the editor should still load without them.
     }
   }
 
@@ -71,6 +79,10 @@ export function PipelineEditPage() {
     void load();
     void loadRuns();
   }, [id]);
+
+  useEffect(() => {
+    if (runId) setTab('runs');
+  }, [runId]);
 
   async function save() {
     if (!pipeline) return;
@@ -81,9 +93,9 @@ export function PipelineEditPage() {
         name,
         description,
         status: statusValue,
-        nodes: JSON.parse(nodesJson),
-        schedule_config: JSON.parse(scheduleJson),
-        retry_policy: JSON.parse(retryJson),
+        nodes: parseJson<PipelineNode[]>(nodesJson, []),
+        schedule_config: parseJson(scheduleJson, pipeline.schedule_config),
+        retry_policy: parseJson(retryJson, pipeline.retry_policy),
       });
       setPipeline(updated);
       setNodesJson(JSON.stringify(updated.dag, null, 2));
@@ -102,6 +114,7 @@ export function PipelineEditPage() {
     try {
       await triggerRun(pipeline.id);
       await loadRuns();
+      setTab('runs');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Run failed');
     } finally {
@@ -109,11 +122,11 @@ export function PipelineEditPage() {
     }
   }
 
-  async function retryRun(runId: string) {
+  async function retryRun(selectedRunId: string) {
     if (!pipeline) return;
     setBusy(true);
     try {
-      await retryPipelineRun(pipeline.id, runId);
+      await retryPipelineRun(pipeline.id, selectedRunId);
       await loadRuns();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Retry failed');
@@ -129,11 +142,12 @@ export function PipelineEditPage() {
       const report = await validatePipelineById(pipeline.id);
       setValidation({
         valid: report.all_valid,
-        errors: report.nodes.flatMap((n) => n.errors.map((e) => `${n.node_id}: ${e.message}`)),
+        errors: report.nodes.flatMap((node) => node.errors.map((issue) => `${node.node_id}: ${issue.message}`)),
         warnings: [],
         next_run_at: null,
         summary: { node_count: report.nodes.length, edge_count: 0, root_node_ids: [], leaf_node_ids: [] },
       });
+      setTab('validate');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Validate failed');
     } finally {
@@ -141,10 +155,13 @@ export function PipelineEditPage() {
     }
   }
 
+  const parsedNodes = parseJson<PipelineNode[]>(nodesJson, []);
+  const highlightedRun = runId ? runs.find((run) => run.id === runId) : null;
+
   if (loading) {
     return (
       <section className="of-page" style={{ padding: 24 }}>
-        <p className="of-text-muted">Loading pipeline…</p>
+        <p className="of-text-muted">Loading pipeline...</p>
       </section>
     );
   }
@@ -152,8 +169,12 @@ export function PipelineEditPage() {
   if (!pipeline) {
     return (
       <section className="of-page" style={{ padding: 24 }}>
-        <Link to="/pipelines" style={{ color: 'var(--text-muted)', fontSize: 13 }}>← Pipelines</Link>
-        <p className="of-status-danger" style={{ marginTop: 12 }}>{error || 'Pipeline not found'}</p>
+        <Link to="/pipelines" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+          Back to pipelines
+        </Link>
+        <p className="of-status-danger" style={{ marginTop: 12 }}>
+          {error || 'Pipeline not found'}
+        </p>
       </section>
     );
   }
@@ -163,8 +184,12 @@ export function PipelineEditPage() {
       <header className="of-panel" style={{ display: 'grid', gap: 8, padding: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
           <div style={{ minWidth: 0 }}>
-            <Link to="/pipelines" style={{ color: 'var(--text-muted)', fontSize: 12 }}>← Pipelines</Link>
-            <h1 className="of-heading-lg" style={{ marginTop: 4 }}>{pipeline.name}</h1>
+            <Link to="/pipelines" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+              Back to pipelines
+            </Link>
+            <h1 className="of-heading-lg" style={{ marginTop: 4 }}>
+              {pipeline.name}
+            </h1>
             <p className="of-text-muted" style={{ marginTop: 2, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
               {pipeline.id}
             </p>
@@ -174,9 +199,19 @@ export function PipelineEditPage() {
             <span className="of-chip">{pipeline.pipeline_type ?? 'BATCH'}</span>
           </div>
         </div>
-        <div className="of-toolbar" style={{ borderRadius: 0, margin: '0 -10px -10px', borderRight: 0, borderLeft: 0, borderBottom: 0, justifyContent: 'space-between' }}>
+        <div
+          className="of-toolbar"
+          style={{
+            borderRadius: 0,
+            margin: '0 -10px -10px',
+            borderRight: 0,
+            borderLeft: 0,
+            borderBottom: 0,
+            justifyContent: 'space-between',
+          }}
+        >
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <select value={statusValue} onChange={(e) => setStatusValue(e.target.value)} className="of-select" style={{ width: 120 }}>
+            <select value={statusValue} onChange={(event) => setStatusValue(event.target.value)} className="of-select" style={{ width: 120 }}>
               <option value="draft">draft</option>
               <option value="active">active</option>
               <option value="paused">paused</option>
@@ -187,15 +222,15 @@ export function PipelineEditPage() {
             </span>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button type="button" onClick={() => void runValidate()} disabled={busy} className="of-button">
-            Validate
-          </button>
-          <button type="button" onClick={() => void runNow()} disabled={busy} className="of-button">
-            Run now
-          </button>
-          <button type="button" onClick={() => void save()} disabled={saving} className="of-button of-button--primary">
-            {saving ? 'Saving…' : 'Save'}
-          </button>
+            <button type="button" onClick={() => void runValidate()} disabled={busy} className="of-button">
+              Validate
+            </button>
+            <button type="button" onClick={() => void runNow()} disabled={busy} className="of-button">
+              Run now
+            </button>
+            <button type="button" onClick={() => void save()} disabled={saving} className="of-button of-button--primary">
+              {saving ? 'Saving...' : 'Save'}
+            </button>
           </div>
         </div>
       </header>
@@ -206,44 +241,46 @@ export function PipelineEditPage() {
         </div>
       )}
 
+      {highlightedRun && (
+        <section className="of-panel" style={{ padding: 10 }}>
+          <p className="of-eyebrow">Selected run</p>
+          <p style={{ margin: '6px 0 0', fontSize: 13 }}>
+            {highlightedRun.id} | {highlightedRun.status} | attempt {highlightedRun.attempt_number}
+          </p>
+        </section>
+      )}
+
       <section className="of-panel" style={{ overflow: 'hidden' }}>
         <Tabs tabs={['canvas', 'nodes', 'config', 'runs', 'validate'] as const} active={tab} onChange={setTab} />
 
         <div style={{ padding: tab === 'canvas' ? 0 : 10 }}>
           {tab === 'canvas' && (
             <PipelineCanvas
-              nodes={(() => {
-                try { return JSON.parse(nodesJson) as PipelineNode[]; }
-                catch { return []; }
-              })()}
+              nodes={parsedNodes}
               status={statusValue}
-              scheduleConfig={(() => {
-                try { return JSON.parse(scheduleJson); }
-                catch { return { enabled: false, cron: null }; }
-              })()}
+              scheduleConfig={parseJson(scheduleJson, { enabled: false, cron: null })}
               onChange={(next) => setNodesJson(JSON.stringify(next, null, 2))}
             />
           )}
 
           {tab === 'nodes' && (
-            <PipelineNodeList
-              nodes={(() => {
-                try { return JSON.parse(nodesJson) as PipelineNode[]; }
-                catch { return []; }
-              })()}
-              onChange={(next) => setNodesJson(JSON.stringify(next, null, 2))}
-            />
+            <PipelineNodeList nodes={parsedNodes} onChange={(next) => setNodesJson(JSON.stringify(next, null, 2))} />
           )}
 
           {tab === 'config' && (
             <section style={{ display: 'grid', gap: 8 }}>
               <label style={{ fontSize: 12 }}>
                 Name
-                <input value={name} onChange={(e) => setName(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
+                <input value={name} onChange={(event) => setName(event.target.value)} className="of-input" style={{ marginTop: 4 }} />
               </label>
               <label style={{ fontSize: 12 }}>
                 Description
-                <input value={description} onChange={(e) => setDescription(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
+                <input
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  className="of-input"
+                  style={{ marginTop: 4 }}
+                />
               </label>
               <JsonEditor label="Nodes JSON (DAG)" value={nodesJson} onChange={setNodesJson} minHeight={320} />
               <JsonEditor label="Schedule config JSON" value={scheduleJson} onChange={setScheduleJson} minHeight={80} />
@@ -253,22 +290,36 @@ export function PipelineEditPage() {
 
           {tab === 'runs' && (
             <table className="of-table">
-              <thead><tr><th>Status</th><th>Attempt</th><th>Trigger</th><th>Started</th><th /></tr></thead>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Attempt</th>
+                  <th>Trigger</th>
+                  <th>Started</th>
+                  <th />
+                </tr>
+              </thead>
               <tbody>
-                {runs.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.status}</td>
-                    <td>{r.attempt_number}</td>
-                    <td>{r.trigger_type}</td>
-                    <td>{new Date(r.started_at).toLocaleString()}</td>
+                {runs.map((run) => (
+                  <tr key={run.id} style={run.id === runId ? { outline: '2px solid var(--accent-default)' } : undefined}>
+                    <td>{run.status}</td>
+                    <td>{run.attempt_number}</td>
+                    <td>{run.trigger_type}</td>
+                    <td>{new Date(run.started_at).toLocaleString()}</td>
                     <td style={{ textAlign: 'right' }}>
-                      <button type="button" onClick={() => void retryRun(r.id)} disabled={busy} className="of-button" style={{ fontSize: 11 }}>
+                      <button type="button" onClick={() => void retryRun(run.id)} disabled={busy} className="of-button" style={{ fontSize: 11 }}>
                         Retry
                       </button>
                     </td>
                   </tr>
                 ))}
-                {runs.length === 0 && <tr><td colSpan={5} className="of-text-muted">No runs yet.</td></tr>}
+                {runs.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="of-text-muted">
+                      No runs yet.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           )}
@@ -277,11 +328,13 @@ export function PipelineEditPage() {
             <section>
               {validation ? (
                 <>
-                  <p className="of-eyebrow">{validation.valid ? '✓ Valid' : '✗ Invalid'}</p>
+                  <p className="of-eyebrow">{validation.valid ? 'Valid' : 'Invalid'}</p>
                   {validation.errors.length > 0 && (
                     <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
-                      {validation.errors.map((e, i) => (
-                        <li key={i} style={{ color: '#b42318' }}>{e}</li>
+                      {validation.errors.map((validationError, index) => (
+                        <li key={index} style={{ color: '#b42318' }}>
+                          {validationError}
+                        </li>
                       ))}
                     </ul>
                   )}

@@ -1,70 +1,30 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import {
+  createObjectView,
   getObjectView,
   listActionTypes,
+  listObjectViews,
   listObjects,
   listObjectTypes,
   listProperties,
   type ActionType,
+  type CreateObjectViewBody,
   type ObjectInstance,
   type ObjectType,
+  type ObjectViewConfig,
+  type ObjectViewDefinition,
+  type ObjectViewFormFactor,
+  type ObjectViewMode,
   type ObjectViewResponse,
+  type ObjectViewSectionKind,
+  type ObjectViewSidebarLinkDefinition,
   type Property,
 } from '@/lib/api/ontology';
 
-type ViewMode = 'standard' | 'configured';
-type FormFactor = 'full' | 'panel';
 type EditorTab = 'editor' | 'versions' | 'publish';
-type SectionKind = 'summary' | 'properties' | 'links' | 'timeline' | 'actions' | 'graph' | 'comments' | 'apps';
 
-interface ObjectViewSection {
-  id: string;
-  title: string;
-  kind: SectionKind;
-  description: string;
-}
-
-interface ObjectViewSidebarLink {
-  id: string;
-  label: string;
-  href: string;
-}
-
-interface ConfiguredObjectView {
-  mode: 'configured';
-  form_factor: FormFactor;
-  title_template: string;
-  subtitle_property: string;
-  prominent_properties: string[];
-  panel_properties: string[];
-  sections: ObjectViewSection[];
-  sidebar_links: ObjectViewSidebarLink[];
-  comments_enabled: boolean;
-  branch_label: string;
-  auto_publish: boolean;
-}
-
-interface ObjectViewVersion {
-  id: string;
-  object_type_id: string;
-  form_factor: FormFactor;
-  description: string;
-  created_at: string;
-  created_by: string;
-  published: boolean;
-  branch_label: string;
-  config: ConfiguredObjectView;
-}
-
-interface StoredViewState {
-  full: ObjectViewVersion[];
-  panel: ObjectViewVersion[];
-}
-
-const STORAGE_KEY = 'of.objectViews.versions';
-
-const SECTION_KINDS: Array<{ id: SectionKind; label: string; description: string }> = [
+const SECTION_KINDS: Array<{ id: ObjectViewSectionKind; label: string; description: string }> = [
   { id: 'summary', label: 'Summary', description: 'Hero metrics and prominent properties.' },
   { id: 'properties', label: 'Properties', description: 'Object schema fields.' },
   { id: 'links', label: 'Linked objects', description: 'Related entities and previews.' },
@@ -75,7 +35,7 @@ const SECTION_KINDS: Array<{ id: SectionKind; label: string; description: string
   { id: 'apps', label: 'Applications', description: 'Quiver, Map, Rules, workflow links.' },
 ];
 
-const SIDEBAR_PRESETS: ObjectViewSidebarLink[] = [
+const SIDEBAR_PRESETS: ObjectViewSidebarLinkDefinition[] = [
   { id: 'quiver', label: 'Quiver', href: '/quiver' },
   { id: 'graph', label: 'Graph', href: '/ontology/graph' },
   { id: 'explorer', label: 'Object Explorer', href: '/object-explorer' },
@@ -83,7 +43,14 @@ const SIDEBAR_PRESETS: ObjectViewSidebarLink[] = [
   { id: 'set', label: 'Saved lists', href: '/ontology/object-sets' },
 ];
 
-function defaultConfig(formFactor: FormFactor): ConfiguredObjectView {
+function newId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `view_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function defaultConfig(formFactor: ObjectViewFormFactor): ObjectViewConfig {
   return {
     mode: 'configured',
     form_factor: formFactor,
@@ -94,17 +61,17 @@ function defaultConfig(formFactor: FormFactor): ConfiguredObjectView {
     sections:
       formFactor === 'full'
         ? [
-            { id: crypto.randomUUID(), title: 'Overview', kind: 'summary', description: 'Core identity and metrics.' },
-            { id: crypto.randomUUID(), title: 'Properties', kind: 'properties', description: 'Canonical schema fields.' },
-            { id: crypto.randomUUID(), title: 'Linked Objects', kind: 'links', description: 'Traverse the neighborhood.' },
-            { id: crypto.randomUUID(), title: 'Activity', kind: 'timeline', description: 'Recent events.' },
-            { id: crypto.randomUUID(), title: 'Actions', kind: 'actions', description: 'Applicable actions.' },
-            { id: crypto.randomUUID(), title: 'Graph', kind: 'graph', description: 'Graph context.' },
+            { id: newId(), title: 'Overview', kind: 'summary', description: 'Core identity and metrics.' },
+            { id: newId(), title: 'Properties', kind: 'properties', description: 'Canonical schema fields.' },
+            { id: newId(), title: 'Linked Objects', kind: 'links', description: 'Traverse the neighborhood.' },
+            { id: newId(), title: 'Activity', kind: 'timeline', description: 'Recent events.' },
+            { id: newId(), title: 'Actions', kind: 'actions', description: 'Applicable actions.' },
+            { id: newId(), title: 'Graph', kind: 'graph', description: 'Graph context.' },
           ]
         : [
-            { id: crypto.randomUUID(), title: 'Summary', kind: 'summary', description: 'Compact metrics.' },
-            { id: crypto.randomUUID(), title: 'Properties', kind: 'properties', description: 'Key fields.' },
-            { id: crypto.randomUUID(), title: 'Links', kind: 'links', description: 'Linked objects.' },
+            { id: newId(), title: 'Summary', kind: 'summary', description: 'Compact metrics.' },
+            { id: newId(), title: 'Properties', kind: 'properties', description: 'Key fields.' },
+            { id: newId(), title: 'Links', kind: 'links', description: 'Linked objects.' },
           ],
     sidebar_links: SIDEBAR_PRESETS.slice(0, 3),
     comments_enabled: true,
@@ -113,19 +80,387 @@ function defaultConfig(formFactor: FormFactor): ConfiguredObjectView {
   };
 }
 
-function readVersions(): StoredViewState {
-  if (typeof window === 'undefined') return { full: [], panel: [] };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeStringList(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function normalizeSidebarLinks(value: unknown) {
+  if (!Array.isArray(value)) return SIDEBAR_PRESETS.slice(0, 3);
+  return value.filter((item): item is ObjectViewSidebarLinkDefinition => {
+    if (!isRecord(item)) return false;
+    return typeof item.id === 'string' && typeof item.label === 'string' && typeof item.href === 'string';
+  });
+}
+
+function normalizeConfig(value: unknown, formFactor: ObjectViewFormFactor): ObjectViewConfig {
+  const fallback = defaultConfig(formFactor);
+  if (!isRecord(value)) return fallback;
+  const sections = Array.isArray(value.sections)
+    ? value.sections.filter((item): item is ObjectViewConfig['sections'][number] => {
+        if (!isRecord(item)) return false;
+        return (
+          typeof item.id === 'string' &&
+          typeof item.title === 'string' &&
+          typeof item.kind === 'string' &&
+          SECTION_KINDS.some((kind) => kind.id === item.kind) &&
+          typeof item.description === 'string'
+        );
+      })
+    : fallback.sections;
+
+  return {
+    mode: value.mode === 'standard' ? 'standard' : 'configured',
+    form_factor: value.form_factor === 'panel' ? 'panel' : formFactor,
+    title_template: typeof value.title_template === 'string' ? value.title_template : fallback.title_template,
+    subtitle_property: typeof value.subtitle_property === 'string' ? value.subtitle_property : '',
+    prominent_properties: normalizeStringList(value.prominent_properties),
+    panel_properties: normalizeStringList(value.panel_properties),
+    sections: sections.length > 0 ? sections : fallback.sections,
+    sidebar_links: normalizeSidebarLinks(value.sidebar_links),
+    comments_enabled: typeof value.comments_enabled === 'boolean' ? value.comments_enabled : fallback.comments_enabled,
+    branch_label: typeof value.branch_label === 'string' ? value.branch_label : fallback.branch_label,
+    auto_publish: typeof value.auto_publish === 'boolean' ? value.auto_publish : fallback.auto_publish,
+  };
+}
+
+function slugify(input: string) {
+  const slug = input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return slug || `object_view_${Date.now()}`;
+}
+
+function objectTypeLabel(objectTypes: ObjectType[], id: string) {
+  const objectType = objectTypes.find((entry) => entry.id === id);
+  return objectType?.display_name || objectType?.name || id.slice(0, 8);
+}
+
+function defaultObjectViewDisplayName(objectType: ObjectType | undefined, formFactor: ObjectViewFormFactor) {
+  const typeName = objectType?.display_name || objectType?.name || 'Object';
+  return `${typeName} ${formFactor === 'full' ? 'full page' : 'side panel'}`;
+}
+
+function formatDate(value: string | undefined) {
+  if (!value) return 'Unknown date';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function formatUnknown(value: unknown) {
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as StoredViewState) : { full: [], panel: [] };
+    return JSON.stringify(value);
   } catch {
-    return { full: [], panel: [] };
+    return String(value);
   }
 }
 
-function writeVersions(state: StoredViewState) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+function renderTemplate(template: string, object: ObjectInstance, summary: Record<string, unknown>) {
+  const rendered = template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_match, key: string) => {
+    const propertyValue = object.properties[key];
+    const summaryValue = summary[key];
+    return formatUnknown(summaryValue ?? propertyValue ?? object.id);
+  });
+  return rendered.trim() || object.id.slice(0, 8);
+}
+
+function isPublished(view: ObjectViewDefinition) {
+  return view.published === true || view.status === 'published';
+}
+
+interface CreateObjectViewModalProps {
+  open: boolean;
+  objectTypes: ObjectType[];
+  initialTypeId: string;
+  initialFormFactor: ObjectViewFormFactor;
+  currentConfig: ObjectViewConfig;
+  onClose: () => void;
+  onCreate: (body: CreateObjectViewBody) => Promise<ObjectViewDefinition>;
+}
+
+function CreateObjectViewModal({
+  open,
+  objectTypes,
+  initialTypeId,
+  initialFormFactor,
+  currentConfig,
+  onClose,
+  onCreate,
+}: CreateObjectViewModalProps) {
+  const [objectTypeId, setObjectTypeId] = useState(initialTypeId);
+  const [formFactor, setFormFactor] = useState<ObjectViewFormFactor>(initialFormFactor);
+  const [displayName, setDisplayName] = useState('');
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [branchLabel, setBranchLabel] = useState('draft');
+  const [useCurrentConfig, setUseCurrentConfig] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const selectedType = useMemo(
+    () => objectTypes.find((entry) => entry.id === objectTypeId),
+    [objectTypeId, objectTypes],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const nextTypeId = initialTypeId || objectTypes[0]?.id || '';
+    const nextType = objectTypes.find((entry) => entry.id === nextTypeId) ?? objectTypes[0];
+    const nextDisplayName = defaultObjectViewDisplayName(nextType, initialFormFactor);
+    setObjectTypeId(nextTypeId);
+    setFormFactor(initialFormFactor);
+    setDisplayName(nextDisplayName);
+    setName(slugify(nextDisplayName));
+    setDescription('');
+    setBranchLabel(currentConfig.branch_label || 'draft');
+    setUseCurrentConfig(true);
+    setSubmitting(false);
+    setError('');
+  }, [currentConfig.branch_label, initialFormFactor, initialTypeId, objectTypes, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKeydown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', onKeydown);
+    return () => window.removeEventListener('keydown', onKeydown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!objectTypeId) {
+      setError('Select an object type.');
+      return;
+    }
+    const normalizedDisplayName = displayName.trim() || defaultObjectViewDisplayName(selectedType, formFactor);
+    const normalizedName = slugify(name.trim() || normalizedDisplayName);
+    const baseConfig =
+      useCurrentConfig && currentConfig.form_factor === formFactor ? currentConfig : defaultConfig(formFactor);
+    const nextBranchLabel = branchLabel.trim() || baseConfig.branch_label || 'draft';
+
+    setSubmitting(true);
+    setError('');
+    try {
+      await onCreate({
+        name: normalizedName,
+        display_name: normalizedDisplayName,
+        description: description.trim(),
+        object_type_id: objectTypeId,
+        mode: 'configured',
+        form_factor: formFactor,
+        branch_label: nextBranchLabel,
+        published: false,
+        config: {
+          ...baseConfig,
+          mode: 'configured',
+          form_factor: formFactor,
+          branch_label: nextBranchLabel,
+          auto_publish: false,
+        },
+      });
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to create object view');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="create-object-view-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'rgba(17, 24, 39, 0.42)',
+        padding: 16,
+      }}
+    >
+      <form
+        className="of-panel"
+        onSubmit={submit}
+        style={{
+          width: 'min(720px, 100%)',
+          maxHeight: '90vh',
+          overflow: 'hidden',
+          background: 'var(--bg-panel)',
+          boxShadow: 'var(--shadow-popover)',
+        }}
+      >
+        <header
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 12,
+            borderBottom: '1px solid var(--border-default)',
+            padding: '14px 16px',
+          }}
+        >
+          <div>
+            <p className="of-eyebrow" style={{ margin: 0 }}>
+              ONT-011
+            </p>
+            <h2 id="create-object-view-title" className="of-heading-md" style={{ marginTop: 4 }}>
+              Create object view
+            </h2>
+          </div>
+          <button type="button" className="of-button of-button--ghost" onClick={onClose}>
+            Close
+          </button>
+        </header>
+
+        <div style={{ display: 'grid', gap: 14, padding: 16, overflow: 'auto' }}>
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 600 }}>
+              Object type
+              <select
+                value={objectTypeId}
+                onChange={(event) => {
+                  const nextTypeId = event.target.value;
+                  const nextType = objectTypes.find((entry) => entry.id === nextTypeId);
+                  const nextDisplayName = defaultObjectViewDisplayName(nextType, formFactor);
+                  setObjectTypeId(nextTypeId);
+                  setDisplayName(nextDisplayName);
+                  setName(slugify(nextDisplayName));
+                }}
+                className="of-input"
+              >
+                {objectTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.display_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 600 }}>
+              Form factor
+              <select
+                value={formFactor}
+                onChange={(event) => {
+                  const nextFormFactor = event.target.value as ObjectViewFormFactor;
+                  setFormFactor(nextFormFactor);
+                  const nextDisplayName = defaultObjectViewDisplayName(selectedType, nextFormFactor);
+                  setDisplayName(nextDisplayName);
+                  setName(slugify(nextDisplayName));
+                }}
+                className="of-input"
+              >
+                <option value="full">Full page</option>
+                <option value="panel">Side panel</option>
+              </select>
+            </label>
+          </div>
+
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 600 }}>
+              Display name
+              <input
+                value={displayName}
+                onChange={(event) => {
+                  setDisplayName(event.target.value);
+                  setName(slugify(event.target.value));
+                }}
+                className="of-input"
+                autoFocus
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 600 }}>
+              API name
+              <input value={name} onChange={(event) => setName(event.target.value)} className="of-input" />
+            </label>
+          </div>
+
+          <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 600 }}>
+            Description
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              className="of-input"
+              rows={3}
+              style={{ minHeight: 76, resize: 'vertical' }}
+              placeholder="Purpose, consumers, and expected object context"
+            />
+          </label>
+
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 600 }}>
+              Branch label
+              <input value={branchLabel} onChange={(event) => setBranchLabel(event.target.value)} className="of-input" />
+            </label>
+
+            <label
+              className="of-panel-muted"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                minHeight: 54,
+                padding: 10,
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={useCurrentConfig}
+                onChange={(event) => setUseCurrentConfig(event.target.checked)}
+              />
+              Start from current editor configuration
+            </label>
+          </div>
+
+          {error ? (
+            <div className="of-status-danger" style={{ padding: '9px 10px', borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
+              {error}
+            </div>
+          ) : null}
+        </div>
+
+        <footer
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+            borderTop: '1px solid var(--border-default)',
+            padding: '12px 16px',
+          }}
+        >
+          <button type="button" className="of-button of-button--ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="of-button of-button--primary" disabled={submitting || objectTypes.length === 0}>
+            {submitting ? 'Creating...' : '+ Object view'}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
 }
 
 export function ObjectViewsPage() {
@@ -133,20 +468,47 @@ export function ObjectViewsPage() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [actions, setActions] = useState<ActionType[]>([]);
   const [objects, setObjects] = useState<ObjectInstance[]>([]);
+  const [objectViews, setObjectViews] = useState<ObjectViewDefinition[]>([]);
+  const [objectViewsTotal, setObjectViewsTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [catalogError, setCatalogError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const [selectedTypeId, setSelectedTypeId] = useState('');
   const [selectedObjectId, setSelectedObjectId] = useState('');
-  const [activeMode, setActiveMode] = useState<ViewMode>('configured');
-  const [activeFormFactor, setActiveFormFactor] = useState<FormFactor>('full');
+  const [activeMode, setActiveMode] = useState<ObjectViewMode>('configured');
+  const [activeFormFactor, setActiveFormFactor] = useState<ObjectViewFormFactor>('full');
   const [activeEditorTab, setActiveEditorTab] = useState<EditorTab>('editor');
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [versionDescription, setVersionDescription] = useState('');
 
   const [preview, setPreview] = useState<ObjectViewResponse | null>(null);
-  const [config, setConfig] = useState<ConfiguredObjectView>(() => defaultConfig('full'));
-  const [versions, setVersions] = useState<StoredViewState>({ full: [], panel: [] });
+  const [config, setConfig] = useState<ObjectViewConfig>(() => defaultConfig('full'));
+
+  const selectedType = useMemo(
+    () => objectTypes.find((entry) => entry.id === selectedTypeId),
+    [objectTypes, selectedTypeId],
+  );
+  const selectedObject = useMemo(
+    () => objects.find((entry) => entry.id === selectedObjectId),
+    [objects, selectedObjectId],
+  );
+
+  async function refreshObjectViews(typeId = selectedTypeId) {
+    setCatalogError('');
+    try {
+      const viewRes = await listObjectViews({ object_type_id: typeId || undefined, per_page: 200 });
+      setObjectViews(viewRes.data);
+      setObjectViewsTotal(viewRes.total ?? viewRes.data.length);
+    } catch (cause) {
+      setObjectViews([]);
+      setObjectViewsTotal(0);
+      setCatalogError(cause instanceof Error ? cause.message : 'Failed to load object views');
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -157,13 +519,9 @@ export function ObjectViewsPage() {
         const typeRes = await listObjectTypes({ page: 1, per_page: 100 });
         if (cancelled) return;
         setObjectTypes(typeRes.data);
-        if (typeRes.data[0]) {
-          setSelectedTypeId(typeRes.data[0].id);
-        }
-        setVersions(readVersions());
+        setSelectedTypeId(typeRes.data[0]?.id ?? '');
       } catch (cause) {
-        if (cancelled) return;
-        setError(cause instanceof Error ? cause.message : 'Failed to load object types');
+        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Failed to load object types');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -175,23 +533,44 @@ export function ObjectViewsPage() {
   }, []);
 
   useEffect(() => {
-    if (!selectedTypeId) return;
+    if (!selectedTypeId) {
+      setProperties([]);
+      setObjects([]);
+      setActions([]);
+      setObjectViews([]);
+      setObjectViewsTotal(0);
+      setSelectedObjectId('');
+      return;
+    }
     let cancelled = false;
     async function loadType() {
+      setCatalogError('');
       try {
-        const [propRes, objRes, actionRes] = await Promise.all([
+        const [propRes, objRes, actionRes, viewRes] = await Promise.all([
           listProperties(selectedTypeId),
           listObjects(selectedTypeId, { page: 1, per_page: 50 }),
-          listActionTypes({ object_type_id: selectedTypeId, page: 1, per_page: 50 }).catch(() => ({ data: [], total: 0, page: 1, per_page: 50 })),
+          listActionTypes({ object_type_id: selectedTypeId, page: 1, per_page: 50 }).catch(() => ({
+            data: [],
+            total: 0,
+            page: 1,
+            per_page: 50,
+          })),
+          listObjectViews({ object_type_id: selectedTypeId, page: 1, per_page: 200 }).catch((cause) => {
+            if (!cancelled) setCatalogError(cause instanceof Error ? cause.message : 'Failed to load object views');
+            return { data: [], total: 0, page: 1, per_page: 200 };
+          }),
         ]);
         if (cancelled) return;
         setProperties(propRes);
         setObjects(objRes.data);
         setActions(actionRes.data);
-        if (objRes.data[0]) setSelectedObjectId(objRes.data[0].id);
+        setObjectViews(viewRes.data);
+        setObjectViewsTotal(viewRes.total ?? viewRes.data.length);
+        setSelectedObjectId((current) =>
+          objRes.data.some((object) => object.id === current) ? current : objRes.data[0]?.id ?? '',
+        );
       } catch (cause) {
-        if (cancelled) return;
-        setError(cause instanceof Error ? cause.message : 'Failed to load type details');
+        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Failed to load type details');
       }
     }
     void loadType();
@@ -223,61 +602,95 @@ export function ObjectViewsPage() {
     };
   }, [selectedTypeId, selectedObjectId]);
 
-  const availableVersions = activeFormFactor === 'full' ? versions.full : versions.panel;
-  const publishedVersion = availableVersions.find((v) => v.published) ?? null;
+  const availableViews = useMemo(
+    () => objectViews.filter((view) => view.form_factor === activeFormFactor),
+    [activeFormFactor, objectViews],
+  );
+  const publishedVersion = availableViews.find(isPublished) ?? null;
 
   const summaryEntries = useMemo(() => {
     if (!preview) return [];
+    const configuredProperties = activeFormFactor === 'full' ? config.prominent_properties : config.panel_properties;
     return Object.entries(preview.summary)
       .filter(([key]) =>
-        activeMode === 'standard'
-          ? true
-          : (activeFormFactor === 'full' ? config.prominent_properties : config.panel_properties).includes(key),
+        activeMode === 'standard' || configuredProperties.length === 0 ? true : configuredProperties.includes(key),
       )
       .slice(0, activeFormFactor === 'full' ? 8 : 4);
   }, [preview, activeMode, activeFormFactor, config]);
 
-  function persistVersions(next: StoredViewState) {
-    setVersions(next);
-    writeVersions(next);
+  async function saveObjectView(body: CreateObjectViewBody) {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const created = await createObjectView(body);
+      const nextFormFactor = created.form_factor ?? body.form_factor ?? 'full';
+      const nextMode = created.mode ?? body.mode ?? 'configured';
+      setSelectedTypeId(created.object_type_id);
+      setActiveFormFactor(nextFormFactor);
+      setActiveMode(nextMode);
+      setConfig(normalizeConfig(created.config ?? body.config, nextFormFactor));
+      setNotice(`Created object view "${created.display_name ?? created.name}".`);
+      await refreshObjectViews(created.object_type_id);
+      setActiveEditorTab('versions');
+      return created;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Failed to save object view';
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function publishVersion() {
-    const newVersion: ObjectViewVersion = {
-      id: crypto.randomUUID(),
-      object_type_id: selectedTypeId,
-      form_factor: activeFormFactor,
-      description: versionDescription || `${activeFormFactor} view`,
-      created_at: new Date().toISOString(),
-      created_by: 'platform-ui',
-      published: true,
-      branch_label: config.branch_label,
-      config: { ...config, form_factor: activeFormFactor },
-    };
-    const next: StoredViewState = {
-      full: activeFormFactor === 'full'
-        ? [{ ...newVersion }, ...versions.full.map((v) => ({ ...v, published: false }))]
-        : versions.full,
-      panel: activeFormFactor === 'panel'
-        ? [{ ...newVersion }, ...versions.panel.map((v) => ({ ...v, published: false }))]
-        : versions.panel,
-    };
-    persistVersions(next);
-    setVersionDescription('');
+  async function publishVersion() {
+    if (!selectedTypeId) return;
+    const description = versionDescription.trim() || `${activeFormFactor} view`;
+    const displayName = `${selectedType?.display_name ?? 'Object'} ${activeFormFactor} view`;
+    try {
+      await saveObjectView({
+        name: slugify(`${displayName} ${Date.now()}`),
+        display_name: displayName,
+        description,
+        object_type_id: selectedTypeId,
+        mode: activeMode,
+        form_factor: activeFormFactor,
+        branch_label: config.branch_label,
+        published: true,
+        config: {
+          ...config,
+          mode: activeMode,
+          form_factor: activeFormFactor,
+          auto_publish: true,
+        },
+      });
+      setVersionDescription('');
+    } catch {
+      // saveObjectView surfaces the error in-page.
+    }
   }
 
-  function toggleSection(kind: SectionKind) {
+  function loadObjectView(view: ObjectViewDefinition) {
+    const nextFormFactor = view.form_factor ?? 'full';
+    setActiveFormFactor(nextFormFactor);
+    setActiveMode(view.mode ?? 'configured');
+    setConfig(normalizeConfig(view.config, nextFormFactor));
+    setActiveEditorTab('editor');
+    setNotice(`Loaded "${view.display_name ?? view.name}" into the editor.`);
+  }
+
+  function toggleSection(kind: ObjectViewSectionKind) {
     setConfig((current) => {
-      const exists = current.sections.find((s) => s.kind === kind);
+      const exists = current.sections.find((section) => section.kind === kind);
       if (exists) {
-        return { ...current, sections: current.sections.filter((s) => s.kind !== kind) };
+        return { ...current, sections: current.sections.filter((section) => section.kind !== kind) };
       }
-      const meta = SECTION_KINDS.find((s) => s.id === kind);
+      const meta = SECTION_KINDS.find((section) => section.id === kind);
       return {
         ...current,
         sections: [
           ...current.sections,
-          { id: crypto.randomUUID(), title: meta?.label ?? kind, kind, description: meta?.description ?? '' },
+          { id: newId(), title: meta?.label ?? kind, kind, description: meta?.description ?? '' },
         ],
       };
     });
@@ -288,20 +701,41 @@ export function ObjectViewsPage() {
       const exists = current[list].includes(name);
       return {
         ...current,
-        [list]: exists ? current[list].filter((p) => p !== name) : [...current[list], name],
+        [list]: exists ? current[list].filter((property) => property !== name) : [...current[list], name],
       };
     });
   }
 
   return (
     <section className="of-page" style={{ display: 'grid', gap: 16, padding: 24 }}>
-      <header>
-        <h1 className="of-heading-xl">Object views</h1>
-        <p className="of-text-muted" style={{ marginTop: 4 }}>
-          Configure full-page and side-panel object views per type, preview against real objects, and publish versions
-          (localStorage-backed in this slice).
-        </p>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+        <div>
+          <h1 className="of-heading-xl">Object views</h1>
+          <p className="of-text-muted" style={{ marginTop: 4 }}>
+            Configure full-page and side-panel object views per type, preview them against real objects, and publish
+            reusable versions through the object views API.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setCreateModalOpen(true)}
+          disabled={objectTypes.length === 0 || busy}
+          className="of-button of-button--primary"
+          style={{ whiteSpace: 'nowrap' }}
+        >
+          + Object view
+        </button>
       </header>
+
+      <CreateObjectViewModal
+        open={createModalOpen}
+        objectTypes={objectTypes}
+        initialTypeId={selectedTypeId}
+        initialFormFactor={activeFormFactor}
+        currentConfig={config}
+        onClose={() => setCreateModalOpen(false)}
+        onCreate={saveObjectView}
+      />
 
       {error && (
         <div className="of-status-danger" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
@@ -309,102 +743,112 @@ export function ObjectViewsPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <label style={{ fontSize: 13 }}>
-          Object type:
-          <select
-            value={selectedTypeId}
-            onChange={(e) => setSelectedTypeId(e.target.value)}
-            className="of-input"
-            style={{ marginLeft: 6, width: 'auto' }}
-          >
-            {objectTypes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.display_name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label style={{ fontSize: 13 }}>
-          Object:
-          <select
-            value={selectedObjectId}
-            onChange={(e) => setSelectedObjectId(e.target.value)}
-            className="of-input"
-            style={{ marginLeft: 6, width: 'auto' }}
-          >
-            {objects.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.id.slice(0, 8)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label style={{ fontSize: 13 }}>
-          Mode:
-          <select
-            value={activeMode}
-            onChange={(e) => setActiveMode(e.target.value as ViewMode)}
-            className="of-input"
-            style={{ marginLeft: 6, width: 'auto' }}
-          >
-            <option value="standard">Standard</option>
-            <option value="configured">Configured</option>
-          </select>
-        </label>
-        <label style={{ fontSize: 13 }}>
-          Form factor:
-          <select
-            value={activeFormFactor}
-            onChange={(e) => {
-              const next = e.target.value as FormFactor;
-              setActiveFormFactor(next);
-              setConfig(defaultConfig(next));
-            }}
-            className="of-input"
-            style={{ marginLeft: 6, width: 'auto' }}
-          >
-            <option value="full">Full</option>
-            <option value="panel">Panel</option>
-          </select>
-        </label>
-      </div>
+      {notice && (
+        <div className="of-status-success" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+          {notice}
+        </div>
+      )}
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-default)' }}>
-        {(['editor', 'versions', 'publish'] as EditorTab[]).map((tab) => {
-          const active = activeEditorTab === tab;
-          return (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveEditorTab(tab)}
-              style={{
-                padding: '8px 14px',
-                background: 'transparent',
-                border: 'none',
-                borderBottom: `2px solid ${active ? '#1d4ed8' : 'transparent'}`,
-                color: active ? 'var(--text-strong)' : 'var(--text-muted)',
-                cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: active ? 600 : 400,
-                textTransform: 'capitalize',
-              }}
+      <section className="of-panel" style={{ display: 'grid', gap: 12, padding: 16 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <span className="of-chip">Object views {objectViewsTotal}</span>
+          <span className="of-chip">Object types {objectTypes.length}</span>
+          <span className="of-chip">Properties {properties.length}</span>
+          <span className="of-chip">Actions {actions.length}</span>
+          {publishedVersion ? <span className="of-chip of-status-success">Published {publishedVersion.display_name ?? publishedVersion.name}</span> : null}
+        </div>
+
+        {catalogError ? (
+          <div className="of-status-warning" style={{ padding: '9px 10px', borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
+            Object views API: {catalogError}
+          </div>
+        ) : null}
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <label style={{ fontSize: 13 }}>
+            Object type:
+            <select
+              value={selectedTypeId}
+              onChange={(event) => setSelectedTypeId(event.target.value)}
+              className="of-input"
+              style={{ marginLeft: 6, width: 'auto', minWidth: 200 }}
             >
-              {tab}
-            </button>
-          );
-        })}
+              {objectTypes.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Object:
+            <select
+              value={selectedObjectId}
+              onChange={(event) => setSelectedObjectId(event.target.value)}
+              className="of-input"
+              style={{ marginLeft: 6, width: 'auto', minWidth: 160 }}
+            >
+              {objects.map((object) => (
+                <option key={object.id} value={object.id}>
+                  {object.id.slice(0, 8)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Mode:
+            <select
+              value={activeMode}
+              onChange={(event) => setActiveMode(event.target.value as ObjectViewMode)}
+              className="of-input"
+              style={{ marginLeft: 6, width: 'auto' }}
+            >
+              <option value="standard">Standard</option>
+              <option value="configured">Configured</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Form factor:
+            <select
+              value={activeFormFactor}
+              onChange={(event) => {
+                const next = event.target.value as ObjectViewFormFactor;
+                setActiveFormFactor(next);
+                setConfig(defaultConfig(next));
+              }}
+              className="of-input"
+              style={{ marginLeft: 6, width: 'auto' }}
+            >
+              <option value="full">Full page</option>
+              <option value="panel">Side panel</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <div className="of-tabbar">
+        {(['editor', 'versions', 'publish'] as EditorTab[]).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveEditorTab(tab)}
+            className={`of-tab ${activeEditorTab === tab ? 'of-tab-active' : ''}`}
+            style={{ textTransform: 'capitalize' }}
+          >
+            {tab === 'versions' ? 'Saved views' : tab}
+          </button>
+        ))}
       </div>
 
       {activeEditorTab === 'editor' && (
-        <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}>
+        <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
           <section className="of-panel" style={{ padding: 16 }}>
             <p className="of-eyebrow">Configure view</p>
             <label style={{ display: 'block', marginTop: 10, fontSize: 13 }}>
               Title template
               <input
                 value={config.title_template}
-                onChange={(e) => setConfig((c) => ({ ...c, title_template: e.target.value }))}
+                onChange={(event) => setConfig((current) => ({ ...current, title_template: event.target.value }))}
                 className="of-input"
                 style={{ marginTop: 4 }}
               />
@@ -413,59 +857,65 @@ export function ObjectViewsPage() {
               Subtitle property
               <select
                 value={config.subtitle_property}
-                onChange={(e) => setConfig((c) => ({ ...c, subtitle_property: e.target.value }))}
+                onChange={(event) => setConfig((current) => ({ ...current, subtitle_property: event.target.value }))}
                 className="of-input"
                 style={{ marginTop: 4 }}
               >
-                <option value="">—</option>
-                {properties.map((p) => (
-                  <option key={p.id} value={p.name}>
-                    {p.display_name} ({p.name})
+                <option value="">None</option>
+                {properties.map((property) => (
+                  <option key={property.id} value={property.name}>
+                    {property.display_name} ({property.name})
                   </option>
                 ))}
               </select>
             </label>
 
-            <p className="of-eyebrow" style={{ marginTop: 14 }}>Prominent properties</p>
+            <p className="of-eyebrow" style={{ marginTop: 14 }}>
+              Prominent properties
+            </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-              {properties.map((p) => {
-                const active = config.prominent_properties.includes(p.name);
+              {properties.map((property) => {
+                const active = config.prominent_properties.includes(property.name);
                 return (
                   <button
-                    key={p.id}
+                    key={property.id}
                     type="button"
-                    onClick={() => togglePropertyInList('prominent_properties', p.name)}
-                    className="of-chip"
-                    style={active ? { background: '#dbeafe', color: '#1d4ed8' } : {}}
+                    onClick={() => togglePropertyInList('prominent_properties', property.name)}
+                    className={`of-chip ${active ? 'of-chip-active' : ''}`}
                   >
-                    {p.name}
+                    {property.name}
                   </button>
                 );
               })}
+              {properties.length === 0 ? <span className="of-text-muted">No properties returned.</span> : null}
             </div>
 
-            <p className="of-eyebrow" style={{ marginTop: 14 }}>Panel properties</p>
+            <p className="of-eyebrow" style={{ marginTop: 14 }}>
+              Panel properties
+            </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-              {properties.map((p) => {
-                const active = config.panel_properties.includes(p.name);
+              {properties.map((property) => {
+                const active = config.panel_properties.includes(property.name);
                 return (
                   <button
-                    key={p.id}
+                    key={property.id}
                     type="button"
-                    onClick={() => togglePropertyInList('panel_properties', p.name)}
-                    className="of-chip"
-                    style={active ? { background: '#dbeafe', color: '#1d4ed8' } : {}}
+                    onClick={() => togglePropertyInList('panel_properties', property.name)}
+                    className={`of-chip ${active ? 'of-chip-active' : ''}`}
                   >
-                    {p.name}
+                    {property.name}
                   </button>
                 );
               })}
+              {properties.length === 0 ? <span className="of-text-muted">No properties returned.</span> : null}
             </div>
 
-            <p className="of-eyebrow" style={{ marginTop: 14 }}>Sections</p>
+            <p className="of-eyebrow" style={{ marginTop: 14 }}>
+              Sections
+            </p>
             <div style={{ display: 'grid', gap: 4, marginTop: 6 }}>
               {SECTION_KINDS.map((kind) => {
-                const active = config.sections.some((s) => s.kind === kind.id);
+                const active = config.sections.some((section) => section.kind === kind.id);
                 return (
                   <label
                     key={kind.id}
@@ -477,7 +927,7 @@ export function ObjectViewsPage() {
                       borderRadius: 8,
                       border: '1px solid var(--border-default)',
                       fontSize: 13,
-                      background: active ? '#eff6ff' : 'transparent',
+                      background: active ? 'var(--status-info-bg)' : 'transparent',
                     }}
                   >
                     <input type="checkbox" checked={active} onChange={() => toggleSection(kind.id)} />
@@ -488,24 +938,25 @@ export function ObjectViewsPage() {
               })}
             </div>
 
-            <p className="of-eyebrow" style={{ marginTop: 14 }}>Sidebar links</p>
+            <p className="of-eyebrow" style={{ marginTop: 14 }}>
+              Sidebar links
+            </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
               {SIDEBAR_PRESETS.map((link) => {
-                const active = config.sidebar_links.find((l) => l.id === link.id);
+                const active = config.sidebar_links.find((entry) => entry.id === link.id);
                 return (
                   <button
                     key={link.id}
                     type="button"
                     onClick={() =>
-                      setConfig((c) => ({
-                        ...c,
+                      setConfig((current) => ({
+                        ...current,
                         sidebar_links: active
-                          ? c.sidebar_links.filter((l) => l.id !== link.id)
-                          : [...c.sidebar_links, link],
+                          ? current.sidebar_links.filter((entry) => entry.id !== link.id)
+                          : [...current.sidebar_links, link],
                       }))
                     }
-                    className="of-chip"
-                    style={active ? { background: '#dbeafe', color: '#1d4ed8' } : {}}
+                    className={`of-chip ${active ? 'of-chip-active' : ''}`}
                   >
                     {link.label}
                   </button>
@@ -517,16 +968,25 @@ export function ObjectViewsPage() {
               <input
                 type="checkbox"
                 checked={config.comments_enabled}
-                onChange={(e) => setConfig((c) => ({ ...c, comments_enabled: e.target.checked }))}
+                onChange={(event) => setConfig((current) => ({ ...current, comments_enabled: event.target.checked }))}
               />
               Enable comments
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={config.auto_publish}
+                onChange={(event) => setConfig((current) => ({ ...current, auto_publish: event.target.checked }))}
+              />
+              Auto publish when saved
             </label>
 
             <label style={{ display: 'block', marginTop: 8, fontSize: 13 }}>
               Branch label
               <input
                 value={config.branch_label}
-                onChange={(e) => setConfig((c) => ({ ...c, branch_label: e.target.value }))}
+                onChange={(event) => setConfig((current) => ({ ...current, branch_label: event.target.value }))}
                 className="of-input"
                 style={{ marginTop: 4 }}
               />
@@ -536,49 +996,58 @@ export function ObjectViewsPage() {
           <section className="of-panel" style={{ padding: 16 }}>
             <p className="of-eyebrow">Preview</p>
             {previewLoading ? (
-              <p className="of-text-muted" style={{ marginTop: 8, fontSize: 13 }}>Loading preview…</p>
+              <p className="of-text-muted" style={{ marginTop: 8, fontSize: 13 }}>
+                Loading preview...
+              </p>
             ) : preview ? (
               <>
                 <h3 className="of-heading-md" style={{ marginTop: 8 }}>
-                  {preview.object.id.slice(0, 8)}
+                  {renderTemplate(config.title_template, preview.object, preview.summary)}
                 </h3>
                 <p className="of-text-muted" style={{ marginTop: 4, fontSize: 13 }}>
-                  Type: {preview.object.object_type_id}
+                  {config.subtitle_property
+                    ? formatUnknown(preview.summary[config.subtitle_property] ?? preview.object.properties[config.subtitle_property])
+                    : `Type: ${objectTypeLabel(objectTypes, preview.object.object_type_id)}`}
                 </p>
                 <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
                   {summaryEntries.map(([key, value]) => (
-                    <div
-                      key={key}
-                      className="of-panel-muted"
-                      style={{ padding: 10, fontSize: 13 }}
-                    >
-                      <strong>{key}</strong>: {String(value)}
+                    <div key={key} className="of-panel-muted" style={{ padding: 10, fontSize: 13 }}>
+                      <strong>{key}</strong>: {formatUnknown(value)}
                     </div>
                   ))}
+                  {summaryEntries.length === 0 ? (
+                    <p className="of-text-muted" style={{ margin: 0, fontSize: 13 }}>
+                      No summary properties selected for this form factor.
+                    </p>
+                  ) : null}
                 </div>
-                <p className="of-eyebrow" style={{ marginTop: 14 }}>Sections present</p>
+                <p className="of-eyebrow" style={{ marginTop: 14 }}>
+                  Sections present
+                </p>
                 <ul style={{ marginTop: 6, paddingLeft: 18, fontSize: 13 }}>
                   {(activeMode === 'standard'
                     ? ['summary', 'properties', 'links', 'timeline', 'actions', 'graph']
-                    : config.sections.map((s) => s.kind)
+                    : config.sections.map((section) => section.kind)
                   ).map((kind) => (
                     <li key={kind}>{kind}</li>
                   ))}
                 </ul>
-                <p className="of-eyebrow" style={{ marginTop: 14 }}>Applicable actions</p>
+                <p className="of-eyebrow" style={{ marginTop: 14 }}>
+                  Applicable actions
+                </p>
                 <ul style={{ marginTop: 6, paddingLeft: 18, fontSize: 13 }}>
-                  {preview.applicable_actions.map((a) => (
-                    <li key={a.id}>
-                      {a.display_name} ({a.operation_kind})
+                  {preview.applicable_actions.map((action) => (
+                    <li key={action.id}>
+                      {action.display_name} ({action.operation_kind})
                     </li>
                   ))}
-                  {preview.applicable_actions.length === 0 && (
-                    <li className="of-text-muted">No applicable actions.</li>
-                  )}
+                  {preview.applicable_actions.length === 0 ? <li className="of-text-muted">No applicable actions.</li> : null}
                 </ul>
               </>
             ) : (
-              <p className="of-text-muted">Select an object to preview.</p>
+              <p className="of-text-muted">
+                {selectedObject ? 'Select an object to preview.' : 'No objects returned for this type.'}
+              </p>
             )}
           </section>
         </div>
@@ -586,36 +1055,47 @@ export function ObjectViewsPage() {
 
       {activeEditorTab === 'versions' && (
         <section className="of-panel" style={{ padding: 16 }}>
-          <p className="of-eyebrow">Stored versions ({activeFormFactor})</p>
-          {availableVersions.length === 0 ? (
-            <p className="of-text-muted" style={{ marginTop: 8, fontSize: 13 }}>
-              No versions stored yet for this form factor.
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <div>
+              <p className="of-eyebrow">Saved object views ({activeFormFactor})</p>
+              <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+                Backed by GET /object-views for {selectedType?.display_name ?? 'the selected type'}.
+              </p>
+            </div>
+            <button type="button" onClick={() => setCreateModalOpen(true)} className="of-button" disabled={busy}>
+              + Object view
+            </button>
+          </div>
+
+          {availableViews.length === 0 ? (
+            <p className="of-text-muted" style={{ marginTop: 12, fontSize: 13 }}>
+              No object views returned for this form factor.
             </p>
           ) : (
-            <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-              {availableVersions.map((v) => (
-                <div key={v.id} className="of-panel-muted" style={{ padding: 12 }}>
+            <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+              {availableViews.map((view) => (
+                <div key={view.id} className="of-panel-muted" style={{ padding: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                     <div>
-                      <strong>{v.description}</strong>
+                      <strong>{view.display_name ?? view.name}</strong>
                       <p className="of-text-muted" style={{ marginTop: 2, fontSize: 11 }}>
-                        {v.branch_label} · {new Date(v.created_at).toLocaleString()} · {v.created_by}
+                        {view.branch_label ?? view.config?.branch_label ?? 'draft'} | {formatDate(view.created_at)} |{' '}
+                        {view.created_by ?? view.owner_id ?? 'platform-ui'}
                       </p>
+                      {view.description ? (
+                        <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+                          {view.description}
+                        </p>
+                      ) : null}
                     </div>
-                    {v.published && (
-                      <span className="of-chip" style={{ background: '#ecfdf5', color: '#047857' }}>
-                        Published
-                      </span>
-                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
+                      <span className="of-chip">{view.form_factor}</span>
+                      {isPublished(view) ? <span className="of-chip of-status-success">Published</span> : null}
+                      <button type="button" onClick={() => loadObjectView(view)} className="of-button" style={{ fontSize: 12 }}>
+                        Load
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setConfig(v.config)}
-                    className="of-button"
-                    style={{ marginTop: 8, fontSize: 12 }}
-                  >
-                    Load
-                  </button>
                 </div>
               ))}
             </div>
@@ -630,7 +1110,7 @@ export function ObjectViewsPage() {
             Description
             <input
               value={versionDescription}
-              onChange={(e) => setVersionDescription(e.target.value)}
+              onChange={(event) => setVersionDescription(event.target.value)}
               className="of-input"
               style={{ marginTop: 4 }}
               placeholder={`${activeFormFactor} view ${new Date().toLocaleDateString()}`}
@@ -638,35 +1118,46 @@ export function ObjectViewsPage() {
           </label>
           <button
             type="button"
-            onClick={publishVersion}
+            onClick={() => void publishVersion()}
             className="of-button of-button--primary"
             style={{ marginTop: 8 }}
-            disabled={!selectedTypeId}
+            disabled={!selectedTypeId || busy}
           >
-            Publish current configuration
+            {busy ? 'Publishing...' : 'Publish current configuration'}
           </button>
-          {publishedVersion && (
+          {publishedVersion ? (
             <p className="of-text-muted" style={{ marginTop: 14, fontSize: 13 }}>
-              Currently published: <strong>{publishedVersion.description}</strong> ({new Date(publishedVersion.created_at).toLocaleDateString()})
+              Currently published: <strong>{publishedVersion.display_name ?? publishedVersion.name}</strong> (
+              {formatDate(publishedVersion.created_at)})
             </p>
-          )}
-          <p className="of-eyebrow" style={{ marginTop: 14 }}>Generated URLs</p>
+          ) : null}
+          <p className="of-eyebrow" style={{ marginTop: 14 }}>
+            Generated URLs
+          </p>
           <ul style={{ marginTop: 6, paddingLeft: 18, fontSize: 13, fontFamily: 'var(--font-mono)' }}>
-            <li>{selectedTypeId && selectedObjectId ? `/object-views?type=${selectedTypeId}&object=${selectedObjectId}&mode=configured&factor=full` : '—'}</li>
-            <li>{selectedTypeId && selectedObjectId ? `/object-views?type=${selectedTypeId}&object=${selectedObjectId}&mode=configured&factor=panel` : '—'}</li>
+            <li>
+              {selectedTypeId && selectedObjectId
+                ? `/object-views?type=${selectedTypeId}&object=${selectedObjectId}&mode=configured&factor=full`
+                : '-'}
+            </li>
+            <li>
+              {selectedTypeId && selectedObjectId
+                ? `/object-views?type=${selectedTypeId}&object=${selectedObjectId}&mode=configured&factor=panel`
+                : '-'}
+            </li>
           </ul>
         </section>
       )}
 
-      {loading && <p className="of-text-muted">Loading…</p>}
+      {loading && <p className="of-text-muted">Loading...</p>}
 
       {actions.length > 0 && (
         <section className="of-panel" style={{ padding: 16 }}>
           <p className="of-eyebrow">Action types for this object type</p>
           <ul style={{ marginTop: 6, paddingLeft: 18, fontSize: 13 }}>
-            {actions.map((a) => (
-              <li key={a.id}>
-                {a.display_name} — {a.operation_kind}
+            {actions.map((action) => (
+              <li key={action.id}>
+                {action.display_name} - {action.operation_kind}
               </li>
             ))}
           </ul>

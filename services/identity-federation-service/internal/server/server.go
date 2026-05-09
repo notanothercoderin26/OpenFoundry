@@ -78,6 +78,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Use(authmw.Middleware(jwt))
 
 		api.Get("/users", rbac.ListUsers)
+		api.Get("/users/me", rbac.Me)
 		api.Get("/users/{id}", rbac.GetUser)
 		api.Patch("/users/{id}", rbac.UpdateUser)
 		api.Delete("/users/{id}", rbac.DeleteUser)

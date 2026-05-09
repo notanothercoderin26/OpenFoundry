@@ -207,7 +207,7 @@ export function softDeleteResource(kind: ResourceKind, id: string) {
 }
 
 export interface BatchAction {
-  op: 'move' | 'rename' | 'duplicate' | 'soft_delete';
+  op: 'move' | 'delete' | 'restore' | 'purge' | 'rename' | 'duplicate' | 'soft_delete';
   resource_kind: ResourceKind;
   resource_id: string;
   target_folder_id?: string | null;
@@ -215,6 +215,7 @@ export interface BatchAction {
 }
 
 export interface BatchResultEntry {
+  op?: string;
   resource_kind: ResourceKind;
   resource_id: string;
   ok: boolean;

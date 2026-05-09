@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import {
   type DashboardFilterState,
+  type DashboardLayoutDensity,
   type DashboardWidget,
   type DashboardWidgetLayout,
 } from '@/lib/utils/dashboards';
@@ -11,6 +12,8 @@ import { WidgetFactory } from './WidgetFactory';
 interface DashboardGridProps {
   widgets: DashboardWidget[];
   filters: DashboardFilterState;
+  density?: DashboardLayoutDensity;
+  refreshKey?: number;
   editing?: boolean;
   onReorder?: (fromIndex: number, toIndex: number) => void;
   onEditWidget?: (widget: DashboardWidget) => void;
@@ -22,6 +25,8 @@ interface DashboardGridProps {
 export function DashboardGrid({
   widgets,
   filters,
+  density = 'default',
+  refreshKey = 0,
   editing = false,
   onReorder,
   onEditWidget,
@@ -74,7 +79,7 @@ export function DashboardGrid({
   }
 
   return (
-    <div className="dashboard-grid">
+    <div className={`dashboard-grid dashboard-grid--${density}`}>
       {widgets.map((widget, index) => {
         const colSpan = Math.min(Math.max(widget.layout.colSpan, 1), 12);
         const colSpanMd = Math.min(Math.max(widget.layout.colSpan, 1), 6);
@@ -117,7 +122,7 @@ export function DashboardGrid({
                   <span className="dashboard-grid__drag">Drag</span>
                   <div className="dashboard-grid__toolbar-actions">
                     <button type="button" title="Edit widget" onClick={() => onEditWidget?.(widget)}>
-                      Edit
+                      Settings
                     </button>
                     <button type="button" title="Duplicate widget" onClick={() => onDuplicateWidget?.(widget.id)}>
                       Copy
@@ -160,7 +165,7 @@ export function DashboardGrid({
               </>
             )}
 
-            <WidgetFactory widget={widget} filters={filters} />
+            <WidgetFactory widget={widget} filters={filters} refreshKey={refreshKey} />
           </div>
         );
       })}

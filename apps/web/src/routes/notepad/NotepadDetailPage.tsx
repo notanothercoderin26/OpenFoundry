@@ -6,6 +6,8 @@ import {
   listKnowledgeBases,
   type KnowledgeBase,
 } from '@/lib/api/ai';
+import { MonacoEditor } from '@/lib/components/MonacoEditor';
+import { WidgetEmbeds, type WidgetEmbedRecord } from '@/lib/components/notepad/WidgetEmbeds';
 import {
   exportNotepadDocument,
   getNotepadDocument,
@@ -18,20 +20,27 @@ import {
 } from '@/lib/api/notepad';
 import { useCurrentUser } from '@stores/auth';
 
-interface NotepadWidgetDraft {
-  id?: string;
-  kind: string;
-  title: string;
-  summary: string;
-  source_ref: string;
+function documentWidgets(doc: NotepadDocument | null): WidgetEmbedRecord[] {
+  return Array.isArray(doc?.widgets) ? (doc.widgets as WidgetEmbedRecord[]) : [];
 }
 
-function emptyWidgetDraft(): NotepadWidgetDraft {
-  return { kind: 'contour', title: '', summary: '', source_ref: '' };
+function widgetReference(widget: WidgetEmbedRecord) {
+  const id = typeof widget.id === 'string' && widget.id.trim() ? widget.id.trim() : '';
+  if (id) return `{{widget:${id}}}`;
+  const title = typeof widget.title === 'string' ? widget.title.trim() : 'embed';
+  return `{{widget:${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'embed'}}}`;
 }
 
-function documentWidgets(doc: NotepadDocument | null) {
-  return Array.isArray(doc?.widgets) ? doc.widgets : [];
+function downloadExportPayload(payload: NotepadExportPayload) {
+  const blob = new Blob([payload.html], { type: payload.mime_type || 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = payload.file_name || 'notepad-export.html';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export function NotepadDetailPage() {
@@ -45,11 +54,12 @@ export function NotepadDetailPage() {
   const [presence, setPresence] = useState<NotepadPresence[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('');
-  const [widgetDraft, setWidgetDraft] = useState<NotepadWidgetDraft>(emptyWidgetDraft());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [error, setError] = useState('');
+  const [exportNotice, setExportNotice] = useState('');
 
   const sessionIdRef = useRef<string>(crypto.randomUUID?.() ?? Math.random().toString(36).slice(2));
 
@@ -129,6 +139,20 @@ export function NotepadDetailPage() {
 
   function patchDoc(patch: Partial<NotepadDocument>) {
     setDoc((current) => (current ? { ...current, ...patch } : current));
+    setExportNotice('');
+  }
+
+  async function renderExportPayload(sourceDoc: NotepadDocument) {
+    const exp = await exportNotepadDocument(sourceDoc.id, {
+      id: sourceDoc.id,
+      title: sourceDoc.title,
+      description: sourceDoc.description,
+      content: sourceDoc.content,
+      widgets: sourceDoc.widgets,
+      template_key: sourceDoc.template_key,
+    });
+    setExportPayload(exp);
+    return exp;
   }
 
   async function saveDocument() {
@@ -143,8 +167,8 @@ export function NotepadDetailPage() {
         widgets: doc.widgets,
       });
       setDoc(updated);
-      const exp = await exportNotepadDocument(updated.id);
-      setExportPayload(exp);
+      await renderExportPayload(updated);
+      setExportNotice('Saved and refreshed the export preview.');
       await sendPresence('reviewing latest changes');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to save document');
@@ -153,24 +177,34 @@ export function NotepadDetailPage() {
     }
   }
 
-  function addWidget() {
-    if (!doc || !widgetDraft.title.trim()) return;
-    const next = {
-      id: crypto.randomUUID?.() ?? Math.random().toString(36).slice(2),
-      kind: widgetDraft.kind,
-      title: widgetDraft.title.trim(),
-      summary: widgetDraft.summary.trim() || 'Live widget reference attached to the document.',
-      source_ref: widgetDraft.source_ref.trim() || null,
-    };
-    patchDoc({ widgets: [...documentWidgets(doc), next] });
-    setWidgetDraft(emptyWidgetDraft());
+  async function exportDocument() {
+    if (!doc) return;
+    setExporting(true);
+    setError('');
+    setExportNotice('');
+    try {
+      const exp = await renderExportPayload(doc);
+      downloadExportPayload(exp);
+      setExportNotice(`Exported ${exp.file_name}.`);
+      await sendPresence('exporting document');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to export document');
+    } finally {
+      setExporting(false);
+    }
   }
 
-  function removeWidget(widgetId: string) {
+  function updateWidgets(widgets: WidgetEmbedRecord[]) {
     if (!doc) return;
-    patchDoc({
-      widgets: documentWidgets(doc).filter((widget) => String(widget.id ?? '') !== widgetId),
-    });
+    patchDoc({ widgets });
+  }
+
+  function insertWidgetReference(widget: WidgetEmbedRecord) {
+    if (!doc) return;
+    const marker = widgetReference(widget);
+    const content = doc.content.trimEnd();
+    patchDoc({ content: `${content}${content ? '\n\n' : ''}${marker}` });
+    void sendPresence('linking an embed');
   }
 
   async function indexInKnowledgeBase() {
@@ -204,14 +238,26 @@ export function NotepadDetailPage() {
     }
   }
 
-  function openPrintView() {
-    if (!exportPayload) return;
+  async function openPrintView() {
+    if (!doc) return;
     const windowRef = window.open('', '_blank', 'noopener,noreferrer');
     if (!windowRef) return;
-    windowRef.document.write(exportPayload.html);
-    windowRef.document.close();
-    windowRef.focus();
-    windowRef.print();
+    setExporting(true);
+    setError('');
+    setExportNotice('');
+    try {
+      const exp = await renderExportPayload(doc);
+      windowRef.document.write(exp.html);
+      windowRef.document.close();
+      windowRef.focus();
+      windowRef.print();
+      setExportNotice('Opened print-ready export.');
+    } catch (cause) {
+      windowRef.close();
+      setError(cause instanceof Error ? cause.message : 'Failed to open print view');
+    } finally {
+      setExporting(false);
+    }
   }
 
   if (loading) {
@@ -239,7 +285,7 @@ export function NotepadDetailPage() {
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
           <div style={{ maxWidth: 720, display: 'grid', gap: 12 }}>
             <Link to="/notepad" className="of-link" style={{ fontSize: 13 }}>
-              ← Back to notepad
+              Back to notepad
             </Link>
             <input
               type="text"
@@ -251,7 +297,7 @@ export function NotepadDetailPage() {
                 background: 'transparent',
                 fontSize: 28,
                 fontWeight: 700,
-                letterSpacing: '-0.02em',
+                letterSpacing: 0,
                 color: 'var(--text-strong)',
                 border: 0,
                 outline: 'none',
@@ -294,16 +340,19 @@ export function NotepadDetailPage() {
             <button type="button" className="of-btn" onClick={() => navigate('/notepad')}>
               Close
             </button>
-            <button type="button" className="of-btn" onClick={openPrintView}>
-              Print
+            <button type="button" className="of-btn" onClick={() => void openPrintView()} disabled={exporting}>
+              Print / PDF
+            </button>
+            <button type="button" className="of-btn" onClick={() => void exportDocument()} disabled={exporting}>
+              {exporting ? 'Exporting...' : 'Export HTML'}
             </button>
             <button
               type="button"
               className="of-btn of-btn-primary"
               onClick={() => void saveDocument()}
-              disabled={saving}
+              disabled={saving || exporting}
             >
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>
@@ -316,9 +365,17 @@ export function NotepadDetailPage() {
             {error}
           </div>
         )}
+        {exportNotice && (
+          <div
+            className="of-status-success"
+            style={{ marginTop: 16, padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
+          >
+            {exportNotice}
+          </div>
+        )}
       </div>
 
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1.1fr) minmax(380px, 0.9fr)' }}>
+      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
         <div style={{ display: 'grid', gap: 16 }}>
           <section className="of-panel" style={{ padding: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -332,122 +389,31 @@ export function NotepadDetailPage() {
                 {presence.length} active collaborators
               </span>
             </div>
-            <textarea
-              rows={24}
-              value={doc.content}
-              onChange={(e) => patchDoc({ content: e.target.value })}
-              onFocus={() => void sendPresence('editing body')}
-              placeholder={'# Narrative\n\nWrite the decision memo here.'}
+            <div
+              onFocusCapture={() => void sendPresence('editing body')}
               style={{
                 marginTop: 16,
-                minHeight: 520,
-                width: '100%',
                 borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--border-default)',
                 background: 'var(--bg-panel-muted)',
-                padding: 16,
-                fontFamily: 'var(--font-mono)',
-                fontSize: 13,
-                lineHeight: 1.6,
-                outline: 'none',
-                resize: 'vertical',
+                overflow: 'hidden',
               }}
-            />
-          </section>
-
-          <section className="of-panel" style={{ padding: 24 }}>
-            <p className="of-eyebrow">Embeds</p>
-            <h2 className="of-heading-md" style={{ marginTop: 4 }}>
-              Attach live workspace context
-            </h2>
-
-            <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr', marginTop: 16 }}>
-              <Field label="Kind">
-                <select
-                  className="of-select"
-                  value={widgetDraft.kind}
-                  onChange={(e) => setWidgetDraft((prev) => ({ ...prev, kind: e.target.value }))}
-                >
-                  <option value="contour">Contour</option>
-                  <option value="quiver">Quiver</option>
-                  <option value="report">Report</option>
-                  <option value="fusion">Fusion</option>
-                </select>
-              </Field>
-              <Field label="Title">
-                <input
-                  className="of-input"
-                  value={widgetDraft.title}
-                  onChange={(e) => setWidgetDraft((prev) => ({ ...prev, title: e.target.value }))}
-                  placeholder="Executive trend board"
-                />
-              </Field>
-              <Field label="Summary" fullWidth>
-                <input
-                  className="of-input"
-                  value={widgetDraft.summary}
-                  onChange={(e) => setWidgetDraft((prev) => ({ ...prev, summary: e.target.value }))}
-                  placeholder="Why this widget matters in the narrative."
-                />
-              </Field>
-              <Field label="Source reference" fullWidth>
-                <input
-                  className="of-input"
-                  value={widgetDraft.source_ref}
-                  onChange={(e) => setWidgetDraft((prev) => ({ ...prev, source_ref: e.target.value }))}
-                  placeholder="/contour or report execution id"
-                />
-              </Field>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-              <button type="button" className="of-btn" onClick={addWidget}>
-                Add embed
-              </button>
-            </div>
-
-            <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
-              {documentWidgets(doc).length === 0 ? (
-                <div
-                  style={{
-                    border: '1px dashed var(--border-default)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '16px 16px',
-                    fontSize: 13,
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  No embedded widgets yet.
-                </div>
-              ) : (
-                documentWidgets(doc).map((widget) => (
-                  <div key={String(widget.id ?? '')} className="of-panel-muted" style={{ padding: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <p className="of-eyebrow" style={{ color: '#0e7490' }}>
-                          {String(widget.kind ?? 'widget')}
-                        </p>
-                        <div style={{ marginTop: 4, fontSize: 14, fontWeight: 500, color: 'var(--text-strong)' }}>
-                          {String(widget.title ?? 'Untitled widget')}
-                        </div>
-                        <p className="of-text-muted" style={{ marginTop: 4, fontSize: 13 }}>
-                          {String(widget.summary ?? 'No summary.')}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="of-btn"
-                        onClick={() => removeWidget(String(widget.id ?? ''))}
-                        style={{ minHeight: 28, fontSize: 11 }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
+            >
+              <MonacoEditor
+                value={doc.content}
+                language="markdown"
+                minHeight={560}
+                onChange={(content) => patchDoc({ content })}
+                onBlur={() => void sendPresence('reviewing body')}
+              />
             </div>
           </section>
+
+          <WidgetEmbeds
+            widgets={documentWidgets(doc)}
+            onChange={updateWidgets}
+            onInsertReference={insertWidgetReference}
+          />
         </div>
 
         <aside style={{ display: 'grid', gap: 16 }}>
@@ -530,9 +496,12 @@ export function NotepadDetailPage() {
 
           <section className="of-panel" style={{ padding: 24 }}>
             <p className="of-eyebrow">Preview</p>
-            <h2 className="of-heading-md" style={{ marginTop: 4 }}>
-              Rendered export
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
+              <h2 className="of-heading-md">Rendered export</h2>
+              <button type="button" className="of-btn" onClick={() => void exportDocument()} disabled={exporting} style={{ minHeight: 30, fontSize: 12 }}>
+                Refresh
+              </button>
+            </div>
 
             {exportPayload ? (
               <iframe
@@ -558,7 +527,7 @@ export function NotepadDetailPage() {
                   color: 'var(--text-muted)',
                 }}
               >
-                Save the document to refresh the rendered preview.
+                Save or export the document to refresh the rendered preview.
               </div>
             )}
           </section>

@@ -1,31 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import {
   dataConnection,
-  type EgressEndpointKind,
-  type EgressPolicyKind,
-  type EgressPortKind,
   type NetworkEgressPolicy,
 } from '@/lib/api/data-connection';
+import { CreateEgressPolicyModal } from '@/lib/components/data-connection/CreateEgressPolicyModal';
 
 export function EgressPoliciesPage() {
   const [policies, setPolicies] = useState<NetworkEgressPolicy[]>([]);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
-  // wizard
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [kind, setKind] = useState<EgressPolicyKind>('direct');
-  const [addressKind, setAddressKind] = useState<EgressEndpointKind>('host');
-  const [addressValue, setAddressValue] = useState('');
-  const [portKind, setPortKind] = useState<EgressPortKind>('single');
-  const [portValue, setPortValue] = useState('443');
-  const [isGlobal, setIsGlobal] = useState(false);
-  const [permissionsRaw, setPermissionsRaw] = useState('');
+  const summary = useMemo(() => ({
+    total: policies.length,
+    global: policies.filter((policy) => policy.is_global).length,
+    proxied: policies.filter((policy) => policy.kind === 'agent_proxy').length,
+  }), [policies]);
 
   async function load() {
     setLoading(true);
@@ -43,57 +37,24 @@ export function EgressPoliciesPage() {
     void load();
   }, []);
 
-  function reset() {
-    setName('');
-    setDescription('');
-    setKind('direct');
-    setAddressKind('host');
-    setAddressValue('');
-    setPortKind('single');
-    setPortValue('443');
-    setIsGlobal(false);
-    setPermissionsRaw('');
-  }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim() || !addressValue.trim() || (portKind !== 'any' && !portValue.trim())) {
-      setError('Name, address, and port are required.');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      await dataConnection.createEgressPolicy({
-        name: name.trim(),
-        description: description.trim(),
-        kind,
-        address: { kind: addressKind, value: addressValue.trim() },
-        port: { kind: portKind, value: portKind === 'any' ? '' : portValue.trim() },
-        is_global: isGlobal,
-        permissions: permissionsRaw.split(/[,\n]/).map((p) => p.trim()).filter(Boolean),
-      });
-      setOpen(false);
-      reset();
-      await load();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Create failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function remove(p: NetworkEgressPolicy) {
     if (typeof window !== 'undefined' && !window.confirm(`Delete policy "${p.name}"?`)) return;
-    setBusy(true);
+    setDeleteId(p.id);
+    setNotice('');
     try {
       await dataConnection.deleteEgressPolicy(p.id);
+      setNotice(`Policy "${p.name}" deleted.`);
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Delete failed');
     } finally {
-      setBusy(false);
+      setDeleteId(null);
     }
+  }
+
+  function handleCreated(policy: NetworkEgressPolicy) {
+    setNotice(`Policy "${policy.name}" created.`);
+    void load();
   }
 
   return (
@@ -106,8 +67,8 @@ export function EgressPoliciesPage() {
             Allow-listed network destinations + permission groups for source connections.
           </p>
         </div>
-        <button type="button" onClick={() => setOpen(!open)} className="of-button of-button--primary">
-          {open ? 'Cancel' : '+ New policy'}
+        <button type="button" onClick={() => setCreateOpen(true)} className="of-button of-button--primary">
+          + Egress policy
         </button>
       </header>
 
@@ -117,69 +78,20 @@ export function EgressPoliciesPage() {
         </div>
       )}
 
-      {open && (
-        <form onSubmit={submit} className="of-panel" style={{ padding: 16, display: 'grid', gap: 8 }}>
-          <label style={{ fontSize: 13 }}>
-            Name
-            <input value={name} onChange={(e) => setName(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
-          </label>
-          <label style={{ fontSize: 13 }}>
-            Description
-            <input value={description} onChange={(e) => setDescription(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
-          </label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <label style={{ fontSize: 13, flex: 1 }}>
-              Kind
-              <select value={kind} onChange={(e) => setKind(e.target.value as EgressPolicyKind)} className="of-input" style={{ marginTop: 4 }}>
-                <option value="direct">direct</option>
-                <option value="agent_proxy">agent_proxy</option>
-              </select>
-            </label>
-            <label style={{ fontSize: 13, flex: 1 }}>
-              Address kind
-              <select value={addressKind} onChange={(e) => setAddressKind(e.target.value as EgressEndpointKind)} className="of-input" style={{ marginTop: 4 }}>
-                <option value="host">host</option>
-                <option value="ip">ip</option>
-                <option value="cidr">cidr</option>
-              </select>
-            </label>
-          </div>
-          <label style={{ fontSize: 13 }}>
-            Address value
-            <input value={addressValue} onChange={(e) => setAddressValue(e.target.value)} placeholder="api.example.com" className="of-input" style={{ marginTop: 4 }} />
-          </label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <label style={{ fontSize: 13, flex: 1 }}>
-              Port kind
-              <select value={portKind} onChange={(e) => setPortKind(e.target.value as EgressPortKind)} className="of-input" style={{ marginTop: 4 }}>
-                <option value="single">single</option>
-                <option value="range">range</option>
-                <option value="any">any</option>
-              </select>
-            </label>
-            {portKind !== 'any' && (
-              <label style={{ fontSize: 13, flex: 1 }}>
-                Port value {portKind === 'range' ? '(e.g., 8000-9000)' : '(e.g., 443)'}
-                <input value={portValue} onChange={(e) => setPortValue(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
-              </label>
-            )}
-          </div>
-          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" checked={isGlobal} onChange={(e) => setIsGlobal(e.target.checked)} />
-            Global (visible to all sources)
-          </label>
-          <label style={{ fontSize: 13 }}>
-            Permissions (comma or newline separated)
-            <textarea value={permissionsRaw} onChange={(e) => setPermissionsRaw(e.target.value)} rows={3} className="of-input" style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11 }} />
-          </label>
-          <button type="submit" disabled={busy} className="of-button of-button--primary">
-            Create policy
-          </button>
-        </form>
+      {notice && (
+        <div className="of-status-success" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+          {notice}
+        </div>
       )}
 
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+        <Metric label="Policies" value={summary.total} />
+        <Metric label="Global" value={summary.global} />
+        <Metric label="Agent proxy" value={summary.proxied} />
+      </section>
+
       {loading ? (
-        <p className="of-text-muted">Loading…</p>
+        <p className="of-text-muted">Loading policies...</p>
       ) : (
         <section className="of-panel" style={{ padding: 16, overflow: 'auto' }}>
           <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
@@ -197,11 +109,11 @@ export function EgressPoliciesPage() {
                   <td style={{ padding: 6 }}>{p.kind}</td>
                   <td style={{ padding: 6, fontFamily: 'var(--font-mono)' }}>{p.address.kind}:{p.address.value}</td>
                   <td style={{ padding: 6, fontFamily: 'var(--font-mono)' }}>{p.port.kind === 'any' ? 'any' : p.port.value}</td>
-                  <td style={{ padding: 6 }}>{p.is_global ? '✓' : '—'}</td>
-                  <td style={{ padding: 6, fontSize: 11 }}>{p.permissions.join(', ') || '—'}</td>
+                  <td style={{ padding: 6 }}>{p.is_global ? 'Yes' : 'No'}</td>
+                  <td style={{ padding: 6, fontSize: 11 }}>{p.permissions.join(', ') || 'None'}</td>
                   <td style={{ padding: 6, textAlign: 'right' }}>
-                    <button type="button" onClick={() => void remove(p)} disabled={busy} className="of-button" style={{ fontSize: 11, color: '#b91c1c', borderColor: '#fecaca' }}>
-                      Delete
+                    <button type="button" onClick={() => void remove(p)} disabled={deleteId === p.id} className="of-button" style={{ fontSize: 11, color: '#b91c1c', borderColor: '#fecaca' }}>
+                      {deleteId === p.id ? 'Deleting...' : 'Delete'}
                     </button>
                   </td>
                 </tr>
@@ -213,6 +125,21 @@ export function EgressPoliciesPage() {
           </table>
         </section>
       )}
+
+      <CreateEgressPolicyModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={handleCreated}
+      />
     </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="of-panel-muted" style={{ padding: 12 }}>
+      <p className="of-eyebrow" style={{ margin: 0 }}>{label}</p>
+      <p className="of-heading-lg" style={{ margin: '4px 0 0' }}>{value}</p>
+    </div>
   );
 }

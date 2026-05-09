@@ -1,7 +1,9 @@
-export type DashboardWidgetType = 'chart' | 'table' | 'kpi';
+export type DashboardWidgetType = 'chart' | 'table' | 'kpi' | 'text';
 export type DashboardChartType = 'bar' | 'line' | 'area' | 'pie' | 'scatter';
 export type DashboardNumberFormat = 'number' | 'currency' | 'percent';
 export type DashboardDatePreset = 'last_7_days' | 'last_30_days' | 'last_90_days' | 'this_month' | 'quarter_to_date' | 'custom';
+export type DashboardLayoutDensity = 'default' | 'compact' | 'stretched';
+export type DashboardTemplateId = 'blank' | 'executive' | 'operations' | 'quality';
 
 export interface DashboardDateRange {
   mode: 'relative' | 'absolute';
@@ -58,16 +60,76 @@ export interface DashboardKpiWidget extends DashboardWidgetBase {
   valueFormat: DashboardNumberFormat;
 }
 
-export type DashboardWidget = DashboardChartWidget | DashboardTableWidget | DashboardKpiWidget;
+export interface DashboardTextWidget extends DashboardWidgetBase {
+  type: 'text';
+  content: string;
+  tone: 'note' | 'callout' | 'warning';
+}
+
+export type DashboardWidget = DashboardChartWidget | DashboardTableWidget | DashboardKpiWidget | DashboardTextWidget;
 
 export interface DashboardDefinition {
   id: string;
   name: string;
   description: string;
   widgets: DashboardWidget[];
+  layout: {
+    density: DashboardLayoutDensity;
+  };
+  version: number;
+  publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface DashboardTemplateSummary {
+  id: DashboardTemplateId;
+  name: string;
+  category: string;
+  description: string;
+  dashboardDescription: string;
+  recommendedFor: string;
+  widgetTypes: DashboardWidgetType[];
+}
+
+export const DASHBOARD_TEMPLATES: DashboardTemplateSummary[] = [
+  {
+    id: 'blank',
+    name: 'Blank dashboard',
+    category: 'Custom',
+    description: 'A clean canvas with a KPI, chart, and table ready to edit.',
+    dashboardDescription: 'Compose charts, tables, and KPI cards on a responsive grid.',
+    recommendedFor: 'Ad hoc analysis and embedded Quiver views',
+    widgetTypes: ['kpi', 'chart', 'table'],
+  },
+  {
+    id: 'executive',
+    name: 'Executive control room',
+    category: 'Leadership',
+    description: 'KPI-first dashboard for health, revenue, and account coverage.',
+    dashboardDescription: 'A shareable baseline dashboard for pipeline health, revenue, and account coverage.',
+    recommendedFor: 'Weekly operating reviews',
+    widgetTypes: ['text', 'kpi', 'kpi', 'chart', 'table'],
+  },
+  {
+    id: 'operations',
+    name: 'Operations review',
+    category: 'Operations',
+    description: 'Run volume, successful runs, and escalations in one review surface.',
+    dashboardDescription: 'Operational dashboard for run volume, successful runs, and open escalations.',
+    recommendedFor: 'Platform and data operations',
+    widgetTypes: ['chart', 'kpi', 'table'],
+  },
+  {
+    id: 'quality',
+    name: 'Production quality dashboard',
+    category: 'Quality',
+    description: 'Quality scorecards, defect trends, and failing checks for release readiness.',
+    dashboardDescription: 'Production quality view for scorecards, defect trends, and failing checks.',
+    recommendedFor: 'Quality gates and release readiness',
+    widgetTypes: ['text', 'kpi', 'chart', 'table'],
+  },
+];
 
 function createId() {
   return crypto.randomUUID();
@@ -227,8 +289,26 @@ export function cloneDashboard<T>(value: T): T {
 export function createWidget(type: 'chart'): DashboardChartWidget;
 export function createWidget(type: 'table'): DashboardTableWidget;
 export function createWidget(type: 'kpi'): DashboardKpiWidget;
+export function createWidget(type: 'text'): DashboardTextWidget;
 export function createWidget(type: DashboardWidgetType): DashboardWidget;
 export function createWidget(type: DashboardWidgetType): DashboardWidget {
+  if (type === 'text') {
+    return {
+      id: createId(),
+      type,
+      title: 'Executive Note',
+      description: 'Context block for the current dashboard view.',
+      layout: { colSpan: 4, rowSpan: 1 },
+      query: {
+        limit: 1,
+        sql: "SELECT 'text widget' AS kind",
+      },
+      content:
+        'Use this space for assumptions, incident notes, or interpretation that should travel with the dashboard.',
+      tone: 'note',
+    };
+  }
+
   if (type === 'table') {
     return {
       id: createId(),
@@ -303,50 +383,166 @@ export function createDashboard(name = 'New Dashboard'): DashboardDefinition {
     name,
     description: 'Compose charts, tables, and KPI cards on a responsive grid.',
     widgets: [createWidget('kpi'), createWidget('chart'), createWidget('table')],
+    layout: { density: 'default' },
+    version: 1,
+    publishedAt: null,
     createdAt: now,
     updatedAt: now,
   };
 }
 
-export function createStarterDashboards() {
-  const executive = createDashboard('Executive Control Room');
-  executive.description = 'A shareable baseline dashboard for pipeline health, revenue, and account coverage.';
+export function getDashboardTemplate(templateId: string) {
+  return DASHBOARD_TEMPLATES.find((template) => template.id === templateId) ?? DASHBOARD_TEMPLATES[0];
+}
 
-  const operations = createDashboard('Operations Review');
-  operations.widgets = [
-    {
-      ...createWidget('chart'),
-      title: 'Run Volume by Day',
-      chartType: 'bar',
-      seriesColumns: ['ingested'],
-      description: 'Daily run volume for the current reporting window.',
-    },
-    {
-      ...createWidget('kpi'),
-      title: 'Successful Runs',
-      valueColumn: 'total_revenue',
-      valueFormat: 'number',
-      description: 'Swap the query to your own run metrics and reuse the same KPI card.',
-      query: {
-        limit: 1,
-        sql: "SELECT 842 AS total_revenue, 4.2 AS delta_pct, '[790,802,815,821,829,836,842]' AS sparkline",
+export function createDashboardFromTemplate(templateId: string = 'blank', name?: string): DashboardDefinition {
+  const template = getDashboardTemplate(templateId);
+  const dashboard = createDashboard(name?.trim() || template.name);
+  dashboard.description = template.dashboardDescription;
+
+  if (template.id === 'executive') {
+    dashboard.widgets = [
+      {
+        ...createWidget('text'),
+        title: 'Operating context',
+        content:
+          'Use this dashboard to align leadership on revenue, delivery health, and the accounts that need attention this week.',
       },
-    },
-    {
-      ...createWidget('table'),
-      title: 'Escalations Queue',
-      defaultSortColumn: 'priority',
-      query: {
-        limit: 100,
-        sql: [
-          "SELECT 'PIPE-1042' AS incident, 'High' AS priority, 'SLA breach risk' AS summary",
-          "UNION ALL SELECT 'AUTH-288', 'Medium', 'SSO callback drift'",
-          "UNION ALL SELECT 'DATA-931', 'Low', 'Late-arriving file partition'",
-          "UNION ALL SELECT 'OPS-512', 'High', 'Backfill validation pending'",
-        ].join(' '),
+      {
+        ...createWidget('kpi'),
+        title: 'Revenue Attainment',
+        valueColumn: 'total_revenue',
+        deltaColumn: 'delta_pct',
+        valueFormat: 'percent',
+        description: 'Latest attainment against the current reporting target.',
+        query: {
+          limit: 1,
+          sql: "SELECT 92.4 AS total_revenue, 3.6 AS delta_pct, '[84.0,86.2,88.1,89.4,90.6,91.2,92.4]' AS sparkline",
+        },
       },
-    },
-  ];
+      {
+        ...createWidget('kpi'),
+        title: 'Open Risk',
+        valueColumn: 'total_revenue',
+        deltaColumn: 'delta_pct',
+        valueFormat: 'number',
+        description: 'Active risks that need leadership review.',
+        query: {
+          limit: 1,
+          sql: "SELECT 14 AS total_revenue, -8.1 AS delta_pct, '[22,21,20,19,17,15,14]' AS sparkline",
+        },
+      },
+      {
+        ...createWidget('chart'),
+        title: 'Weekly Throughput',
+        chartType: 'area',
+        seriesColumns: ['ingested', 'published'],
+        description: 'Published data products compared with total ingestion.',
+      },
+      {
+        ...createWidget('table'),
+        title: 'Priority Accounts',
+        description: 'Accounts with current health, ARR, and operating status.',
+      },
+    ];
+  } else if (template.id === 'operations') {
+    dashboard.widgets = [
+      {
+        ...createWidget('chart'),
+        title: 'Run Volume by Day',
+        chartType: 'bar',
+        seriesColumns: ['ingested'],
+        description: 'Daily run volume for the current reporting window.',
+      },
+      {
+        ...createWidget('kpi'),
+        title: 'Successful Runs',
+        valueColumn: 'total_revenue',
+        valueFormat: 'number',
+        description: 'Successful pipeline runs in the active reporting window.',
+        query: {
+          limit: 1,
+          sql: "SELECT 842 AS total_revenue, 4.2 AS delta_pct, '[790,802,815,821,829,836,842]' AS sparkline",
+        },
+      },
+      {
+        ...createWidget('table'),
+        title: 'Escalations Queue',
+        defaultSortColumn: 'priority',
+        description: 'Open operational exceptions with severity and owner context.',
+        query: {
+          limit: 100,
+          sql: [
+            "SELECT 'PIPE-1042' AS incident, 'High' AS priority, 'SLA breach risk' AS summary",
+            "UNION ALL SELECT 'AUTH-288', 'Medium', 'SSO callback drift'",
+            "UNION ALL SELECT 'DATA-931', 'Low', 'Late-arriving file partition'",
+            "UNION ALL SELECT 'OPS-512', 'High', 'Backfill validation pending'",
+          ].join(' '),
+        },
+      },
+    ];
+  } else if (template.id === 'quality') {
+    dashboard.widgets = [
+      {
+        ...createWidget('text'),
+        title: 'Release quality context',
+        content:
+          'Production quality is tracked across scorecards, defect ratings, and the failing checks that currently block promotion.',
+      },
+      {
+        ...createWidget('kpi'),
+        title: 'Quality Score',
+        valueColumn: 'total_revenue',
+        deltaColumn: 'delta_pct',
+        valueFormat: 'percent',
+        description: 'Composite score across active release checks.',
+        query: {
+          limit: 1,
+          sql: "SELECT 96.8 AS total_revenue, 1.9 AS delta_pct, '[91.2,92.8,93.5,94.1,95.4,96.0,96.8]' AS sparkline",
+        },
+      },
+      {
+        ...createWidget('chart'),
+        title: 'Defects by Rating',
+        chartType: 'bar',
+        categoryColumn: 'bucket',
+        seriesColumns: ['ingested'],
+        description: 'Count of checks grouped by production quality rating.',
+        query: {
+          limit: 50,
+          sql: [
+            "SELECT 'Critical' AS bucket, 4 AS ingested, 4 AS published",
+            "UNION ALL SELECT 'High', 11, 10",
+            "UNION ALL SELECT 'Medium', 28, 24",
+            "UNION ALL SELECT 'Low', 47, 40",
+            "UNION ALL SELECT 'Passed', 154, 154",
+          ].join(' '),
+        },
+      },
+      {
+        ...createWidget('table'),
+        title: 'Failing Checks',
+        defaultSortColumn: 'priority',
+        description: 'Open quality checks that currently block promotion.',
+        query: {
+          limit: 100,
+          sql: [
+            "SELECT 'Schema drift' AS check_name, 'High' AS priority, 'orders_silver' AS dataset",
+            "UNION ALL SELECT 'Null threshold', 'Medium', 'customers_gold'",
+            "UNION ALL SELECT 'Late partition', 'Medium', 'events_bronze'",
+            "UNION ALL SELECT 'Lineage gap', 'Low', 'billing_rollup'",
+          ].join(' '),
+        },
+      },
+    ];
+  }
+
+  return dashboard;
+}
+
+export function createStarterDashboards() {
+  const executive = createDashboardFromTemplate('executive', 'Executive Control Room');
+  const operations = createDashboardFromTemplate('operations', 'Operations Review');
 
   return [executive, operations];
 }
@@ -359,9 +555,32 @@ export function duplicateDashboardDefinition(dashboard: DashboardDefinition) {
     ...copy,
     id: createId(),
     name: `${dashboard.name} Copy`,
+    version: 1,
+    publishedAt: null,
     createdAt: now,
     updatedAt: now,
     widgets: copy.widgets.map((widget) => ({ ...widget, id: createId() })),
+  };
+}
+
+export function normalizeDashboardDefinition(value: Partial<DashboardDefinition>): DashboardDefinition {
+  const now = new Date().toISOString();
+  const fallback = createDashboard(value.name || 'New Dashboard');
+
+  return {
+    ...fallback,
+    ...value,
+    id: value.id || fallback.id,
+    name: value.name || fallback.name,
+    description: value.description ?? fallback.description,
+    widgets: Array.isArray(value.widgets) ? (value.widgets as DashboardWidget[]) : fallback.widgets,
+    layout: {
+      density: value.layout?.density ?? 'default',
+    },
+    version: Number.isFinite(value.version) && value.version ? Number(value.version) : 1,
+    publishedAt: value.publishedAt ?? null,
+    createdAt: value.createdAt || now,
+    updatedAt: value.updatedAt || now,
   };
 }
 
@@ -379,7 +598,7 @@ export function serializeDashboardSnapshot(dashboard: DashboardDefinition) {
 
 export function deserializeDashboardSnapshot(snapshot: string) {
   const decoded = base64Decode(decodeURIComponent(snapshot));
-  return JSON.parse(decoded) as DashboardDefinition;
+  return normalizeDashboardDefinition(JSON.parse(decoded) as Partial<DashboardDefinition>);
 }
 
 export function formatDashboardTimestamp(value: string) {

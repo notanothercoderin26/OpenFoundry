@@ -23,17 +23,17 @@ import (
 func TestEnumStringValuesAreScreamingSnakeCase(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		string(streamingmonitors.ResourceStreamingDataset):       "STREAMING_DATASET",
-		string(streamingmonitors.ResourceStreamingPipeline):      "STREAMING_PIPELINE",
-		string(streamingmonitors.ResourceTimeSeriesSync):         "TIME_SERIES_SYNC",
+		string(streamingmonitors.ResourceStreamingDataset):        "STREAMING_DATASET",
+		string(streamingmonitors.ResourceStreamingPipeline):       "STREAMING_PIPELINE",
+		string(streamingmonitors.ResourceTimeSeriesSync):          "TIME_SERIES_SYNC",
 		string(streamingmonitors.ResourceGeotemporalObservations): "GEOTEMPORAL_OBSERVATIONS",
-		string(streamingmonitors.KindIngestRecords):              "INGEST_RECORDS",
-		string(streamingmonitors.KindCheckpointLiveness):         "CHECKPOINT_LIVENESS",
-		string(streamingmonitors.KindGeotemporalObsSent):         "GEOTEMPORAL_OBS_SENT",
-		string(streamingmonitors.CmpLT):                          "LT",
-		string(streamingmonitors.CmpGTE):                         "GTE",
-		string(streamingmonitors.SeverityWarn):                   "WARN",
-		string(streamingmonitors.SeverityCritical):               "CRITICAL",
+		string(streamingmonitors.KindIngestRecords):               "INGEST_RECORDS",
+		string(streamingmonitors.KindCheckpointLiveness):          "CHECKPOINT_LIVENESS",
+		string(streamingmonitors.KindGeotemporalObsSent):          "GEOTEMPORAL_OBS_SENT",
+		string(streamingmonitors.CmpLT):                           "LT",
+		string(streamingmonitors.CmpGTE):                          "GTE",
+		string(streamingmonitors.SeverityWarn):                    "WARN",
+		string(streamingmonitors.SeverityCritical):                "CRITICAL",
 	}
 	for got, want := range cases {
 		assert.Equal(t, want, got)
@@ -134,6 +134,10 @@ func TestCreateMonitorRuleValidate(t *testing.T) {
 	invalidEnum := good
 	invalidEnum.MonitorKind = "BANANA"
 	assert.ErrorContains(t, invalidEnum.Validate(), "monitor_kind")
+
+	missingView := good
+	missingView.ViewID = uuid.Nil
+	assert.ErrorContains(t, missingView.Validate(), "view_id")
 }
 
 // ─── RBAC ───────────────────────────────────────────────────────────
@@ -193,5 +197,40 @@ func TestPatchRuleRejectsBadEnum(t *testing.T) {
 		strings.NewReader(`{"comparator":"NOT_A_REAL_OP"}`))
 	rec := withClaims(t, c, h.PatchRule, req)
 	// Even with a real path param, the enum check rejects before SQL.
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestCreateGlobalRuleRequiresViewIDBeforeSQL(t *testing.T) {
+	t.Parallel()
+	h := &streamingmonitors.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New(), Permissions: []string{"monitoring:write"}}
+	req := httptest.NewRequest("POST", "/monitor-rules", strings.NewReader(`{
+		"resource_type":"STREAMING_DATASET",
+		"resource_rid":"ri.streaming.dataset.example",
+		"monitor_kind":"TOTAL_LAG",
+		"window_seconds":300,
+		"comparator":"GT",
+		"threshold":100,
+		"severity":"WARN"
+	}`))
+	rec := withClaims(t, c, h.CreateGlobalRule, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "view_id")
+}
+
+func TestPauseRuleRequiresAuth(t *testing.T) {
+	t.Parallel()
+	h := &streamingmonitors.Handlers{}
+	req := httptest.NewRequest("POST", "/monitor-rules/"+uuid.New().String()+"/pause", nil)
+	rec := withClaims(t, nil, h.PauseRule, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestResumeRuleRejectsBadIDBeforeSQL(t *testing.T) {
+	t.Parallel()
+	h := &streamingmonitors.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New(), Roles: []string{"admin"}}
+	req := httptest.NewRequest("POST", "/monitor-rules/not-a-uuid/resume", nil)
+	rec := withClaims(t, c, h.ResumeRule, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

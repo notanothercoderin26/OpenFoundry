@@ -108,6 +108,10 @@ export function Topbar() {
           <span>✓ 1</span>
           <span>× 0</span>
         </span>
+        <Link to="/search" className="of-topbar__action">
+          <Glyph name="search" size={15} />
+          Search
+        </Link>
         <button type="button" className="of-topbar__action">
           <Glyph name="users" size={15} />
           Share

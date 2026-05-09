@@ -1,19 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import {
+  createProjectProposal,
   listActionTypes,
   listInterfaces,
   listLinkTypes,
   listObjectTypes,
+  listProjectBranches,
   listProjectMemberships,
   listProjects,
   listProperties,
   type ActionType,
   type LinkType,
   type ObjectType,
+  type OntologyBranch,
   type OntologyInterface,
   type OntologyProject,
   type OntologyProjectMembership,
+  type OntologyProposalTask,
   type Property,
 } from '@/lib/api/ontology';
 
@@ -43,6 +47,30 @@ interface PracticeCheck {
 interface ReviewState {
   dismissed: string[];
   notes: string;
+}
+
+interface SubmitProposalModalProps {
+  open: boolean;
+  projects: OntologyProject[];
+  branchesByProject: Record<string, OntologyBranch[]>;
+  projectMemberships: Record<string, OntologyProjectMembership[]>;
+  selectedProjectId: string;
+  selectedBranchId: string;
+  title: string;
+  description: string;
+  selectedReviewerIds: string[];
+  includeFindings: boolean;
+  findings: Finding[];
+  submitting: boolean;
+  error: string;
+  onClose: () => void;
+  onProjectChange: (projectId: string) => void;
+  onBranchChange: (branchId: string) => void;
+  onTitleChange: (title: string) => void;
+  onDescriptionChange: (description: string) => void;
+  onReviewerToggle: (reviewerId: string) => void;
+  onIncludeFindingsChange: (include: boolean) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
 const STORAGE_KEY = 'of.ontologyDesign.review';
@@ -111,6 +139,278 @@ function persistReviewState(state: ReviewState) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function safeTaskId(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function buildProposalTasks(findings: Finding[], reviewerIds: string[]): OntologyProposalTask[] {
+  return findings.slice(0, 8).map((finding, index) => ({
+    id: `design-${index + 1}-${safeTaskId(finding.id)}`,
+    change_id: finding.id,
+    title: `${finding.title}: ${finding.affected}`,
+    description: `${finding.summary} Recommendation: ${finding.recommendation}`,
+    status: 'pending',
+    reviewer_id: reviewerIds[index % Math.max(reviewerIds.length, 1)] ?? null,
+    comments: finding.evidence.slice(0, 4),
+  }));
+}
+
+function SubmitProposalModal({
+  open,
+  projects,
+  branchesByProject,
+  projectMemberships,
+  selectedProjectId,
+  selectedBranchId,
+  title,
+  description,
+  selectedReviewerIds,
+  includeFindings,
+  findings,
+  submitting,
+  error,
+  onClose,
+  onProjectChange,
+  onBranchChange,
+  onTitleChange,
+  onDescriptionChange,
+  onReviewerToggle,
+  onIncludeFindingsChange,
+  onSubmit,
+}: SubmitProposalModalProps) {
+  useEffect(() => {
+    if (!open) return;
+    function onKeydown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !submitting) {
+        event.preventDefault();
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', onKeydown);
+    return () => window.removeEventListener('keydown', onKeydown);
+  }, [open, onClose, submitting]);
+
+  if (!open) return null;
+
+  const branches = selectedProjectId ? (branchesByProject[selectedProjectId] ?? []) : [];
+  const memberships = selectedProjectId ? (projectMemberships[selectedProjectId] ?? []) : [];
+  const branch = branches.find((item) => item.id === selectedBranchId);
+  const canSubmit = Boolean(selectedProjectId && selectedBranchId && title.trim()) && !submitting;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="submit-proposal-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !submitting) onClose();
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'rgba(17, 24, 39, 0.42)',
+        padding: 16,
+      }}
+    >
+      <form
+        className="of-panel"
+        onSubmit={onSubmit}
+        style={{
+          width: 'min(760px, 100%)',
+          maxHeight: 'calc(100vh - 32px)',
+          overflow: 'auto',
+          background: 'var(--bg-panel)',
+          boxShadow: 'var(--shadow-popover)',
+        }}
+      >
+        <header
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 12,
+            borderBottom: '1px solid var(--border-default)',
+            padding: '14px 16px',
+          }}
+        >
+          <div>
+            <p className="of-eyebrow" style={{ margin: 0 }}>
+              Ontology design
+            </p>
+            <h2 id="submit-proposal-title" className="of-heading-md" style={{ marginTop: 4 }}>
+              Submit proposal
+            </h2>
+          </div>
+          <button type="button" className="of-button of-button--ghost" onClick={onClose} disabled={submitting}>
+            Close
+          </button>
+        </header>
+
+        <div style={{ display: 'grid', gap: 14, padding: 16 }}>
+          {error && (
+            <div className="of-status-danger" style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+              {error}
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+            <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600 }}>
+              Project
+              <select
+                value={selectedProjectId}
+                onChange={(event) => onProjectChange(event.target.value)}
+                className="of-input"
+                disabled={submitting}
+              >
+                <option value="">Select project</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.display_name} · {project.slug}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600 }}>
+              Branch
+              <select
+                value={selectedBranchId}
+                onChange={(event) => onBranchChange(event.target.value)}
+                className="of-input"
+                disabled={submitting || branches.length === 0}
+              >
+                <option value="">Select branch</option>
+                {branches.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} · {item.status}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {selectedProjectId && branches.length === 0 && (
+            <div className="of-status-warning" style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+              This ontology project does not have a branch to submit for review yet.
+            </div>
+          )}
+
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600 }}>
+            Title
+            <input
+              value={title}
+              onChange={(event) => onTitleChange(event.target.value)}
+              placeholder="Ontology design remediation"
+              className="of-input"
+              disabled={submitting}
+            />
+          </label>
+
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600 }}>
+            Description
+            <textarea
+              rows={5}
+              value={description}
+              onChange={(event) => onDescriptionChange(event.target.value)}
+              placeholder="Summarize the design changes and review context."
+              className="of-input"
+              disabled={submitting}
+            />
+          </label>
+
+          <section style={{ display: 'grid', gap: 8 }}>
+            <p className="of-eyebrow">Reviewers</p>
+            {memberships.length > 0 ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {memberships.map((membership) => {
+                  const selected = selectedReviewerIds.includes(membership.user_id);
+                  return (
+                    <button
+                      key={membership.user_id}
+                      type="button"
+                      onClick={() => onReviewerToggle(membership.user_id)}
+                      className={selected ? 'of-chip of-chip-active' : 'of-chip'}
+                      disabled={submitting}
+                      style={{ cursor: submitting ? 'default' : 'pointer' }}
+                    >
+                      {membership.user_id.slice(0, 8)} · {membership.role}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="of-text-muted" style={{ fontSize: 13 }}>
+                No project memberships were returned for this project.
+              </p>
+            )}
+          </section>
+
+          <section style={{ display: 'grid', gap: 10, borderTop: '1px solid var(--border-default)', paddingTop: 14 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+              <input
+                type="checkbox"
+                checked={includeFindings}
+                onChange={(event) => onIncludeFindingsChange(event.target.checked)}
+                disabled={submitting || findings.length === 0}
+              />
+              Attach outstanding findings as review tasks
+            </label>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {findings.slice(0, 4).map((finding) => (
+                <div key={finding.id} style={{ border: '1px solid var(--border-default)', borderRadius: 6, padding: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <strong style={{ color: 'var(--text-strong)', fontSize: 13 }}>{finding.title}</strong>
+                    <span className="of-chip">{finding.severity}</span>
+                  </div>
+                  <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+                    {finding.affected}
+                  </p>
+                </div>
+              ))}
+              {findings.length > 4 && (
+                <p className="of-text-muted" style={{ fontSize: 12 }}>
+                  +{findings.length - 4} more outstanding findings
+                </p>
+              )}
+            </div>
+          </section>
+
+          {branch && (
+            <div className="of-status-info" style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+              Submitting branch {branch.name} with {includeFindings ? Math.min(findings.length, 8) : 0} generated tasks.
+            </div>
+          )}
+        </div>
+
+        <footer
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+            borderTop: '1px solid var(--border-default)',
+            padding: '12px 16px',
+          }}
+        >
+          <button type="button" className="of-button" onClick={onClose} disabled={submitting}>
+            Cancel
+          </button>
+          <button type="submit" className="of-button of-button--primary" disabled={!canSubmit}>
+            {submitting ? 'Submitting...' : 'Submit proposal'}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
 export function OntologyDesignPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -123,8 +423,19 @@ export function OntologyDesignPage() {
   const [interfaces, setInterfaces] = useState<OntologyInterface[]>([]);
   const [projects, setProjects] = useState<OntologyProject[]>([]);
   const [projectMemberships, setProjectMemberships] = useState<Record<string, OntologyProjectMembership[]>>({});
+  const [branchesByProject, setBranchesByProject] = useState<Record<string, OntologyBranch[]>>({});
   const [propertiesByType, setPropertiesByType] = useState<Record<string, Property[]>>({});
   const [reviewState, setReviewState] = useState<ReviewState>({ dismissed: [], notes: '' });
+  const [proposalOpen, setProposalOpen] = useState(false);
+  const [proposalProjectId, setProposalProjectId] = useState('');
+  const [proposalBranchId, setProposalBranchId] = useState('');
+  const [proposalTitle, setProposalTitle] = useState('Ontology design remediation');
+  const [proposalDescription, setProposalDescription] = useState('');
+  const [proposalReviewerIds, setProposalReviewerIds] = useState<string[]>([]);
+  const [proposalIncludeFindings, setProposalIncludeFindings] = useState(true);
+  const [proposalSubmitting, setProposalSubmitting] = useState(false);
+  const [proposalError, setProposalError] = useState('');
+  const [proposalNotice, setProposalNotice] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +473,19 @@ export function OntologyDesignPage() {
         if (cancelled) return;
         setProjectMemberships(Object.fromEntries(membershipEntries));
 
+        const branchEntries = await Promise.all(
+          projectResponse.data.map(
+            async (project) => [project.id, await listProjectBranches(project.id).catch(() => [])] as const,
+          ),
+        );
+        if (cancelled) return;
+        const branchMap = Object.fromEntries(branchEntries);
+        setBranchesByProject(branchMap);
+        if (projectResponse.data[0]) {
+          setProposalProjectId(projectResponse.data[0].id);
+          setProposalBranchId(branchMap[projectResponse.data[0].id]?.[0]?.id ?? '');
+        }
+
         setReviewState(readReviewState());
       } catch (error) {
         if (cancelled) return;
@@ -175,6 +499,18 @@ export function OntologyDesignPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!proposalProjectId) return;
+    const branches = branchesByProject[proposalProjectId] ?? [];
+    if (!branches.some((branch) => branch.id === proposalBranchId)) {
+      setProposalBranchId(branches[0]?.id ?? '');
+    }
+    setProposalReviewerIds((current) => {
+      const allowed = new Set((projectMemberships[proposalProjectId] ?? []).map((membership) => membership.user_id));
+      return current.filter((reviewerId) => allowed.has(reviewerId));
+    });
+  }, [branchesByProject, projectMemberships, proposalBranchId, proposalProjectId]);
 
   function dismissFinding(id: string) {
     setReviewState((current) => {
@@ -199,6 +535,68 @@ export function OntologyDesignPage() {
       persistReviewState(next);
       return next;
     });
+  }
+
+  function openProposalModal() {
+    const projectId = proposalProjectId || projects[0]?.id || '';
+    const branchId = projectId ? (branchesByProject[projectId]?.[0]?.id ?? '') : '';
+    const highestFinding = outstandingFindings[0];
+    setProposalProjectId(projectId);
+    setProposalBranchId(branchId);
+    setProposalTitle(highestFinding ? `Ontology design remediation: ${highestFinding.title}` : 'Ontology design remediation');
+    setProposalDescription(
+      [
+        `Design score: ${designScore}`,
+        `Outstanding findings: ${outstandingFindings.length}`,
+        reviewState.notes.trim() ? `Review notes: ${reviewState.notes.trim()}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    );
+    setProposalError('');
+    setProposalNotice('');
+    setProposalOpen(true);
+  }
+
+  function toggleProposalReviewer(reviewerId: string) {
+    setProposalReviewerIds((current) =>
+      current.includes(reviewerId) ? current.filter((item) => item !== reviewerId) : [...current, reviewerId],
+    );
+  }
+
+  async function submitProposal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!proposalProjectId || !proposalBranchId) {
+      setProposalError('Select a project and branch before submitting.');
+      return;
+    }
+    if (!proposalTitle.trim()) {
+      setProposalError('Proposal title is required.');
+      return;
+    }
+    setProposalSubmitting(true);
+    setProposalError('');
+    setProposalNotice('');
+    try {
+      const tasks = proposalIncludeFindings ? buildProposalTasks(outstandingFindings, proposalReviewerIds) : [];
+      const proposal = await createProjectProposal(proposalProjectId, {
+        branch_id: proposalBranchId,
+        title: proposalTitle.trim(),
+        description: proposalDescription.trim() || undefined,
+        reviewer_ids: proposalReviewerIds,
+        tasks,
+      });
+      const branches = await listProjectBranches(proposalProjectId).catch(() => null);
+      if (branches) {
+        setBranchesByProject((current) => ({ ...current, [proposalProjectId]: branches }));
+      }
+      setProposalNotice(`Proposal "${proposal.title}" submitted for review with ${tasks.length} task${tasks.length === 1 ? '' : 's'}.`);
+      setProposalOpen(false);
+    } catch (cause) {
+      setProposalError(cause instanceof Error ? cause.message : 'Failed to submit proposal');
+    } finally {
+      setProposalSubmitting(false);
+    }
   }
 
   const findings = useMemo<Finding[]>(() => {
@@ -441,6 +839,11 @@ export function OntologyDesignPage() {
     [findings, reviewState.dismissed, activeSeverity],
   );
 
+  const outstandingFindings = useMemo(
+    () => findings.filter((finding) => !reviewState.dismissed.includes(finding.id)),
+    [findings, reviewState.dismissed],
+  );
+
   const designScore = useMemo(() => {
     let score = 100;
     for (const finding of findings) {
@@ -565,6 +968,14 @@ export function OntologyDesignPage() {
                 </a>
               ))}
             </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 18 }}>
+              <button type="button" className="of-button of-button--primary" onClick={openProposalModal}>
+                Submit proposal
+              </button>
+              <a href="/ontologies" className="of-button">
+                Review branches
+              </a>
+            </div>
           </div>
 
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
@@ -589,6 +1000,11 @@ export function OntologyDesignPage() {
       {loadError && (
         <div className="of-status-danger" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
           {loadError}
+        </div>
+      )}
+      {proposalNotice && (
+        <div className="of-status-success" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+          {proposalNotice}
         </div>
       )}
 
@@ -899,7 +1315,7 @@ export function OntologyDesignPage() {
                 <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
                   {[
                     { label: 'Design score', value: designScore },
-                    { label: 'Outstanding findings', value: visibleFindings.length },
+                    { label: 'Outstanding findings', value: outstandingFindings.length },
                     { label: 'Dismissed findings', value: reviewState.dismissed.length },
                     {
                       label: 'Projects with multiple members',
@@ -917,6 +1333,36 @@ export function OntologyDesignPage() {
           )}
         </>
       )}
+
+      <SubmitProposalModal
+        open={proposalOpen}
+        projects={projects}
+        branchesByProject={branchesByProject}
+        projectMemberships={projectMemberships}
+        selectedProjectId={proposalProjectId}
+        selectedBranchId={proposalBranchId}
+        title={proposalTitle}
+        description={proposalDescription}
+        selectedReviewerIds={proposalReviewerIds}
+        includeFindings={proposalIncludeFindings}
+        findings={outstandingFindings}
+        submitting={proposalSubmitting}
+        error={proposalError}
+        onClose={() => {
+          if (!proposalSubmitting) setProposalOpen(false);
+        }}
+        onProjectChange={(projectId) => {
+          setProposalProjectId(projectId);
+          setProposalBranchId(branchesByProject[projectId]?.[0]?.id ?? '');
+          setProposalReviewerIds([]);
+        }}
+        onBranchChange={setProposalBranchId}
+        onTitleChange={setProposalTitle}
+        onDescriptionChange={setProposalDescription}
+        onReviewerToggle={toggleProposalReviewer}
+        onIncludeFindingsChange={setProposalIncludeFindings}
+        onSubmit={(event) => void submitProposal(event)}
+      />
     </section>
   );
 }

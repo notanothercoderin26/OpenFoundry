@@ -71,6 +71,9 @@ export function FilterBar({ search, dateRange, busy = false, onApply, onReset }:
             type="text"
             value={draftSearch}
             onChange={(e) => setDraftSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') applyFilters();
+            }}
             placeholder="Filter"
             style={{
               marginTop: 3,

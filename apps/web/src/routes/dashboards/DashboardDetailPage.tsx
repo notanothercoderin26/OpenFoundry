@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
+import { ConfirmDialog } from '@components/ConfirmDialog';
 import { DashboardGrid } from '@/lib/components/dashboard/DashboardGrid';
 import { FilterBar } from '@/lib/components/dashboard/FilterBar';
 import { WidgetConfig } from '@/lib/components/dashboard/WidgetConfig';
@@ -18,6 +19,7 @@ import {
   serializeDashboardSnapshot,
   type DashboardDefinition,
   type DashboardFilterState,
+  type DashboardLayoutDensity,
   type DashboardWidget,
   type DashboardWidgetLayout,
 } from '@/lib/utils/dashboards';
@@ -37,12 +39,18 @@ export function DashboardDetailPage() {
   const [editMode, setEditMode] = useState(false);
   const [widgetEditorOpen, setWidgetEditorOpen] = useState(false);
   const [editorWidget, setEditorWidget] = useState<DashboardWidget | null>(null);
+  const [deleteWidgetId, setDeleteWidgetId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState('');
   const [feedbackTone, setFeedbackTone] = useState<'success' | 'error'>('success');
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'dirty' | 'saving' | 'error'>('idle');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [filterBusy, setFilterBusy] = useState(false);
 
   const activeDashboard = dashboard ?? sharedDashboard;
   const readOnlySnapshot = sharedDashboard !== null && dashboard === null;
+  const deletingWidget = activeDashboard?.widgets.find((widget) => widget.id === deleteWidgetId) ?? null;
 
   // Initial load: try local store, fall back to ?snapshot= URL param.
   useEffect(() => {
@@ -51,6 +59,7 @@ export function DashboardDetailPage() {
     if (local) {
       setDashboard(cloneDashboard(local));
       setSharedDashboard(null);
+      setSaveState('idle');
       setLoading(false);
       return;
     }
@@ -58,6 +67,7 @@ export function DashboardDetailPage() {
     if (snapshotParam) {
       try {
         setSharedDashboard(cloneDashboard(deserializeDashboardSnapshot(snapshotParam)));
+        setSaveState('idle');
       } catch {
         setSharedDashboard(null);
       }
@@ -68,22 +78,48 @@ export function DashboardDetailPage() {
   // Re-sync when the underlying store changes (e.g. after `dashboards.save`).
   useEffect(() => {
     if (!dashboardId) return;
+    if (saveState === 'dirty' || saveState === 'saving') return;
     const fresh = dashboardItems.find((entry) => entry.id === dashboardId);
     if (fresh) {
       setDashboard((prev) => (prev && prev.updatedAt === fresh.updatedAt ? prev : cloneDashboard(fresh)));
     }
-  }, [dashboardItems, dashboardId]);
+  }, [dashboardItems, dashboardId, saveState]);
 
-  function persist(next: DashboardDefinition) {
-    setDashboard(cloneDashboard(dashboards.save(next)));
+  function stageDashboard(next: DashboardDefinition) {
+    setDashboard(cloneDashboard(next));
+    setSaveState('dirty');
+    setFeedback('');
+  }
+
+  async function saveDashboard(nextDashboard = dashboard) {
+    if (!nextDashboard) return;
+    setSaveState('saving');
+    setFeedback('');
+    try {
+      const saved = dashboards.save(nextDashboard);
+      setDashboard(cloneDashboard(saved));
+      setSaveState('idle');
+      setFeedbackTone('success');
+      setFeedback('Dashboard saved locally.');
+    } catch (cause) {
+      setSaveState('error');
+      setFeedbackTone('error');
+      setFeedback(cause instanceof Error ? cause.message : 'Unable to save dashboard');
+    }
   }
 
   function updateMetadata(field: 'name' | 'description', value: string) {
-    setDashboard((current) => (current ? { ...current, [field]: value } : current));
+    setDashboard((current) => {
+      if (!current) return current;
+      setSaveState('dirty');
+      setFeedback('');
+      return { ...current, [field]: value };
+    });
   }
 
   function commitMetadata() {
-    if (dashboard) persist(dashboard);
+    if (!dashboard) return;
+    setSaveState('dirty');
   }
 
   function reorderWidgets(fromIndex: number, toIndex: number) {
@@ -91,7 +127,7 @@ export function DashboardDetailPage() {
     const next = { ...dashboard, widgets: [...dashboard.widgets] };
     const [moved] = next.widgets.splice(fromIndex, 1);
     next.widgets.splice(toIndex, 0, moved);
-    persist(next);
+    stageDashboard(next);
   }
 
   function openNewWidget() {
@@ -112,13 +148,17 @@ export function DashboardDetailPage() {
       existingIndex >= 0
         ? dashboard.widgets.map((entry, index) => (index === existingIndex ? widget : entry))
         : [...dashboard.widgets, widget];
-    persist({ ...dashboard, widgets: nextWidgets });
+    stageDashboard({ ...dashboard, widgets: nextWidgets });
   }
 
   function deleteWidget(widgetId: string) {
-    if (!dashboard) return;
-    if (!window.confirm('Delete this widget?')) return;
-    persist({ ...dashboard, widgets: dashboard.widgets.filter((widget) => widget.id !== widgetId) });
+    setDeleteWidgetId(widgetId);
+  }
+
+  function confirmDeleteWidget() {
+    if (!dashboard || !deleteWidgetId) return;
+    stageDashboard({ ...dashboard, widgets: dashboard.widgets.filter((widget) => widget.id !== deleteWidgetId) });
+    setDeleteWidgetId(null);
   }
 
   function duplicateWidget(widgetId: string) {
@@ -129,23 +169,36 @@ export function DashboardDetailPage() {
     const copy = cloneDashboard({ ...source, id: crypto.randomUUID(), title: `${source.title} Copy` });
     const nextWidgets = [...dashboard.widgets];
     nextWidgets.splice(index + 1, 0, copy);
-    persist({ ...dashboard, widgets: nextWidgets });
+    stageDashboard({ ...dashboard, widgets: nextWidgets });
   }
 
   function resizeWidget(widgetId: string, layout: DashboardWidgetLayout) {
     if (!dashboard) return;
-    persist({
+    stageDashboard({
       ...dashboard,
       widgets: dashboard.widgets.map((widget) => (widget.id === widgetId ? { ...widget, layout } : widget)),
     });
   }
 
+  function updateDensity(density: DashboardLayoutDensity) {
+    if (!dashboard) return;
+    stageDashboard({ ...dashboard, layout: { ...dashboard.layout, density } });
+  }
+
   function applyFilters(nextFilters: DashboardFilterState) {
     setFilters(nextFilters);
+    setFilterBusy(true);
+    setRefreshKey((value) => value + 1);
+    window.setTimeout(() => setFilterBusy(false), 250);
   }
 
   function resetFilters() {
     setFilters(createDefaultFilters());
+    setRefreshKey((value) => value + 1);
+  }
+
+  function refreshAllWidgets() {
+    setRefreshKey((value) => value + 1);
   }
 
   async function duplicateDashboard() {
@@ -181,6 +234,17 @@ export function DashboardDetailPage() {
       const resolvedRange = resolveDateRange(filters.dateRange);
       const widgetSections = await Promise.all(
         activeDashboard.widgets.map(async (widget, index) => {
+          if (widget.type === 'text') {
+            return {
+              heading: `${index + 1}. ${widget.title}`,
+              lines: [
+                { text: 'TEXT widget', style: 'muted' },
+                widget.description || 'No widget description provided.',
+                ...widget.content.split('\n').filter(Boolean),
+              ],
+            } satisfies PdfSection;
+          }
+
           const renderedSql = applyDashboardQueryTemplate(widget.query.sql, filters);
           try {
             const result = await executeQuery(renderedSql, Math.min(widget.query.limit, 16));
@@ -256,6 +320,31 @@ export function DashboardDetailPage() {
     navigate(`/dashboards/${imported.id}`);
   }
 
+  async function publishDashboard() {
+    if (!dashboard) return;
+
+    setPublishing(true);
+    setFeedback('');
+
+    try {
+      const now = new Date().toISOString();
+      const published = dashboards.save({
+        ...dashboard,
+        version: dashboard.version + 1,
+        publishedAt: now,
+      });
+      setDashboard(cloneDashboard(published));
+      setSaveState('idle');
+      setFeedbackTone('success');
+      setFeedback(`Dashboard published as v${published.version}.`);
+    } catch (cause) {
+      setFeedbackTone('error');
+      setFeedback(cause instanceof Error ? cause.message : 'Unable to publish dashboard');
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   function closeWidgetEditor() {
     setEditorWidget(null);
     setWidgetEditorOpen(false);
@@ -263,6 +352,15 @@ export function DashboardDetailPage() {
 
   // Memoise the widgets array passed down so child memoisation works.
   const widgets = useMemo(() => activeDashboard?.widgets ?? [], [activeDashboard]);
+  const density = activeDashboard?.layout?.density ?? 'default';
+  const saveStatusLabel =
+    saveState === 'dirty'
+      ? 'Unsaved changes'
+      : saveState === 'saving'
+        ? 'Saving...'
+        : saveState === 'error'
+          ? 'Save failed'
+          : 'Saved';
 
   if (loading) {
     return (
@@ -298,7 +396,7 @@ export function DashboardDetailPage() {
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
           <div style={{ maxWidth: 720, display: 'grid', gap: 7 }}>
             <Link to="/dashboards" className="of-link" style={{ fontSize: 12 }}>
-              ← Back to dashboards
+              Back to dashboards
             </Link>
 
             {dashboard ? (
@@ -352,7 +450,13 @@ export function DashboardDetailPage() {
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               <span className="of-chip">{activeDashboard.widgets.length} widgets</span>
+              <span className="of-chip">v{activeDashboard.version}</span>
+              <span className="of-chip">{density} layout</span>
               <span className="of-chip">Updated {formatDashboardTimestamp(activeDashboard.updatedAt)}</span>
+              {activeDashboard.publishedAt && (
+                <span className="of-chip">Published {formatDashboardTimestamp(activeDashboard.publishedAt)}</span>
+              )}
+              {dashboard && <span className={`of-chip ${saveState === 'dirty' ? 'of-chip-active' : ''}`}>{saveStatusLabel}</span>}
             </div>
           </div>
 
@@ -361,13 +465,26 @@ export function DashboardDetailPage() {
               <>
                 <button
                   type="button"
-                  className={editMode ? 'of-btn of-btn-primary' : 'of-btn'}
-                  onClick={() => setEditMode((value) => !value)}
+                  className={!editMode ? 'of-btn of-btn-primary' : 'of-btn'}
+                  onClick={() => setEditMode(false)}
                 >
-                  {editMode ? 'Done layout' : 'Edit layout'}
+                  Runtime
+                </button>
+                <button
+                  type="button"
+                  className={editMode ? 'of-btn of-btn-primary' : 'of-btn'}
+                  onClick={() => setEditMode(true)}
+                >
+                  Edit layout
+                </button>
+                <button type="button" className="of-btn" onClick={() => void saveDashboard()} disabled={saveState !== 'dirty'}>
+                  {saveState === 'saving' ? 'Saving...' : 'Save changes'}
                 </button>
                 <button type="button" className="of-btn of-btn-primary" onClick={openNewWidget}>
                   Add widget
+                </button>
+                <button type="button" className="of-btn" onClick={() => void publishDashboard()} disabled={publishing}>
+                  {publishing ? 'Publishing...' : 'Publish'}
                 </button>
               </>
             ) : (
@@ -375,11 +492,14 @@ export function DashboardDetailPage() {
                 Save copy
               </button>
             )}
+            <button type="button" className="of-btn" onClick={refreshAllWidgets}>
+              Refresh all
+            </button>
             <button type="button" className="of-btn" onClick={duplicateDashboard}>
               Duplicate
             </button>
             <button type="button" className="of-btn" onClick={exportDashboardPdf} disabled={exportingPdf}>
-              {exportingPdf ? 'Exporting PDF…' : 'Export PDF'}
+              {exportingPdf ? 'Exporting PDF...' : 'Export PDF'}
             </button>
             <button type="button" className="of-btn" onClick={shareDashboard}>
               Share
@@ -396,6 +516,27 @@ export function DashboardDetailPage() {
           </div>
         )}
 
+        {dashboard && editMode && (
+          <div className="of-toolbar" style={{ marginTop: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <div>
+              <span className="of-eyebrow">Editor controls</span>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600 }}>
+              Density
+              <select
+                className="of-select"
+                value={dashboard.layout.density}
+                onChange={(e) => updateDensity(e.target.value as DashboardLayoutDensity)}
+                style={{ width: 132 }}
+              >
+                <option value="default">Default</option>
+                <option value="compact">Compact</option>
+                <option value="stretched">Stretched</option>
+              </select>
+            </label>
+          </div>
+        )}
+
         {feedback && (
           <div
             className={feedbackTone === 'error' ? 'of-status-danger' : 'of-status-success'}
@@ -409,6 +550,7 @@ export function DashboardDetailPage() {
       <FilterBar
         search={filters.search}
         dateRange={filters.dateRange}
+        busy={filterBusy}
         onApply={applyFilters}
         onReset={resetFilters}
       />
@@ -416,6 +558,8 @@ export function DashboardDetailPage() {
       <DashboardGrid
         widgets={widgets}
         filters={filters}
+        density={density}
+        refreshKey={refreshKey}
         editing={editMode && !readOnlySnapshot}
         onReorder={reorderWidgets}
         onEditWidget={openWidgetEditor}
@@ -429,6 +573,16 @@ export function DashboardDetailPage() {
         initialWidget={editorWidget}
         onSave={saveWidget}
         onClose={closeWidgetEditor}
+      />
+
+      <ConfirmDialog
+        open={deleteWidgetId !== null}
+        title="Delete widget"
+        message={`Delete ${deletingWidget?.title ?? 'this widget'} from the dashboard draft?`}
+        confirmLabel="Delete"
+        danger
+        onConfirm={confirmDeleteWidget}
+        onCancel={() => setDeleteWidgetId(null)}
       />
     </section>
   );

@@ -75,69 +75,70 @@ func DefaultRateLimit() RateLimitConfig {
 // match the Rust struct fields (snake_case) so a single values.yaml
 // drives both gateways.
 type UpstreamURLs struct {
-	IdentityFederation             string `koanf:"identity_federation_service_url"`
-	OauthIntegration               string `koanf:"oauth_integration_service_url"`
-	SessionGovernance              string `koanf:"session_governance_service_url"`
-	AuthorizationPolicy            string `koanf:"authorization_policy_service_url"`
-	SecurityGovernance             string `koanf:"security_governance_service_url"`
-	TenancyOrganizations           string `koanf:"tenancy_organizations_service_url"`
-	Cipher                         string `koanf:"cipher_service_url"`
-	DataConnector                  string `koanf:"data_connector_service_url"`
-	ConnectorManagement            string `koanf:"connector_management_service_url"`
-	VirtualTable                   string `koanf:"virtual_table_service_url"`
-	IngestionReplication           string `koanf:"ingestion_replication_service_url"`
-	DatasetVersioning              string `koanf:"dataset_versioning_service_url"`
-	DataAssetCatalog               string `koanf:"data_asset_catalog_service_url"`
-	DatasetQuality                 string `koanf:"dataset_quality_service_url"`
-	IcebergCatalog                 string `koanf:"iceberg_catalog_service_url"`
-	Query                          string `koanf:"query_service_url"`
-	PipelineAuthoring              string `koanf:"pipeline_authoring_service_url"`
-	PipelineBuild                  string `koanf:"pipeline_build_service_url"`
-	PipelineSchedule               string `koanf:"pipeline_schedule_service_url"`
-	Lineage                        string `koanf:"lineage_service_url"`
-	OntologyDefinition             string `koanf:"ontology_definition_service_url"`
-	ObjectDatabase                 string `koanf:"object_database_service_url"`
-	OntologyQuery                  string `koanf:"ontology_query_service_url"`
-	OntologyActions                string `koanf:"ontology_actions_service_url"`
-	Ontology                       string `koanf:"ontology_service_url"`
-	Workflow                       string `koanf:"workflow_service_url"`
-	Approvals                      string `koanf:"approvals_service_url"`
-	Notebook                       string `koanf:"notebook_service_url"`
-	Notification                   string `koanf:"notification_service_url"`
-	AppBuilder                     string `koanf:"app_builder_service_url"`
-	ApplicationCuration            string `koanf:"application_curation_service_url"`
-	ApplicationComposition         string `koanf:"application_composition_service_url"`
-	ML                             string `koanf:"ml_service_url"`
-	ModelCatalog                   string `koanf:"model_catalog_service_url"`
-	ModelDeployment                string `koanf:"model_deployment_service_url"`
-	ModelEvaluation                string `koanf:"model_evaluation_service_url"`
-	ModelServing                   string `koanf:"model_serving_service_url"`
-	ModelInferenceHistory          string `koanf:"model_inference_history_service_url"`
-	AI                             string `koanf:"ai_service_url"`
-	LLMCatalog                     string `koanf:"llm_catalog_service_url"`
-	PromptWorkflow                 string `koanf:"prompt_workflow_service_url"`
-	KnowledgeIndex                 string `koanf:"knowledge_index_service_url"`
-	RetrievalContext               string `koanf:"retrieval_context_service_url"`
-	ConversationState              string `koanf:"conversation_state_service_url"`
-	AIEvaluation                   string `koanf:"ai_evaluation_service_url"`
-	DocumentReporting              string `koanf:"document_reporting_service_url"`
-	EntityResolution               string `koanf:"entity_resolution_service_url"`
-	Streaming                      string `koanf:"streaming_service_url"`
-	Report                         string `koanf:"report_service_url"`
-	GeospatialIntelligence         string `koanf:"geospatial_intelligence_service_url"`
-	CodeRepo                       string `koanf:"code_repo_service_url"`
-	GlobalBranch                   string `koanf:"global_branch_service_url"`
-	MarketplaceCatalog             string `koanf:"marketplace_catalog_service_url"`
-	ProductDistribution            string `koanf:"product_distribution_service_url"`
-	FederationProductExchange      string `koanf:"federation_product_exchange_service_url"`
-	CheckpointsPurpose             string `koanf:"checkpoints_purpose_service_url"`
-	NetworkBoundary                string `koanf:"network_boundary_service_url"`
-	RetentionPolicy                string `koanf:"retention_policy_service_url"`
-	LineageDeletion                string `koanf:"lineage_deletion_service_url"`
-	AuditCompliance                string `koanf:"audit_compliance_service_url"`
-	Audit                          string `koanf:"audit_service_url"`
-	SDS                            string `koanf:"sds_service_url"`
-	Nexus                          string `koanf:"nexus_service_url"`
+	IdentityFederation        string `koanf:"identity_federation_service_url"`
+	OauthIntegration          string `koanf:"oauth_integration_service_url"`
+	SessionGovernance         string `koanf:"session_governance_service_url"`
+	AuthorizationPolicy       string `koanf:"authorization_policy_service_url"`
+	SecurityGovernance        string `koanf:"security_governance_service_url"`
+	TenancyOrganizations      string `koanf:"tenancy_organizations_service_url"`
+	Cipher                    string `koanf:"cipher_service_url"`
+	DataConnector             string `koanf:"data_connector_service_url"`
+	ConnectorManagement       string `koanf:"connector_management_service_url"`
+	VirtualTable              string `koanf:"virtual_table_service_url"`
+	IngestionReplication      string `koanf:"ingestion_replication_service_url"`
+	DatasetVersioning         string `koanf:"dataset_versioning_service_url"`
+	DataAssetCatalog          string `koanf:"data_asset_catalog_service_url"`
+	DatasetQuality            string `koanf:"dataset_quality_service_url"`
+	IcebergCatalog            string `koanf:"iceberg_catalog_service_url"`
+	Query                     string `koanf:"query_service_url"`
+	PipelineAuthoring         string `koanf:"pipeline_authoring_service_url"`
+	PipelineBuild             string `koanf:"pipeline_build_service_url"`
+	PipelineSchedule          string `koanf:"pipeline_schedule_service_url"`
+	Lineage                   string `koanf:"lineage_service_url"`
+	OntologyDefinition        string `koanf:"ontology_definition_service_url"`
+	ObjectDatabase            string `koanf:"object_database_service_url"`
+	OntologyQuery             string `koanf:"ontology_query_service_url"`
+	OntologyActions           string `koanf:"ontology_actions_service_url"`
+	Ontology                  string `koanf:"ontology_service_url"`
+	Workflow                  string `koanf:"workflow_service_url"`
+	Approvals                 string `koanf:"approvals_service_url"`
+	Notebook                  string `koanf:"notebook_service_url"`
+	Notification              string `koanf:"notification_service_url"`
+	AppBuilder                string `koanf:"app_builder_service_url"`
+	ApplicationCuration       string `koanf:"application_curation_service_url"`
+	ApplicationComposition    string `koanf:"application_composition_service_url"`
+	ML                        string `koanf:"ml_service_url"`
+	ModelCatalog              string `koanf:"model_catalog_service_url"`
+	ModelDeployment           string `koanf:"model_deployment_service_url"`
+	ModelEvaluation           string `koanf:"model_evaluation_service_url"`
+	ModelServing              string `koanf:"model_serving_service_url"`
+	ModelInferenceHistory     string `koanf:"model_inference_history_service_url"`
+	AI                        string `koanf:"ai_service_url"`
+	LLMCatalog                string `koanf:"llm_catalog_service_url"`
+	PromptWorkflow            string `koanf:"prompt_workflow_service_url"`
+	KnowledgeIndex            string `koanf:"knowledge_index_service_url"`
+	RetrievalContext          string `koanf:"retrieval_context_service_url"`
+	ConversationState         string `koanf:"conversation_state_service_url"`
+	AIEvaluation              string `koanf:"ai_evaluation_service_url"`
+	DocumentReporting         string `koanf:"document_reporting_service_url"`
+	EntityResolution          string `koanf:"entity_resolution_service_url"`
+	Streaming                 string `koanf:"streaming_service_url"`
+	Report                    string `koanf:"report_service_url"`
+	GeospatialIntelligence    string `koanf:"geospatial_intelligence_service_url"`
+	CodeRepo                  string `koanf:"code_repo_service_url"`
+	GlobalBranch              string `koanf:"global_branch_service_url"`
+	MarketplaceCatalog        string `koanf:"marketplace_catalog_service_url"`
+	ProductDistribution       string `koanf:"product_distribution_service_url"`
+	FederationProductExchange string `koanf:"federation_product_exchange_service_url"`
+	CheckpointsPurpose        string `koanf:"checkpoints_purpose_service_url"`
+	NetworkBoundary           string `koanf:"network_boundary_service_url"`
+	RetentionPolicy           string `koanf:"retention_policy_service_url"`
+	LineageDeletion           string `koanf:"lineage_deletion_service_url"`
+	AuditCompliance           string `koanf:"audit_compliance_service_url"`
+	Audit                     string `koanf:"audit_service_url"`
+	SDS                       string `koanf:"sds_service_url"`
+	Nexus                     string `koanf:"nexus_service_url"`
+	TelemetryGovernance       string `koanf:"telemetry_governance_service_url"`
 }
 
 // DefaultUpstreams returns the default localhost ports the Rust crate
@@ -207,6 +208,7 @@ func DefaultUpstreams() UpstreamURLs {
 		Audit:                     "http://localhost:50115",
 		SDS:                       "http://localhost:50076",
 		Nexus:                     "http://localhost:50067",
+		TelemetryGovernance:       "http://localhost:50153",
 	}
 }
 
@@ -374,5 +376,6 @@ func upstreamMap(u UpstreamURLs) map[string]any {
 		"audit_service_url":                       u.Audit,
 		"sds_service_url":                         u.SDS,
 		"nexus_service_url":                       u.Nexus,
+		"telemetry_governance_service_url":        u.TelemetryGovernance,
 	}
 }

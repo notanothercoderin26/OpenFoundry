@@ -147,7 +147,7 @@ export function ScheduleConfig({ pipelineId, scheduleRid, config, readOnly = fal
             />
           </label>
 
-          {config.enabled && config.cron && (
+          {config.enabled && config.cron && pipelineId && (
             <section>
               <p className="of-eyebrow" style={{ fontSize: 10, marginBottom: 4 }}>Next windows</p>
               {previewLoading && <p style={{ color: '#94a3b8', fontSize: 11, margin: 0 }}>Computing…</p>}

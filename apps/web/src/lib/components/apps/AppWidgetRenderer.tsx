@@ -124,28 +124,31 @@ export function AppWidgetRenderer({
   const [agentResponse, setAgentResponse] = useState<AgentExecutionResponse | null>(null);
 
   const initialScenarioFiredRef = useRef<string | null>(null);
+  const props = widget.props ?? {};
+  const widgetEvents = Array.isArray(widget.events) ? widget.events : [];
+  const childWidgets = Array.isArray(widget.children) ? widget.children : [];
 
   const stringProp = (key: string, fallback: string) => {
-    const v = widget.props?.[key];
+    const v = props[key];
     return typeof v === 'string' ? v : fallback;
   };
   const numberProp = (key: string, fallback: number) => {
-    const v = widget.props?.[key];
+    const v = props[key];
     if (typeof v === 'number' && Number.isFinite(v)) return v;
     if (typeof v === 'string') { const n = Number(v); return Number.isFinite(n) ? n : fallback; }
     return fallback;
   };
   const booleanProp = (key: string, fallback: boolean) => {
-    const v = widget.props?.[key];
+    const v = props[key];
     return typeof v === 'boolean' ? v : fallback;
   };
   const arrayProp = (key: string) => {
-    const v = widget.props?.[key];
+    const v = props[key];
     return Array.isArray(v) ? v : [];
   };
 
-  const formFields = useMemo(() => parseFormFields(widget.props.fields), [widget.props.fields]);
-  const scenarioParameters = useMemo(() => parseScenarioParameters(widget.props.parameters), [widget.props.parameters]);
+  const formFields = useMemo(() => parseFormFields(props.fields), [props.fields]);
+  const scenarioParameters = useMemo(() => parseScenarioParameters(props.parameters), [props.parameters]);
   const content = interpolate(stringProp('content', ''), runtimeParameters);
   const imageUrl = interpolate(stringProp('url', ''), runtimeParameters);
   const imageAlt = stringProp('alt', widget.title);
@@ -247,7 +250,7 @@ export function AppWidgetRenderer({
   }, [widget.id, widget.binding, runtimeParameters]);
 
   async function triggerEvents(trigger: string, payload?: Record<string, unknown>) {
-    const events = widget.events.filter((e) => e.trigger === trigger);
+    const events = widgetEvents.filter((e) => e.trigger === trigger);
     if (events.length === 0 && trigger === 'scenario_change') {
       await onAction?.({
         id: `${widget.id}-scenario-default`, trigger, action: 'set_parameters',
@@ -326,9 +329,9 @@ export function AppWidgetRenderer({
   // Map points
   const mapPoints = useMemo(() => {
     if (!result) return [] as Array<{ x: number; y: number; label: string }>;
-    const latField = typeof widget.props.latitude_field === 'string' ? widget.props.latitude_field : 'lat';
-    const lonField = typeof widget.props.longitude_field === 'string' ? widget.props.longitude_field : 'lon';
-    const labelField = typeof widget.props.label_field === 'string' ? widget.props.label_field : result.columns[0]?.name;
+    const latField = typeof props.latitude_field === 'string' ? props.latitude_field : 'lat';
+    const lonField = typeof props.longitude_field === 'string' ? props.longitude_field : 'lon';
+    const labelField = typeof props.label_field === 'string' ? props.label_field : result.columns[0]?.name;
     const li = result.columns.findIndex((c) => c.name === latField);
     const oi = result.columns.findIndex((c) => c.name === lonField);
     const lbi = result.columns.findIndex((c) => c.name === labelField);
@@ -344,7 +347,7 @@ export function AppWidgetRenderer({
         };
       })
       .filter((p): p is { x: number; y: number; label: string } => Boolean(p));
-  }, [result, widget.props]);
+  }, [result, props]);
 
   const contentLines = content.split('\n');
 
@@ -518,12 +521,20 @@ export function AppWidgetRenderer({
       ) : widget.widget_type === 'container' ? (
         <div className="flex flex-1 flex-col gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
           <div className="text-sm font-medium text-slate-600">{stringProp('title', widget.title)}</div>
-          {widget.children.length === 0 ? (
+          {childWidgets.length === 0 ? (
             <div className="flex flex-1 items-center justify-center text-sm text-slate-400">Drop related widgets inside this section from a template or nested configuration.</div>
           ) : (
             <div className="grid flex-1 gap-3 md:grid-cols-2">
-              {widget.children.map((child) => (
-                <AppWidgetRenderer key={child.id} widget={child} globalFilter={globalFilter} runtimeParameters={runtimeParameters} onAction={onAction} />
+              {childWidgets.map((child) => (
+                <AppWidgetRenderer
+                  key={child.id}
+                  widget={child}
+                  globalFilter={globalFilter}
+                  runtimeParameters={runtimeParameters}
+                  interactivePromptSeed={interactivePromptSeed}
+                  primaryInteractiveAgentWidgetId={primaryInteractiveAgentWidgetId}
+                  onAction={onAction}
+                />
               ))}
             </div>
           )}

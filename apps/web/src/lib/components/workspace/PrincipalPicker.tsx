@@ -2,10 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 
 import { listGroups, listUsers, type GroupRecord, type UserProfile } from '@/lib/api/auth';
 
+export interface PrincipalPick {
+  id: string;
+  label: string;
+  sublabel?: string;
+  profile?: UserProfile;
+  group?: GroupRecord;
+}
+
 interface PrincipalPickerProps {
   kind: 'user' | 'group';
   value: string;
-  onChange: (next: { id: string; label: string }) => void;
+  onChange: (next: PrincipalPick) => void;
   placeholder?: string;
 }
 
@@ -49,9 +57,9 @@ export function PrincipalPicker({ kind, value, onChange, placeholder = 'Search b
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
 
-  const items = kind === 'user'
-    ? users.map((u) => ({ id: u.id, label: u.name, sublabel: u.email }))
-    : groups.map((g) => ({ id: g.id, label: g.name, sublabel: g.description ?? '' }));
+  const items: Array<PrincipalPick> = kind === 'user'
+    ? users.map((u) => ({ id: u.id, label: u.name, sublabel: u.email, profile: u }))
+    : groups.map((g) => ({ id: g.id, label: g.name, sublabel: g.description ?? '', group: g }));
 
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
@@ -65,7 +73,7 @@ export function PrincipalPicker({ kind, value, onChange, placeholder = 'Search b
           else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => Math.max(0, h - 1)); }
           else if (e.key === 'Enter' && items[highlight]) {
             e.preventDefault();
-            onChange({ id: items[highlight].id, label: items[highlight].label });
+            onChange(items[highlight]);
             setOpen(false);
           }
         }}
@@ -86,7 +94,7 @@ export function PrincipalPicker({ kind, value, onChange, placeholder = 'Search b
               key={it.id}
               type="button"
               onMouseEnter={() => setHighlight(i)}
-              onClick={() => { onChange({ id: it.id, label: it.label }); setOpen(false); setQuery(''); }}
+              onClick={() => { onChange(it); setOpen(false); setQuery(''); }}
               style={{
                 width: '100%',
                 textAlign: 'left',

@@ -19,6 +19,9 @@ func TestRewriteUpstreamPath(t *testing.T) {
 		{"/api/v1/datasets/abc/filesystem", "/v1/datasets/abc/files"},
 		{"/api/v1/datasets/abc/files", "/v1/datasets/abc/files"},
 		{"/api/v1/datasets/catalog/facets", "/v1/catalog/facets"},
+		{"/api/v1/monitoring/views", "/api/v1/monitoring-views"},
+		{"/api/v1/monitoring/views/abc/rules", "/api/v1/monitoring-views/abc/rules"},
+		{"/api/v1/monitoring/rules/abc/pause", "/api/v1/monitor-rules/abc/pause"},
 		{"/api/v1/pipelines", "/api/v1/pipelines"}, // not rewritten
 		{"/healthz", "/healthz"},
 	}

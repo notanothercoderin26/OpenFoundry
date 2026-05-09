@@ -33,6 +33,8 @@ func Mount(r chi.Router, state *ontologykernel.AppState) {
 	r.Post("/actions", CreateActionType(state))
 	r.Get("/actions/{id}", GetActionType(state))
 	r.Put("/actions/{id}", UpdateActionType(state))
+	// Keep PUT for route parity, and accept PATCH for the frontend edit drawer contract.
+	r.Patch("/actions/{id}", UpdateActionType(state))
 	r.Delete("/actions/{id}", DeleteActionType(state))
 	r.Post("/actions/{id}/validate", ValidateAction(state))
 	r.Post("/actions/{id}/execute", ExecuteAction(state))

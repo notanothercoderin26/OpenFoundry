@@ -87,7 +87,10 @@ func mountStreamingMonitors(api chi.Router, h *streamingmonitors.Handlers) {
 	})
 	api.Route("/monitor-rules", func(g chi.Router) {
 		g.Get("/", h.ListRules)
+		g.Post("/", h.CreateGlobalRule)
 		g.Patch("/{id}", h.PatchRule)
+		g.Post("/{id}/pause", h.PauseRule)
+		g.Post("/{id}/resume", h.ResumeRule)
 		g.Delete("/{id}", h.DeleteRule)
 		g.Get("/{id}/evaluations", h.ListEvaluations)
 	})

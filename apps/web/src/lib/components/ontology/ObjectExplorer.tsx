@@ -1,16 +1,30 @@
 import { useEffect, useState } from 'react';
 
-import { listObjects, listProperties, queryObjects, type ObjectInstance, type Property } from '@/lib/api/ontology';
+import { listObjects, listProperties, queryObjects, type ObjectInstance, type ObjectType, type Property } from '@/lib/api/ontology';
+import { InlineEditCell } from './InlineEditCell';
 import { ObjectCard } from './ObjectCard';
 
 interface ObjectExplorerProps {
   typeId: string;
+  objectType?: ObjectType | null;
   properties?: Property[];
   pageSize?: number;
+  editable?: boolean;
+  reloadSignal?: number;
   onSelect?: (object: ObjectInstance) => void;
+  onObjectUpdated?: (object: ObjectInstance) => void;
 }
 
-export function ObjectExplorer({ typeId, properties: propertiesProp, pageSize = 50, onSelect }: ObjectExplorerProps) {
+export function ObjectExplorer({
+  typeId,
+  objectType = null,
+  properties: propertiesProp,
+  pageSize = 50,
+  editable = false,
+  reloadSignal = 0,
+  onSelect,
+  onObjectUpdated,
+}: ObjectExplorerProps) {
   const [properties, setProperties] = useState<Property[]>(propertiesProp ?? []);
   const [objects, setObjects] = useState<ObjectInstance[]>([]);
   const [filters, setFilters] = useState<Array<{ name: string; value: string }>>([]);
@@ -57,11 +71,26 @@ export function ObjectExplorer({ typeId, properties: propertiesProp, pageSize = 
     }
   }
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [typeId, page, marking]);
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [typeId, page, marking, reloadSignal]);
 
   function addFilter() {
     setFilters((prev) => [...prev, { name: properties[0]?.name ?? '', value: '' }]);
   }
+
+  function updateObjectProperty(object: ObjectInstance, property: Property, value: unknown) {
+    const next = {
+      ...object,
+      properties: {
+        ...(object.properties ?? {}),
+        [property.name]: value,
+      },
+      updated_at: new Date().toISOString(),
+    };
+    setObjects((prev) => prev.map((candidate) => (candidate.id === object.id ? next : candidate)));
+    onObjectUpdated?.(next);
+  }
+
+  const visibleProperties = properties.slice(0, 5);
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, color: '#e2e8f0' }}>
@@ -111,10 +140,11 @@ export function ObjectExplorer({ typeId, properties: propertiesProp, pageSize = 
             <thead>
               <tr>
                 <th style={{ textAlign: 'left', padding: 6, borderBottom: '1px solid #1f2937' }}>Object id</th>
-                {properties.slice(0, 5).map((p) => (
+                {visibleProperties.map((p) => (
                   <th key={p.id} style={{ textAlign: 'left', padding: 6, borderBottom: '1px solid #1f2937' }}>{p.display_name || p.name}</th>
                 ))}
                 <th style={{ textAlign: 'left', padding: 6, borderBottom: '1px solid #1f2937' }}>Marking</th>
+                {onSelect && <th style={{ textAlign: 'right', padding: 6, borderBottom: '1px solid #1f2937' }}>Open</th>}
               </tr>
             </thead>
             <tbody>
@@ -125,14 +155,41 @@ export function ObjectExplorer({ typeId, properties: propertiesProp, pageSize = 
                   style={{ cursor: onSelect ? 'pointer' : 'default', borderBottom: '1px solid #1f2937' }}
                 >
                   <td style={{ padding: 6, fontFamily: 'var(--font-mono)' }}>{o.id.slice(0, 12)}…</td>
-                  {properties.slice(0, 5).map((p) => (
-                    <td key={p.id} style={{ padding: 6 }}>{String(o.properties?.[p.name] ?? '')}</td>
+                  {visibleProperties.map((p) => (
+                    <td key={p.id} style={{ padding: 6 }}>
+                      {editable ? (
+                        <InlineEditCell
+                          typeId={typeId}
+                          objectId={o.id}
+                          property={p}
+                          value={o.properties?.[p.name]}
+                          onUpdated={(value) => updateObjectProperty(o, p, value)}
+                        />
+                      ) : (
+                        String(o.properties?.[p.name] ?? '')
+                      )}
+                    </td>
                   ))}
                   <td style={{ padding: 6 }}>{o.marking ?? '—'}</td>
+                  {onSelect && (
+                    <td style={{ padding: 6, textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelect(o);
+                        }}
+                        className="of-button"
+                        style={{ fontSize: 11 }}
+                      >
+                        Open
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
               {objects.length === 0 && !loading && (
-                <tr><td colSpan={properties.length + 2} style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>No objects.</td></tr>
+                <tr><td colSpan={visibleProperties.length + 2 + (onSelect ? 1 : 0)} style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>No objects.</td></tr>
               )}
             </tbody>
           </table>
@@ -140,7 +197,7 @@ export function ObjectExplorer({ typeId, properties: propertiesProp, pageSize = 
       ) : (
         <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
           {objects.map((o) => (
-            <ObjectCard key={o.id} object={o} properties={properties} onClick={onSelect ? () => onSelect(o) : undefined} />
+            <ObjectCard key={o.id} object={o} properties={properties} objectType={objectType} onClick={onSelect ? () => onSelect(o) : undefined} />
           ))}
         </div>
       )}

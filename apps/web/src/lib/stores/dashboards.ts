@@ -2,8 +2,10 @@ import { useSyncExternalStore } from 'react';
 
 import {
   createDashboard,
+  createDashboardFromTemplate,
   createStarterDashboards,
   duplicateDashboardDefinition,
+  normalizeDashboardDefinition,
   type DashboardDefinition,
 } from '../utils/dashboards';
 
@@ -53,7 +55,7 @@ function restore() {
       persist(createStarterDashboards());
       return;
     }
-    setSnapshot(parsed);
+    setSnapshot(parsed.map((dashboard) => normalizeDashboardDefinition(dashboard)));
   } catch {
     persist(createStarterDashboards());
   }
@@ -65,9 +67,15 @@ function create(name?: string) {
   return dashboard;
 }
 
+function createFromTemplate(templateId: string, name?: string) {
+  const dashboard = createDashboardFromTemplate(templateId, name);
+  persist([...snapshot, dashboard]);
+  return dashboard;
+}
+
 function save(dashboard: DashboardDefinition) {
   const next: DashboardDefinition = {
-    ...dashboard,
+    ...normalizeDashboardDefinition(dashboard),
     updatedAt: new Date().toISOString(),
   };
   const has = snapshot.some((entry) => entry.id === dashboard.id);
@@ -100,6 +108,7 @@ export const dashboards = {
   getSnapshot,
   restore,
   create,
+  createFromTemplate,
   save,
   remove,
   duplicate,

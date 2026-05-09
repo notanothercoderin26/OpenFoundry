@@ -7,6 +7,10 @@ import { NotFound } from './routes/NotFound';
 
 export const router = createBrowserRouter([
   {
+    path: '/apps/runtime/:slug',
+    lazy: async () => ({ Component: (await import('./routes/apps/AppRuntimePage')).AppRuntimePage }),
+  },
+  {
     path: '/auth',
     element: <AuthLayout />,
     children: [
@@ -17,6 +21,10 @@ export const router = createBrowserRouter([
       {
         path: 'register',
         lazy: async () => ({ Component: (await import('./routes/auth/RegisterPage')).RegisterPage }),
+      },
+      {
+        path: 'setup',
+        lazy: async () => ({ Component: (await import('./routes/auth/SetupPage')).SetupPage }),
       },
       {
         path: 'mfa',
@@ -259,6 +267,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/pipelines/PipelineEditPage')).PipelineEditPage }),
       },
       {
+        path: 'pipelines/:id/runs/:runId',
+        lazy: async () => ({ Component: (await import('./routes/pipelines/PipelineEditPage')).PipelineEditPage }),
+      },
+      {
         path: 'schedules/:rid',
         lazy: async () => ({ Component: (await import('./routes/schedules/ScheduleDetailPage')).ScheduleDetailPage }),
       },
@@ -293,10 +305,6 @@ export const router = createBrowserRouter([
       {
         path: 'apps',
         lazy: async () => ({ Component: (await import('./routes/apps/AppsPage')).AppsPage }),
-      },
-      {
-        path: 'apps/runtime/:slug',
-        lazy: async () => ({ Component: (await import('./routes/apps/AppRuntimePage')).AppRuntimePage }),
       },
       {
         path: 'data-connection',

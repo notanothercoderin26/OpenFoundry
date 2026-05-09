@@ -63,6 +63,7 @@ upstream:
   retrieval_context_service_url: "http://localhost:50098"
   ai_evaluation_service_url: "http://localhost:50075"
   audit_compliance_service_url: "http://localhost:50115"
+  telemetry_governance_service_url: "http://localhost:50153"
   federation_product_exchange_service_url: "http://localhost:50120"
   network_boundary_service_url: "http://localhost:50119"
   # Other upstream URLs use code-side defaults from internal/config/config.go.

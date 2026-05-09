@@ -40,7 +40,7 @@ export function InlineEditCell({ typeId, objectId, property, value, onUpdated }:
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const editable = Boolean(property.inline_edit_config);
+  const editable = Boolean(property.inline_edit_config && property.inline_edit_config.enabled !== false);
 
   function startEditing() {
     if (!editable) return;
@@ -73,13 +73,13 @@ export function InlineEditCell({ typeId, objectId, property, value, onUpdated }:
       property.property_type === 'date' ? 'date' :
       property.property_type === 'integer' || property.property_type === 'float' ? 'number' : 'text';
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div onClick={(event) => event.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {property.property_type === 'boolean' ? (
           <select
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={() => void commit()}
-            onKeyDown={(e) => { if (e.key === 'Enter') void commit(); else if (e.key === 'Escape') { setEditing(false); setError(''); } }}
+            onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') void commit(); else if (e.key === 'Escape') { setEditing(false); setError(''); } }}
             disabled={saving}
             className="of-input"
             style={{ fontSize: 12, borderColor: '#10b981' }}
@@ -92,7 +92,7 @@ export function InlineEditCell({ typeId, objectId, property, value, onUpdated }:
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={() => void commit()}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void commit(); } else if (e.key === 'Escape') { e.preventDefault(); setEditing(false); setError(''); } }}
+            onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); void commit(); } else if (e.key === 'Escape') { e.preventDefault(); setEditing(false); setError(''); } }}
             disabled={saving}
             autoFocus
             type={inputType}
@@ -110,7 +110,11 @@ export function InlineEditCell({ typeId, objectId, property, value, onUpdated }:
   return (
     <button
       type="button"
-      onDoubleClick={startEditing}
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        startEditing();
+      }}
       title={editable ? 'Double-click to edit' : 'No inline edit configured'}
       style={{
         display: 'block',

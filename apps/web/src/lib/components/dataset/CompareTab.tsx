@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-import type { DatasetBranch, DatasetFilesystemEntry, DatasetTransaction } from '@/lib/api/datasets';
+import type { DatasetBranch, DatasetTransaction } from '@/lib/api/datasets';
 
 export interface SchemaField {
   name: string;
@@ -11,7 +11,12 @@ export interface SchemaField {
 export interface CompareSide {
   label: string;
   schema: SchemaField[];
-  files: DatasetFilesystemEntry[];
+  files: CompareFile[];
+}
+
+export interface CompareFile {
+  path: string;
+  size_bytes?: number;
 }
 
 export type CompareSelector = { kind: 'transaction' | 'branch'; value: string };
@@ -43,12 +48,12 @@ function diffSchemas(a: SchemaField[], b: SchemaField[]) {
   return { added, removed, modified };
 }
 
-function diffFiles(a: DatasetFilesystemEntry[], b: DatasetFilesystemEntry[]) {
+function diffFiles(a: CompareFile[], b: CompareFile[]) {
   const aMap = new Map(a.map((f) => [f.path, f]));
   const bMap = new Map(b.map((f) => [f.path, f]));
-  const added: DatasetFilesystemEntry[] = [];
-  const removed: DatasetFilesystemEntry[] = [];
-  const modified: Array<{ path: string; before: DatasetFilesystemEntry; after: DatasetFilesystemEntry }> = [];
+  const added: CompareFile[] = [];
+  const removed: CompareFile[] = [];
+  const modified: Array<{ path: string; before: CompareFile; after: CompareFile }> = [];
   for (const [path, after] of bMap) {
     const before = aMap.get(path);
     if (!before) added.push(after);
@@ -92,6 +97,7 @@ export function CompareTab({
     }
     return out;
   }, [branches, transactions]);
+  const hasTransactions = transactions.length > 0;
 
   function selectorValue(s: CompareSelector) {
     return `${s.kind}:${s.value}`;
@@ -107,7 +113,9 @@ export function CompareTab({
       <header>
         <div className="of-text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.22em' }}>Compare</div>
         <h2 style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 600 }}>Schema and file diff</h2>
-        <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>Pick two transactions or branches to compare.</p>
+        <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+          Pick two branches{hasTransactions ? ' or transactions' : ''} to compare.
+        </p>
       </header>
 
       <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>

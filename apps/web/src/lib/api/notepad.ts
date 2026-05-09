@@ -13,6 +13,10 @@ export interface NotepadDocument {
   updated_at: string;
 }
 
+export type NotepadExportSource = Partial<
+  Pick<NotepadDocument, 'id' | 'title' | 'description' | 'content' | 'widgets' | 'template_key'>
+>;
+
 export interface NotepadPresence {
   id: string;
   document_id: string;
@@ -86,6 +90,6 @@ export function upsertNotepadPresence(id: string, body: {
   return api.post<NotepadPresence>(`/notepad/documents/${id}/presence`, body);
 }
 
-export function exportNotepadDocument(id: string) {
-  return api.get<NotepadExportPayload>(`/notepad/documents/${id}/export`);
+export function exportNotepadDocument(id: string, source?: NotepadExportSource) {
+  return api.post<NotepadExportPayload>(`/notepad/documents/${id}/export`, source ?? {});
 }

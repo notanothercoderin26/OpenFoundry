@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { DeliveryStudio, type BranchDraft, type FleetDraft } from '@/lib/components/marketplace/DeliveryStudio';
 import { ListingDetail, type InstallDraft, type ReviewDraft } from '@/lib/components/marketplace/ListingDetail';
 import { MarketplaceBrowser } from '@/lib/components/marketplace/MarketplaceBrowser';
 import { MyPackages } from '@/lib/components/marketplace/MyPackages';
 import { PublishWizard, type ListingDraft, type VersionDraft } from '@/lib/components/marketplace/PublishWizard';
+import { Glyph } from '@/lib/components/ui/Glyph';
 import {
   createEnrollmentBranch,
   createFleet,
@@ -34,6 +36,8 @@ import {
   type ProductFleetRecord,
 } from '@/lib/api/marketplace';
 import { notifications } from '@stores/notifications';
+
+type Tab = 'discover' | 'installed' | 'fleets' | 'publish';
 
 function emptyListingDraft(): ListingDraft {
   return {
@@ -142,7 +146,75 @@ function listingToDraft(listing: ListingDefinition): ListingDraft {
   };
 }
 
+interface KpiTileProps {
+  label: string;
+  value: number | string;
+  hint: string;
+  accent: string;
+}
+
+function KpiTile({ label, value, hint, accent }: KpiTileProps) {
+  return (
+    <div
+      className="of-panel"
+      style={{
+        padding: '10px 14px',
+        position: 'relative',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 3,
+          background: accent,
+        }}
+      />
+      <p className="of-eyebrow" style={{ marginLeft: 8 }}>
+        {label}
+      </p>
+      <p style={{ marginLeft: 8, fontSize: 22, fontWeight: 600, color: 'var(--text-strong)' }}>{value}</p>
+      <p className="of-text-muted" style={{ marginLeft: 8, fontSize: 11.5 }}>
+        {hint}
+      </p>
+    </div>
+  );
+}
+
+interface TabButtonProps {
+  active: boolean;
+  label: string;
+  count?: number;
+  onClick: () => void;
+}
+
+function TabButton({ active, label, count, onClick }: TabButtonProps) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={active ? 'of-tab of-tab-active' : 'of-tab'}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+    >
+      <span>{label}</span>
+      {typeof count === 'number' && <span className="of-badge">{count}</span>}
+    </button>
+  );
+}
+
 export function MarketplacePage() {
+  const navigate = useNavigate();
+
+  const [activeTab, setActiveTab] = useState<Tab>('discover');
   const [overview, setOverview] = useState<MarketplaceOverview | null>(null);
   const [categories, setCategories] = useState<CategoryDefinition[]>([]);
   const [listings, setListings] = useState<ListingDefinition[]>([]);
@@ -153,7 +225,7 @@ export function MarketplacePage() {
   const [scoreById, setScoreById] = useState<Record<string, number>>({});
   const [selectedListingId, setSelectedListingId] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('widget');
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState('');
   const [uiError, setUiError] = useState('');
@@ -167,6 +239,13 @@ export function MarketplacePage() {
 
   const busy = loading || busyAction.length > 0;
 
+  const featuredListings = useMemo(() => {
+    if (overview?.featured?.length) return overview.featured.slice(0, 4);
+    return [...listings]
+      .sort((a, b) => b.install_count - a.install_count || b.average_rating - a.average_rating)
+      .slice(0, 4);
+  }, [overview, listings]);
+
   function fleetMaintenanceWindowFromDraft(): MaintenanceWindow {
     return {
       timezone: 'UTC',
@@ -176,7 +255,7 @@ export function MarketplacePage() {
     };
   }
 
-  async function selectListing(listingId: string, notify = true) {
+  async function selectListingInline(listingId: string, notify = true) {
     setBusyAction('listing');
     setUiError('');
     try {
@@ -206,14 +285,15 @@ export function MarketplacePage() {
     setLoading(true);
     setUiError('');
     try {
-      const [overviewResponse, categoriesResponse, listingsResponse, installsResponse, fleetsResponse, branchesResponse] = await Promise.all([
-        getOverview(),
-        listCategories(),
-        listListings(),
-        listInstalls(),
-        listFleets(),
-        listEnrollmentBranches(),
-      ]);
+      const [overviewResponse, categoriesResponse, listingsResponse, installsResponse, fleetsResponse, branchesResponse] =
+        await Promise.all([
+          getOverview(),
+          listCategories(),
+          listListings(),
+          listInstalls(),
+          listFleets(),
+          listEnrollmentBranches(),
+        ]);
       setOverview(overviewResponse);
       setCategories(categoriesResponse.items);
       setListings(listingsResponse.items);
@@ -223,7 +303,7 @@ export function MarketplacePage() {
       setScoreById({});
       const nextListingId = preferredListingId ?? selectedListingId ?? listingsResponse.items[0]?.id ?? '';
       if (nextListingId) {
-        await selectListing(nextListingId, false);
+        await selectListingInline(nextListingId, false);
       } else {
         setListingDetail(null);
       }
@@ -256,9 +336,6 @@ export function MarketplacePage() {
         setScoreById({});
       }
       setListings(nextListings);
-      if (nextListings[0]) {
-        await selectListing(nextListings[0].id, false);
-      }
       notifications.success(`Loaded ${nextListings.length} listings`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to search listings';
@@ -315,7 +392,7 @@ export function MarketplacePage() {
         packaged_resources: parseJson<PackagedResource[]>(versionDraft.packaged_resources_text),
         manifest: parseJson<Record<string, unknown>>(versionDraft.manifest_text),
       });
-      await selectListing(selectedListingId, false);
+      await selectListingInline(selectedListingId, false);
       notifications.success(`Published ${versionDraft.version}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to publish version';
@@ -460,107 +537,240 @@ export function MarketplacePage() {
     }
   }
 
+  function openListing(listingId: string) {
+    setSelectedListingId(listingId);
+    navigate(`/marketplace/${listingId}`);
+  }
+
+  function startNewListing() {
+    setSelectedListingId('');
+    setListingDetail(null);
+    setListingDraft(emptyListingDraft());
+    setVersionDraft(emptyVersionDraft());
+    setActiveTab('publish');
+  }
+
   return (
-    <section className="of-page" style={{ display: 'grid', gap: 16 }}>
-      <section
+    <section className="of-page" style={{ display: 'grid', gap: 10 }}>
+      <header
+        className="of-panel"
         style={{
-          overflow: 'hidden',
-          borderRadius: 32,
-          padding: 24,
-          background: 'linear-gradient(135deg, #fff7ed 0%, #ffffff 50%, #ecfdf5 100%)',
+          padding: '12px 16px',
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 12,
         }}
       >
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: 24 }}>
-          <div style={{ maxWidth: 720 }}>
-            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.28em', color: '#c2410c' }}>
-              Marketplace
-            </p>
-            <h1 className="of-heading-xl" style={{ marginTop: 12 }}>
-              Listings, versions, fleets, and one-click installs
-            </h1>
-            <p className="of-text-muted" style={{ marginTop: 12, fontSize: 13, lineHeight: 1.6 }}>
-              Discover internal packages, publish releases, manage rollout fleets and enrollment branches, and operate
-              installs across workspaces from one workspace.
-            </p>
-          </div>
-          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(2, 1fr)' }}>
-            {[
-              { label: 'Listings', value: overview?.listing_count ?? 0 },
-              { label: 'Categories', value: overview?.category_count ?? 0 },
-              { label: 'Installs', value: installs.length },
-              { label: 'Fleets', value: fleets.length },
-            ].map((stat) => (
-              <div key={stat.label} style={{ borderRadius: 16, background: 'rgba(255,255,255,0.85)', padding: 12 }}>
-                <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.16em', color: '#c2410c' }}>
-                  {stat.label}
-                </p>
-                <p style={{ marginTop: 6, fontSize: 22, fontWeight: 600, color: 'var(--text-strong)' }}>{stat.value}</p>
-              </div>
-            ))}
-          </div>
+        <div style={{ minWidth: 0 }}>
+          <p className="of-eyebrow">Marketplace</p>
+          <h1 className="of-heading-xl" style={{ marginTop: 4 }}>
+            Discover, install, and publish internal products
+          </h1>
+          <p className="of-text-muted" style={{ marginTop: 4, fontSize: 13, maxWidth: 760 }}>
+            Browse private connectors, widgets, templates, ML models, and AI agents. Manage installs across workspaces and
+            roll out new versions through fleets and enrollment branches.
+          </p>
         </div>
-      </section>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button type="button" className="of-btn" onClick={() => void refreshAll(selectedListingId || undefined)} disabled={busy}>
+            <Glyph name="history" size={14} />
+            Refresh
+          </button>
+          <button type="button" className="of-btn-primary" onClick={startNewListing}>
+            <Glyph name="plus" size={14} tone="#ffffff" />
+            Publish product
+          </button>
+        </div>
+      </header>
+
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+        <KpiTile label="Listings" value={overview?.listing_count ?? 0} hint="across catalogue" accent="#1f5ea8" />
+        <KpiTile label="Categories" value={overview?.category_count ?? categories.length} hint="curated buckets" accent="#0e7490" />
+        <KpiTile label="Installs" value={overview?.total_installs ?? installs.length} hint="active across workspaces" accent="#15803d" />
+        <KpiTile label="Fleets" value={fleets.length} hint="rollout cohorts" accent="#9a5b00" />
+      </div>
 
       {uiError && (
-        <div className="of-status-danger" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+        <div className="of-status-danger" style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', fontSize: 12.5 }}>
           {uiError}
         </div>
       )}
 
-      <MarketplaceBrowser
-        overview={overview}
-        categories={categories}
-        listings={listings}
-        selectedListingId={selectedListingId}
-        searchQuery={searchQuery}
-        selectedCategory={selectedCategory}
-        scoreById={scoreById}
-        busy={busy}
-        onSearchQueryChange={(query) => setSearchQuery(query)}
-        onCategoryChange={(category) => setSelectedCategory(category)}
-        onSearch={() => void runSearch()}
-        onSelectListing={(id) => void selectListing(id)}
-      />
-
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1.05fr) minmax(0, 0.95fr)' }}>
-        <ListingDetail
-          detail={listingDetail}
-          fleets={fleets}
-          busy={busy}
-          reviewDraft={reviewDraft}
-          installDraft={installDraft}
-          onReviewDraftChange={(patch) => setReviewDraft((current) => ({ ...current, ...patch }))}
-          onInstallDraftChange={(patch) => setInstallDraft((current) => ({ ...current, ...patch }))}
-          onCreateReview={() => void createReviewAction()}
-          onInstall={() => void installAction()}
-        />
-        <PublishWizard
-          listingDraft={listingDraft}
-          versionDraft={versionDraft}
-          hasSelectedListing={Boolean(selectedListingId)}
-          busy={busy}
-          onListingDraftChange={(patch) => setListingDraft((current) => ({ ...current, ...patch }))}
-          onVersionDraftChange={(patch) => setVersionDraft((current) => ({ ...current, ...patch }))}
-          onPublishListing={() => void publishListingAction()}
-          onPublishVersion={() => void publishVersionAction()}
-        />
+      <div className="of-tabbar" role="tablist">
+        <TabButton active={activeTab === 'discover'} label="Discover" count={listings.length} onClick={() => setActiveTab('discover')} />
+        <TabButton active={activeTab === 'installed'} label="Installed" count={installs.length} onClick={() => setActiveTab('installed')} />
+        <TabButton active={activeTab === 'fleets'} label="Fleets & branches" count={fleets.length} onClick={() => setActiveTab('fleets')} />
+        <TabButton active={activeTab === 'publish'} label="Publish & review" onClick={() => setActiveTab('publish')} />
       </div>
 
-      <DeliveryStudio
-        fleets={fleets}
-        branches={enrollmentBranches}
-        selectedListingId={selectedListingId}
-        busy={busy}
-        fleetDraft={fleetDraft}
-        branchDraft={branchDraft}
-        onFleetDraftChange={(patch) => setFleetDraft((current) => ({ ...current, ...patch }))}
-        onBranchDraftChange={(patch) => setBranchDraft((current) => ({ ...current, ...patch }))}
-        onCreateFleet={() => void createFleetAction()}
-        onCreateBranch={() => void createBranchAction()}
-        onSyncFleet={(fleetId) => void syncFleetAction(fleetId)}
-      />
+      {activeTab === 'discover' && (
+        <div style={{ display: 'grid', gap: 10 }}>
+          {featuredListings.length > 0 && (
+            <section className="of-panel" style={{ padding: '10px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                <span className="of-section-title">Featured</span>
+                <span className="of-text-muted" style={{ fontSize: 12 }}>
+                  Top picks based on installs and ratings
+                </span>
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gap: 8,
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                }}
+              >
+                {featuredListings.map((listing) => (
+                  <button
+                    key={listing.id}
+                    type="button"
+                    onClick={() => openListing(listing.id)}
+                    className="of-card"
+                    style={{ textAlign: 'left', padding: '10px 12px', cursor: 'pointer', gap: 4 }}
+                  >
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: 'var(--text-strong)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {listing.name}
+                    </p>
+                    <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+                      {listing.publisher}
+                    </p>
+                    <p
+                      className="of-text-muted"
+                      style={{
+                        margin: 0,
+                        fontSize: 12,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {listing.summary}
+                    </p>
+                    <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                      {listing.install_count.toLocaleString()} installs · ★ {listing.average_rating.toFixed(1)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
-      <MyPackages installs={installs} />
+          <MarketplaceBrowser
+            overview={overview}
+            categories={categories}
+            listings={listings}
+            selectedListingId={selectedListingId}
+            searchQuery={searchQuery}
+            selectedCategory={selectedCategory}
+            scoreById={scoreById}
+            busy={busy}
+            onSearchQueryChange={(query) => setSearchQuery(query)}
+            onCategoryChange={(category) => setSelectedCategory(category)}
+            onSearch={() => void runSearch()}
+            onSelectListing={openListing}
+          />
+        </div>
+      )}
+
+      {activeTab === 'installed' && <MyPackages installs={installs} />}
+
+      {activeTab === 'fleets' && (
+        <DeliveryStudio
+          fleets={fleets}
+          branches={enrollmentBranches}
+          selectedListingId={selectedListingId}
+          busy={busy}
+          fleetDraft={fleetDraft}
+          branchDraft={branchDraft}
+          onFleetDraftChange={(patch) => setFleetDraft((current) => ({ ...current, ...patch }))}
+          onBranchDraftChange={(patch) => setBranchDraft((current) => ({ ...current, ...patch }))}
+          onCreateFleet={() => void createFleetAction()}
+          onCreateBranch={() => void createBranchAction()}
+          onSyncFleet={(fleetId) => void syncFleetAction(fleetId)}
+        />
+      )}
+
+      {activeTab === 'publish' && (
+        <div style={{ display: 'grid', gap: 10 }}>
+          <section className="of-panel" style={{ padding: '10px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span className="of-section-title">Active listing</span>
+              <select
+                className="of-select"
+                value={selectedListingId}
+                onChange={(e) => {
+                  if (!e.target.value) {
+                    setSelectedListingId('');
+                    setListingDetail(null);
+                    setListingDraft(emptyListingDraft());
+                    return;
+                  }
+                  void selectListingInline(e.target.value);
+                }}
+                style={{ width: 'auto', minWidth: 240 }}
+              >
+                <option value="">— New listing —</option>
+                {listings.map((listing) => (
+                  <option key={listing.id} value={listing.id}>
+                    {listing.name} · {listing.publisher}
+                  </option>
+                ))}
+              </select>
+              {listingDetail && (
+                <button
+                  type="button"
+                  className="of-btn"
+                  onClick={() => openListing(listingDetail.listing.id)}
+                  style={{ marginLeft: 'auto' }}
+                >
+                  Open detail page
+                </button>
+              )}
+            </div>
+            {listingDetail && (
+              <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12.5 }}>
+                {listingDetail.listing.summary}
+              </p>
+            )}
+          </section>
+
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'minmax(0, 1.05fr) minmax(0, 0.95fr)' }}>
+            <ListingDetail
+              detail={listingDetail}
+              fleets={fleets}
+              busy={busy}
+              reviewDraft={reviewDraft}
+              installDraft={installDraft}
+              onReviewDraftChange={(patch) => setReviewDraft((current) => ({ ...current, ...patch }))}
+              onInstallDraftChange={(patch) => setInstallDraft((current) => ({ ...current, ...patch }))}
+              onCreateReview={() => void createReviewAction()}
+              onInstall={() => void installAction()}
+            />
+            <PublishWizard
+              listingDraft={listingDraft}
+              versionDraft={versionDraft}
+              hasSelectedListing={Boolean(selectedListingId)}
+              busy={busy}
+              onListingDraftChange={(patch) => setListingDraft((current) => ({ ...current, ...patch }))}
+              onVersionDraftChange={(patch) => setVersionDraft((current) => ({ ...current, ...patch }))}
+              onPublishListing={() => void publishListingAction()}
+              onPublishVersion={() => void publishVersionAction()}
+            />
+          </div>
+        </div>
+      )}
     </section>
   );
 }

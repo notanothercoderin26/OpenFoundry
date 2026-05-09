@@ -106,6 +106,7 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		strings.HasPrefix(path, "/api/v1/enrollments"),
 		strings.HasPrefix(path, "/api/v1/spaces"),
 		strings.HasPrefix(path, "/api/v1/projects"),
+		strings.HasPrefix(path, "/api/v1/workspace"),
 		strings.HasPrefix(path, "/api/v1/nexus/spaces"),
 		strings.HasPrefix(path, "/api/v1/ontology/projects"):
 		return u.TenancyOrganizations
@@ -180,8 +181,10 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		strings.HasPrefix(path, "/api/v1/ontology/actions"),
 		strings.HasPrefix(path, "/api/v1/ontology/rules"),
 		(strings.HasPrefix(path, "/api/v1/ontology/types/") &&
+			strings.HasSuffix(path, "/inline-edit-batch")),
+		(strings.HasPrefix(path, "/api/v1/ontology/types/") &&
 			strings.Contains(path, "/objects/") &&
-			strings.Contains(path, "/inline-edit/")),
+			(strings.Contains(path, "/inline-edit/") || strings.HasSuffix(path, "/inline-edit"))),
 		(strings.HasPrefix(path, "/api/v1/ontology/types/") && strings.HasSuffix(path, "/rules")),
 		(strings.HasPrefix(path, "/api/v1/ontology/objects/") && strings.HasSuffix(path, "/rule-runs")):
 		return u.OntologyActions
@@ -219,6 +222,11 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 
 	case strings.HasPrefix(path, "/api/v1/notifications"):
 		return u.Notification
+
+	case strings.HasPrefix(path, "/api/v1/monitoring/"),
+		strings.HasPrefix(path, "/api/v1/monitoring-views"),
+		strings.HasPrefix(path, "/api/v1/monitor-rules"):
+		return u.TelemetryGovernance
 
 	// ── ML ──
 	case strings.HasPrefix(path, "/api/v1/ml/experiments"),

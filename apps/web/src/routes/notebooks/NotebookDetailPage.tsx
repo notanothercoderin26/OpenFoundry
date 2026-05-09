@@ -2,13 +2,16 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { MonacoEditor } from '@components/MonacoEditor';
+import { CellEditor } from '@/lib/components/notebook/CellEditor';
 import { CellOutput } from '@/lib/components/notebook/CellOutput';
 import { KernelSelector } from '@/lib/components/notebook/KernelSelector';
+import { Glyph } from '@/lib/components/ui/Glyph';
 import {
   addCell,
   createSession,
   deleteCell,
   deleteWorkspaceFile,
+  executeAllCells,
   executeCell,
   getNotebook,
   listSessions,
@@ -25,15 +28,57 @@ import {
   type Session,
 } from '@/lib/api/notebooks';
 
+const KERNELS: NotebookKernel[] = ['python', 'sql', 'llm', 'r'];
+
+const KERNEL_LABELS: Record<NotebookKernel, string> = {
+  python: 'Python',
+  sql: 'SQL',
+  llm: 'LLM',
+  r: 'R',
+};
+
+function emptySessions(): Record<NotebookKernel, Session | null> {
+  return { python: null, sql: null, llm: null, r: null };
+}
+
 function kernelKey(kernel: string): NotebookKernel {
   if (kernel === 'sql' || kernel === 'llm' || kernel === 'r') return kernel;
   return 'python';
+}
+
+function isLiveSession(session: Session | null | undefined) {
+  return Boolean(session) && session?.status !== 'dead';
+}
+
+function sortCells(cells: Cell[]) {
+  return [...cells].sort((a, b) => a.position - b.position);
+}
+
+function sortWorkspaceFiles(files: NotebookWorkspaceFile[]) {
+  return [...files].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function cellLanguage(cell: Cell) {
+  if (cell.cell_type === 'markdown') return 'markdown';
+  const kernel = kernelKey(cell.kernel);
+  return kernel === 'llm' ? 'markdown' : kernel;
 }
 
 function workspaceEditorLanguage(file: NotebookWorkspaceFile | null) {
   if (!file) return 'text';
   const supported = ['markdown', 'typescript', 'javascript', 'json', 'python', 'sql', 'r', 'toml'];
   return supported.includes(file.language) ? file.language : 'text';
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function errorMessage(cause: unknown, fallback: string) {
+  return cause instanceof Error ? cause.message : fallback;
 }
 
 export function NotebookDetailPage() {
@@ -44,15 +89,14 @@ export function NotebookDetailPage() {
   const [cells, setCells] = useState<Cell[]>([]);
   const [outputs, setOutputs] = useState<Record<string, NotebookCellOutput>>({});
   const [executing, setExecuting] = useState<Record<string, boolean>>({});
-  const [sessionsByKernel, setSessionsByKernel] = useState<Record<NotebookKernel, Session | null>>({
-    python: null,
-    sql: null,
-    llm: null,
-    r: null,
-  });
+  const [savingCells, setSavingCells] = useState<Record<string, boolean>>({});
+  const [deletingCells, setDeletingCells] = useState<Record<string, boolean>>({});
+  const [sessionsByKernel, setSessionsByKernel] = useState<Record<NotebookKernel, Session | null>>(emptySessions);
   const [activeKernel, setActiveKernel] = useState<NotebookKernel>('python');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [runAllBusy, setRunAllBusy] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
   const [workspaceFiles, setWorkspaceFiles] = useState<NotebookWorkspaceFile[]>([]);
   const [loadingWorkspace, setLoadingWorkspace] = useState(true);
   const [selectedWorkspaceFilePath, setSelectedWorkspaceFilePath] = useState('');
@@ -61,9 +105,7 @@ export function NotebookDetailPage() {
 
   function upsertCell(nextCell: Cell) {
     setCells((prev) =>
-      prev
-        .map((cell) => (cell.id === nextCell.id ? nextCell : cell))
-        .sort((a, b) => a.position - b.position),
+      sortCells(prev.map((cell) => (cell.id === nextCell.id ? nextCell : cell))),
     );
   }
 
@@ -79,23 +121,27 @@ export function NotebookDetailPage() {
 
   async function loadSessionsForNotebook() {
     const res = await listSessions(notebookId);
-    const next: Record<NotebookKernel, Session | null> = { python: null, sql: null, llm: null, r: null };
+    const next = emptySessions();
     for (const session of res.data) {
       const key = kernelKey(session.kernel);
-      if (!next[key]) next[key] = session;
+      if (!next[key] || session.status !== 'dead') next[key] = session;
     }
     setSessionsByKernel(next);
+    return next;
   }
 
   async function loadWorkspace() {
     setLoadingWorkspace(true);
     try {
       const res = await listWorkspaceFiles(notebookId);
-      setWorkspaceFiles(res.data);
-      setSelectedWorkspaceFilePath((current) => syncWorkspaceSelection(res.data, current));
+      const files = sortWorkspaceFiles(res.data);
+      setWorkspaceFiles(files);
+      setSelectedWorkspaceFilePath((current) => syncWorkspaceSelection(files, current));
+      return files;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to load notebook workspace');
+      setError(errorMessage(cause, 'Failed to load notebook workspace'));
       setWorkspaceFiles([]);
+      return [];
     } finally {
       setLoadingWorkspace(false);
     }
@@ -107,7 +153,7 @@ export function NotebookDetailPage() {
     try {
       const [res] = await Promise.all([getNotebook(notebookId), loadWorkspace()]);
       setNotebook(res.notebook);
-      const sortedCells = [...res.cells].sort((a, b) => a.position - b.position);
+      const sortedCells = sortCells(res.cells);
       setCells(sortedCells);
       const initialOutputs: Record<string, NotebookCellOutput> = {};
       for (const cell of sortedCells) {
@@ -117,7 +163,7 @@ export function NotebookDetailPage() {
       setActiveKernel(kernelKey(res.notebook.default_kernel));
       await loadSessionsForNotebook();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to load notebook');
+      setError(errorMessage(cause, 'Failed to load notebook'));
       setNotebook(null);
     } finally {
       setLoading(false);
@@ -131,7 +177,7 @@ export function NotebookDetailPage() {
 
   async function ensureSession(kernel: NotebookKernel): Promise<Session> {
     const existing = sessionsByKernel[kernel];
-    if (existing && existing.status !== 'dead') return existing;
+    if (isLiveSession(existing)) return existing as Session;
     const session = await createSession(notebookId, kernel);
     updateSession(kernel, session);
     return session;
@@ -140,28 +186,54 @@ export function NotebookDetailPage() {
   async function handleKernelChange(kernel: NotebookKernel) {
     setActiveKernel(kernel);
     if (!notebook || notebook.default_kernel === kernel) return;
-    const next = await updateNotebook(notebookId, { default_kernel: kernel });
-    setNotebook(next);
+    try {
+      const next = await updateNotebook(notebookId, { default_kernel: kernel });
+      setNotebook(next);
+      setError('');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Failed to update default kernel'));
+    }
   }
 
   async function handleStartSession() {
-    await ensureSession(activeKernel);
+    setSessionBusy(true);
+    try {
+      await ensureSession(activeKernel);
+      setError('');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Failed to start notebook session'));
+    } finally {
+      setSessionBusy(false);
+    }
   }
 
   async function handleStopSession() {
     const current = sessionsByKernel[activeKernel];
     if (!current) return;
-    const stopped = await stopSession(notebookId, current.id);
-    updateSession(activeKernel, stopped);
+    setSessionBusy(true);
+    try {
+      const stopped = await stopSession(notebookId, current.id);
+      updateSession(activeKernel, stopped);
+      setError('');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Failed to stop notebook session'));
+    } finally {
+      setSessionBusy(false);
+    }
   }
 
   async function handleAddCell(type: 'code' | 'markdown') {
-    const cell = await addCell(notebookId, {
-      cell_type: type,
-      kernel: type === 'code' ? activeKernel : undefined,
-      source: '',
-    });
-    setCells((prev) => [...prev, cell].sort((a, b) => a.position - b.position));
+    try {
+      const cell = await addCell(notebookId, {
+        cell_type: type,
+        kernel: type === 'code' ? activeKernel : undefined,
+        source: '',
+      });
+      setCells((prev) => sortCells([...prev, cell]));
+      setError('');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Failed to add cell'));
+    }
   }
 
   function handleSourceChange(cellId: string, source: string) {
@@ -169,18 +241,39 @@ export function NotebookDetailPage() {
   }
 
   async function handlePersistSource(cellId: string, source: string) {
-    const updated = await updateCell(notebookId, cellId, { source });
-    upsertCell(updated);
+    setSavingCells((prev) => ({ ...prev, [cellId]: true }));
+    try {
+      const updated = await updateCell(notebookId, cellId, { source });
+      upsertCell(updated);
+      setError('');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Failed to save cell'));
+    } finally {
+      setSavingCells((prev) => ({ ...prev, [cellId]: false }));
+    }
   }
 
   async function handleCellKernelChange(cellId: string, kernel: NotebookKernel) {
-    const updated = await updateCell(notebookId, cellId, { kernel });
-    upsertCell(updated);
+    try {
+      const updated = await updateCell(notebookId, cellId, { kernel });
+      upsertCell(updated);
+      setError('');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Failed to update cell kernel'));
+    }
   }
 
   async function handleDeleteCell(cellId: string) {
-    await deleteCell(notebookId, cellId);
-    setCells((prev) => prev.filter((cell) => cell.id !== cellId));
+    setDeletingCells((prev) => ({ ...prev, [cellId]: true }));
+    try {
+      await deleteCell(notebookId, cellId);
+      setCells((prev) => prev.filter((cell) => cell.id !== cellId));
+      setError('');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Failed to delete cell'));
+    } finally {
+      setDeletingCells((prev) => ({ ...prev, [cellId]: false }));
+    }
   }
 
   async function handleExecute(cellId: string) {
@@ -188,13 +281,14 @@ export function NotebookDetailPage() {
     if (!cell || cell.cell_type !== 'code') return;
 
     const key = kernelKey(cell.kernel);
+    let sessionForCell: Session | null = null;
     setExecuting((prev) => ({ ...prev, [cellId]: true }));
 
     try {
-      const session = await ensureSession(key);
-      updateSession(key, { ...session, status: 'busy' });
+      sessionForCell = await ensureSession(key);
+      updateSession(key, { ...sessionForCell, status: 'busy' });
 
-      const output = await executeCell(notebookId, cellId, session.id);
+      const output = await executeCell(notebookId, cellId, sessionForCell.id);
       setOutputs((prev) => ({ ...prev, [cellId]: output }));
       setCells((prev) =>
         prev.map((entry) =>
@@ -204,33 +298,64 @@ export function NotebookDetailPage() {
         ),
       );
       updateSession(key, {
-        ...(sessionsByKernel[key] ?? session),
+        ...sessionForCell,
         status: 'idle',
         last_activity: new Date().toISOString(),
       });
+      setError('');
     } catch (cause) {
       setOutputs((prev) => ({
         ...prev,
         [cellId]: {
           output_type: 'error',
-          content: cause instanceof Error ? cause.message : 'Execution failed',
+          content: errorMessage(cause, 'Execution failed'),
           execution_count: (cell.execution_count ?? 0) + 1,
         },
       }));
-      const session = sessionsByKernel[key];
-      if (session) updateSession(key, { ...session, status: 'idle' });
+      if (sessionForCell) {
+        updateSession(key, { ...sessionForCell, status: 'idle' });
+      }
     } finally {
       setExecuting((prev) => ({ ...prev, [cellId]: false }));
     }
   }
 
   async function handleRunAll() {
-    for (const cell of cells) {
-      if (cell.cell_type === 'code') {
-        // Sequential to mirror the Svelte implementation; parallel would
-        // race the shared kernel session.
-        await handleExecute(cell.id);
-      }
+    const codeCells = cells.filter((cell) => cell.cell_type === 'code');
+    if (codeCells.length === 0) return;
+
+    let sessionForRun: Session | null = null;
+    setRunAllBusy(true);
+    try {
+      sessionForRun = await ensureSession(activeKernel);
+      updateSession(activeKernel, { ...sessionForRun, status: 'busy' });
+      const res = await executeAllCells(notebookId, sessionForRun.id);
+      const nextOutputs = new Map(res.results.map((result) => [result.cell_id, result.output]));
+
+      setOutputs((prev) => {
+        const next = { ...prev };
+        for (const result of res.results) {
+          next[result.cell_id] = result.output;
+        }
+        return next;
+      });
+      setCells((prev) =>
+        prev.map((cell) => {
+          const output = nextOutputs.get(cell.id);
+          return output ? { ...cell, execution_count: output.execution_count, last_output: output } : cell;
+        }),
+      );
+      updateSession(activeKernel, {
+        ...sessionForRun,
+        status: 'idle',
+        last_activity: new Date().toISOString(),
+      });
+      setError('');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Failed to run notebook'));
+      if (sessionForRun) updateSession(activeKernel, { ...sessionForRun, status: 'idle' });
+    } finally {
+      setRunAllBusy(false);
     }
   }
 
@@ -241,12 +366,16 @@ export function NotebookDetailPage() {
       setError('That workspace file already exists.');
       return;
     }
-    const file = await upsertWorkspaceFile(notebookId, { path, content: '' });
-    const next = [...workspaceFiles, file].sort((a, b) => a.path.localeCompare(b.path));
-    setWorkspaceFiles(next);
-    setSelectedWorkspaceFilePath(file.path);
-    setNewWorkspaceFilePath('');
-    setError('');
+    try {
+      const file = await upsertWorkspaceFile(notebookId, { path, content: '' });
+      const next = sortWorkspaceFiles([...workspaceFiles, file]);
+      setWorkspaceFiles(next);
+      setSelectedWorkspaceFilePath(file.path);
+      setNewWorkspaceFilePath('');
+      setError('');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Failed to add workspace file'));
+    }
   }
 
   function handleWorkspaceContentChange(path: string, content: string) {
@@ -257,56 +386,69 @@ export function NotebookDetailPage() {
     setSavingWorkspaceFile((prev) => ({ ...prev, [path]: true }));
     try {
       const file = await upsertWorkspaceFile(notebookId, { path, content });
-      setWorkspaceFiles((prev) =>
-        prev.map((entry) => (entry.path === path ? file : entry)).sort((a, b) => a.path.localeCompare(b.path)),
-      );
+      setWorkspaceFiles((prev) => sortWorkspaceFiles(prev.map((entry) => (entry.path === path ? file : entry))));
+      setError('');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to persist workspace file');
+      setError(errorMessage(cause, 'Failed to save workspace file'));
     } finally {
       setSavingWorkspaceFile((prev) => ({ ...prev, [path]: false }));
     }
   }
 
   async function removeWorkspaceFile(path: string) {
-    await deleteWorkspaceFile(notebookId, path);
-    const next = workspaceFiles.filter((file) => file.path !== path);
-    setWorkspaceFiles(next);
-    setSelectedWorkspaceFilePath((current) => syncWorkspaceSelection(next, current));
+    try {
+      await deleteWorkspaceFile(notebookId, path);
+      const next = workspaceFiles.filter((file) => file.path !== path);
+      setWorkspaceFiles(next);
+      setSelectedWorkspaceFilePath((current) => syncWorkspaceSelection(next, current));
+      setError('');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Failed to remove workspace file'));
+    }
   }
 
   if (loading) {
     return (
-      <section className="of-page" style={{ padding: 80, textAlign: 'center', color: 'var(--text-muted)' }}>
-        Loading…
+      <section className="of-page notebook-detail__loading">
+        Loading notebook...
       </section>
     );
   }
 
   if (!notebook) {
     return (
-      <section className="of-page" style={{ padding: 80, textAlign: 'center', color: 'var(--status-danger)' }}>
-        Notebook not found.
+      <section className="of-page notebook-detail__loading notebook-detail__loading--error">
+        <p>Notebook not found.</p>
+        <Link to="/notebooks" className="of-btn">
+          Back to notebooks
+        </Link>
       </section>
     );
   }
 
-  const selectedWorkspaceFile = workspaceFiles.find((f) => f.path === selectedWorkspaceFilePath) ?? null;
+  const codeCellCount = cells.filter((cell) => cell.cell_type === 'code').length;
+  const liveSessionCount = KERNELS.filter((kernel) => isLiveSession(sessionsByKernel[kernel])).length;
+  const selectedWorkspaceFile = workspaceFiles.find((file) => file.path === selectedWorkspaceFilePath) ?? null;
 
   return (
-    <section className="of-page" style={{ display: 'grid', gap: 16 }}>
-      <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-        <div style={{ maxWidth: 720 }}>
-          <p className="of-eyebrow">Code workbook</p>
-          <h1 className="of-heading-xl" style={{ marginTop: 4 }}>
-            {notebook.name}
-          </h1>
-          <p className="of-text-muted" style={{ marginTop: 8, fontSize: 13 }}>
+    <section className="of-page notebook-detail">
+      <header className="notebook-detail__header">
+        <div className="notebook-detail__title">
+          <p className="of-eyebrow">NOTEBOOK-002</p>
+          <h1 className="of-heading-xl">{notebook.name}</h1>
+          <p className="of-text-muted">
             {notebook.description || 'No description'}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="of-btn of-btn-primary" onClick={() => void handleRunAll()}>
-            ▶ Run all
+        <div className="notebook-detail__actions">
+          <button
+            type="button"
+            className="of-btn of-btn-primary"
+            disabled={runAllBusy || codeCellCount === 0}
+            onClick={() => void handleRunAll()}
+          >
+            <Glyph name="run" size={14} />
+            {runAllBusy ? 'Running...' : 'Run all'}
           </button>
           <Link to="/notebooks" className="of-btn">
             Back
@@ -315,229 +457,212 @@ export function NotebookDetailPage() {
       </header>
 
       {error && (
-        <div className="of-status-danger" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+        <div className="of-status-danger notebook-detail__notice" role="alert">
           {error}
         </div>
       )}
 
-      <div className="of-panel-muted" style={{ padding: 16 }}>
+      <div className="notebook-detail__summary">
+        <section className="of-panel notebook-detail__stat">
+          <p className="of-eyebrow">Cells</p>
+          <strong>{cells.length}</strong>
+          <span>{codeCellCount} executable</span>
+        </section>
+        <section className="of-panel notebook-detail__stat">
+          <p className="of-eyebrow">Sessions</p>
+          <strong>{liveSessionCount}</strong>
+          <span>{KERNEL_LABELS[activeKernel]} selected</span>
+        </section>
+        <section className="of-panel notebook-detail__stat">
+          <p className="of-eyebrow">Workspace</p>
+          <strong>{workspaceFiles.length}</strong>
+          <span>persisted files</span>
+        </section>
+        <section className="of-panel notebook-detail__stat">
+          <p className="of-eyebrow">Updated</p>
+          <strong>{formatDateTime(notebook.updated_at).split(',')[0]}</strong>
+          <span>{formatDateTime(notebook.updated_at).split(',').slice(1).join(',').trim() || 'local time'}</span>
+        </section>
+      </div>
+
+      <section className="of-panel-muted notebook-detail__kernel-panel">
         <KernelSelector
           value={activeKernel}
           status={sessionsByKernel[activeKernel]?.status ?? null}
-          onChange={(k) => void handleKernelChange(k)}
+          disabled={sessionBusy}
+          onChange={(kernel) => void handleKernelChange(kernel)}
           onStart={() => void handleStartSession()}
           onStop={() => void handleStopSession()}
         />
-        <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: 11 }}>
-          <span className="of-chip">Default kernel: {activeKernel}</span>
-          <span className="of-chip">Available: Python, SQL, LLM, R</span>
-          <span className="of-chip">{workspaceFiles.length} workspace file(s)</span>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1fr) 340px' }}>
-        <div style={{ display: 'grid', gap: 12 }}>
-          {cells.map((cell) => (
-            <div
-              key={cell.id}
-              style={{
-                overflow: 'hidden',
-                background: '#fff',
-                border: '1px solid var(--border-default)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: 'var(--shadow-panel)',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  borderBottom: '1px solid var(--border-default)',
-                  background: 'var(--bg-panel-muted)',
-                  padding: '8px 12px',
-                  fontSize: 12,
-                }}
+        <div className="notebook-detail__kernel-strip">
+          {KERNELS.map((kernel) => {
+            const session = sessionsByKernel[kernel];
+            return (
+              <span
+                key={kernel}
+                className={`of-chip ${isLiveSession(session) ? 'of-status-success' : ''}`}
               >
-                <span style={{ color: 'var(--text-soft)' }}>In [{cell.execution_count ?? ' '}]</span>
-                <span style={{ fontSize: 11, color: 'var(--text-soft)' }}>{cell.cell_type}</span>
+                {KERNEL_LABELS[kernel]}: {session?.status ?? 'offline'}
+              </span>
+            );
+          })}
+        </div>
+      </section>
 
-                {cell.cell_type === 'code' ? (
-                  <select
-                    className="of-select"
-                    value={kernelKey(cell.kernel)}
-                    onChange={(e) =>
-                      void handleCellKernelChange(cell.id, e.target.value as NotebookKernel)
-                    }
-                    style={{ width: 'auto', minHeight: 26, padding: '0 6px', fontSize: 11, fontFamily: 'var(--font-mono)' }}
-                  >
-                    <option value="python">python</option>
-                    <option value="sql">sql</option>
-                    <option value="llm">llm</option>
-                    <option value="r">r</option>
-                  </select>
-                ) : (
-                  <span
-                    style={{
-                      padding: '2px 6px',
-                      background: '#e2e8f0',
-                      borderRadius: 'var(--radius-sm)',
-                      fontSize: 11,
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--text-default)',
-                    }}
-                  >
-                    markdown
-                  </span>
-                )}
-
-                <div style={{ flex: 1 }} />
-
-                {cell.cell_type === 'code' && (
-                  <button
-                    type="button"
-                    onClick={() => void handleExecute(cell.id)}
-                    disabled={executing[cell.id]}
-                    style={{
-                      background: 'transparent',
-                      border: 0,
-                      color: 'var(--status-success)',
-                      cursor: 'pointer',
-                      fontSize: 14,
-                    }}
-                  >
-                    {executing[cell.id] ? '⏳' : '▶'}
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => void handleDeleteCell(cell.id)}
-                  style={{
-                    background: 'transparent',
-                    border: 0,
-                    color: 'var(--status-danger)',
-                    cursor: 'pointer',
-                    fontSize: 14,
-                  }}
-                >
-                  ✕
+      <div className="notebook-detail__workspace">
+        <main className="notebook-detail__cells">
+          {cells.length === 0 ? (
+            <section className="of-panel notebook-detail__empty">
+              <p className="of-heading-sm">No cells yet</p>
+              <p className="of-text-muted">Add a code or markdown cell to start the notebook.</p>
+              <div className="notebook-detail__button-row">
+                <button type="button" className="of-btn of-btn-primary" onClick={() => void handleAddCell('code')}>
+                  <Glyph name="plus" size={14} />
+                  Code cell
+                </button>
+                <button type="button" className="of-btn" onClick={() => void handleAddCell('markdown')}>
+                  <Glyph name="plus" size={14} />
+                  Markdown cell
                 </button>
               </div>
+            </section>
+          ) : (
+            cells.map((cell) => (
+              <section key={cell.id} className="of-panel notebook-cell">
+                <div className="notebook-cell__toolbar">
+                  <span className="of-chip">In [{cell.execution_count ?? ' '}]</span>
+                  <span className="of-chip">{cell.cell_type}</span>
 
-              <MonacoEditor
-                value={cell.source}
-                language={
-                  cell.cell_type === 'markdown'
-                    ? 'markdown'
-                    : kernelKey(cell.kernel) === 'llm'
-                      ? 'markdown'
-                      : kernelKey(cell.kernel)
-                }
-                minHeight={cell.cell_type === 'markdown' ? 120 : 180}
-                onChange={(source) => handleSourceChange(cell.id, source)}
-                onBlur={(source) => void handlePersistSource(cell.id, source)}
-              />
+                  {cell.cell_type === 'code' ? (
+                    <select
+                      className="of-select notebook-cell__kernel"
+                      value={kernelKey(cell.kernel)}
+                      onChange={(event) =>
+                        void handleCellKernelChange(cell.id, event.target.value as NotebookKernel)
+                      }
+                    >
+                      {KERNELS.map((kernel) => (
+                        <option key={kernel} value={kernel}>
+                          {kernel}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="of-chip">markdown</span>
+                  )}
 
-              <CellOutput output={outputs[cell.id] ?? cell.last_output} />
+                  <span className="notebook-cell__save-state">
+                    {savingCells[cell.id] ? 'Saving...' : `Updated ${formatDateTime(cell.updated_at)}`}
+                  </span>
+
+                  <div className="notebook-cell__actions">
+                    {cell.cell_type === 'code' && (
+                      <button
+                        type="button"
+                        className="of-btn"
+                        disabled={executing[cell.id]}
+                        onClick={() => void handleExecute(cell.id)}
+                      >
+                        <Glyph name="run" size={14} />
+                        {executing[cell.id] ? 'Running...' : 'Run'}
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      className="of-btn of-btn-danger"
+                      disabled={deletingCells[cell.id]}
+                      onClick={() => void handleDeleteCell(cell.id)}
+                      aria-label="Delete cell"
+                      title="Delete cell"
+                    >
+                      <Glyph name="x" size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <CellEditor
+                  value={cell.source}
+                  language={cellLanguage(cell)}
+                  minHeight={cell.cell_type === 'markdown' ? 128 : 196}
+                  onChange={(source) => handleSourceChange(cell.id, source)}
+                  onBlur={(source) => void handlePersistSource(cell.id, source)}
+                />
+
+                <CellOutput output={outputs[cell.id] ?? cell.last_output} />
+              </section>
+            ))
+          )}
+
+          {cells.length > 0 && (
+            <div className="of-toolbar notebook-detail__add-cell">
+              <button type="button" className="of-btn of-btn-primary" onClick={() => void handleAddCell('code')}>
+                <Glyph name="plus" size={14} />
+                Code cell
+              </button>
+              <button type="button" className="of-btn" onClick={() => void handleAddCell('markdown')}>
+                <Glyph name="plus" size={14} />
+                Markdown cell
+              </button>
             </div>
-          ))}
+          )}
+        </main>
 
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-            <button type="button" className="of-btn" onClick={() => void handleAddCell('code')}>
-              + Code cell
-            </button>
-            <button type="button" className="of-btn" onClick={() => void handleAddCell('markdown')}>
-              + Markdown cell
-            </button>
-          </div>
-        </div>
+        <aside className="notebook-detail__files">
+          <section className="of-panel notebook-files">
+            <div className="notebook-files__header">
+              <div>
+                <p className="of-eyebrow">Workspace files</p>
+                <p className="of-text-muted">Helper files, prompts, scripts, and notes stored with this notebook.</p>
+              </div>
+              <span className="of-chip">{workspaceFiles.length}</span>
+            </div>
 
-        <aside style={{ display: 'grid', gap: 16 }}>
-          <section className="of-panel" style={{ padding: 16 }}>
-            <p className="of-eyebrow">Workspace</p>
-            <p className="of-text-muted" style={{ marginTop: 4, fontSize: 13 }}>
-              Persist helper files, prompts, scripts, and notes next to the notebook.
-            </p>
-
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <div className="notebook-files__create">
               <input
                 className="of-input"
                 value={newWorkspaceFilePath}
-                onChange={(e) => setNewWorkspaceFilePath(e.target.value)}
+                onChange={(event) => setNewWorkspaceFilePath(event.target.value)}
                 placeholder="prompts/system.md"
-                style={{ minWidth: 0, flex: 1 }}
               />
               <button type="button" className="of-btn" onClick={() => void addWorkspaceFile()}>
+                <Glyph name="plus" size={14} />
                 Add
               </button>
             </div>
 
             {loadingWorkspace ? (
-              <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
-                Loading workspace…
-              </div>
+              <div className="notebook-files__empty">Loading workspace...</div>
             ) : workspaceFiles.length === 0 ? (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: 24,
-                  border: '1px dashed var(--border-default)',
-                  borderRadius: 'var(--radius-md)',
-                  textAlign: 'center',
-                  fontSize: 13,
-                  color: 'var(--text-muted)',
-                }}
-              >
-                No workspace files yet.
-              </div>
+              <div className="notebook-files__empty">No workspace files yet.</div>
             ) : (
-              <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
-                <div style={{ display: 'grid', gap: 6 }}>
+              <div className="notebook-files__body">
+                <div className="notebook-files__list">
                   {workspaceFiles.map((file) => (
                     <button
                       key={file.path}
                       type="button"
+                      className={`notebook-files__item ${
+                        selectedWorkspaceFilePath === file.path ? 'notebook-files__item--active' : ''
+                      }`}
                       onClick={() => setSelectedWorkspaceFilePath(file.path)}
-                      style={{
-                        textAlign: 'left',
-                        padding: 12,
-                        background: selectedWorkspaceFilePath === file.path ? '#ecfeff' : '#fff',
-                        border: `1px solid ${
-                          selectedWorkspaceFilePath === file.path ? '#06b6d4' : 'var(--border-default)'
-                        }`,
-                        borderRadius: 'var(--radius-md)',
-                        fontSize: 13,
-                        cursor: 'pointer',
-                      }}
                     >
-                      <div style={{ fontWeight: 500, color: 'var(--text-strong)' }}>{file.path}</div>
-                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
-                        {file.language} · {file.size_bytes} bytes
-                      </div>
+                      <span>{file.path}</span>
+                      <small>{file.language} | {file.size_bytes} bytes</small>
                     </button>
                   ))}
                 </div>
 
                 {selectedWorkspaceFile && (
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                      }}
-                    >
-                      <div className="of-chip">{selectedWorkspaceFile.path}</div>
+                  <div className="notebook-files__editor">
+                    <div className="notebook-files__selected">
+                      <span className="of-chip">{selectedWorkspaceFile.path}</span>
                       <button
                         type="button"
                         className="of-btn of-btn-danger"
                         onClick={() => void removeWorkspaceFile(selectedWorkspaceFile.path)}
-                        style={{ minHeight: 28, fontSize: 11 }}
                       >
-                        Remove file
+                        Remove
                       </button>
                     </div>
 
@@ -553,10 +678,10 @@ export function NotebookDetailPage() {
                       }
                     />
 
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    <div className="notebook-files__saved">
                       {savingWorkspaceFile[selectedWorkspaceFile.path]
-                        ? 'Saving…'
-                        : `Updated ${new Date(selectedWorkspaceFile.updated_at).toLocaleString()}`}
+                        ? 'Saving...'
+                        : `Updated ${formatDateTime(selectedWorkspaceFile.updated_at)}`}
                     </div>
                   </div>
                 )}

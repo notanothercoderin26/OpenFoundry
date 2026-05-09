@@ -818,13 +818,92 @@ func (r *Repo) RunDueSyncJobs(ctx context.Context, now time.Time) (int, error) {
 	return 0, nil
 }
 
-func (r *Repo) GetConnectorAgent(ctx context.Context, id uuid.UUID) (*models.ConnectorAgent, error) {
-	row := r.Pool.QueryRow(ctx, `SELECT id, name, agent_url, owner_id, status, capabilities, metadata, last_heartbeat_at, created_at, updated_at FROM connector_agents WHERE id = $1`, id)
-	agent := &models.ConnectorAgent{}
-	if err := row.Scan(&agent.ID, &agent.Name, &agent.AgentURL, &agent.OwnerID, &agent.Status, &agent.Capabilities, &agent.Metadata, &agent.LastHeartbeatAt, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+const connectorAgentSelect = `SELECT id, name, agent_url, owner_id, status,
+	capabilities, metadata, last_heartbeat_at, created_at, updated_at FROM connector_agents`
+
+func (r *Repo) ListConnectorAgents(ctx context.Context, ownerID uuid.UUID) ([]models.ConnectorAgent, error) {
+	rows, err := r.Pool.Query(ctx, connectorAgentSelect+` WHERE owner_id = $1 ORDER BY created_at DESC`, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []models.ConnectorAgent{}
+	for rows.Next() {
+		agent, err := scanConnectorAgent(rows)
+		if err != nil {
+			return nil, err
 		}
+		out = append(out, *agent)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) RegisterConnectorAgent(ctx context.Context, body *models.RegisterAgentRequest, ownerID uuid.UUID) (*models.ConnectorAgent, error) {
+	id := uuid.New()
+	row := r.Pool.QueryRow(ctx,
+		`INSERT INTO connector_agents
+			(id, name, agent_url, owner_id, status, capabilities, metadata, last_heartbeat_at)
+		 VALUES ($1, $2, $3, $4, 'online', $5, $6, NOW())
+		 ON CONFLICT (agent_url) DO UPDATE SET
+			name = EXCLUDED.name,
+			owner_id = EXCLUDED.owner_id,
+			status = 'online',
+			capabilities = EXCLUDED.capabilities,
+			metadata = EXCLUDED.metadata,
+			last_heartbeat_at = NOW(),
+			updated_at = NOW()
+		 WHERE connector_agents.owner_id = EXCLUDED.owner_id
+		 RETURNING id, name, agent_url, owner_id, status,
+		           capabilities, metadata, last_heartbeat_at, created_at, updated_at`,
+		id, strings.TrimSpace(body.Name), strings.TrimSpace(body.AgentURL), ownerID, body.Capabilities, body.Metadata,
+	)
+	agent, err := scanConnectorAgent(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return agent, err
+}
+
+func (r *Repo) HeartbeatConnectorAgent(ctx context.Context, id uuid.UUID, body *models.AgentHeartbeatRequest, ownerID uuid.UUID) (*models.ConnectorAgent, error) {
+	row := r.Pool.QueryRow(ctx,
+		`UPDATE connector_agents
+		 SET status = 'online',
+		     capabilities = $3,
+		     metadata = $4,
+		     last_heartbeat_at = NOW(),
+		     updated_at = NOW()
+		 WHERE id = $1 AND owner_id = $2
+		 RETURNING id, name, agent_url, owner_id, status,
+		           capabilities, metadata, last_heartbeat_at, created_at, updated_at`,
+		id, ownerID, body.Capabilities, body.Metadata,
+	)
+	agent, err := scanConnectorAgent(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return agent, err
+}
+
+func (r *Repo) DeleteConnectorAgent(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (bool, error) {
+	cmd, err := r.Pool.Exec(ctx, `DELETE FROM connector_agents WHERE id = $1 AND owner_id = $2`, id, ownerID)
+	if err != nil {
+		return false, err
+	}
+	return cmd.RowsAffected() > 0, nil
+}
+
+func (r *Repo) GetConnectorAgent(ctx context.Context, id uuid.UUID) (*models.ConnectorAgent, error) {
+	row := r.Pool.QueryRow(ctx, connectorAgentSelect+` WHERE id = $1`, id)
+	agent, err := scanConnectorAgent(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return agent, err
+}
+
+func scanConnectorAgent(r rowLikeT) (*models.ConnectorAgent, error) {
+	agent := &models.ConnectorAgent{}
+	if err := r.Scan(&agent.ID, &agent.Name, &agent.AgentURL, &agent.OwnerID, &agent.Status, &agent.Capabilities, &agent.Metadata, &agent.LastHeartbeatAt, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return agent, nil

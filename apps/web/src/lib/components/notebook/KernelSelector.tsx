@@ -6,6 +6,7 @@ interface KernelSelectorProps {
   value: NotebookKernel;
   status?: string | null;
   disabled?: boolean;
+  showSessionControls?: boolean;
   onChange?: (kernel: NotebookKernel) => void;
   onStart?: () => void;
   onStop?: () => void;
@@ -15,6 +16,7 @@ export function KernelSelector({
   value,
   status = null,
   disabled = false,
+  showSessionControls = true,
   onChange,
   onStart,
   onStop,
@@ -52,14 +54,16 @@ export function KernelSelector({
 
       <KernelStatus kernel={value} status={status} />
 
-      {!sessionLive ? (
-        <button type="button" className="of-btn of-btn-primary" onClick={() => onStart?.()} style={{ minHeight: 32, fontSize: 13 }}>
-          Start session
-        </button>
-      ) : (
-        <button type="button" className="of-btn" onClick={() => onStop?.()} style={{ minHeight: 32, fontSize: 13 }}>
-          Stop session
-        </button>
+      {showSessionControls && (
+        !sessionLive ? (
+          <button type="button" className="of-btn of-btn-primary" onClick={() => onStart?.()} style={{ minHeight: 32, fontSize: 13 }}>
+            Start session
+          </button>
+        ) : (
+          <button type="button" className="of-btn" onClick={() => onStop?.()} style={{ minHeight: 32, fontSize: 13 }}>
+            Stop session
+          </button>
+        )
       )}
     </div>
   );

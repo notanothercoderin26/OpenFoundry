@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import {
-  attachInterfaceToType,
   createInterface,
   createInterfaceProperty,
   deleteInterface,
   deleteInterfaceProperty,
   detachInterfaceFromType,
+  implementInterface,
   listInterfaceProperties,
   listInterfaces,
   listObjectTypes,
@@ -17,6 +17,7 @@ import {
   type ObjectType,
   type OntologyInterface,
 } from '@/lib/api/ontology';
+import { ImplementInterfaceModal } from '@/lib/components/ontology/ImplementInterfaceModal';
 
 type WorkbenchTab = 'library' | 'definition' | 'implementation' | 'reference';
 
@@ -74,6 +75,8 @@ export function InterfacesPage() {
   const [deletingInterface, setDeletingInterface] = useState(false);
   const [savingProperty, setSavingProperty] = useState(false);
   const [bindingTypeId, setBindingTypeId] = useState('');
+  const [implementModalOpen, setImplementModalOpen] = useState(false);
+  const [implementInitialTypeId, setImplementInitialTypeId] = useState('');
 
   const [pageError, setPageError] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -120,6 +123,11 @@ export function InterfacesPage() {
   const availableTypes = useMemo(
     () => typeBindings.filter((row) => !row.interfaces.some((iface) => iface.id === selectedInterfaceId)),
     [typeBindings, selectedInterfaceId],
+  );
+
+  const availableObjectTypes = useMemo(
+    () => availableTypes.map((row) => row.objectType),
+    [availableTypes],
   );
 
   const interfaceStats = useMemo<InterfaceStats>(
@@ -352,15 +360,26 @@ export function InterfacesPage() {
     }
   }
 
-  async function attachToType(typeId: string) {
-    if (!selectedInterfaceId) return;
+  function openImplementModal(typeId = '') {
+    setImplementInitialTypeId(typeId);
+    setPropertyError('');
+    setPropertySuccess('');
+    setImplementModalOpen(true);
+  }
+
+  async function implementSelectedInterface(typeId: string) {
+    if (!selectedInterfaceId) throw new Error('Select an interface before adding an implementation.');
     setBindingTypeId(typeId);
+    setPropertyError('');
+    setPropertySuccess('');
     try {
-      await attachInterfaceToType(typeId, selectedInterfaceId);
+      await implementInterface(selectedInterfaceId, { object_type_id: typeId });
       await loadBindingMatrix(objectTypes);
-      setPropertySuccess('Interface attached to object type.');
+      setPropertySuccess('Interface implemented by object type.');
     } catch (error) {
-      setPropertyError(error instanceof Error ? error.message : 'Failed to attach interface');
+      const message = error instanceof Error ? error.message : 'Failed to implement interface';
+      setPropertyError(message);
+      throw new Error(message);
     } finally {
       setBindingTypeId('');
     }
@@ -619,7 +638,7 @@ export function InterfacesPage() {
                   <p style={{ fontWeight: 600, color: 'var(--text-strong)' }}>Overview</p>
                   <div className="of-text-muted" style={{ marginTop: 12, fontSize: 13, lineHeight: 1.7, display: 'grid', gap: 8 }}>
                     <p>Interfaces define reusable contracts that several object types can implement without duplicating the conceptual schema.</p>
-                    <p>Use the definition tab to curate the canonical property set, then attach the interface to object types from the implementation tab.</p>
+                    <p>Use the definition tab to curate the canonical property set, then implement the interface on object types from the implementation tab.</p>
                     <p>The backend stores interface resources independently from object types, so implementations can evolve while keeping the shared contract visible.</p>
                   </div>
                 </section>
@@ -827,7 +846,18 @@ export function InterfacesPage() {
                         Bind the selected interface to object types that should expose this contract.
                       </p>
                     </div>
-                    {bindingLoading && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Refreshing…</span>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {bindingLoading && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Refreshing…</span>}
+                      <button
+                        type="button"
+                        onClick={() => openImplementModal()}
+                        disabled={!selectedInterfaceId || availableTypes.length === 0 || bindingLoading}
+                        className="of-button of-button--primary"
+                        style={{ background: '#059669', fontSize: 12 }}
+                      >
+                        Implement interface
+                      </button>
+                    </div>
                   </div>
 
                   <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
@@ -910,12 +940,12 @@ export function InterfacesPage() {
                             </div>
                             <button
                               type="button"
-                              onClick={() => void attachToType(row.objectType.id)}
+                              onClick={() => openImplementModal(row.objectType.id)}
                               disabled={!selectedInterfaceId || bindingTypeId === row.objectType.id}
                               className="of-button"
                               style={{ fontSize: 12, color: '#047857', borderColor: '#a7f3d0' }}
                             >
-                              {bindingTypeId === row.objectType.id ? 'Updating…' : 'Attach'}
+                              {bindingTypeId === row.objectType.id ? 'Updating…' : 'Implement'}
                             </button>
                           </div>
                           <p className="of-text-muted" style={{ marginTop: 10, fontSize: 13 }}>
@@ -966,7 +996,7 @@ export function InterfacesPage() {
                   <p style={{ fontWeight: 600, color: 'var(--text-strong)' }}>Notes</p>
                   <div className="of-text-muted" style={{ marginTop: 14, fontSize: 13, lineHeight: 1.7, display: 'grid', gap: 8 }}>
                     <p>Use interfaces when several object types should expose a shared semantic shape and implementation contract.</p>
-                    <p>Keep high-signal fields required here, then attach the interface to every object type that should participate in the contract.</p>
+                    <p>Keep high-signal fields required here, then implement the interface on every object type that should participate in the contract.</p>
                     <p>Follow with Object Views, Action Types, and Functions once the interface is stable enough to power reusable application behavior.</p>
                   </div>
                 </section>
@@ -975,6 +1005,18 @@ export function InterfacesPage() {
           </main>
         </div>
       )}
+      <ImplementInterfaceModal
+        open={implementModalOpen}
+        iface={selectedInterface}
+        objectTypes={availableObjectTypes}
+        initialObjectTypeId={implementInitialTypeId}
+        busy={Boolean(bindingTypeId)}
+        onClose={() => {
+          setImplementModalOpen(false);
+          setImplementInitialTypeId('');
+        }}
+        onImplement={(typeId) => implementSelectedInterface(typeId)}
+      />
     </section>
   );
 }

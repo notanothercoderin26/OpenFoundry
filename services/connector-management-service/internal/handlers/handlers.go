@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +43,10 @@ type Store interface {
 	ListSyncRuns(ctx context.Context, syncID uuid.UUID, ownerID uuid.UUID) ([]models.SyncRun, error)
 	ListCredentials(ctx context.Context, sourceID uuid.UUID, ownerID uuid.UUID) ([]models.CredentialResponse, error)
 	SetCredential(ctx context.Context, sourceID uuid.UUID, ownerID uuid.UUID, kind string, ciphertext []byte, fingerprint string) (*models.CredentialResponse, error)
+	ListConnectorAgents(ctx context.Context, ownerID uuid.UUID) ([]models.ConnectorAgent, error)
+	RegisterConnectorAgent(ctx context.Context, body *models.RegisterAgentRequest, ownerID uuid.UUID) (*models.ConnectorAgent, error)
+	HeartbeatConnectorAgent(ctx context.Context, id uuid.UUID, body *models.AgentHeartbeatRequest, ownerID uuid.UUID) (*models.ConnectorAgent, error)
+	DeleteConnectorAgent(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (bool, error)
 	ListSourcePolicies(ctx context.Context, sourceID uuid.UUID, ownerID uuid.UUID) ([]models.SourcePolicyBindingResponse, error)
 	AttachPolicy(ctx context.Context, sourceID uuid.UUID, ownerID uuid.UUID, policyID uuid.UUID, kind string) (*models.SourcePolicyBindingResponse, error)
 	DetachPolicy(ctx context.Context, sourceID uuid.UUID, ownerID uuid.UUID, policyID uuid.UUID) (bool, error)
@@ -283,6 +288,134 @@ func (h *Handlers) SetCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) ListConnectorAgents(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requireClaims(w, r)
+	if !ok {
+		return
+	}
+	items, err := h.Repo.ListConnectorAgents(r.Context(), claims.Sub)
+	if err != nil {
+		slog.Error("list connector agents", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to list agents")
+		return
+	}
+	writeJSON(w, http.StatusOK, models.ListResponse[models.ConnectorAgent]{Items: items})
+}
+
+func (h *Handlers) RegisterConnectorAgent(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requireClaims(w, r)
+	if !ok {
+		return
+	}
+	var body models.RegisterAgentRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	body.Name = strings.TrimSpace(body.Name)
+	body.AgentURL = strings.TrimSpace(body.AgentURL)
+	if body.Name == "" || body.AgentURL == "" {
+		writeJSONErr(w, http.StatusBadRequest, "name and agent_url required")
+		return
+	}
+	parsed, err := url.ParseRequestURI(body.AgentURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		writeJSONErr(w, http.StatusBadRequest, "agent_url must be an http(s) URL")
+		return
+	}
+	if !normalizeJSONObject(&body.Capabilities, "capabilities", w) {
+		return
+	}
+	if !normalizeJSONObject(&body.Metadata, "metadata", w) {
+		return
+	}
+	v, err := h.Repo.RegisterConnectorAgent(r.Context(), &body, claims.Sub)
+	if err != nil {
+		slog.Error("register connector agent", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to register agent")
+		return
+	}
+	if v == nil {
+		writeJSONErr(w, http.StatusConflict, "agent_url already registered")
+		return
+	}
+	writeJSON(w, http.StatusCreated, v)
+}
+
+func (h *Handlers) HeartbeatConnectorAgent(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requireClaims(w, r)
+	if !ok {
+		return
+	}
+	id, _, err := routeUUIDParam(r, "id", "agent_id")
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid agent_id")
+		return
+	}
+	var body models.AgentHeartbeatRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !normalizeJSONObject(&body.Capabilities, "capabilities", w) {
+		return
+	}
+	if !normalizeJSONObject(&body.Metadata, "metadata", w) {
+		return
+	}
+	v, err := h.Repo.HeartbeatConnectorAgent(r.Context(), id, &body, claims.Sub)
+	if err != nil {
+		slog.Error("connector agent heartbeat", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to update heartbeat")
+		return
+	}
+	if v == nil {
+		writeJSONErr(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) DeleteConnectorAgent(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requireClaims(w, r)
+	if !ok {
+		return
+	}
+	id, _, err := routeUUIDParam(r, "id", "agent_id")
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid agent_id")
+		return
+	}
+	deleted, err := h.Repo.DeleteConnectorAgent(r.Context(), id, claims.Sub)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, "failed to delete agent")
+		return
+	}
+	if !deleted {
+		writeJSONErr(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func normalizeJSONObject(raw *json.RawMessage, field string, w http.ResponseWriter) bool {
+	trimmed := strings.TrimSpace(string(*raw))
+	if trimmed == "" || trimmed == "null" {
+		*raw = json.RawMessage(`{}`)
+		return true
+	}
+	if !json.Valid(*raw) {
+		writeJSONErr(w, http.StatusBadRequest, field+" must be valid JSON")
+		return false
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(*raw, &obj); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, field+" must be a JSON object")
+		return false
+	}
+	return true
 }
 
 func (h *Handlers) ListSourcePolicies(w http.ResponseWriter, r *http.Request) {

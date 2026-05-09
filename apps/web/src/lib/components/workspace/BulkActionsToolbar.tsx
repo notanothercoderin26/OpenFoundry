@@ -32,6 +32,7 @@ export function BulkActionsToolbar({ count, actions, onAction, onClear, busy = f
         borderRadius: 6,
         border: '1px solid var(--border-default)',
         background: '#1e293b',
+        color: '#e2e8f0',
         boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
       }}
     >

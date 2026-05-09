@@ -11,23 +11,32 @@ import {
 import { ChartWidget } from './ChartWidget';
 import { KPIWidget } from './KPIWidget';
 import { TableWidget } from './TableWidget';
+import { TextWidget } from './TextWidget';
 
 interface WidgetFactoryProps {
   widget: DashboardWidget;
   filters: DashboardFilterState;
+  refreshKey?: number;
 }
 
-export function WidgetFactory({ widget, filters }: WidgetFactoryProps) {
+export function WidgetFactory({ widget, filters, refreshKey = 0 }: WidgetFactoryProps) {
   const [result, setResult] = useState<QueryResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(widget.type !== 'text');
   const [error, setError] = useState('');
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const requestRef = useRef(0);
 
-  const renderedSql = applyDashboardQueryTemplate(widget.query.sql, filters);
-  const requestKey = `${widget.id}:${widget.query.limit}:${renderedSql}`;
+  const renderedSql = widget.type === 'text' ? '' : applyDashboardQueryTemplate(widget.query.sql, filters);
+  const requestKey = `${widget.id}:${widget.query.limit}:${renderedSql}:${refreshKey}`;
 
   async function loadData() {
+    if (widget.type === 'text') {
+      setResult(null);
+      setError('');
+      setLoading(false);
+      return;
+    }
+
     requestRef.current += 1;
     const requestId = requestRef.current;
     setLoading(true);
@@ -89,15 +98,17 @@ export function WidgetFactory({ widget, filters }: WidgetFactoryProps) {
               {formatDashboardTimestamp(lastLoadedAt)}
             </span>
           )}
-          <button
-            type="button"
-            className="of-btn"
-            onClick={() => void loadData()}
-            disabled={loading}
-            style={{ minHeight: 26, fontSize: 11 }}
-          >
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
+          {widget.type !== 'text' && (
+            <button
+              type="button"
+              className="of-btn"
+              onClick={() => void loadData()}
+              disabled={loading}
+              style={{ minHeight: 26, fontSize: 11 }}
+            >
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
+          )}
         </div>
       </header>
 
@@ -108,7 +119,9 @@ export function WidgetFactory({ widget, filters }: WidgetFactoryProps) {
       )}
 
       <div style={{ minHeight: 0, flex: 1 }}>
-        {widget.type === 'chart' ? (
+        {widget.type === 'text' ? (
+          <TextWidget widget={widget} />
+        ) : widget.type === 'chart' ? (
           <ChartWidget widget={widget} result={result} />
         ) : widget.type === 'table' ? (
           <TableWidget widget={widget} result={result} globalSearch={filters.search} />

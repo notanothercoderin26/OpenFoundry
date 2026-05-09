@@ -46,9 +46,16 @@ export interface MfaRequiredResponse {
   status: 'mfa_required';
   challenge_token: string;
   expires_in: number;
+  methods?: string[];
 }
 
 export type LoginResponse = AuthenticatedResponse | MfaRequiredResponse;
+
+export interface CompleteMfaLoginRequest {
+  challenge_token: string;
+  code?: string;
+  recovery_code?: string;
+}
 
 export interface PublicSsoProvider {
   id: string;
@@ -223,16 +230,53 @@ export function getBootstrapStatus() {
   return api.get<BootstrapStatusResponse>('/auth/bootstrap-status');
 }
 
-export function completeMfaLogin(data: { challenge_token: string; code: string }) {
-  return api.post<TokenResponse>('/auth/mfa/complete', data);
+export function completeMfaLogin(data: CompleteMfaLoginRequest) {
+  return api.post<AuthenticatedResponse>('/auth/mfa/totp/complete-login', data);
 }
 
-export function listPublicSsoProviders() {
-  return api.get<PublicSsoProvider[]>('/auth/sso/providers/public');
+type SsoProviderListResponse =
+  | PublicSsoProvider[]
+  | {
+      providers: Array<{
+        id?: string;
+        slug?: string;
+        name: string;
+        kind?: string;
+        provider_type?: string;
+      }>;
+    };
+
+function normalizePublicSsoProviders(resp: SsoProviderListResponse): PublicSsoProvider[] {
+  const providers = Array.isArray(resp) ? resp : resp.providers;
+  return providers.map((provider) => {
+    const slug = provider.slug ?? provider.name.toLowerCase();
+    const providerKind = 'kind' in provider ? provider.kind : undefined;
+    return {
+      id: provider.id ?? slug,
+      slug,
+      name: provider.name,
+      provider_type: provider.provider_type ?? providerKind ?? 'sso',
+    };
+  });
 }
 
-export function startSsoLogin(slug: string) {
-  return api.get<StartSsoLoginResponse>(`/auth/sso/providers/${slug}/start`);
+export async function listPublicSsoProviders() {
+  const resp = await api.get<SsoProviderListResponse>('/auth/sso/providers');
+  return normalizePublicSsoProviders(resp);
+}
+
+export function buildSsoStartUrl(slug: string, redirectAfter?: string) {
+  const query = new URLSearchParams();
+  if (redirectAfter) query.set('redirect_after', redirectAfter);
+  const qs = query.toString();
+  return `/api/v1/auth/sso/${encodeURIComponent(slug)}/start${qs ? `?${qs}` : ''}`;
+}
+
+export function startSsoLogin(slug: string, redirectAfter?: string) {
+  const query = new URLSearchParams();
+  if (redirectAfter) query.set('redirect_after', redirectAfter);
+  const qs = query.toString();
+  return api.get<StartSsoLoginResponse>(`/auth/sso/providers/${slug}/start${qs ? `?${qs}` : ''}`);
 }
 
 export function completeSsoLogin(data: {

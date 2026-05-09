@@ -27,9 +27,9 @@ import (
 type ResourceType string
 
 const (
-	ResourceStreamingDataset       ResourceType = "STREAMING_DATASET"
-	ResourceStreamingPipeline      ResourceType = "STREAMING_PIPELINE"
-	ResourceTimeSeriesSync         ResourceType = "TIME_SERIES_SYNC"
+	ResourceStreamingDataset        ResourceType = "STREAMING_DATASET"
+	ResourceStreamingPipeline       ResourceType = "STREAMING_PIPELINE"
+	ResourceTimeSeriesSync          ResourceType = "TIME_SERIES_SYNC"
 	ResourceGeotemporalObservations ResourceType = "GEOTEMPORAL_OBSERVATIONS"
 )
 
@@ -152,20 +152,20 @@ type CreateMonitoringViewRequest struct {
 
 // MonitorRule mirrors the Rust struct (typed enums on the wire).
 type MonitorRule struct {
-	ID             uuid.UUID    `json:"id"`
-	ViewID         uuid.UUID    `json:"view_id"`
-	Name           string       `json:"name"`
-	ResourceType   ResourceType `json:"resource_type"`
-	ResourceRID    string       `json:"resource_rid"`
-	MonitorKind    MonitorKind  `json:"monitor_kind"`
-	WindowSeconds  int32        `json:"window_seconds"`
-	Comparator     Comparator   `json:"comparator"`
-	Threshold      float64      `json:"threshold"`
-	Severity       Severity     `json:"severity"`
-	Enabled        bool         `json:"enabled"`
-	CreatedBy      string       `json:"created_by"`
-	CreatedAt      time.Time    `json:"created_at"`
-	UpdatedAt      time.Time    `json:"updated_at"`
+	ID            uuid.UUID    `json:"id"`
+	ViewID        uuid.UUID    `json:"view_id"`
+	Name          string       `json:"name"`
+	ResourceType  ResourceType `json:"resource_type"`
+	ResourceRID   string       `json:"resource_rid"`
+	MonitorKind   MonitorKind  `json:"monitor_kind"`
+	WindowSeconds int32        `json:"window_seconds"`
+	Comparator    Comparator   `json:"comparator"`
+	Threshold     float64      `json:"threshold"`
+	Severity      Severity     `json:"severity"`
+	Enabled       bool         `json:"enabled"`
+	CreatedBy     string       `json:"created_by"`
+	CreatedAt     time.Time    `json:"created_at"`
+	UpdatedAt     time.Time    `json:"updated_at"`
 }
 
 // CreateMonitorRuleRequest is the body of POST /v1/monitoring-views/{id}/rules.
@@ -184,6 +184,9 @@ type CreateMonitorRuleRequest struct {
 // Validate mirrors the Rust validate() — window 60..=86400, non-empty
 // resource_rid, finite threshold, plus typed enum validity.
 func (r *CreateMonitorRuleRequest) Validate() error {
+	if r.ViewID == uuid.Nil {
+		return errors.New("view_id must not be empty")
+	}
 	if !r.ResourceType.IsValid() {
 		return fmt.Errorf("invalid resource_type: %q", r.ResourceType)
 	}

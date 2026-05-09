@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { abortBuild, listRuns, retryPipelineRun, triggerRun, type PipelineRun } from '@/lib/api/pipelines';
+import { Glyph } from '@/lib/components/ui/Glyph';
 import { RunLogs } from './RunLogs';
 import { LiveLogViewer } from './LiveLogViewer';
 
@@ -14,15 +15,12 @@ const LIVE_STATUSES = new Set([
   'BUILD_RESOLUTION', 'BUILD_ABORTING', 'RUN_PENDING', 'ABORT_PENDING',
 ]);
 
-const PILL: Record<string, { background: string; color: string }> = {
-  running: { background: '#1d4ed8', color: '#dbeafe' },
-  completed: { background: '#166534', color: '#d1fae5' },
-  failed: { background: '#991b1b', color: '#fee2e2' },
-  aborted: { background: '#92400e', color: '#fde68a' },
-};
-
-function pill(s: string) {
-  return PILL[s] ?? { background: '#334155', color: '#cbd5e1' };
+function statusTone(status: string) {
+  const s = status.toLowerCase();
+  if (s === 'completed' || s === 'succeeded' || s === 'success') return 'of-status-success';
+  if (s === 'failed' || s === 'error' || s === 'aborted') return 'of-status-danger';
+  if (s === 'running' || s === 'pending' || s.includes('build_')) return 'of-status-info';
+  return 'of-status-warning';
 }
 
 function fmt(ts: string | null) {
@@ -111,63 +109,168 @@ export function RunHistory({ pipelineId, readOnly = false }: RunHistoryProps) {
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 14, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8, color: '#e2e8f0' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 style={{ margin: 0, fontSize: 14 }}>Build history</h3>
+    <section className="of-panel" style={{ padding: 0, display: 'flex', flexDirection: 'column' }}>
+      <header
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '10px 12px',
+          borderBottom: '1px solid var(--border-subtle)',
+          background: 'var(--bg-panel-muted)',
+        }}
+      >
+        <div>
+          <p className="of-eyebrow" style={{ margin: 0 }}>Build history</p>
+          <p className="of-text-muted" style={{ margin: '2px 0 0', fontSize: 11 }}>
+            {runs.length === 0 ? 'No runs yet' : `${runs.length} recent run${runs.length === 1 ? '' : 's'}`}
+          </p>
+        </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button type="button" onClick={() => void reload()} disabled={loading} className="of-button" style={{ fontSize: 12 }}>Refresh</button>
+          <button
+            type="button"
+            onClick={() => void reload()}
+            disabled={loading}
+            className="of-button"
+            style={{ fontSize: 11 }}
+          >
+            <Glyph name="history" size={12} />
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
           {!readOnly && (
-            <button type="button" onClick={() => void trigger()} disabled={busy === 'trigger'} className="of-button of-button--primary" style={{ fontSize: 12 }}>
+            <button
+              type="button"
+              onClick={() => void trigger()}
+              disabled={busy === 'trigger'}
+              className="of-button of-button--primary"
+              style={{ fontSize: 11 }}
+            >
+              <Glyph name="run" size={12} />
               {busy === 'trigger' ? 'Triggering…' : 'Trigger run'}
             </button>
           )}
         </div>
       </header>
-      {error && <p style={{ color: '#fca5a5', fontSize: 12, margin: 0 }}>{error}</p>}
-      {runs.length === 0 && !loading ? (
-        <p style={{ color: '#94a3b8', fontStyle: 'italic', margin: 0, fontSize: 12 }}>No runs yet.</p>
-      ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+
+      {error && (
+        <div className="of-status-danger" style={{ margin: 10, padding: '6px 10px', borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
+          {error}
+        </div>
+      )}
+
+      <div className="of-scrollbar" style={{ overflowX: 'auto' }}>
+        <table className="of-table" style={{ minWidth: 600 }}>
           <thead>
             <tr>
-              {['Status', 'Trigger', 'Started', 'Finished', 'Attempt', 'Actions'].map((h) => (
-                <th key={h} style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #1f2937', color: '#94a3b8', fontWeight: 500, textTransform: 'uppercase', fontSize: 11 }}>{h}</th>
-              ))}
+              <th>Status</th>
+              <th>Trigger</th>
+              <th>Started</th>
+              <th>Finished</th>
+              <th>Attempt</th>
+              <th style={{ textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {runs.map((run) => (
-              <tr key={run.id} style={{ background: run.id === selectedRunId ? '#1e293b' : 'transparent' }}>
-                <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>
-                  <span style={{ ...pill(run.status), padding: '2px 8px', borderRadius: 999, fontSize: 11 }}>{run.status}</span>
-                </td>
-                <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>{run.trigger_type}</td>
-                <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>{fmt(run.started_at)}</td>
-                <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>{fmt(run.finished_at)}</td>
-                <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>#{run.attempt_number}</td>
-                <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 4 }}>
-                  <button type="button" onClick={() => setSelectedRunId(run.id)} className="of-button" style={{ fontSize: 11 }}>Logs</button>
-                  {!readOnly && run.status === 'running' && (
-                    <button type="button" onClick={() => void abort(run.id)} disabled={busy === run.id} className="of-button" style={{ fontSize: 11 }}>Abort</button>
-                  )}
-                  {!readOnly && (run.status === 'failed' || run.status === 'aborted') && (
-                    <button type="button" onClick={() => void retry(run.id)} disabled={busy === run.id} className="of-button" style={{ fontSize: 11 }}>Retry</button>
-                  )}
+            {runs.length === 0 && !loading ? (
+              <tr>
+                <td colSpan={6} style={{ padding: 20, textAlign: 'center' }}>
+                  <span className="of-text-muted" style={{ fontStyle: 'italic', fontSize: 12 }}>
+                    No runs yet. Trigger one to populate this history.
+                  </span>
                 </td>
               </tr>
-            ))}
+            ) : (
+              runs.map((run) => {
+                const isSelected = run.id === selectedRunId;
+                return (
+                  <tr
+                    key={run.id}
+                    style={{
+                      background: isSelected ? 'var(--bg-hover)' : undefined,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => setSelectedRunId(run.id)}
+                  >
+                    <td>
+                      <span
+                        className={statusTone(run.status)}
+                        style={{
+                          display: 'inline-flex',
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {run.status}
+                      </span>
+                    </td>
+                    <td className="of-text-muted">{run.trigger_type}</td>
+                    <td className="of-text-muted">{fmt(run.started_at)}</td>
+                    <td className="of-text-muted">{fmt(run.finished_at)}</td>
+                    <td>#{run.attempt_number}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'inline-flex', gap: 4 }}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedRunId(run.id);
+                          }}
+                          className="of-button"
+                          style={{ fontSize: 11 }}
+                        >
+                          Logs
+                        </button>
+                        {!readOnly && run.status === 'running' && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void abort(run.id);
+                            }}
+                            disabled={busy === run.id}
+                            className="of-button"
+                            style={{ fontSize: 11, color: 'var(--status-danger)', borderColor: '#e0b4b1' }}
+                          >
+                            Abort
+                          </button>
+                        )}
+                        {!readOnly && (run.status === 'failed' || run.status === 'aborted') && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void retry(run.id);
+                            }}
+                            disabled={busy === run.id}
+                            className="of-button"
+                            style={{ fontSize: 11 }}
+                          >
+                            Retry
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
-      )}
+      </div>
+
       {selectedRun && (
-        LIVE_STATUSES.has(selectedRun.status) ? (
-          <LiveLogViewer jobRid={`ri.foundry.main.job.${selectedRun.id}`} mode="live" />
-        ) : (
-          <>
-            <RunLogs run={selectedRun} onClose={() => setSelectedRunId(null)} />
-            <LiveLogViewer jobRid={`ri.foundry.main.job.${selectedRun.id}`} mode="historical" />
-          </>
-        )
+        <div style={{ borderTop: '1px solid var(--border-subtle)', padding: 10, display: 'grid', gap: 10 }}>
+          {LIVE_STATUSES.has(selectedRun.status) ? (
+            <LiveLogViewer jobRid={`ri.foundry.main.job.${selectedRun.id}`} mode="live" />
+          ) : (
+            <>
+              <RunLogs run={selectedRun} onClose={() => setSelectedRunId(null)} />
+              <LiveLogViewer jobRid={`ri.foundry.main.job.${selectedRun.id}`} mode="historical" />
+            </>
+          )}
+        </div>
       )}
     </section>
   );

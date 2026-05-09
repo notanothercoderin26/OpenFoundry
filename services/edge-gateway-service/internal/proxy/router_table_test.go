@@ -58,6 +58,7 @@ func upstreamFor(t *testing.T) config.UpstreamURLs {
 	u.FederationProductExchange = "marketplace"
 	u.ApplicationComposition = "app-comp"
 	u.AppBuilder = "app-builder"
+	u.TelemetryGovernance = "telemetry"
 	return u
 }
 
@@ -111,6 +112,8 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/ontology/actions/exec", "ontology-actions"},
 		{"/api/v1/ontology/funnel/x", "ontology-actions"},
 		{"/api/v1/ontology/types/X/objects/Y/inline-edit/foo", "ontology-actions"},
+		{"/api/v1/ontology/types/X/properties/P/objects/Y/inline-edit", "ontology-actions"},
+		{"/api/v1/ontology/types/X/inline-edit-batch", "ontology-actions"},
 		{"/api/v1/ontology/search?q=x", "ontology-query"},
 		{"/api/v1/ontology/types/X/objects/query", "ontology-query"},
 		{"/api/v1/ontology/types/X/objects", "object-db"},
@@ -124,6 +127,10 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/workflows/instances", "workflow"},
 		{"/api/v1/notebooks/abc", "notebook"},
 		{"/api/v1/notepad/abc", "notebook"},
+		// monitoring rules
+		{"/api/v1/monitoring/views", "telemetry"},
+		{"/api/v1/monitoring/rules/abc/pause", "telemetry"},
+		{"/api/v1/monitor-rules/abc", "telemetry"},
 		// ML / AI
 		{"/api/v1/ml/experiments", "model-catalog"},
 		{"/api/v1/ml/deployments/abc/predict", "model-deploy"},

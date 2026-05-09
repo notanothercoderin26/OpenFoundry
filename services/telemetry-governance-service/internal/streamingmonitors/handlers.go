@@ -158,6 +158,31 @@ func (h *Handlers) CreateRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, rule)
 }
 
+// CreateGlobalRule handles POST /api/v1/monitor-rules.
+func (h *Handlers) CreateGlobalRule(w http.ResponseWriter, r *http.Request) {
+	c, ok := authmw.FromContext(r.Context())
+	if !ok || !canWrite(c) {
+		writeText(w, http.StatusForbidden, PermMonitorWrite+" required")
+		return
+	}
+	var body CreateMonitorRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeText(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := body.Validate(); err != nil {
+		writeText(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	rule, err := h.Repo.CreateRule(r.Context(), ids.New(), &body, c.Sub.String())
+	if err != nil {
+		slog.Error("create global rule", slog.String("error", err.Error()))
+		writeText(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, rule)
+}
+
 // ListRules handles GET /api/v1/monitor-rules?resource_type=..&resource_rid=..
 //
 // Used by streaming-service Job Details to render the "Active monitors" card.
@@ -246,6 +271,39 @@ func (h *Handlers) DeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// PauseRule handles POST /api/v1/monitor-rules/{id}/pause.
+func (h *Handlers) PauseRule(w http.ResponseWriter, r *http.Request) {
+	h.setRuleEnabled(w, r, false)
+}
+
+// ResumeRule handles POST /api/v1/monitor-rules/{id}/resume.
+func (h *Handlers) ResumeRule(w http.ResponseWriter, r *http.Request) {
+	h.setRuleEnabled(w, r, true)
+}
+
+func (h *Handlers) setRuleEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
+	c, ok := authmw.FromContext(r.Context())
+	if !ok || !canWrite(c) {
+		writeText(w, http.StatusForbidden, PermMonitorWrite+" required")
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeText(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	updated, err := h.Repo.PatchRule(r.Context(), id, &PatchRuleRequest{Enabled: &enabled})
+	if err != nil {
+		writeText(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if updated == nil {
+		writeText(w, http.StatusNotFound, "rule not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // ListEvaluations handles GET /api/v1/monitor-rules/{id}/evaluations?limit=N.

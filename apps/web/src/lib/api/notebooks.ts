@@ -86,7 +86,7 @@ export function addCell(notebookId: string, data: { cell_type?: string; kernel?:
 }
 
 export function updateCell(notebookId: string, cellId: string, data: { source?: string; cell_type?: string; kernel?: NotebookKernel; position?: number }) {
-  return api.put<Cell>(`/notebooks/${notebookId}/cells/${cellId}`, data);
+  return api.patch<Cell>(`/notebooks/${notebookId}/cells/${cellId}`, data);
 }
 
 export function deleteCell(notebookId: string, cellId: string) {
@@ -102,7 +102,7 @@ export function executeCell(notebookId: string, cellId: string, sessionId?: stri
 }
 
 export function executeAllCells(notebookId: string, sessionId?: string) {
-  return api.post<{ results: { cell_id: string; output: CellOutput }[] }>(`/notebooks/${notebookId}/execute`, {
+  return api.post<{ results: { cell_id: string; output: CellOutput }[] }>(`/notebooks/${notebookId}/cells/execute-all`, {
     session_id: sessionId ?? null,
   });
 }
@@ -118,17 +118,17 @@ export function listSessions(notebookId: string) {
 }
 
 export function stopSession(notebookId: string, sessionId: string) {
-  return api.delete<Session>(`/notebooks/${notebookId}/sessions/${sessionId}`);
+  return api.post<Session>(`/notebooks/${notebookId}/sessions/${sessionId}/stop`, {});
 }
 
 export function listWorkspaceFiles(notebookId: string) {
-  return api.get<{ data: NotebookWorkspaceFile[] }>(`/notebooks/${notebookId}/workspace/files`);
+  return api.get<{ data: NotebookWorkspaceFile[] }>(`/notebooks/${notebookId}/workspace`);
 }
 
 export function upsertWorkspaceFile(notebookId: string, body: { path: string; content: string }) {
-  return api.put<NotebookWorkspaceFile>(`/notebooks/${notebookId}/workspace/files`, body);
+  return api.put<NotebookWorkspaceFile>(`/notebooks/${notebookId}/workspace`, body);
 }
 
 export function deleteWorkspaceFile(notebookId: string, path: string) {
-  return api.delete(`/notebooks/${notebookId}/workspace/files?path=${encodeURIComponent(path)}`);
+  return api.delete(`/notebooks/${notebookId}/workspace?path=${encodeURIComponent(path)}`);
 }

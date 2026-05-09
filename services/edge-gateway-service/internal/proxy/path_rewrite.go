@@ -14,6 +14,15 @@ func RewriteUpstreamPath(path string) string {
 	if path == "/api/v1/datasets/catalog/facets" {
 		return "/v1/catalog/facets"
 	}
+	if rest, ok := strings.CutPrefix(path, "/api/v1/monitoring/views"); ok {
+		return "/api/v1/monitoring-views" + rest
+	}
+	if rest, ok := strings.CutPrefix(path, "/api/v1/monitoring/rules"); ok {
+		return "/api/v1/monitor-rules" + rest
+	}
+	if rest, ok := strings.CutPrefix(path, "/api/v1/ontology/projects"); ok {
+		return "/api/v1/projects" + rest
+	}
 	if rest, ok := strings.CutPrefix(path, "/api/v1/datasets"); ok {
 		canonical := "/v1/datasets" + rest
 		if prefix, ok := strings.CutSuffix(canonical, "/filesystem"); ok {

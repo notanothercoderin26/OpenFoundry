@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
 
 import { JsonEditor } from '@/lib/components/JsonEditor';
+import { MediaTransformEditor } from '@/lib/components/pipeline/MediaTransformEditor';
+import { TransformEditor } from '@/lib/components/pipeline/TransformEditor';
 import type { NodeValidationReport, PipelineNode } from '@/lib/api/pipelines';
 
-type Transform = 'sql' | 'python' | 'llm' | 'wasm' | 'passthrough';
+type TransformOption = 'passthrough' | 'sql' | 'python' | 'pyspark' | 'spark' | 'llm' | 'wasm' | 'external' | 'remote';
 
 interface NodeConfigProps {
   node: PipelineNode | null;
@@ -14,15 +16,27 @@ interface NodeConfigProps {
   validation?: NodeValidationReport | null;
 }
 
-const TRANSFORMS: Transform[] = ['passthrough', 'sql', 'python', 'llm', 'wasm'];
+const TRANSFORMS: TransformOption[] = ['passthrough', 'sql', 'python', 'pyspark', 'spark', 'llm', 'wasm', 'external', 'remote'];
 
-const BODY_KEY: Record<Transform, string | null> = {
+const BODY_KEY_CANDIDATES: Record<string, string[]> = {
+  sql: ['sql'],
+  python: ['source', 'python_source'],
+  pyspark: ['source', 'python_source'],
+  spark: ['source', 'spark_source'],
+  llm: ['prompt'],
+  wasm: ['wasm_module_b64', 'module'],
+};
+
+const DEFAULT_BODY_KEY: Record<string, string> = {
   sql: 'sql',
-  python: 'python_source',
+  python: 'source',
+  pyspark: 'source',
+  spark: 'source',
   llm: 'prompt',
   wasm: 'wasm_module_b64',
-  passthrough: null,
 };
+
+const ALL_BODY_KEYS = Array.from(new Set(Object.values(BODY_KEY_CANDIDATES).flat()));
 
 const MEDIA_TRANSFORM_TYPES = new Set([
   'media_set_input',
@@ -43,11 +57,16 @@ export function NodeConfig({ node, siblings, readOnly = false, onChange, onDelet
     );
   }
 
+  const transformOptions = TRANSFORMS.includes(node.transform_type as TransformOption)
+    ? TRANSFORMS
+    : [...TRANSFORMS, node.transform_type];
+
   function bodyValue(n: PipelineNode): string {
-    const key = BODY_KEY[n.transform_type as Transform];
-    if (!key) return '';
-    const raw = (n.config ?? {})[key];
-    return typeof raw === 'string' ? raw : '';
+    for (const key of BODY_KEY_CANDIDATES[n.transform_type] ?? []) {
+      const raw = (n.config ?? {})[key];
+      if (typeof raw === 'string') return raw;
+    }
+    return '';
   }
 
   function patch(partial: Partial<PipelineNode>) {
@@ -57,17 +76,16 @@ export function NodeConfig({ node, siblings, readOnly = false, onChange, onDelet
 
   function setBody(next: string) {
     if (!node) return;
-    const key = BODY_KEY[node.transform_type as Transform];
+    const candidates = BODY_KEY_CANDIDATES[node.transform_type] ?? [];
+    const key = candidates.find((candidate) => typeof (node.config ?? {})[candidate] === 'string') ?? DEFAULT_BODY_KEY[node.transform_type];
     if (!key) return;
     onChange({ ...node, config: { ...(node.config ?? {}), [key]: next } });
   }
 
-  function setTransform(next: Transform) {
+  function setTransform(next: string) {
     if (!node) return;
     const cleanConfig: Record<string, unknown> = { ...(node.config ?? {}) };
-    for (const v of Object.values(BODY_KEY)) {
-      if (v) delete cleanConfig[v];
-    }
+    for (const key of ALL_BODY_KEYS) delete cleanConfig[key];
     onChange({ ...node, transform_type: next, config: cleanConfig });
   }
 
@@ -80,10 +98,11 @@ export function NodeConfig({ node, siblings, readOnly = false, onChange, onDelet
   }
 
   const isMedia = MEDIA_TRANSFORM_TYPES.has(node.transform_type);
-  const bodyKey = BODY_KEY[node.transform_type as Transform];
+  const hasTransformBody = (BODY_KEY_CANDIDATES[node.transform_type]?.length ?? 0) > 0;
+  const supportsTransformEditor = !isMedia && (hasTransformBody || node.transform_type === 'passthrough');
 
   return (
-    <aside style={{ padding: 12, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8, color: '#e2e8f0', display: 'flex', flexDirection: 'column', gap: 12, width: 320 }}>
+    <aside style={{ padding: 12, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8, color: '#e2e8f0', display: 'flex', flexDirection: 'column', gap: 12, width: '100%', boxSizing: 'border-box' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h3 style={{ margin: 0, fontSize: 14 }}>Node properties</h3>
         {onDelete && !readOnly && (
@@ -117,8 +136,8 @@ export function NodeConfig({ node, siblings, readOnly = false, onChange, onDelet
       {!isMedia && (
         <label style={{ fontSize: 12 }}>
           Transform type
-          <select value={node.transform_type} onChange={(e) => setTransform(e.target.value as Transform)} disabled={readOnly} className="of-input" style={{ marginTop: 4 }}>
-            {TRANSFORMS.map((t) => <option key={t} value={t}>{t}</option>)}
+          <select value={node.transform_type} onChange={(e) => setTransform(e.target.value)} disabled={readOnly} className="of-input" style={{ marginTop: 4 }}>
+            {transformOptions.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </label>
       )}
@@ -152,18 +171,19 @@ export function NodeConfig({ node, siblings, readOnly = false, onChange, onDelet
         </div>
       </div>
 
-      {bodyKey && !isMedia && (
-        <label style={{ fontSize: 12 }}>
-          Body ({bodyKey})
-          <textarea
-            value={bodyValue(node)}
-            onChange={(e) => setBody(e.target.value)}
-            disabled={readOnly}
-            rows={10}
-            className="of-input"
-            style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11 }}
-          />
-        </label>
+      {isMedia && (
+        <MediaTransformEditor node={node} readOnly={readOnly} onChange={onChange} />
+      )}
+
+      {supportsTransformEditor && (
+        <TransformEditor
+          transformType={node.transform_type}
+          value={bodyValue(node)}
+          onChange={setBody}
+          config={node.config}
+          onConfigChange={(next) => patch({ config: next })}
+          readOnly={readOnly}
+        />
       )}
 
       <JsonEditor

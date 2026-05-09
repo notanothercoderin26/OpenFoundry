@@ -161,11 +161,12 @@ type fakeStore struct {
 	vtables       map[string]models.VirtualTable
 	registrations map[uuid.UUID][]models.ConnectionRegistration
 	policies      map[uuid.UUID][]models.SourcePolicyBindingResponse
+	agents        []models.ConnectorAgent
 }
 
 func newFakeStore(owner uuid.UUID) *fakeStore {
 	conn := models.Connection{ID: uuid.New(), Name: "pg", ConnectorType: "postgresql", Config: json.RawMessage(`{}`), Status: "connected", OwnerID: owner, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
-	return &fakeStore{connections: []models.Connection{conn}, syncJobs: map[uuid.UUID][]models.SyncJob{}, mediaSyncs: map[uuid.UUID][]models.MediaSetSync{}, runs: map[uuid.UUID][]models.SyncRun{}, links: map[string]models.VirtualTableSourceLink{}, vtables: map[string]models.VirtualTable{}, registrations: map[uuid.UUID][]models.ConnectionRegistration{}, policies: map[uuid.UUID][]models.SourcePolicyBindingResponse{}}
+	return &fakeStore{connections: []models.Connection{conn}, syncJobs: map[uuid.UUID][]models.SyncJob{}, mediaSyncs: map[uuid.UUID][]models.MediaSetSync{}, runs: map[uuid.UUID][]models.SyncRun{}, links: map[string]models.VirtualTableSourceLink{}, vtables: map[string]models.VirtualTable{}, registrations: map[uuid.UUID][]models.ConnectionRegistration{}, policies: map[uuid.UUID][]models.SourcePolicyBindingResponse{}, agents: []models.ConnectorAgent{}}
 }
 
 func (f *fakeStore) ListConnections(_ context.Context, ownerID *uuid.UUID) ([]models.Connection, error) {
@@ -330,6 +331,56 @@ func (f *fakeStore) SetCredential(_ context.Context, sourceID uuid.UUID, ownerID
 		return nil, nil
 	}
 	return &models.CredentialResponse{ID: uuid.New(), SourceID: sourceID, Kind: kind, Fingerprint: fingerprint, CreatedAt: time.Now().UTC()}, nil
+}
+func (f *fakeStore) ListConnectorAgents(_ context.Context, ownerID uuid.UUID) ([]models.ConnectorAgent, error) {
+	out := []models.ConnectorAgent{}
+	for _, agent := range f.agents {
+		if agent.OwnerID == ownerID {
+			out = append(out, agent)
+		}
+	}
+	return out, nil
+}
+func (f *fakeStore) RegisterConnectorAgent(_ context.Context, body *models.RegisterAgentRequest, ownerID uuid.UUID) (*models.ConnectorAgent, error) {
+	now := time.Now().UTC()
+	for i := range f.agents {
+		if f.agents[i].AgentURL == body.AgentURL {
+			f.agents[i].Name = body.Name
+			f.agents[i].OwnerID = ownerID
+			f.agents[i].Status = "online"
+			f.agents[i].Capabilities = body.Capabilities
+			f.agents[i].Metadata = body.Metadata
+			f.agents[i].LastHeartbeatAt = &now
+			f.agents[i].UpdatedAt = now
+			return &f.agents[i], nil
+		}
+	}
+	agent := models.ConnectorAgent{ID: uuid.New(), Name: body.Name, AgentURL: body.AgentURL, OwnerID: ownerID, Status: "online", Capabilities: body.Capabilities, Metadata: body.Metadata, LastHeartbeatAt: &now, CreatedAt: now, UpdatedAt: now}
+	f.agents = append([]models.ConnectorAgent{agent}, f.agents...)
+	return &f.agents[0], nil
+}
+func (f *fakeStore) HeartbeatConnectorAgent(_ context.Context, id uuid.UUID, body *models.AgentHeartbeatRequest, ownerID uuid.UUID) (*models.ConnectorAgent, error) {
+	now := time.Now().UTC()
+	for i := range f.agents {
+		if f.agents[i].ID == id && f.agents[i].OwnerID == ownerID {
+			f.agents[i].Status = "online"
+			f.agents[i].Capabilities = body.Capabilities
+			f.agents[i].Metadata = body.Metadata
+			f.agents[i].LastHeartbeatAt = &now
+			f.agents[i].UpdatedAt = now
+			return &f.agents[i], nil
+		}
+	}
+	return nil, nil
+}
+func (f *fakeStore) DeleteConnectorAgent(_ context.Context, id uuid.UUID, ownerID uuid.UUID) (bool, error) {
+	for i := range f.agents {
+		if f.agents[i].ID == id && f.agents[i].OwnerID == ownerID {
+			f.agents = append(f.agents[:i], f.agents[i+1:]...)
+			return true, nil
+		}
+	}
+	return false, nil
 }
 func (f *fakeStore) ListSourcePolicies(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID) ([]models.SourcePolicyBindingResponse, error) {
 	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
@@ -576,6 +627,60 @@ func withRouteParam(req *http.Request, key, val string) *http.Request {
 	}
 	rctx.URLParams.Add(key, val)
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
+
+func TestConnectorAgentHandlersRegisterHeartbeatAndDelete(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+
+	req := authedReq(http.MethodPost, "/agents", `{"name":"Edge bridge","agent_url":"https://agent.local:8443","capabilities":{"connectors":["postgres"]},"metadata":{"region":"eu"}}`, owner)
+	rec := httptest.NewRecorder()
+	h.RegisterConnectorAgent(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created models.ConnectorAgent
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.Equal(t, "online", created.Status)
+	require.NotNil(t, created.LastHeartbeatAt)
+
+	req = authedReq(http.MethodGet, "/agents", ``, owner)
+	rec = httptest.NewRecorder()
+	h.ListConnectorAgents(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var listed models.ListResponse[models.ConnectorAgent]
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed))
+	require.Len(t, listed.Items, 1)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/agents/"+created.ID.String()+"/heartbeat", `{"capabilities":{"connectors":["postgres","mysql"]},"metadata":{"region":"eu"}}`, owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.HeartbeatConnectorAgent(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "mysql")
+
+	req = withRouteParam(authedReq(http.MethodDelete, "/agents/"+created.ID.String(), ``, owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.DeleteConnectorAgent(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Empty(t, store.agents)
+}
+
+func TestRegisterConnectorAgentRejectsInvalidPayloads(t *testing.T) {
+	owner := uuid.New()
+	h := &handlers.Handlers{Repo: newFakeStore(owner)}
+
+	for name, body := range map[string]string{
+		"missing name":     `{"agent_url":"https://agent.local"}`,
+		"invalid url":      `{"name":"agent","agent_url":"agent.local"}`,
+		"array metadata":   `{"name":"agent","agent_url":"https://agent.local","metadata":[]}`,
+		"bad capabilities": `{"name":"agent","agent_url":"https://agent.local","capabilities":{`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := authedReq(http.MethodPost, "/agents", body, owner)
+			rec := httptest.NewRecorder()
+			h.RegisterConnectorAgent(rec, req)
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		})
+	}
 }
 
 func TestSourcePolicyBindingHandlersMatchRustContract(t *testing.T) {

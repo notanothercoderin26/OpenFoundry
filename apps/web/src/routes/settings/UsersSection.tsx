@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
@@ -13,6 +13,8 @@ import {
 import { ConfirmDialog } from '@components/ConfirmDialog';
 import { usePermissions } from '@/lib/auth/permissions';
 import { groupsQuery, rolesQuery, settingsQueryKeys, usersQuery } from './queries';
+import { SettingsModal } from './SettingsModal';
+import { SettingsSectionHeader } from './SettingsSectionHeader';
 
 interface UsersSectionProps {
   setNotice: (msg: string) => void;
@@ -31,10 +33,26 @@ export function UsersSection({ setNotice, setError }: UsersSectionProps) {
   const roles = rolesResult.data ?? [];
   const groups = groupsResult.data ?? [];
 
+  const [filter, setFilter] = useState('');
   const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [selectedRoleByUser, setSelectedRoleByUser] = useState<Record<string, string>>({});
-  const [selectedGroupByUser, setSelectedGroupByUser] = useState<Record<string, string>>({});
-  const [deactivateConfirm, setDeactivateConfirm] = useState<{ user: UserProfile; busy: boolean } | null>(null);
+  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [draftRole, setDraftRole] = useState('');
+  const [draftGroup, setDraftGroup] = useState('');
+  const [deactivateConfirm, setDeactivateConfirm] = useState<{ user: UserProfile; busy: boolean } | null>(
+    null,
+  );
+
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(
+      (user) =>
+        user.name.toLowerCase().includes(q) ||
+        user.email.toLowerCase().includes(q) ||
+        user.roles.some((role) => role.toLowerCase().includes(q)) ||
+        user.groups.some((group) => group.toLowerCase().includes(q)),
+    );
+  }, [filter, users]);
 
   if (!perms.canReadUsers) return null;
 
@@ -67,7 +85,7 @@ export function UsersSection({ setNotice, setError }: UsersSectionProps) {
     await withSaving(`user-${user.id}`, async () => {
       await updateUser(user.id, { is_active: true });
       await qc.invalidateQueries({ queryKey: settingsQueryKeys.users });
-      setNotice('User state updated.');
+      setNotice('User reactivated.');
     });
   }
 
@@ -79,14 +97,14 @@ export function UsersSection({ setNotice, setError }: UsersSectionProps) {
       await withSaving(`user-${target.id}`, async () => {
         await deactivateUser(target.id);
         await qc.invalidateQueries({ queryKey: settingsQueryKeys.users });
-        setNotice('User state updated.');
+        setNotice('User deactivated.');
       });
     } finally {
       setDeactivateConfirm(null);
     }
   }
 
-  async function handleToggleMfaEnforcement(user: UserProfile) {
+  async function handleToggleMfa(user: UserProfile) {
     await withSaving(`user-mfa-${user.id}`, async () => {
       await updateUser(user.id, { mfa_enforced: !user.mfa_enforced });
       await qc.invalidateQueries({ queryKey: settingsQueryKeys.users });
@@ -95,12 +113,11 @@ export function UsersSection({ setNotice, setError }: UsersSectionProps) {
   }
 
   async function handleAssignRole(userId: string) {
-    const roleId = selectedRoleByUser[userId];
-    if (!roleId) return;
+    if (!draftRole) return;
     await withSaving(`assign-role-${userId}`, async () => {
-      await assignUserRole(userId, roleId);
+      await assignUserRole(userId, draftRole);
       await qc.invalidateQueries({ queryKey: settingsQueryKeys.users });
-      setSelectedRoleByUser((prev) => ({ ...prev, [userId]: '' }));
+      setDraftRole('');
       setNotice('Role assigned.');
     });
   }
@@ -115,19 +132,18 @@ export function UsersSection({ setNotice, setError }: UsersSectionProps) {
     });
   }
 
-  async function handleAddUserToGroup(userId: string) {
-    const groupId = selectedGroupByUser[userId];
-    if (!groupId) return;
+  async function handleAddGroup(userId: string) {
+    if (!draftGroup) return;
     await withSaving(`assign-group-${userId}`, async () => {
-      await addUserToGroup(userId, groupId);
+      await addUserToGroup(userId, draftGroup);
       await qc.invalidateQueries({ queryKey: settingsQueryKeys.users });
       await qc.invalidateQueries({ queryKey: settingsQueryKeys.groups });
-      setSelectedGroupByUser((prev) => ({ ...prev, [userId]: '' }));
+      setDraftGroup('');
       setNotice('User added to group.');
     });
   }
 
-  async function handleRemoveUserFromGroup(userId: string, groupName: string) {
+  async function handleRemoveGroup(userId: string, groupName: string) {
     const groupId = groupIdByName(groupName);
     if (!groupId) return;
     await withSaving(`remove-group-${userId}-${groupId}`, async () => {
@@ -138,185 +154,240 @@ export function UsersSection({ setNotice, setError }: UsersSectionProps) {
     });
   }
 
-  return (
-    <section className="of-panel" style={{ padding: 24, marginTop: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-        <div>
-          <p className="of-eyebrow">User directory</p>
-          <h2 className="of-heading-lg">Users, roles and group membership</h2>
-        </div>
-      </div>
+  function openEdit(user: UserProfile) {
+    setEditingUser(user);
+    setDraftRole('');
+    setDraftGroup('');
+  }
 
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', marginTop: 24 }}>
-        {users.map((user) => (
-          <article key={user.id} className="of-panel-muted" style={{ padding: 20 }}>
-            <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-              <div>
-                <h3 className="of-heading-md">{user.name}</h3>
-                <p className="of-text-muted" style={{ fontSize: 13 }}>
-                  {user.email}
-                </p>
-              </div>
-              <div style={{ textAlign: 'right', fontSize: 11 }}>
-                <span className={`of-chip ${user.is_active ? 'of-status-success' : ''}`}>
-                  {user.is_active ? 'Active' : 'Inactive'}
-                </span>
-                <div className="of-text-muted" style={{ marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.18em' }}>
-                  {user.auth_source}
+  return (
+    <section className="settings-section">
+      <SettingsSectionHeader
+        title="Users"
+        description="Manage workspace identities, role assignments, and group membership."
+        filter={{ value: filter, placeholder: 'Filter users…', onChange: setFilter }}
+      />
+
+      {usersResult.isLoading ? (
+        <div className="settings-empty">Loading users…</div>
+      ) : filtered.length === 0 ? (
+        <div className="settings-empty">
+          {filter ? 'No users match the filter.' : 'No users to display.'}
+        </div>
+      ) : (
+        <table className="settings-table">
+          <thead>
+            <tr>
+              <th style={{ width: '24%' }}>User</th>
+              <th style={{ width: '14%' }}>Status</th>
+              <th>Roles</th>
+              <th>Groups</th>
+              {(perms.canManageUsers || perms.canManageRoles || perms.canManageGroups) && (
+                <th style={{ width: '120px' }}></th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((user) => (
+              <tr key={user.id}>
+                <td>
+                  <div className="settings-table__name">{user.name}</div>
+                  <div className="settings-table__sub">{user.email}</div>
+                </td>
+                <td>
+                  <span className={`of-chip ${user.is_active ? 'of-status-success' : ''}`}>
+                    {user.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                  <div className="settings-table__sub" style={{ textTransform: 'uppercase', letterSpacing: '0.16em' }}>
+                    {user.auth_source}
+                  </div>
+                </td>
+                <td>
+                  <div className="settings-chip-row">
+                    {user.roles.length > 0 ? (
+                      user.roles.map((role) => (
+                        <span key={role} className="of-chip of-chip-active">
+                          {role}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="of-text-soft">No direct roles</span>
+                    )}
+                  </div>
+                </td>
+                <td>
+                  <div className="settings-chip-row">
+                    {user.groups.length > 0 ? (
+                      user.groups.map((group) => (
+                        <span key={group} className="of-chip">
+                          {group}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="of-text-soft">No groups</span>
+                    )}
+                  </div>
+                </td>
+                {(perms.canManageUsers || perms.canManageRoles || perms.canManageGroups) && (
+                  <td>
+                    <button
+                      type="button"
+                      className="of-btn"
+                      onClick={() => openEdit(user)}
+                    >
+                      Manage
+                    </button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <SettingsModal
+        open={!!editingUser}
+        title={editingUser ? `Manage ${editingUser.name}` : 'Manage user'}
+        description={editingUser?.email}
+        width={600}
+        primaryLabel="Done"
+        onSubmit={() => setEditingUser(null)}
+        onClose={() => setEditingUser(null)}
+      >
+        {editingUser && (
+          <>
+            {perms.canManageUsers && (
+              <div className="settings-detail-card">
+                <div className="of-eyebrow">Identity controls</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                  <button
+                    type="button"
+                    className="of-btn"
+                    onClick={() => handleToggleUser(editingUser)}
+                    disabled={savingKey === `user-${editingUser.id}`}
+                  >
+                    {editingUser.is_active ? 'Deactivate user' : 'Reactivate user'}
+                  </button>
+                  <button
+                    type="button"
+                    className="of-btn"
+                    onClick={() => handleToggleMfa(editingUser)}
+                    disabled={savingKey === `user-mfa-${editingUser.id}`}
+                  >
+                    {editingUser.mfa_enforced ? 'Unset MFA enforcement' : 'Force MFA'}
+                  </button>
                 </div>
               </div>
-            </header>
+            )}
 
-            <div style={{ display: 'grid', gap: 16, gridTemplateColumns: '1fr 1fr', marginTop: 16, fontSize: 13 }}>
-              <div>
+            {perms.canManageRoles && (
+              <div className="settings-detail-card">
                 <div className="of-eyebrow">Roles</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                  {user.roles.length > 0 ? (
-                    user.roles.map((roleName) => (
-                      <span key={roleName} className="of-chip of-chip-active">
+                <div className="settings-chip-row" style={{ marginTop: 10 }}>
+                  {editingUser.roles.length > 0 ? (
+                    editingUser.roles.map((roleName) => (
+                      <span key={roleName} className="settings-action-chip">
                         {roleName}
-                        {perms.canManageRoles && (
-                          <button
-                            type="button"
-                            className="of-btn of-btn-ghost"
-                            style={{ minHeight: 0, padding: '0 4px' }}
-                            onClick={() => handleRemoveRole(user.id, roleName)}
-                          >
-                            ×
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          aria-label={`Remove ${roleName}`}
+                          onClick={() => handleRemoveRole(editingUser.id, roleName)}
+                        >
+                          ×
+                        </button>
                       </span>
                     ))
                   ) : (
                     <span className="of-text-soft">No direct roles</span>
                   )}
                 </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <select
+                    className="of-select"
+                    value={draftRole}
+                    onChange={(e) => setDraftRole(e.target.value)}
+                  >
+                    <option value="">Assign role…</option>
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="of-btn of-btn-primary"
+                    onClick={() => handleAssignRole(editingUser.id)}
+                    disabled={!draftRole || savingKey === `assign-role-${editingUser.id}`}
+                  >
+                    Assign
+                  </button>
+                </div>
               </div>
+            )}
 
-              <div>
+            {perms.canManageGroups && (
+              <div className="settings-detail-card">
                 <div className="of-eyebrow">Groups</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                  {user.groups.length > 0 ? (
-                    user.groups.map((groupName) => (
-                      <span key={groupName} className="of-chip">
+                <div className="settings-chip-row" style={{ marginTop: 10 }}>
+                  {editingUser.groups.length > 0 ? (
+                    editingUser.groups.map((groupName) => (
+                      <span key={groupName} className="settings-action-chip">
                         {groupName}
-                        {perms.canManageGroups && (
-                          <button
-                            type="button"
-                            className="of-btn of-btn-ghost"
-                            style={{ minHeight: 0, padding: '0 4px' }}
-                            onClick={() => handleRemoveUserFromGroup(user.id, groupName)}
-                          >
-                            ×
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          aria-label={`Remove ${groupName}`}
+                          onClick={() => handleRemoveGroup(editingUser.id, groupName)}
+                        >
+                          ×
+                        </button>
                       </span>
                     ))
                   ) : (
                     <span className="of-text-soft">No groups</span>
                   )}
                 </div>
-              </div>
-            </div>
-
-            <div className="of-text-muted" style={{ marginTop: 12, fontSize: 12 }}>
-              <strong style={{ color: 'var(--text-strong)' }}>Permissions:</strong> {user.permissions.length}
-              <span style={{ margin: '0 8px' }}>·</span>
-              <strong style={{ color: 'var(--text-strong)' }}>Org:</strong> {user.organization_id ?? 'Not assigned'}
-            </div>
-
-            {(perms.canManageUsers || perms.canManageRoles || perms.canManageGroups) && (
-              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginTop: 16 }}>
-                {perms.canManageUsers && (
-                  <div className="of-panel" style={{ padding: 12 }}>
-                    <div className="of-eyebrow">Identity controls</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                      <button
-                        type="button"
-                        className="of-btn"
-                        onClick={() => handleToggleUser(user)}
-                        disabled={savingKey === `user-${user.id}`}
-                      >
-                        {user.is_active ? 'Deactivate user' : 'Reactivate user'}
-                      </button>
-                      <button
-                        type="button"
-                        className="of-btn"
-                        onClick={() => handleToggleMfaEnforcement(user)}
-                        disabled={savingKey === `user-mfa-${user.id}`}
-                      >
-                        {user.mfa_enforced ? 'Unset MFA enforcement' : 'Force MFA'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {(perms.canManageRoles || perms.canManageGroups) && (
-                  <div className="of-panel" style={{ padding: 12 }}>
-                    <div className="of-eyebrow">Access assignment</div>
-                    {perms.canManageRoles && (
-                      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                        <select
-                          className="of-select"
-                          value={selectedRoleByUser[user.id] ?? ''}
-                          onChange={(e) =>
-                            setSelectedRoleByUser((prev) => ({ ...prev, [user.id]: e.target.value }))
-                          }
-                        >
-                          <option value="">Assign role...</option>
-                          {roles.map((role) => (
-                            <option key={role.id} value={role.id}>
-                              {role.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          className="of-btn of-btn-primary"
-                          onClick={() => handleAssignRole(user.id)}
-                          disabled={savingKey === `assign-role-${user.id}`}
-                        >
-                          Assign
-                        </button>
-                      </div>
-                    )}
-                    {perms.canManageGroups && (
-                      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                        <select
-                          className="of-select"
-                          value={selectedGroupByUser[user.id] ?? ''}
-                          onChange={(e) =>
-                            setSelectedGroupByUser((prev) => ({ ...prev, [user.id]: e.target.value }))
-                          }
-                        >
-                          <option value="">Add to group...</option>
-                          {groups.map((group) => (
-                            <option key={group.id} value={group.id}>
-                              {group.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          className="of-btn"
-                          onClick={() => handleAddUserToGroup(user.id)}
-                          disabled={savingKey === `assign-group-${user.id}`}
-                        >
-                          Add
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <select
+                    className="of-select"
+                    value={draftGroup}
+                    onChange={(e) => setDraftGroup(e.target.value)}
+                  >
+                    <option value="">Add to group…</option>
+                    {groups.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="of-btn"
+                    onClick={() => handleAddGroup(editingUser.id)}
+                    disabled={!draftGroup || savingKey === `assign-group-${editingUser.id}`}
+                  >
+                    Add
+                  </button>
+                </div>
               </div>
             )}
-          </article>
-        ))}
-        {usersResult.isLoading && <p className="of-text-muted">Loading users…</p>}
-        {!usersResult.isLoading && users.length === 0 && (
-          <p className="of-text-muted">No users to display.</p>
+
+            <div className="settings-detail-card">
+              <div className="of-eyebrow">Summary</div>
+              <div style={{ marginTop: 10, fontSize: 13 }}>
+                <div>
+                  <strong style={{ color: 'var(--text-strong)' }}>Permissions:</strong>{' '}
+                  {editingUser.permissions.length}
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <strong style={{ color: 'var(--text-strong)' }}>Organization:</strong>{' '}
+                  {editingUser.organization_id ?? 'Not assigned'}
+                </div>
+              </div>
+            </div>
+          </>
         )}
-      </div>
+      </SettingsModal>
 
       <ConfirmDialog
         open={!!deactivateConfirm}

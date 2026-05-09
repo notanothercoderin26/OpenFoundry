@@ -90,19 +90,19 @@ export interface PatchMonitorRuleRequest {
 }
 
 export function listMonitoringViews() {
-  return api.get<ListResponse<MonitoringView>>('/monitoring/monitoring-views');
+  return api.get<ListResponse<MonitoringView>>('/monitoring/views');
 }
 
 export function createMonitoringView(body: CreateMonitoringViewRequest) {
-  return api.post<MonitoringView>('/monitoring/monitoring-views', body);
+  return api.post<MonitoringView>('/monitoring/views', body);
 }
 
 export function getMonitoringView(id: string) {
-  return api.get<MonitoringView>(`/monitoring/monitoring-views/${id}`);
+  return api.get<MonitoringView>(`/monitoring/views/${id}`);
 }
 
 export function listRulesForView(viewId: string) {
-  return api.get<ListResponse<MonitorRule>>(`/monitoring/monitoring-views/${viewId}/rules`);
+  return api.get<ListResponse<MonitorRule>>(`/monitoring/views/${viewId}/rules`);
 }
 
 export function listMonitorRules(filters: {
@@ -115,24 +115,32 @@ export function listMonitorRules(filters: {
   if (filters.resource_rid) params.set('resource_rid', filters.resource_rid);
   if (filters.monitor_kind) params.set('monitor_kind', filters.monitor_kind);
   const qs = params.toString();
-  const url = qs ? `/monitoring/monitor-rules?${qs}` : '/monitoring/monitor-rules';
+  const url = qs ? `/monitoring/rules?${qs}` : '/monitoring/rules';
   return api.get<ListResponse<MonitorRule>>(url);
 }
 
 export function createMonitorRule(body: CreateMonitorRuleRequest) {
-  return api.post<MonitorRule>('/monitoring/monitor-rules', body);
+  return api.post<MonitorRule>('/monitoring/rules', body);
 }
 
 export function patchMonitorRule(id: string, body: PatchMonitorRuleRequest) {
-  return api.patch<MonitorRule>(`/monitoring/monitor-rules/${id}`, body);
+  return api.patch<MonitorRule>(`/monitoring/rules/${id}`, body);
 }
 
 export function deleteMonitorRule(id: string) {
-  return api.delete<void>(`/monitoring/monitor-rules/${id}`);
+  return api.delete<void>(`/monitoring/rules/${id}`);
 }
 
 export function listEvaluationsForRule(ruleId: string, limit = 50) {
-  return api.get<ListResponse<MonitorEvaluation>>(`/monitoring/monitor-rules/${ruleId}/evaluations?limit=${limit}`);
+  return api.get<ListResponse<MonitorEvaluation>>(`/monitoring/rules/${ruleId}/evaluations?limit=${limit}`);
+}
+
+export function pauseMonitorRule(id: string) {
+  return api.post<MonitorRule>(`/monitoring/rules/${id}/pause`, {});
+}
+
+export function resumeMonitorRule(id: string) {
+  return api.post<MonitorRule>(`/monitoring/rules/${id}/resume`, {});
 }
 
 export const MONITOR_KIND_CATALOGUE: Array<{

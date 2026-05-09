@@ -3,7 +3,7 @@ import { MonacoEditor } from '@/lib/components/MonacoEditor';
 
 type CodeTransform = 'sql' | 'python' | 'llm' | 'wasm' | 'passthrough';
 type LogicKind = 'SYNC' | 'HEALTH_CHECK' | 'ANALYTICAL' | 'EXPORT';
-export type Transform = CodeTransform | LogicKind;
+export type Transform = string;
 
 interface ViewFilterIncompatibility {
   reason: string;
@@ -19,9 +19,11 @@ interface TransformEditorProps {
   viewFilterIncompatibility?: ViewFilterIncompatibility | null;
 }
 
-const LANGUAGE: Record<CodeTransform, string> = {
+const LANGUAGE: Record<string, string> = {
   sql: 'sql',
   python: 'python',
+  pyspark: 'python',
+  spark: 'python',
   llm: 'markdown',
   wasm: 'plaintext',
   passthrough: 'plaintext',

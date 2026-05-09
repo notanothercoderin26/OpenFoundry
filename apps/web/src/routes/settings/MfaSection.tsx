@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { disableMfa, enrollMfa, verifyMfaSetup, type MfaEnrollmentResponse } from '@api/auth';
 import { mfaQuery, settingsQueryKeys } from './queries';
+import { SettingsSectionHeader } from './SettingsSectionHeader';
 
 interface MfaSectionProps {
   setNotice: (msg: string) => void;
@@ -57,12 +58,33 @@ export function MfaSection({ setNotice, setError }: MfaSectionProps) {
       : 'Protect your account with a TOTP authenticator.';
 
   return (
-    <section className="of-panel" style={{ padding: 24 }}>
-      <p className="of-eyebrow">Self-service access</p>
-      <h2 className="of-heading-lg">Multi-factor authentication</h2>
+    <section className="settings-section">
+      <SettingsSectionHeader
+        title="Multi-factor authentication"
+        description="Add a second verification factor when signing in to harden account access."
+        actions={
+          !mfaStatus?.enabled ? (
+            <button
+              type="button"
+              className="of-btn of-btn-primary"
+              onClick={() => enrollMutation.mutate()}
+              disabled={enrollMutation.isPending}
+            >
+              {enrollMutation.isPending ? 'Generating…' : 'Generate secret'}
+            </button>
+          ) : null
+        }
+      />
 
-      <div className="of-panel-muted" style={{ padding: 20, marginTop: 16 }}>
-        <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+      <div className="settings-detail-card">
+        <header
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 16,
+          }}
+        >
           <div>
             <h3 className="of-heading-sm">TOTP authenticator</h3>
             <p className="of-text-muted" style={{ fontSize: 13, marginTop: 4 }}>
@@ -78,17 +100,6 @@ export function MfaSection({ setNotice, setError }: MfaSectionProps) {
             {mfaStatus?.enabled ? 'Enabled' : 'Disabled'}
           </span>
         </header>
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
-          <button
-            type="button"
-            className="of-btn of-btn-primary"
-            onClick={() => enrollMutation.mutate()}
-            disabled={enrollMutation.isPending}
-          >
-            {enrollMutation.isPending ? 'Generating…' : 'Generate secret'}
-          </button>
-        </div>
 
         {enrollment && (
           <div

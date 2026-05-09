@@ -343,10 +343,10 @@ export interface PipelineValidationByIdResponse {
   nodes: NodeValidationReport[];
 }
 
-export function validatePipelineById(pipelineId: string) {
+export function validatePipelineById(pipelineId: string, body?: ValidatePipelineRequest) {
   return api.post<PipelineValidationByIdResponse>(
-    `/pipelines/${pipelineId}/validate`,
-    {},
+    `/pipelines/${pipelineId}/_validate`,
+    body ?? {},
   );
 }
 
@@ -374,9 +374,8 @@ export function previewPipelineNode(
   const qs = new URLSearchParams();
   if (params?.sample_size) qs.set('sample_size', String(params.sample_size));
   const suffix = qs.toString() ? `?${qs}` : '';
-  return api.post<PipelinePreviewOutput>(
+  return api.get<PipelinePreviewOutput>(
     `/pipelines/${pipelineId}/nodes/${encodeURIComponent(nodeId)}/preview${suffix}`,
-    {},
   );
 }
 

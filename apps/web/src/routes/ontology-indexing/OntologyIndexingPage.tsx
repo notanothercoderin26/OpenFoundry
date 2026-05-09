@@ -10,6 +10,7 @@ import {
   listOntologyFunnelRuns,
   listOntologyFunnelSources,
   listProperties,
+  reindexOntologyType,
   triggerOntologyFunnelRun,
   updateOntologyFunnelSource,
   type LinkType,
@@ -21,6 +22,7 @@ import {
   type Property,
 } from '@/lib/api/ontology';
 import { listPipelines, type Pipeline } from '@/lib/api/pipelines';
+import { useCurrentUser } from '@stores/auth';
 
 interface SourceDraft {
   id?: string;
@@ -35,6 +37,8 @@ interface SourceDraft {
   status: string;
   property_mappings: OntologyFunnelPropertyMapping[];
 }
+
+const REINDEX_PERMISSION = 'ontology.types.reindex';
 
 function emptyDraft(typeId = ''): SourceDraft {
   return {
@@ -51,7 +55,17 @@ function emptyDraft(typeId = ''): SourceDraft {
   };
 }
 
+function reindexPermissionGranted(permissions: string[], roles: string[]) {
+  return (
+    roles.includes('admin') ||
+    permissions.includes(REINDEX_PERMISSION) ||
+    permissions.includes('ontology.*') ||
+    permissions.includes('*')
+  );
+}
+
 export function OntologyIndexingPage() {
+  const currentUser = useCurrentUser();
   const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
   const [linkTypes, setLinkTypes] = useState<LinkType[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
@@ -62,10 +76,18 @@ export function OntologyIndexingPage() {
   const [health, setHealth] = useState<OntologyFunnelHealthSummary | null>(null);
   const [staleAfterHours, setStaleAfterHours] = useState(48);
   const [selectedSourceId, setSelectedSourceId] = useState('');
+  const [reindexTypeId, setReindexTypeId] = useState('');
+  const [reindexPageSize, setReindexPageSize] = useState('500');
+  const [reindexing, setReindexing] = useState(false);
+  const [reindexNotice, setReindexNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [draft, setDraft] = useState<SourceDraft>(emptyDraft());
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const canReindex = currentUser ? reindexPermissionGranted(currentUser.permissions, currentUser.roles) : true;
+  const selectedReindexType = objectTypes.find((item) => item.id === reindexTypeId) ?? null;
+  const selectedReindexHealth = health?.sources.find((item) => item.source.object_type_id === reindexTypeId) ?? null;
+  const selectedReindexSources = sources.filter((item) => item.object_type_id === reindexTypeId);
 
   async function refresh() {
     setLoading(true);
@@ -87,6 +109,9 @@ export function OntologyIndexingPage() {
       setHealth(healthRes);
       if (!selectedSourceId && sourceRes.data[0]) {
         setSelectedSourceId(sourceRes.data[0].id);
+      }
+      if (!reindexTypeId && typeRes.data[0]) {
+        setReindexTypeId(typeRes.data[0].id);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to load ontology indexing');
@@ -139,6 +164,22 @@ export function OntologyIndexingPage() {
       cancelled = true;
     };
   }, [selectedSourceId, sources]);
+
+  useEffect(() => {
+    if (!draft.object_type_id) {
+      setProperties([]);
+      return;
+    }
+    let cancelled = false;
+    async function loadDraftProperties() {
+      const props = await listProperties(draft.object_type_id).catch(() => []);
+      if (!cancelled) setProperties(props);
+    }
+    void loadDraftProperties();
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.object_type_id]);
 
   async function saveSource() {
     setError('');
@@ -196,6 +237,41 @@ export function OntologyIndexingPage() {
       setError(cause instanceof Error ? cause.message : 'Failed to trigger run');
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function triggerReindex() {
+    if (!reindexTypeId) {
+      setReindexNotice({ type: 'error', message: 'Select an object type before reindexing.' });
+      return;
+    }
+    if (!canReindex) {
+      setReindexNotice({ type: 'error', message: `Missing permission: ${REINDEX_PERMISSION}.` });
+      return;
+    }
+
+    setReindexing(true);
+    setReindexNotice(null);
+    try {
+      const pageSize = Number(reindexPageSize);
+      const result = await reindexOntologyType(reindexTypeId, {
+        page_size: Number.isFinite(pageSize) && pageSize > 0 ? pageSize : undefined,
+        trigger_context: { triggered_from: 'ontology-indexing-page' },
+      });
+      const job = result.job_id ?? result.request_id;
+      const typeLabel = selectedReindexType?.display_name ?? selectedReindexType?.name ?? reindexTypeId;
+      setReindexNotice({
+        type: 'success',
+        message: job ? `Reindex requested for ${typeLabel}. Job ${job}.` : `Reindex requested for ${typeLabel}.`,
+      });
+      await refresh();
+    } catch (cause) {
+      setReindexNotice({
+        type: 'error',
+        message: cause instanceof Error ? cause.message : 'Failed to trigger reindexing',
+      });
+    } finally {
+      setReindexing(false);
     }
   }
 
@@ -263,7 +339,82 @@ export function OntologyIndexingPage() {
         </section>
       )}
 
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 0.9fr) minmax(0, 1.1fr)' }}>
+      <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div>
+            <p className="of-eyebrow">Reindex</p>
+            <h2 className="of-heading-lg" style={{ marginTop: 4 }}>Object type index refresh</h2>
+            <p className="of-text-muted" style={{ marginTop: 4, maxWidth: 720 }}>
+              Trigger a type-scoped reindex job for the search projections backed by the ontology indexer.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void triggerReindex()}
+            disabled={reindexing || !reindexTypeId || !canReindex}
+            className="of-button of-button--primary"
+          >
+            {reindexing ? 'Reindexing…' : 'Reindex'}
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+          <label style={{ fontSize: 13 }}>
+            Object type
+            <select
+              value={reindexTypeId}
+              onChange={(event) => {
+                setReindexTypeId(event.target.value);
+                setReindexNotice(null);
+              }}
+              className="of-input"
+              style={{ marginTop: 4 }}
+            >
+              <option value="">—</option>
+              {objectTypes.map((objectType) => (
+                <option key={objectType.id} value={objectType.id}>{objectType.display_name}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Page size
+            <input
+              type="number"
+              min={1}
+              value={reindexPageSize}
+              onChange={(event) => setReindexPageSize(event.target.value)}
+              className="of-input"
+              style={{ marginTop: 4 }}
+            />
+          </label>
+        </div>
+
+        {!canReindex && (
+          <div className="of-status-warning" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+            Missing permission: {REINDEX_PERMISSION}.
+          </div>
+        )}
+
+        {reindexNotice && (
+          <div
+            className={reindexNotice.type === 'success' ? 'of-status-success' : 'of-status-danger'}
+            style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
+          >
+            {reindexNotice.message}
+          </div>
+        )}
+
+        {selectedReindexType && (
+          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+            <span className="of-chip">Type {selectedReindexType.name}</span>
+            <span className="of-chip">Sources {selectedReindexSources.length}</span>
+            <span className="of-chip">Rows read {selectedReindexHealth?.rows_read ?? 0}</span>
+            <span className="of-chip">Health {selectedReindexHealth?.health_status ?? 'unknown'}</span>
+          </div>
+        )}
+      </section>
+
+      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
         <section className="of-panel" style={{ padding: 16 }}>
           <p className="of-eyebrow">Sources</p>
           <button
@@ -316,7 +467,7 @@ export function OntologyIndexingPage() {
               Description
               <textarea value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} className="of-input" style={{ marginTop: 4, minHeight: 60 }} />
             </label>
-            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
+            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
               <label style={{ fontSize: 13 }}>
                 Object type
                 <select value={draft.object_type_id} onChange={(e) => setDraft((d) => ({ ...d, object_type_id: e.target.value }))} className="of-input" style={{ marginTop: 4 }}>
@@ -368,7 +519,7 @@ export function OntologyIndexingPage() {
             <p className="of-eyebrow" style={{ marginTop: 8 }}>Property mappings</p>
             <div style={{ display: 'grid', gap: 6 }}>
               {draft.property_mappings.map((m, i) => (
-                <div key={i} style={{ display: 'grid', gap: 6, gridTemplateColumns: '1fr 1fr auto' }}>
+                <div key={i} style={{ display: 'grid', gap: 6, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
                   <input
                     placeholder="source_field"
                     value={m.source_field}

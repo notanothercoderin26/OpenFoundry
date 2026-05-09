@@ -165,7 +165,7 @@ func loadProject(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models
 	row := pool.QueryRow(ctx,
 		`SELECT id, slug, display_name, description, workspace_slug, owner_id, created_at, updated_at
 		 FROM ontology_projects
-		 WHERE id = $1`,
+		 WHERE id = $1 AND is_deleted = FALSE`,
 		id,
 	)
 	p := &models.OntologyProject{}
@@ -184,7 +184,7 @@ func loadProjectFolder(ctx context.Context, pool *pgxpool.Pool, projectID, folde
 	row := pool.QueryRow(ctx,
 		`SELECT id, project_id, parent_folder_id, name, slug, description, created_by, created_at, updated_at
 		 FROM ontology_project_folders
-		 WHERE project_id = $1 AND id = $2`,
+		 WHERE project_id = $1 AND id = $2 AND is_deleted = FALSE`,
 		projectID, folderID,
 	)
 	f := &models.OntologyProjectFolder{}
@@ -736,7 +736,7 @@ func (h *ProjectsHandlers) ListProjectFolders(w http.ResponseWriter, r *http.Req
 	rows, err := h.Pool.Query(r.Context(),
 		`SELECT id, project_id, parent_folder_id, name, slug, description, created_by, created_at, updated_at
 		 FROM ontology_project_folders
-		 WHERE project_id = $1
+		 WHERE project_id = $1 AND is_deleted = FALSE
 		 ORDER BY created_at ASC`,
 		id,
 	)
@@ -857,7 +857,7 @@ func (h *ProjectsHandlers) ListProjectResources(w http.ResponseWriter, r *http.R
 	rows, err := h.Pool.Query(r.Context(),
 		`SELECT project_id, resource_kind, resource_id, bound_by, created_at
 		 FROM ontology_project_resources
-		 WHERE project_id = $1
+		 WHERE project_id = $1 AND is_deleted = FALSE
 		 ORDER BY created_at DESC`,
 		id,
 	)
@@ -985,7 +985,7 @@ func (h *ProjectsHandlers) UnbindProjectResource(w http.ResponseWriter, r *http.
 	row := h.Pool.QueryRow(r.Context(),
 		`SELECT project_id, resource_kind, resource_id, bound_by, created_at
 		 FROM ontology_project_resources
-		 WHERE project_id = $1 AND resource_kind = $2 AND resource_id = $3`,
+		 WHERE project_id = $1 AND resource_kind = $2 AND resource_id = $3 AND is_deleted = FALSE`,
 		projectID, resourceKind.String(), resourceID,
 	)
 	binding := &models.OntologyProjectResourceBinding{}

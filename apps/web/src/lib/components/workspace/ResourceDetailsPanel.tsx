@@ -7,6 +7,7 @@ import {
   type ResourceKind,
   type ResourceShare,
 } from '@/lib/api/workspace';
+import { ResourcePermissionsDrawer, type AccessGraphMembership } from './ResourcePermissionsDrawer';
 import { ShareDialog } from './ShareDialog';
 
 export interface ResourceSummary {
@@ -25,6 +26,8 @@ interface ResourceDetailsPanelProps {
   open: boolean;
   resource: ResourceSummary | null;
   isFavorite?: boolean;
+  projectLabel?: string | null;
+  projectMemberships?: AccessGraphMembership[];
   onClose?: () => void;
   onFavoriteToggle?: (next: boolean) => void;
 }
@@ -35,11 +38,20 @@ function fmtDate(v: string | null | undefined) {
   catch { return v; }
 }
 
-export function ResourceDetailsPanel({ open, resource, isFavorite = false, onClose, onFavoriteToggle }: ResourceDetailsPanelProps) {
+export function ResourceDetailsPanel({
+  open,
+  resource,
+  isFavorite = false,
+  projectLabel,
+  projectMemberships = [],
+  onClose,
+  onFavoriteToggle,
+}: ResourceDetailsPanelProps) {
   const [shares, setShares] = useState<ResourceShare[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
 
   useEffect(() => {
     if (!open || !resource) { setShares([]); return; }
@@ -84,7 +96,8 @@ export function ResourceDetailsPanel({ open, resource, isFavorite = false, onClo
           <button type="button" onClick={() => void toggleFavorite()} className="of-button" style={{ fontSize: 11 }}>
             {isFavorite ? '★ Remove favorite' : '☆ Add to favorites'}
           </button>
-          <button type="button" onClick={() => setShareOpen(true)} className="of-button" style={{ fontSize: 11 }}>Share…</button>
+          <button type="button" onClick={() => setShareOpen(true)} className="of-button" style={{ fontSize: 11 }}>Share...</button>
+          <button type="button" onClick={() => setPermissionsOpen(true)} className="of-button" style={{ fontSize: 11 }}>Permissions</button>
         </div>
 
         <dl style={{ display: 'grid', gap: 6, fontSize: 12, margin: 0 }}>
@@ -147,6 +160,19 @@ export function ResourceDetailsPanel({ open, resource, isFavorite = false, onClo
         onShared={() => {
           setShareOpen(false);
           // refresh shares
+          listResourceShares(resource.kind, resource.id).then(setShares).catch(() => {});
+        }}
+      />
+      <ResourcePermissionsDrawer
+        open={permissionsOpen}
+        resourceKind={resource.kind}
+        resourceId={resource.id}
+        resourceLabel={resource.name}
+        ownerId={resource.owner_id}
+        projectLabel={projectLabel}
+        projectMemberships={projectMemberships}
+        onClose={() => setPermissionsOpen(false)}
+        onChanged={() => {
           listResourceShares(resource.kind, resource.id).then(setShares).catch(() => {});
         }}
       />

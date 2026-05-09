@@ -250,12 +250,23 @@ export interface SweepReport {
   findings: LinterFinding[];
 }
 
+export interface SweepRunResponse extends SweepReport {
+  dry_run: boolean;
+  by_rule: string[];
+}
+
+export interface AppliedSweepAction {
+  finding_id: string;
+  schedule_rid: string;
+  action: LinterFinding['recommended_action'];
+}
+
 export function runSweep(params: { project?: string; production?: boolean } = {}) {
   const qs = new URLSearchParams();
   if (params.project) qs.set('project', params.project);
   if (params.production !== undefined) qs.set('production', String(params.production));
   const tail = qs.toString();
-  return api.post<{ dry_run: boolean; findings: LinterFinding[]; by_rule: string[] }>(
+  return api.post<SweepRunResponse>(
     `${LINTER_BASE}/sweep${tail ? `?${tail}` : ''}`,
     {},
   );
@@ -266,5 +277,5 @@ export function applySweep(body: {
   finding_ids?: string[];
   report: SweepReport;
 }) {
-  return api.post<{ applied: Array<Record<string, unknown>> }>(`${LINTER_BASE}/sweep:apply`, body);
+  return api.post<{ applied: AppliedSweepAction[] }>(`${LINTER_BASE}/sweep:apply`, body);
 }

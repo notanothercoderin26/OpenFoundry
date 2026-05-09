@@ -54,6 +54,49 @@ func (h *RBAC) GetUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, u)
 }
 
+// Me returns the profile for the authenticated caller, derived from the
+// JWT subject. The frontend hits GET /users/me; without this handler chi
+// matches /users/{id} with id="me" and parseID rejects it as "invalid id".
+func (h *RBAC) Me(w http.ResponseWriter, r *http.Request) {
+	id := authCallerID(r)
+	if id == uuid.Nil {
+		writeJSONErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	u, err := h.Repo.FindUserByID(r.Context(), id)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if u == nil {
+		writeJSONErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	roles, rerr := h.Repo.ListUserRoles(r.Context(), id)
+	if rerr != nil {
+		slog.Warn("me: list roles", slog.String("error", rerr.Error()))
+	}
+	roleNames := make([]string, 0, len(roles))
+	for _, role := range roles {
+		roleNames = append(roleNames, role.Name)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":              u.ID,
+		"email":           u.Email,
+		"name":            u.Name,
+		"is_active":       u.IsActive,
+		"auth_source":     u.AuthSource,
+		"mfa_enforced":    u.MFAEnforced,
+		"mfa_enabled":     false,
+		"organization_id": u.OrganizationID,
+		"attributes":      u.Attributes,
+		"roles":           roleNames,
+		"groups":          []string{},
+		"permissions":     []string{},
+		"created_at":      u.CreatedAt,
+	})
+}
+
 func (h *RBAC) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(w, r)
 	if !ok {

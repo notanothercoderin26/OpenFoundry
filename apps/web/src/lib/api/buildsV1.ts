@@ -113,6 +113,29 @@ export interface JobInputResolutionsResponse {
 	input_view_resolutions: InputResolutionRow[];
 }
 
+export type JobLogLevel = 'TRACE' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL' | string;
+
+export interface JobLogEntry {
+	sequence: number;
+	ts: string;
+	level: JobLogLevel;
+	message: string;
+	params?: unknown;
+}
+
+export interface JobLogsResponse {
+	data: JobLogEntry[];
+	total: number;
+}
+
+export interface ListJobLogsParams {
+	from_sequence?: number;
+	since?: string;
+	until?: string;
+	levels?: JobLogLevel[];
+	limit?: number;
+}
+
 export interface CreateBuildRequest {
 	pipeline_rid: string;
 	build_branch: string;
@@ -178,6 +201,20 @@ export function getJobOutputsV1(jobRid: string): Promise<JobOutputsResponse> {
 
 export function getJobInputResolutionsV1(jobRid: string): Promise<JobInputResolutionsResponse> {
 	return jsonFetch(`/jobs/${encodeURIComponent(jobRid)}/input-resolutions`);
+}
+
+export function listJobLogsV1(jobRid: string, params: ListJobLogsParams = {}): Promise<JobLogsResponse> {
+	const qs = new URLSearchParams();
+	for (const [k, v] of Object.entries(params)) {
+		if (v === undefined || v === null) continue;
+		if (Array.isArray(v)) {
+			if (v.length > 0) qs.set(k, v.join(','));
+		} else if (String(v).length > 0) {
+			qs.set(k, String(v));
+		}
+	}
+	const query = qs.toString();
+	return jsonFetch<JobLogsResponse>(`/jobs/${encodeURIComponent(jobRid)}/logs${query ? `?${query}` : ''}`);
 }
 
 export function runBuildV1(body: CreateBuildRequest): Promise<CreateBuildResponse> {
