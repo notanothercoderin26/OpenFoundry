@@ -1,0 +1,456 @@
+{
+  "_doc": [
+    "Fixture for the PoC Anomaly Review Workshop dashboard.",
+    "",
+    "Three pages, each is a list of section widgets (children) that hold the leaf",
+    "widgets the WorkshopEditorPage already supports: object_table, filter_list,",
+    "object_set_title, button_group, property_list, chart_pie, chart_xy.",
+    "",
+    "Variables wire object set definitions (one per backing Iceberg table) +",
+    "filter outputs + active-object handles. Buttons reference action types by id.",
+    "",
+    "How to load:",
+    "  1) Open the OpenFoundry web frontend (`kubectl port-forward web 8080:80`).",
+    "  2) The /apps backend is not yet wired in this cluster, so the editor",
+    "     persists drafts in browser localStorage (key prefix `of:workshop:`).",
+    "     Create an app with the WorkshopEditor, choose 'Save as...', and on the",
+    "     Settings tab paste this JSON into the `Workshop variables` import slot.",
+    "  3) Alternatively, when the AppBuilder service lands, this JSON can be POSTed",
+    "     verbatim to /api/v1/apps with `name=poc-anomaly-review`."
+  ],
+  "name": "PoC — Anomaly Review",
+  "slug": "poc-anomaly-review",
+  "description": "Order anomaly review dashboard backed by 4 Iceberg tables in lakekeeper.default",
+  "status": "draft",
+  "settings": {
+    "workshop_header": {
+      "title": "Anomaly Review",
+      "icon": "shield",
+      "color": "#cf923f"
+    },
+    "workshop_header_ui": {
+      "enable_module_header": true,
+      "custom_color": true,
+      "enable_app_logo": true,
+      "logo_kind": "icon",
+      "enable_favoriting": true,
+      "image_url": ""
+    },
+    "workshop_variables": [
+      {
+        "id": "var_transactions",
+        "kind": "object_set",
+        "name": "All transactions",
+        "object_type_id": "678b55fe-db5f-4d3a-bbf2-8cb643af8d32"
+      },
+      {
+        "id": "var_anomalies",
+        "kind": "object_set_definition",
+        "name": "Anomalies only (is_anomaly = true)",
+        "object_type_id": "678b55fe-db5f-4d3a-bbf2-8cb643af8d32",
+        "filter_variable_id": "var_filter_anomalies"
+      },
+      {
+        "id": "var_customers",
+        "kind": "object_set",
+        "name": "All customers",
+        "object_type_id": "46e2598c-0d11-4ab2-a4aa-301f3e8fb5a7"
+      },
+      {
+        "id": "var_filter_anomalies",
+        "kind": "filter_output",
+        "name": "Anomaly filter output",
+        "object_type_id": "678b55fe-db5f-4d3a-bbf2-8cb643af8d32",
+        "source_widget_id": "filter_anomalies"
+      },
+      {
+        "id": "var_active_tx",
+        "kind": "object_set_active_object",
+        "name": "Active transaction",
+        "object_type_id": "678b55fe-db5f-4d3a-bbf2-8cb643af8d32",
+        "source_widget_id": "tbl_anomalies"
+      },
+      {
+        "id": "var_active_customer",
+        "kind": "object_set_active_object",
+        "name": "Active customer",
+        "object_type_id": "46e2598c-0d11-4ab2-a4aa-301f3e8fb5a7",
+        "source_widget_id": "tbl_customers"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "id": "page_overview",
+      "name": "Overview",
+      "path": "/",
+      "description": "Top-line KPIs and global breakdowns",
+      "layout": { "kind": "flex", "columns": 2, "gap": "12px", "max_width": "100%" },
+      "visible": true,
+      "widgets": [
+        {
+          "id": "section_kpi",
+          "widget_type": "section",
+          "title": "KPIs",
+          "description": "",
+          "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+          "props": {
+            "column_width_kind": "flex", "column_width": 1,
+            "header_enabled": true, "style": "title", "icon": "graph",
+            "header_format": "underline", "background_color": "white",
+            "padding_controls": "regular", "layout_kind": "rows",
+            "layout_direction": "rows"
+          },
+          "binding": null, "events": [],
+          "children": [
+            {
+              "id": "kpi_title",
+              "widget_type": "object_set_title",
+              "title": "Order anomalies",
+              "description": "",
+              "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+              "props": { "source_variable_id": "var_anomalies" },
+              "binding": null, "events": [], "children": []
+            }
+          ]
+        },
+        {
+          "id": "section_charts",
+          "widget_type": "section",
+          "title": "Charts",
+          "description": "",
+          "position": { "x": 0, "y": 0, "width": 2, "height": 1 },
+          "props": {
+            "column_width_kind": "flex", "column_width": 2,
+            "header_enabled": true, "style": "title", "icon": "pie-chart",
+            "header_format": "title", "background_color": "white",
+            "padding_controls": "regular", "layout_kind": "columns",
+            "layout_direction": "columns"
+          },
+          "binding": null, "events": [],
+          "children": [
+            {
+              "id": "chart_pie_status",
+              "widget_type": "chart_pie",
+              "title": "Review status",
+              "description": "",
+              "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+              "props": {
+                "source_variable_id": "var_transactions",
+                "object_type_id": "678b55fe-db5f-4d3a-bbf2-8cb643af8d32",
+                "group_by_property": "review_status",
+                "enable_ontology_colors": true,
+                "aggregation_metric": "count",
+                "aggregation_property": "",
+                "enable_numeric_formatting": false,
+                "radius": 50,
+                "padding": "large",
+                "show_legend": true,
+                "legend_position": "next-to",
+                "legend_anchor": "right",
+                "row_height_kind": "absolute",
+                "row_height_value": 320
+              },
+              "binding": null, "events": [], "children": []
+            },
+            {
+              "id": "chart_xy_anomalies",
+              "widget_type": "chart_xy",
+              "title": "Anomalies vs revenue",
+              "description": "",
+              "position": { "x": 1, "y": 0, "width": 1, "height": 1 },
+              "props": {
+                "layers": [
+                  {
+                    "id": "layer_anomalies_bar",
+                    "title": "Layer (bar)",
+                    "data_input": "object_set",
+                    "source_variable_id": "var_transactions",
+                    "object_type_id": "678b55fe-db5f-4d3a-bbf2-8cb643af8d32",
+                    "layer_type": "bar",
+                    "show_labels": false,
+                    "x_property": "country",
+                    "x_bucketing": "exact",
+                    "x_limit": "10",
+                    "series_metric": "count",
+                    "series_property": "",
+                    "cumulative_sum": false,
+                    "segment_by": "is_anomaly"
+                  }
+                ],
+                "annotations": [],
+                "y_axis_kind": "categorical",
+                "show_title": true,
+                "show_color_markers": true,
+                "enable_numerical_formatting": false,
+                "sort_by": "value_desc",
+                "enable_ontology_colors": true,
+                "show_legend": true,
+                "show_tooltips": true,
+                "allow_exports": true,
+                "bar_orientation": "vertical",
+                "row_height_kind": "absolute",
+                "row_height_value": 320
+              },
+              "binding": null, "events": [], "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "page_anomalies",
+      "name": "Anomalies",
+      "path": "/anomalies",
+      "description": "Filterable list with action buttons on the active row",
+      "layout": { "kind": "flex", "columns": 3, "gap": "12px", "max_width": "100%" },
+      "visible": true,
+      "widgets": [
+        {
+          "id": "section_filters",
+          "widget_type": "section",
+          "title": "Filters",
+          "description": "",
+          "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+          "props": {
+            "column_width_kind": "flex", "column_width": 1,
+            "header_enabled": true, "style": "subheader", "icon": "search",
+            "header_format": "title", "background_color": "light-gray-1",
+            "padding_controls": "regular", "layout_kind": "rows",
+            "layout_direction": "rows"
+          },
+          "binding": null, "events": [],
+          "children": [
+            {
+              "id": "filter_anomalies",
+              "widget_type": "filter_list",
+              "title": "Filters",
+              "description": "",
+              "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+              "props": {
+                "object_type_id": "678b55fe-db5f-4d3a-bbf2-8cb643af8d32",
+                "source_variable_id": "var_transactions",
+                "filters": [
+                  { "id": "f_search", "property_name": "transaction_id", "display_name": "Search", "component": "search", "values": [], "range_min": "", "range_max": "" },
+                  { "id": "f_status", "property_name": "review_status", "display_name": "Status", "component": "multi_select", "values": [], "range_min": "", "range_max": "" },
+                  { "id": "f_country", "property_name": "country", "display_name": "Country", "component": "multi_select", "values": [], "range_min": "", "range_max": "" }
+                ],
+                "allow_add_remove": true,
+                "layout": "vertical",
+                "output_variable_id": "var_filter_anomalies",
+                "background_color": "light-gray-1"
+              },
+              "binding": null, "events": [], "children": []
+            }
+          ]
+        },
+        {
+          "id": "section_table",
+          "widget_type": "section",
+          "title": "Anomalies",
+          "description": "",
+          "position": { "x": 0, "y": 0, "width": 2, "height": 1 },
+          "props": {
+            "column_width_kind": "flex", "column_width": 2,
+            "header_enabled": true, "style": "title", "icon": "shield",
+            "header_format": "underline", "background_color": "white",
+            "padding_controls": "regular", "layout_kind": "rows",
+            "layout_direction": "rows"
+          },
+          "binding": null, "events": [],
+          "children": [
+            {
+              "id": "tbl_anomalies",
+              "widget_type": "object_table",
+              "title": "Anomalous transactions",
+              "description": "",
+              "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+              "props": {
+                "object_type_id": "678b55fe-db5f-4d3a-bbf2-8cb643af8d32",
+                "columns": [
+                  "transaction_id", "invoice_date", "customer_id", "country",
+                  "stockcode", "description", "quantity", "price", "revenue",
+                  "revenue_zscore", "is_anomaly", "review_status"
+                ],
+                "default_sort_property": "revenue_zscore",
+                "default_sort_direction": "desc",
+                "source_variable_id": "var_anomalies"
+              },
+              "binding": null, "events": [], "children": []
+            }
+          ]
+        },
+        {
+          "id": "section_action",
+          "widget_type": "section",
+          "title": "Active transaction",
+          "description": "",
+          "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+          "props": {
+            "column_width_kind": "flex", "column_width": 1,
+            "header_enabled": true, "style": "subheader", "icon": "object",
+            "header_format": "contained", "background_color": "white",
+            "padding_controls": "regular", "layout_kind": "rows",
+            "layout_direction": "rows"
+          },
+          "binding": null, "events": [],
+          "children": [
+            {
+              "id": "props_active",
+              "widget_type": "property_list",
+              "title": "Transaction details",
+              "description": "",
+              "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+              "props": {
+                "source_variable_id": "var_active_tx",
+                "items": [
+                  { "id": "i1", "property_names": [
+                    "transaction_id", "invoice_date", "customer_id", "country",
+                    "stockcode", "description", "quantity", "price", "revenue",
+                    "revenue_zscore", "is_anomaly", "review_status"
+                  ] }
+                ],
+                "number_of_columns": 2,
+                "enable_value_wrapping": false,
+                "row_height_kind": "auto",
+                "row_height_value": 600
+              },
+              "binding": null, "events": [], "children": []
+            },
+            {
+              "id": "btn_actions",
+              "widget_type": "button_group",
+              "title": "Action buttons",
+              "description": "",
+              "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+              "props": {
+                "button_type": "inline",
+                "buttons": [
+                  {
+                    "id": "btn_review",
+                    "label": "Mark as reviewed",
+                    "on_click_kind": "action",
+                    "action_type_id": "019e0f02-7d9f-79ca-89c6-8bf7d71b6e22",
+                    "parameter_defaults": {
+                      "object": { "kind": "active_object", "variable_id": "var_active_tx" }
+                    },
+                    "default_layout": "form",
+                    "switch_layout": false,
+                    "conditional_visibility": false
+                  },
+                  {
+                    "id": "btn_escalate",
+                    "label": "Escalate",
+                    "on_click_kind": "action",
+                    "action_type_id": "019e0f02-7dac-76c5-b3ea-3accd44b0639",
+                    "parameter_defaults": {
+                      "object": { "kind": "active_object", "variable_id": "var_active_tx" }
+                    },
+                    "default_layout": "form",
+                    "switch_layout": false,
+                    "conditional_visibility": false
+                  }
+                ],
+                "orientation": "horizontal",
+                "fill_horizontal": true,
+                "row_height_kind": "auto",
+                "row_height_value": 600
+              },
+              "binding": null, "events": [], "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "page_customer",
+      "name": "Customer drilldown",
+      "path": "/customer",
+      "description": "Pick a customer and see their transactions",
+      "layout": { "kind": "flex", "columns": 2, "gap": "12px", "max_width": "100%" },
+      "visible": true,
+      "widgets": [
+        {
+          "id": "section_customers",
+          "widget_type": "section",
+          "title": "Customers",
+          "description": "",
+          "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+          "props": {
+            "column_width_kind": "flex", "column_width": 1,
+            "header_enabled": true, "style": "title", "icon": "users",
+            "header_format": "title", "background_color": "white",
+            "padding_controls": "regular", "layout_kind": "rows",
+            "layout_direction": "rows"
+          },
+          "binding": null, "events": [],
+          "children": [
+            {
+              "id": "tbl_customers",
+              "widget_type": "object_table",
+              "title": "All customers",
+              "description": "",
+              "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+              "props": {
+                "object_type_id": "46e2598c-0d11-4ab2-a4aa-301f3e8fb5a7",
+                "columns": ["customer_id", "total_revenue", "num_orders", "num_countries"],
+                "default_sort_property": "total_revenue",
+                "default_sort_direction": "desc",
+                "source_variable_id": "var_customers"
+              },
+              "binding": null, "events": [], "children": []
+            }
+          ]
+        },
+        {
+          "id": "section_customer_detail",
+          "widget_type": "section",
+          "title": "Active customer",
+          "description": "",
+          "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+          "props": {
+            "column_width_kind": "flex", "column_width": 1,
+            "header_enabled": true, "style": "title", "icon": "object",
+            "header_format": "contained", "background_color": "white",
+            "padding_controls": "regular", "layout_kind": "rows",
+            "layout_direction": "rows"
+          },
+          "binding": null, "events": [],
+          "children": [
+            {
+              "id": "title_customer",
+              "widget_type": "object_set_title",
+              "title": "Selected customer",
+              "description": "",
+              "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+              "props": { "source_variable_id": "var_active_customer" },
+              "binding": null, "events": [], "children": []
+            },
+            {
+              "id": "props_customer",
+              "widget_type": "property_list",
+              "title": "Customer details",
+              "description": "",
+              "position": { "x": 0, "y": 0, "width": 1, "height": 1 },
+              "props": {
+                "source_variable_id": "var_active_customer",
+                "items": [
+                  { "id": "i1", "property_names": ["customer_id", "total_revenue", "num_orders", "num_countries"] }
+                ],
+                "number_of_columns": 2,
+                "enable_value_wrapping": false,
+                "row_height_kind": "auto",
+                "row_height_value": 600
+              },
+              "binding": null, "events": [], "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "theme": {
+    "primary_color": "#cf923f",
+    "accent_color": "#2d72d2"
+  }
+}

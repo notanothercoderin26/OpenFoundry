@@ -19,6 +19,11 @@ Diferencia entre entornos: replicas/recursos/redundancia. Tecnologías idéntica
 
 ## Fases
 
+> **Estado final**: F1–F7.4 verificados end-to-end. F7.5 enviado como fixture
+> [`dashboard-app-definition.json`](../../tools/online-retail/dashboard-app-definition.json)
+> porque `/api/v1/apps` no está aún implementado. Ver [README.md](README.md)
+> para la guía operacional.
+
 ### F0 · Plataforma — `git log a06eadce` ✅
 - [x] Reverso SeaweedFS / Hadoop catalog atajo
 - [x] `infra/dev/ceph-single-node.yaml` (Rook v1.19, Ceph v19.2.1, 1 mon/mgr/RGW)
