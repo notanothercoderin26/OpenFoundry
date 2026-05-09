@@ -5,19 +5,25 @@ on:
     - cron: "0 6 * * 1"  # Every Monday at 06:00 UTC
   push:
     branches: [main]
-    paths: ["Cargo.lock"]
+    paths: ["go.mod", "go.sum", ".github/workflows/security-audit.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["go.mod", "go.sum", ".github/workflows/security-audit.yml"]
 
 jobs:
-  audit:
-    name: Cargo Audit
+  govulncheck:
+    name: govulncheck
     runs-on: ubuntu-latest
     permissions:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-      - name: Run cargo audit
-        run: cargo audit
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: run govulncheck
+        run: govulncheck ./...

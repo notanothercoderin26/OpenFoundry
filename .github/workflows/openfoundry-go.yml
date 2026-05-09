@@ -102,6 +102,29 @@ jobs:
             exit 1
           fi
 
+  sqlc:
+    name: sqlc (drift check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: install sqlc
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.27.0
+      - name: sqlc generate
+        run: sqlc generate
+      - name: ensure no drift between checked-in & generated sqlc code
+        run: |
+          status="$(git status --porcelain=v1 --untracked-files=all)"
+          if [ -n "$status" ]; then
+            echo "::error::sqlc generate produced drift — run 'make gen-sqlc' and commit"
+            printf '%s\n' "$status"
+            git --no-pager diff
+            exit 1
+          fi
+
   test:
     name: test (unit)
     runs-on: ubuntu-latest
