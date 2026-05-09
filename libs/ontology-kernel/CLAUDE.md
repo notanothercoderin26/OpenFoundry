@@ -90,6 +90,6 @@ Heavy fixtures live in `models/testdata/`.
 ## Don't read
 
 - `docs/archive/INVENTORY-PHASE6.md` — phase tracker, superseded.
-- `ONTOLOGY-KERNEL-MIGRATION.md` (root) — migration log only.
+- `docs/archive/ONTOLOGY-KERNEL-MIGRATION.md` — migration log only.
 - The Rust references in `doc.go` files — they're historical, the Rust
   source is no longer in this tree.

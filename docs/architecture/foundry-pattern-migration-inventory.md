@@ -218,10 +218,10 @@
 - `PoC/01-vision-y-caso-de-uso.md` — temporal = cronología de la demo, no Temporal.io.
 - `benchmarks/ontology/README.md` — temporal = orden temporal de IDs/fixtures, no workflow engine.
 - `benchmarks/ontology/runbooks/hot-partitions.md` — bucket temporal de datos, no Temporal.io.
-- `checklist.md` — series temporales/geotemporales, no workflow engine.
-- `guia-migracion-services-a-microservicios.md` — compatibilidad temporal, no Temporal.io.
+- `docs/archive/checklist.md` — series temporales/geotemporales, no workflow engine.
+- `docs/archive/guia-migracion-services-a-microservicios.md` — compatibilidad temporal, no Temporal.io.
 - `libs/ontology-kernel/src/domain/time_series.rs` — campo tipo temporal de series temporales.
-- `microservicios-derivados-desde-foundry-docs.md` — ventanas/datos temporales, no Temporal.io.
+- `docs/archive/microservicios-derivados-desde-foundry-docs.md` — ventanas/datos temporales, no Temporal.io.
 - `docs/archive/prompts-migracion-hasta-85-microservicios.md` — compatibilidad temporal / analytics temporal, no Temporal.io.
 - `services/dataset-versioning-service/src/handlers/foundry.rs` — orden temporal, no Temporal.io.
 - `services/event-streaming-service/src/runtime/flink/sql.rs` — temporal interval join de Flink, no Temporal.io.

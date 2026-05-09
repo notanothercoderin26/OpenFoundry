@@ -3,8 +3,8 @@
 // and HTTP handler layer reused by every ontology-* and
 // object-database-service binary.
 //
-// Migration status is tracked in
-// openfoundry-go/ONTOLOGY-KERNEL-MIGRATION.md. The Go layout mirrors
+// Migration status is archived at
+// docs/archive/ONTOLOGY-KERNEL-MIGRATION.md. The Go layout mirrors
 // the Rust crate verbatim:
 //
 //	libs/ontology-kernel/

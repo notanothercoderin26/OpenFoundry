@@ -126,7 +126,7 @@ so concurrent malformed writes can't poison one another.
 
 ## Remaining migration notes
 
-Per the [stub audit](../../STUB-AUDIT.md), this service currently has no
+Per the [stub audit](../../docs/archive/STUB-AUDIT.md), this service currently has no
 productive stub matches in production Go files. Keep future work focused
 on conformance depth (Cedar/ABAC/RBAC fixtures and cross-service policy
 reload behavior), not on replacing placeholder route handlers.

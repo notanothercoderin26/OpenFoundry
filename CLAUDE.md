@@ -126,15 +126,10 @@ prefer additive changes over rewrites.
 These exist for human historical context only. Loading them into your
 context window wastes tokens and may give you obsolete instructions:
 
-- `docs/archive/**` — Rust→Go migration logs, nightly summaries, phase
-  inventories. Superseded by the live code.
-- Root-level large MDs from the migration era:
-  `HTTP-ROUTE-AUDIT.md` (108 KB), `AUDIT-RESPONSE-AND-FLOW-ENGINE-DESIGN.md`
-  (97 KB), `ONTOLOGY-EVALUATION.md` (62 KB), `STUB-AUDIT.md`,
-  `MIGRATION-*` and `ONTOLOGY-KERNEL-MIGRATION.md`,
-  `microservicios-derivados-desde-foundry-docs.md`,
-  `guia-migracion-services-a-microservicios.md`, `checklist.md`. They
-  may still be referenced from ADRs; only read the cited section.
+- `docs/archive/**` — Rust→Go migration logs, route audits, evaluations,
+  inventories, and prompt programs. Superseded by the live code or by
+  ADRs in `docs/architecture/adr/`. Don't load these by default; only
+  read a specific section if an ADR cites it.
 - `docs_original_palantir_foundry/` — third-party reference material,
   not OpenFoundry's own docs.
 
