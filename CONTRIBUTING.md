@@ -1,24 +1,22 @@
 # Contributing to OpenFoundry
 
-Thanks for your interest in contributing to **OpenFoundry**. This document is the
-single source of truth for how to propose changes, what we expect from a pull
-request, and how reviews and releases work. Read it before opening your first
-PR — it will save you (and the maintainers) time.
+OpenFoundry is a Go monorepo (with a React frontend, generated SDKs and
+infra packaging). This document covers how to propose changes; AI agents
+working on the codebase should also read [`CLAUDE.md`](CLAUDE.md) for
+the canonical commands, conventions and gotchas.
 
 > **TL;DR**
 >
-> 1. Open an issue first for anything non-trivial.
-> 2. Fork, branch from `main`, follow [Conventional Commits](https://www.conventionalcommits.org/).
-> 3. Run `just lint test` locally before pushing.
+> 1. Open an issue for anything non-trivial.
+> 2. Branch from `main`, follow [Conventional Commits](https://www.conventionalcommits.org/).
+> 3. Run `make ci` locally before pushing.
 > 4. Keep PRs small (< ~400 lines diff), focused, and with tests.
-> 5. Changes touching `libs/core-models`, `libs/auth-middleware`, `proto/**`
+> 5. Changes to `libs/core-models`, `libs/auth-middleware`, `proto/**`
 >    or any public SDK require an **RFC** (see below).
-
----
 
 ## Table of contents
 
-- [Code of Conduct](#code-of-conduct)
+- [Code of conduct](#code-of-conduct)
 - [Ways to contribute](#ways-to-contribute)
 - [Project layout](#project-layout)
 - [Development environment](#development-environment)
@@ -34,18 +32,12 @@ PR — it will save you (and the maintainers) time.
 - [Licensing and DCO](#licensing-and-dco)
 - [Getting help](#getting-help)
 
----
+## Code of conduct
 
-## Code of Conduct
-
-Participation in this project is governed by our
-[Code of Conduct](CODE_OF_CONDUCT.md) (Contributor Covenant 2.1). By
-contributing, you agree to uphold it. Report unacceptable behaviour to
-`conduct@openfoundry.dev`.
+Participation is governed by our Code of Conduct (Contributor Covenant
+2.1). Report issues to `conduct@openfoundry.dev`.
 
 ## Ways to contribute
-
-You don't need to write Rust to help. We welcome:
 
 - **Bug reports** — use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml).
 - **Feature proposals** — use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.yml).
@@ -55,113 +47,114 @@ You don't need to write Rust to help. We welcome:
 - **Plugins** built on top of [`libs/plugin-sdk`](libs/plugin-sdk).
 - **Triage**: reproducing bugs, labelling issues, reviewing PRs.
 
-If you are looking for a starting point, filter issues by
-[`good first issue`](../../labels/good%20first%20issue) or
-[`help wanted`](../../labels/help%20wanted).
+Filter issues by [`good first issue`](../../labels/good%20first%20issue) or
+[`help wanted`](../../labels/help%20wanted) to find a starting point.
 
 ## Project layout
 
-OpenFoundry is a Cargo + pnpm + buf monorepo. The pieces you are most likely
-to touch:
-
 | Path | Purpose |
 |------|---------|
-| [`services/`](services/) | ~85 Rust microservices (one crate per service). |
-| [`libs/`](libs/) | Shared Rust libraries (auth, event bus, plugin SDK, storage, etc.). |
-| [`proto/`](proto/) | gRPC / Protobuf contracts. Source of truth for inter-service APIs and SDKs. |
-| [`apps/web/`](apps/web/) | Frontend (TypeScript, pnpm workspace). |
-| [`sdks/`](sdks/) | Generated SDKs for Python, TypeScript and Java. |
-| [`docs/`](docs/) | Public documentation site (VitePress). |
-| [`infra/`](infra/) | Local stack, Helm charts, Terraform, runbooks. |
+| [`services/`](services/) | One Go binary per microservice (`cmd/<svc>/main.go`). Copy from [`services/template/`](services/template/) when adding a new one. |
+| [`libs/`](libs/) | Shared Go packages (auth, observability, kernels, storage abstractions). |
+| [`apps/web/`](apps/web/) | React 19 + Vite + TypeScript frontend. |
+| [`proto/`](proto/) | Protobuf contracts; source of truth for RPC and SDKs. |
+| [`sdks/`](sdks/) | Generated SDKs (TypeScript, Python, Java). |
+| [`infra/`](infra/) | Helm charts, ArgoCD, Terraform, runbooks. |
+| [`docs/`](docs/) | VitePress documentation site. |
+| [`docs/archive/`](docs/archive/) | Historical migration logs — **do not load by default**. |
+| [`tools/`](tools/) | CLIs (`of-cli`, `route-audit`, lint helpers). |
 | [`benchmarks/`](benchmarks/), [`smoke/`](smoke/) | Performance and end-to-end scenarios. |
 
-A more detailed map lives in [`docs/guide/repository-map.md`](docs/guide/repository-map.md)
-and [`ARCHITECTURE.md`](ARCHITECTURE.md).
+Repository map: [`docs/guide/repository-map.md`](docs/guide/repository-map.md).
+Architecture overview: [`docs/architecture/index.md`](docs/architecture/index.md).
 
 ## Development environment
 
 **Required tooling**
 
-- Rust **1.85+** (workspace MSRV; `rustup default stable`).
-- Node **20+** and **pnpm 9+** (`corepack enable`).
-- [`just`](https://github.com/casey/just) task runner.
-- Docker / Docker Compose (for the local stack).
-- [`buf`](https://buf.build) for protobuf changes.
+- Go (version pinned by `go.mod`).
+- Node 20+ and `pnpm` 9+ (`corepack enable`) for the frontend.
+- Docker / Docker Compose (only needed for integration tests via testcontainers).
+- `buf` (installed by `make tools`).
 
 **First-time setup**
 
 ```bash
-git clone https://github.com/open-foundry/open-foundry.git
-cd open-foundry
-just dev-stack       # Postgres, Redis, NATS JetStream, MinIO via docker compose
-just build           # cargo build --workspace
-just test            # cargo test --workspace
+git clone https://github.com/diocrafts/openfoundry.git
+cd openfoundry
+make tools          # installs buf, golangci-lint, sqlc, gofumpt to ./bin
+make build          # compile every Go package
+make test           # fast unit tests (no Docker needed)
 ```
 
-The full local-development guide lives at
-[`docs/getting-started/local-development.md`](docs/getting-started/local-development.md).
+The local-development guide lives in
+[`docs/getting-started/`](docs/getting-started/).
 
-**Useful recipes** (see [`justfile`](justfile) for the full list)
+**Useful targets** (see [`Makefile`](Makefile) for the full list)
 
 ```bash
-just build-svc <crate>     # build a single service
-just test-svc  <crate>     # test a single crate
-just lint                  # fmt-check + clippy -D warnings
-just deny                  # cargo-deny (licenses + advisories)
-just proto-gen             # regenerate code from proto/
-just db-migrate            # run sqlx migrations for every service
+make build-services    # one binary per service into ./bin/
+make test              # unit tests with race detector + coverage
+make test-integration  # tests behind //go:build integration (needs Docker)
+make lint              # golangci-lint with the project config
+make fmt               # gofumpt + gci
+make gen               # regen proto Go + sqlc
+make ci                # tidy + vet + lint + test  (full local CI gate)
 ```
+
+A `justfile` is provided as a thin shim over `make` for users with
+`just` muscle memory, but the Makefile is canonical.
 
 ## Workflow
 
 1. **Search existing issues / discussions** to avoid duplication.
-2. **Open an issue** for any change that is not a typo / docs fix /
-   one-line bugfix. Get rough agreement on the approach before writing code.
-3. **Fork** the repository and create a branch from `main`:
+2. **Open an issue** for anything non-trivial. Get rough agreement on
+   the approach before writing code.
+3. **Fork** and create a branch from `main`:
    `git checkout -b feat/ontology-bulk-import`.
 4. **Implement** the change, adding tests and updating docs.
-5. **Run quality gates locally**: `just lint test deny`.
+5. **Run quality gates locally**: `make ci`.
 6. **Push** and open a pull request against `main`.
 7. **Iterate** with reviewers; keep the branch rebased on `main`.
-8. A maintainer will **squash-merge** the PR once approved and CI is green.
+8. A maintainer **squash-merges** the PR once approved and CI is green.
 
-We do **not** accept force-pushes to shared branches and we do **not** rebase
+We do **not** force-push to shared branches and we do **not** rebase
 merge commits in `main`.
 
 ## Branch and commit conventions
 
-- **Branch names**: `<type>/<short-description>` (e.g. `feat/nexus-bulk-export`,
-  `fix/auth-jwt-leeway`, `docs/contributing-guide`).
-- **Commits**: [Conventional Commits](https://www.conventionalcommits.org/).
-  This is enforced in CI and drives the changelog.
+- **Branch names**: `<type>/<short-description>` (e.g.
+  `feat/nexus-bulk-export`, `fix/auth-jwt-leeway`,
+  `docs/contributing-guide`).
+- **Commits**: [Conventional Commits](https://www.conventionalcommits.org/),
+  enforced in CI; drives the changelog.
 
   ```
   feat(ontology): add bulk import endpoint
   fix(auth-middleware): tolerate clock skew up to 60s
-  docs(getting-started): document just dev-stack
+  docs(getting-started): document make tools
   refactor(core-models): split dataset types into own module
-  chore(deps): bump tokio to 1.40
+  chore(deps): bump opentelemetry to v1.39
   ```
 
-  Allowed types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`,
-  `ci`, `chore`, `revert`. A `!` after the scope (`feat(api)!: ...`) or a
-  `BREAKING CHANGE:` footer flags a breaking change.
+  Allowed types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`,
+  `build`, `ci`, `chore`, `revert`. A `!` after the scope
+  (`feat(api)!: ...`) or a `BREAKING CHANGE:` footer flags a breaking
+  change.
 
 ## Pull request checklist
 
-Every PR must satisfy this checklist before review:
-
 - [ ] Linked to an issue (`Closes #123`) when applicable.
 - [ ] Diff stays focused; unrelated changes split into separate PRs.
-- [ ] `just lint test` passes locally.
+- [ ] `make ci` passes locally.
 - [ ] New / changed behaviour covered by tests (unit, integration, or smoke).
 - [ ] Public APIs (proto, SDK, REST) updated together with their generated
-      artefacts (`just proto-gen`, `just sdk-typescript-gen`, etc.).
+      artefacts (`make gen`, plus the SDK generators in `tools/of-cli`).
 - [ ] Docs in [`docs/`](docs/) updated when behaviour or interfaces change.
 - [ ] An entry added to the **Unreleased** section of [`CHANGELOG.md`](CHANGELOG.md)
       for any user-visible change.
-- [ ] Migrations are **forward-only** and reversible scripts are provided
-      (`cargo sqlx migrate add -r ...`).
+- [ ] Migrations are **forward-only**; once a migration ships it is
+      immutable, add a new one rather than editing the old.
 - [ ] No secrets, credentials, or customer data committed.
 
 PRs that fail any of the above will be sent back without a review round.
@@ -171,9 +164,8 @@ PRs that fail any of the above will be sent back without a review round.
 - **Routing**: GitHub auto-assigns reviewers based on
   [`.github/CODEOWNERS`](.github/CODEOWNERS). At least **one CODEOWNER
   approval** is required for the touched paths.
-- **SLA**: maintainers aim to triage within **3 business days** and to give a
-  first review within **7 business days**. Ping the PR if you have not heard
-  back after that window.
+- **SLA**: triage within 3 business days; first review within 7 business
+  days. Ping the PR if you have not heard back after that window.
 - **Merge strategy**: squash-merge with the PR title used as the commit
   message (must follow Conventional Commits).
 - **Stale PRs** with no contributor activity for 30 days are auto-labelled
@@ -183,20 +175,21 @@ PRs that fail any of the above will be sent back without a review round.
 
 CI runs on every PR (see [`.github/workflows/`](.github/workflows/)):
 
-- `cargo fmt --all -- --check`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test --workspace` (Postgres + Redis services spun up by CI)
-- `cargo deny check`
-- `buf lint` and `buf breaking` against `main`
-- OpenAPI drift check and SDK typecheck (TypeScript / Python)
-- Frontend lint, typecheck, unit and E2E tests
-- Helm and Terraform validation
+- `make ci` — `go mod tidy`, `go vet`, `golangci-lint`, unit tests with
+  race detector and coverage.
+- `buf lint` and `buf breaking` against `main`.
+- `make test-integration` for changes that touch DB or message-bus paths
+  (uses testcontainers; requires Docker on the runner).
+- Frontend lint, typecheck, unit and E2E tests for `apps/web` changes.
+- Helm and Terraform validation for `infra/` changes.
 
-A PR cannot be merged with red CI. If a check is genuinely flaky, document it
-in the PR and ping a maintainer; do **not** disable it.
+A PR cannot be merged with red CI. If a check is genuinely flaky,
+document it in the PR and ping a maintainer; do **not** disable it.
 
-**Coverage** — we are progressively introducing per-crate coverage gates with
-`cargo llvm-cov`. New code in a touched crate should not lower its coverage.
+`golangci-lint` is configured with `new-from-rev: HEAD` so it only
+flags issues introduced by your commits — the existing baseline is
+silenced. To audit the full backlog locally:
+`golangci-lint run --new-from-rev= ./...`.
 
 ## RFCs and breaking changes
 
@@ -204,8 +197,8 @@ Some changes need a written design before implementation:
 
 - Any change to the **public API surface** (`proto/**`, generated SDKs,
   REST routes documented in OpenAPI).
-- Any change to **`libs/core-models`** or **`libs/auth-middleware`** types
-  re-exported by services.
+- Any change to **`libs/core-models`** or **`libs/auth-middleware`**
+  types re-exported by services.
 - Introducing a new **cross-cutting library** under [`libs/`](libs/).
 - Adding or removing a **service** under [`services/`](services/).
 - Changes to the **storage schema** that require coordinated migrations
@@ -213,52 +206,60 @@ Some changes need a written design before implementation:
 
 Process:
 
-1. Open an issue using the `RFC: <title>` prefix and the
-   `kind/rfc` label.
-2. Fill the [RFC template](docs/adr/TEMPLATE.md) (context, decision,
-   alternatives, consequences, migration plan).
+1. Open an issue using the `RFC: <title>` prefix and the `kind/rfc`
+   label.
+2. Fill the RFC template (context, decision, alternatives,
+   consequences, migration plan).
 3. Allow **7 days minimum** for community comments.
 4. A maintainer marks the RFC as **accepted**, **rejected**, or
-   **needs-revision**. Accepted RFCs land as a Markdown file under
-   [`docs/adr/`](docs/adr/) and can then be implemented.
+   **needs-revision**. Accepted RFCs land as a numbered ADR under
+   [`docs/architecture/adr/`](docs/architecture/adr/) and can then be
+   implemented.
 
-Breaking changes to protos must additionally:
+Breaking proto changes must additionally:
 
 - Bump the package version (`open_foundry.<domain>.v1` → `v2`).
 - Keep the previous version compiling for at least **one minor release**.
-- Be flagged with `!` and a `BREAKING CHANGE:` footer in the commit message.
+- Be flagged with `!` and a `BREAKING CHANGE:` footer.
 
 ## Adding a new service
 
-We try to keep the 85+ services consistent. Before adding a new one:
+We try to keep services consistent. Before adding a new one:
 
 1. Open a `new service` issue and get approval from a Platform CODEOWNER.
-2. Use `just new-service <name>` (when available) or copy an existing
-   service in the same Helm release and ownership boundary as a template.
-3. Register the crate in the root [`Cargo.toml`](Cargo.toml) workspace
-   members **and** in [`.github/CODEOWNERS`](.github/CODEOWNERS).
-4. Add proto definitions under [`proto/<domain>/v1/`](proto/) and regenerate.
-5. Add at minimum: a `/health` endpoint, structured tracing via
-   `core_models::observability::init_tracing`, sqlx migrations under
-   `services/<name>/migrations/`, and a smoke scenario under
+2. Copy [`services/template/`](services/template/) as the starting
+   point — it ships the `cmd/<svc>/main.go`, `internal/server`,
+   `internal/config` and `internal/handler/health` skeletons plus a
+   distroless `Dockerfile`.
+3. Register the service in:
+   - [`infra/helm/apps/`](infra/helm/apps/) — chart that ships it.
+   - [`infra/argocd/apps/`](infra/argocd/apps/) — GitOps app.
+   - [`services/edge-gateway-service/internal/proxy/router_table.go`](services/edge-gateway-service/internal/proxy/router_table.go) —
+     external HTTP routing (only if the service receives external traffic).
+   - [`.github/CODEOWNERS`](.github/CODEOWNERS) — ownership.
+4. Add proto definitions under [`proto/<domain>/v1/`](proto/) and run
+   `make gen`.
+5. Wire `/healthz`, `/metrics` and structured logging via
+   [`libs/observability`](libs/observability/), and a smoke scenario under
    [`smoke/scenarios/`](smoke/scenarios/).
 
 ## Documentation contributions
 
 - The public site lives in [`docs/`](docs/) and is built with VitePress.
-- Preview locally with `pnpm --filter docs dev`.
-- Reference docs for SDKs are generated; **edit the source proto / Rust
+- Reference docs for SDKs are generated; **edit the proto / Go
   doc-comments**, not the generated output.
+- Per-module agent-facing notes go in `CLAUDE.md` files inside the
+  module directory.
 
 ## Security issues
 
 **Do not file security vulnerabilities as public issues.** Follow the
-disclosure process documented in [`SECURITY.md`](SECURITY.md).
+disclosure process in [`SECURITY.md`](SECURITY.md).
 
 ## Licensing and DCO
 
 - OpenFoundry is licensed under **AGPL-3.0-only** (see [`LICENSE`](LICENSE)).
-- By contributing you agree that your contribution is licensed under the
+- By contributing you agree your contribution is licensed under the
   same terms.
 - All commits must be **signed off** with the
   [Developer Certificate of Origin](https://developercertificate.org/):
@@ -273,7 +274,5 @@ disclosure process documented in [`SECURITY.md`](SECURITY.md).
 
 - **Documentation**: <https://diocrafts.github.io/OpenFoundry/>
 - **Discussions / Q&A**: GitHub Discussions on this repository.
-- **Chat**: see the [Community](README.md#-community) section of the README.
-- **Maintainer ping**: mention `@open-foundry/maintainers` on your issue or PR.
-
-Thanks for helping make OpenFoundry better. 🛠️
+- **Maintainer ping**: mention `@open-foundry/maintainers` on your
+  issue or PR.
