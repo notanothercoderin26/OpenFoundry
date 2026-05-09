@@ -44,7 +44,16 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 			api.Get(base+"/{id}", h.GetObjectType)
 			api.Patch(base+"/{id}", h.UpdateObjectType)
 			api.Delete(base+"/{id}", h.DeleteObjectType)
+
+			// Properties — nested under each type
+			api.Get(base+"/{id}/properties", h.ListProperties)
+			api.Post(base+"/{id}/properties", h.CreateProperty)
 		}
+
+		// Link types — top-level (/links). The frontend `listLinkTypes`
+		// optionally filters by `object_type_id`; same handler for both.
+		api.Get("/links", h.ListLinkTypes)
+		api.Post("/links", h.CreateLinkType)
 	}
 
 	// Mount on both the legacy `/api/v1/ontology-definition` prefix

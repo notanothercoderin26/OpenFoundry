@@ -151,3 +151,124 @@ func scanObjectType(r rowLikeT) (*models.ObjectType, error) {
 	}
 	return v, nil
 }
+
+// ── Properties ─────────────────────────────────────────────────────────
+
+const propertyColumns = `id, object_type_id, name, display_name, description, property_type,
+	required, unique_constraint, time_dependent,
+	default_value, validation_rules, inline_edit_config,
+	created_at, updated_at`
+
+func (r *Repo) ListProperties(ctx context.Context, typeID uuid.UUID) ([]models.Property, error) {
+	rows, err := r.Pool.Query(ctx,
+		`SELECT `+propertyColumns+` FROM ontology_schema.properties WHERE object_type_id = $1 ORDER BY created_at`,
+		typeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []models.Property{}
+	for rows.Next() {
+		p, err := scanProperty(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *p)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) CreateProperty(ctx context.Context, typeID uuid.UUID, body *models.CreatePropertyRequest) (*models.Property, error) {
+	id := uuid.New()
+	dn := body.DisplayName
+	if dn == "" {
+		dn = body.Name
+	}
+	row := r.Pool.QueryRow(ctx,
+		`INSERT INTO ontology_schema.properties
+		 (id, object_type_id, name, display_name, description, property_type,
+		  required, unique_constraint, time_dependent,
+		  default_value, validation_rules, inline_edit_config,
+		  created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
+		 RETURNING `+propertyColumns,
+		id, typeID, body.Name, dn, body.Description, body.PropertyType,
+		body.Required, body.UniqueConstraint, body.TimeDependent,
+		body.DefaultValue, body.ValidationRules, body.InlineEditConfig,
+		time.Now().UTC())
+	return scanProperty(row)
+}
+
+func scanProperty(r rowLikeT) (*models.Property, error) {
+	p := &models.Property{}
+	if err := r.Scan(&p.ID, &p.ObjectTypeID, &p.Name, &p.DisplayName, &p.Description,
+		&p.PropertyType, &p.Required, &p.UniqueConstraint, &p.TimeDependent,
+		&p.DefaultValue, &p.ValidationRules, &p.InlineEditConfig,
+		&p.CreatedAt, &p.UpdatedAt); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// ── Link types ─────────────────────────────────────────────────────────
+
+const linkTypeColumns = `id, name, display_name, description, source_type_id, target_type_id,
+	cardinality, owner_id, created_at, updated_at`
+
+func (r *Repo) ListLinkTypes(ctx context.Context, objectTypeID *uuid.UUID) ([]models.LinkType, error) {
+	q := `SELECT ` + linkTypeColumns + ` FROM ontology_schema.link_types`
+	args := []any{}
+	if objectTypeID != nil {
+		q += ` WHERE source_type_id = $1 OR target_type_id = $1`
+		args = append(args, *objectTypeID)
+	}
+	q += ` ORDER BY created_at`
+	rows, err := r.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []models.LinkType{}
+	for rows.Next() {
+		lt, err := scanLinkType(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *lt)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) CreateLinkType(ctx context.Context, body *models.CreateLinkTypeRequest, ownerID uuid.UUID) (*models.LinkType, error) {
+	id := uuid.New()
+	dn := body.DisplayName
+	if dn == "" {
+		dn = body.Name
+	}
+	card := body.Cardinality
+	if card == "" {
+		card = "many_to_many"
+	}
+	row := r.Pool.QueryRow(ctx,
+		`INSERT INTO ontology_schema.link_types
+		 (id, name, display_name, description, source_type_id, target_type_id,
+		  cardinality, owner_id, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+		 RETURNING `+linkTypeColumns,
+		id, body.Name, dn, body.Description, body.SourceTypeID, body.TargetTypeID,
+		card, ownerID, time.Now().UTC())
+	return scanLinkType(row)
+}
+
+func scanLinkType(r rowLikeT) (*models.LinkType, error) {
+	lt := &models.LinkType{}
+	if err := r.Scan(&lt.ID, &lt.Name, &lt.DisplayName, &lt.Description,
+		&lt.SourceTypeID, &lt.TargetTypeID, &lt.Cardinality, &lt.OwnerID,
+		&lt.CreatedAt, &lt.UpdatedAt); err != nil {
+		return nil, err
+	}
+	return lt, nil
+}
+
+var _ = errors.New
+var _ = pgx.ErrNoRows

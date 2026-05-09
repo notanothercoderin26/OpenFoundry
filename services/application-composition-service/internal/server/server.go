@@ -57,6 +57,22 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 		api.Post("/{id}/bindings", h.CreateSecondary)
 	})
 
+	// `/api/v1/apps` is the App Builder surface consumed by apps/web's
+	// lib/api/apps.ts. Public read by slug stays outside the auth group so
+	// embedded / portal consumers can render published apps anonymously.
+	r.Get("/api/v1/apps/public/{slug}", h.GetPublishedApp)
+	r.Route("/api/v1/apps", func(api chi.Router) {
+		api.Use(authmw.Middleware(jwt))
+
+		api.Get("/", h.ListApps)
+		api.Post("/", h.CreateApp)
+		api.Get("/{id}", h.GetApp)
+		api.Patch("/{id}", h.UpdateApp)
+		api.Delete("/{id}", h.DeleteApp)
+		api.Get("/{id}/versions", h.ListAppVersions)
+		api.Post("/{id}/publish", h.PublishApp)
+	})
+
 	return r
 }
 

@@ -46,3 +46,57 @@ type UpdateObjectTypeRequest struct {
 	Icon               *string `json:"icon,omitempty"`
 	Color              *string `json:"color,omitempty"`
 }
+
+// Property mirrors `ontology_schema.properties` rows.
+type Property struct {
+	ID                uuid.UUID `json:"id"`
+	ObjectTypeID      uuid.UUID `json:"object_type_id"`
+	Name              string    `json:"name"`
+	DisplayName       string    `json:"display_name"`
+	Description       string    `json:"description"`
+	PropertyType      string    `json:"property_type"`
+	Required          bool      `json:"required"`
+	UniqueConstraint  bool      `json:"unique_constraint"`
+	TimeDependent     bool      `json:"time_dependent"`
+	DefaultValue      any       `json:"default_value"`
+	ValidationRules   any       `json:"validation_rules"`
+	InlineEditConfig  any       `json:"inline_edit_config"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type CreatePropertyRequest struct {
+	Name             string `json:"name"`
+	DisplayName      string `json:"display_name"`
+	Description      string `json:"description,omitempty"`
+	PropertyType     string `json:"property_type"`
+	Required         bool   `json:"required,omitempty"`
+	UniqueConstraint bool   `json:"unique_constraint,omitempty"`
+	TimeDependent    bool   `json:"time_dependent,omitempty"`
+	DefaultValue     any    `json:"default_value,omitempty"`
+	ValidationRules  any    `json:"validation_rules,omitempty"`
+	InlineEditConfig any    `json:"inline_edit_config,omitempty"`
+}
+
+// LinkType mirrors `ontology_schema.link_types` rows.
+type LinkType struct {
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	DisplayName  string    `json:"display_name"`
+	Description  string    `json:"description"`
+	SourceTypeID uuid.UUID `json:"source_type_id"`
+	TargetTypeID uuid.UUID `json:"target_type_id"`
+	Cardinality  string    `json:"cardinality"`
+	OwnerID      uuid.UUID `json:"owner_id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type CreateLinkTypeRequest struct {
+	Name         string    `json:"name"`
+	DisplayName  string    `json:"display_name"`
+	Description  string    `json:"description,omitempty"`
+	SourceTypeID uuid.UUID `json:"source_type_id"`
+	TargetTypeID uuid.UUID `json:"target_type_id"`
+	Cardinality  string    `json:"cardinality,omitempty"`
+}

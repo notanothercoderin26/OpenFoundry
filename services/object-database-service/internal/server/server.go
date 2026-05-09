@@ -78,6 +78,15 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 		api.Get("/links/{tenant}/{link_type}/incoming/{to}", h.ListIncomingLinks)
 	})
 
+	// edge-gateway forwards `/api/v1/ontology/types/{id}/objects[/...]` to
+	// this service unchanged. Mount adapter handlers that translate to/from
+	// the SPA's ObjectInstance wire shape.
+	r.Route("/api/v1/ontology/types/{type_id}/objects", func(api chi.Router) {
+		api.Get("/", h.ListObjectsByOntologyType)
+		api.Post("/", h.CreateObjectByOntologyType)
+		api.Get("/{object_id}", h.GetObjectByOntologyType)
+	})
+
 	return r
 }
 
