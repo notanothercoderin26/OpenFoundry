@@ -1,9 +1,15 @@
 # Respuesta a la auditoría arquitectónica + diseño de motor de workflows propio (of-flow)
 
+> **ARCHIVED — superseded for the of-flow design by**
+> [`docs/architecture/adr/ADR-0043-of-flow-user-facing-workflow-engine.md`](../architecture/adr/ADR-0043-of-flow-user-facing-workflow-engine.md).
+> The audit-response matrix in Part I is a point-in-time snapshot kept
+> for historical context. Any future revisions amend the ADR, not this
+> file.
+>
 > Fecha: 2026‑05‑08
 > Autor: Comité técnico (auditoría) + decisiones de adopción
 > Branch: `main`
-> Documentos relacionados: `ARCHITECTURE.md`, `STUB-AUDIT.md`, `docs/archive/MIGRATION-LOOP-STATUS.md`, `docs/architecture/adr/ADR-0037-foundry-pattern-orchestration.md`
+> Documentos relacionados: `ARCHITECTURE.md`, `docs/archive/STUB-AUDIT.md`, `docs/archive/MIGRATION-LOOP-STATUS.md`, `docs/architecture/adr/ADR-0037-foundry-pattern-orchestration.md`
 
 Este documento responde a dos preguntas concretas que se plantearon tras la auditoría profunda del repositorio:
 
