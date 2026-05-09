@@ -8,5 +8,5 @@
 // The Rust source is split into ~30 files; the Go port lands in
 // reviewable iter slices grouped by concern (types base, repositories,
 // rules + traversal, search). Each iter advances the migration tracker
-// in openfoundry-go/ONTOLOGY-KERNEL-MIGRATION.md.
+// archived at docs/archive/ONTOLOGY-KERNEL-MIGRATION.md.
 package domain

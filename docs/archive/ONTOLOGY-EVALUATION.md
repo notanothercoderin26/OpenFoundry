@@ -1,5 +1,12 @@
 # Evaluación de la Ontología de OpenFoundry vs Palantir Foundry / Gotham
 
+> **ARCHIVED — superseded by**
+> [`docs/architecture/adr/ADR-0044-ontology-parity-scope-osv2-baseline.md`](../architecture/adr/ADR-0044-ontology-parity-scope-osv2-baseline.md),
+> which captures the parity scope decision (OSv2 baseline, committed vs
+> deferred dimensions). The per-dimension matrix below remains the
+> authoritative scoreboard; promotions/demotions between committed and
+> deferred require an amending ADR rather than silent edits here.
+>
 > Fecha de la evaluación: 2026-05-08
 > Alcance auditado: `libs/ontology-kernel/**`, `services/ontology-*`, `services/object-database-service`, `services/lineage-service`, `services/entity-resolution-service`, `services/iceberg-catalog-service`, `libs/{cassandra-kernel, search-abstraction, storage-abstraction, authz-cedar-go, auth-middleware, audit-trail, outbox, saga, idempotency, vector-store, query-engine, geospatial-core, observability}`, `proto/**`.
 
