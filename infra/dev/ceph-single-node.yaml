@@ -73,13 +73,13 @@ spec:
     nodes:
       - name: "lima-k3s-master"
         devices:
-          - name: "/dev/loop0"
+          - name: "/dev/vdb"
       - name: "lima-k3s-node1"
         devices:
-          - name: "/dev/loop0"
+          - name: "/dev/vdb"
       - name: "lima-k3s-node2"
         devices:
-          - name: "/dev/loop0"
+          - name: "/dev/vdb"
   healthCheck:
     daemonHealth:
       mon:
