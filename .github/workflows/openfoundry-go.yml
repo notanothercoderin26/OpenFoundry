@@ -2,33 +2,77 @@ name: openfoundry-go CI
 
 on:
   push:
+    branches: [main]
     paths:
-      - "openfoundry-go/**"
+      - "services/**"
+      - "libs/**"
+      - "tools/**"
       - "proto/**"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - ".golangci.yml"
+      - "buf.gen.yaml"
+      - "sqlc.yaml"
       - ".github/workflows/openfoundry-go.yml"
   pull_request:
+    branches: [main]
     paths:
-      - "openfoundry-go/**"
+      - "services/**"
+      - "libs/**"
+      - "tools/**"
       - "proto/**"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - ".golangci.yml"
+      - "buf.gen.yaml"
+      - "sqlc.yaml"
+      - ".github/workflows/openfoundry-go.yml"
 
-defaults:
-  run:
-    working-directory: openfoundry-go
+# Cancel in-flight runs of the same workflow on the same ref. Saves
+# minutes on rapid pushes (rebases, force-pushes).
+concurrency:
+  group: openfoundry-go-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  lint:
-    name: lint
+  tidy:
+    name: tidy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: openfoundry-go/go.mod
-          cache-dependency-path: openfoundry-go/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: go mod tidy
+        run: go mod tidy
+      - name: ensure go.mod / go.sum are committed and clean
+        run: |
+          if ! git diff --exit-code go.mod go.sum; then
+            echo "::error::'go mod tidy' produced changes — commit them"
+            exit 1
+          fi
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # golangci-lint with `new-from-rev: HEAD` (set in .golangci.yml)
+          # needs git history beyond the tip commit to compute the diff.
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
       - uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.62.2
-          working-directory: openfoundry-go
+          # Must match the schema declared in .golangci.yml (version: "2").
+          # Bumps here should track the pin in `make tools`.
+          version: v2.5.0
           args: --timeout 5m
 
   proto:
@@ -36,23 +80,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
       - uses: bufbuild/buf-setup-action@v1
         with:
           version: 1.47.2
       - run: buf lint
-        working-directory: openfoundry-go
       - run: buf generate
-        working-directory: openfoundry-go
       - name: ensure no drift between checked-in & generated proto
         run: |
-          status="$(git status --porcelain=v1 --untracked-files=all --ignored=matching -- libs/proto-gen)"
+          status="$(git status --porcelain=v1 --untracked-files=all -- libs/proto-gen)"
           if [ -n "$status" ]; then
-            echo "::error::buf generate produced drift — commit the regenerated files and keep libs/proto-gen unignored"
+            echo "::error::'buf generate' produced drift — commit the regenerated files"
             printf '%s\n' "$status"
             git --no-pager diff -- libs/proto-gen
             exit 1
           fi
-        working-directory: openfoundry-go
 
   test:
     name: test (unit)
@@ -61,13 +106,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: openfoundry-go/go.mod
-          cache-dependency-path: openfoundry-go/go.sum
-      - run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: go test -race
+        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
       - uses: actions/upload-artifact@v4
         with:
           name: coverage
-          path: openfoundry-go/coverage.out
+          path: coverage.out
+          if-no-files-found: warn
 
   integration:
     name: test (integration)
@@ -77,11 +124,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: openfoundry-go/go.mod
-          cache-dependency-path: openfoundry-go/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
       - name: run integration suite
+        # GitHub-hosted Ubuntu runners ship a working Docker daemon, so
+        # testcontainers-go works out of the box. Ryuk is disabled
+        # because the runner is short-lived; nothing to clean up.
         run: go test -race -count=1 -tags=integration ./...
         env:
-          # testcontainers-go uses the docker daemon already available
-          # on the GitHub-hosted runner.
           TESTCONTAINERS_RYUK_DISABLED: "true"
