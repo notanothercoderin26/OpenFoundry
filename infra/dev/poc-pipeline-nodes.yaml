@@ -1,0 +1,226 @@
+# PoC pipeline DAG, materialised as 4 SparkApplication CRs that consume
+# `lakekeeper.default.online_retail_raw` (produced by spark-ingest-online-retail.yaml)
+# and produce four derived Iceberg tables.
+#
+# Apply order (dependencies):
+#   1. transactions_clean   (depends on online_retail_raw)
+#   2. returns              (depends on online_retail_raw)
+#   3. customer_metrics     (depends on transactions_clean)
+#   4. transactions_anomalies (depends on transactions_clean)
+#
+# Image / OAuth2 / S3 wiring are identical to spark-smoke.yaml + spark-ingest-online-retail.yaml.
+# Only --inline-sql differs — the actual transform logic.
+---
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: poc-transactions-clean
+  namespace: openfoundry
+  labels:
+    openfoundry.io/component: pipeline-run
+    openfoundry.io/pipeline-id: "online-retail-clean"
+spec:
+  type: Scala
+  mode: cluster
+  image: localhost:5001/pipeline-runner:dev-003148
+  imagePullPolicy: IfNotPresent
+  mainClass: "com.openfoundry.pipeline.PipelineRunner"
+  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
+  arguments:
+    - "--pipeline-id"
+    - "online-retail-clean"
+    - "--run-id"
+    - "001"
+    - "--input-dataset"
+    - "lakekeeper.default.online_retail_raw"
+    - "--output-dataset"
+    - "lakekeeper.default.transactions_clean"
+    - "--catalog"
+    - "lakekeeper"
+    - "--catalog-uri"
+    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
+    - "--inline-format"
+    - "iceberg"
+    - "--inline-sql"
+    - >-
+      SELECT
+        CONCAT(invoice, '_', stockcode) AS transaction_id,
+        invoice,
+        stockcode,
+        description,
+        quantity,
+        invoice_date,
+        price,
+        customer_id,
+        country,
+        CAST(quantity * price AS DOUBLE) AS revenue
+      FROM lakekeeper.default.online_retail_raw
+      WHERE quantity > 0 AND price > 0 AND customer_id IS NOT NULL
+  sparkVersion: "3.5.4"
+  restartPolicy: { type: Never }
+  timeToLiveSeconds: 1800
+  driver: &spark-driver
+    cores: 1
+    coreRequest: "200m"
+    memory: "768m"
+    serviceAccount: spark
+    env:
+      - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
+      - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
+  executor: &spark-executor
+    cores: 1
+    coreRequest: "200m"
+    instances: 1
+    memory: "768m"
+    env:
+      - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
+      - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
+  sparkConf: &spark-conf
+    spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    spark.sql.catalog.lakekeeper: "org.apache.iceberg.spark.SparkCatalog"
+    spark.sql.catalog.lakekeeper.type: "rest"
+    spark.sql.catalog.lakekeeper.uri: "http://lakekeeper.lakekeeper.svc:8181/catalog"
+    spark.sql.catalog.lakekeeper.warehouse: "openfoundry"
+    spark.sql.catalog.lakekeeper.credential: "lakekeeper:s"
+    spark.sql.catalog.lakekeeper.oauth2-server-uri: "http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token"
+    spark.sql.catalog.lakekeeper.scope: "openid"
+    spark.sql.defaultCatalog: "lakekeeper"
+    spark.hadoop.fs.s3a.endpoint: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+    spark.hadoop.fs.s3a.path.style.access: "true"
+    spark.hadoop.fs.s3a.aws.credentials.provider: "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+---
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: poc-returns
+  namespace: openfoundry
+spec:
+  type: Scala
+  mode: cluster
+  image: localhost:5001/pipeline-runner:dev-003148
+  imagePullPolicy: IfNotPresent
+  mainClass: "com.openfoundry.pipeline.PipelineRunner"
+  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
+  arguments:
+    - "--pipeline-id"
+    - "online-retail-returns"
+    - "--run-id"
+    - "001"
+    - "--input-dataset"
+    - "lakekeeper.default.online_retail_raw"
+    - "--output-dataset"
+    - "lakekeeper.default.returns"
+    - "--catalog"
+    - "lakekeeper"
+    - "--catalog-uri"
+    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
+    - "--inline-format"
+    - "iceberg"
+    - "--inline-sql"
+    - >-
+      SELECT
+        CONCAT(invoice, '_', stockcode) AS transaction_id,
+        invoice, stockcode, description, quantity,
+        invoice_date, price, customer_id, country,
+        CAST(quantity * price AS DOUBLE) AS revenue
+      FROM lakekeeper.default.online_retail_raw
+      WHERE quantity < 0
+  sparkVersion: "3.5.4"
+  restartPolicy: { type: Never }
+  timeToLiveSeconds: 1800
+  driver: *spark-driver
+  executor: *spark-executor
+  sparkConf: *spark-conf
+---
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: poc-customer-metrics
+  namespace: openfoundry
+spec:
+  type: Scala
+  mode: cluster
+  image: localhost:5001/pipeline-runner:dev-003148
+  imagePullPolicy: IfNotPresent
+  mainClass: "com.openfoundry.pipeline.PipelineRunner"
+  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
+  arguments:
+    - "--pipeline-id"
+    - "online-retail-cust"
+    - "--run-id"
+    - "001"
+    - "--input-dataset"
+    - "lakekeeper.default.transactions_clean"
+    - "--output-dataset"
+    - "lakekeeper.default.customer_metrics"
+    - "--catalog"
+    - "lakekeeper"
+    - "--catalog-uri"
+    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
+    - "--inline-format"
+    - "iceberg"
+    - "--inline-sql"
+    - >-
+      SELECT
+        customer_id,
+        SUM(revenue) AS total_revenue,
+        COUNT(DISTINCT invoice) AS num_orders,
+        COUNT(DISTINCT country) AS num_countries
+      FROM lakekeeper.default.transactions_clean
+      GROUP BY customer_id
+  sparkVersion: "3.5.4"
+  restartPolicy: { type: Never }
+  timeToLiveSeconds: 1800
+  driver: *spark-driver
+  executor: *spark-executor
+  sparkConf: *spark-conf
+---
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: poc-transactions-anomalies
+  namespace: openfoundry
+spec:
+  type: Scala
+  mode: cluster
+  image: localhost:5001/pipeline-runner:dev-003148
+  imagePullPolicy: IfNotPresent
+  mainClass: "com.openfoundry.pipeline.PipelineRunner"
+  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
+  arguments:
+    - "--pipeline-id"
+    - "online-retail-anomalies"
+    - "--run-id"
+    - "001"
+    - "--input-dataset"
+    - "lakekeeper.default.transactions_clean"
+    - "--output-dataset"
+    - "lakekeeper.default.transactions_anomalies"
+    - "--catalog"
+    - "lakekeeper"
+    - "--catalog-uri"
+    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
+    - "--inline-format"
+    - "iceberg"
+    - "--inline-sql"
+    - >-
+      WITH stats AS (
+        SELECT AVG(revenue) AS mean_rev, STDDEV(revenue) AS std_rev
+        FROM lakekeeper.default.transactions_clean
+      )
+      SELECT
+        t.transaction_id,
+        t.invoice, t.stockcode, t.description, t.quantity,
+        t.invoice_date, t.price, t.customer_id, t.country,
+        t.revenue,
+        CAST(((t.revenue - s.mean_rev) / NULLIF(s.std_rev, 0)) AS DOUBLE) AS revenue_zscore,
+        CAST(ABS((t.revenue - s.mean_rev) / NULLIF(s.std_rev, 0)) > 3.0 AS BOOLEAN) AS is_anomaly,
+        CAST('pending' AS STRING) AS review_status
+      FROM lakekeeper.default.transactions_clean t
+      CROSS JOIN stats s
+  sparkVersion: "3.5.4"
+  restartPolicy: { type: Never }
+  timeToLiveSeconds: 1800
+  driver: *spark-driver
+  executor: *spark-executor
+  sparkConf: *spark-conf

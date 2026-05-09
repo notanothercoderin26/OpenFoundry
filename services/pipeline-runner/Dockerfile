@@ -65,6 +65,8 @@ RUN --mount=type=bind,source=.,target=/workspace,rw \
 ############################################################
 FROM --platform=$BUILDPLATFORM alpine:${ALPINE_VERSION} AS jars
 ARG ICEBERG_VERSION
+ARG HADOOP_AWS_VERSION=3.3.4
+ARG AWS_SDK_BUNDLE_VERSION=1.12.262
 RUN --mount=type=cache,id=apk-jars,target=/var/cache/apk,sharing=locked \
     apk add --no-cache curl ca-certificates && \
     mkdir -p /jars && \
@@ -72,6 +74,10 @@ RUN --mount=type=cache,id=apk-jars,target=/var/cache/apk,sharing=locked \
         "https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/${ICEBERG_VERSION}/iceberg-spark-runtime-3.5_2.12-${ICEBERG_VERSION}.jar" && \
     curl -fsSL --retry 3 -o /jars/iceberg-aws-bundle-${ICEBERG_VERSION}.jar \
         "https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/${ICEBERG_VERSION}/iceberg-aws-bundle-${ICEBERG_VERSION}.jar" && \
+    curl -fsSL --retry 3 -o /jars/hadoop-aws-${HADOOP_AWS_VERSION}.jar \
+        "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_AWS_VERSION}/hadoop-aws-${HADOOP_AWS_VERSION}.jar" && \
+    curl -fsSL --retry 3 -o /jars/aws-java-sdk-bundle-${AWS_SDK_BUNDLE_VERSION}.jar \
+        "https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_BUNDLE_VERSION}/aws-java-sdk-bundle-${AWS_SDK_BUNDLE_VERSION}.jar" && \
     chmod 0644 /jars/*.jar
 
 ############################################################

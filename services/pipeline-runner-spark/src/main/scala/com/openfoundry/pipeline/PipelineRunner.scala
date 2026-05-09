@@ -117,14 +117,35 @@ object PipelineRunner {
   }
 
   /** Execute the inline SQL and persist via writeTo(...).createOrReplace() so
-   *  Iceberg publishes a single atomic snapshot. */
+   *  Iceberg publishes a single atomic snapshot. The SQL body may contain
+   *  multiple statements separated by `;` — useful when the transform needs
+   *  setup statements (e.g. CREATE TEMP VIEW pointing at a CSV in S3) before
+   *  the final SELECT. Only the last statement is treated as the result and
+   *  written to the Iceberg target; preceding statements are executed for
+   *  their side effect (the resulting DataFrame is materialised so views
+   *  registered by them become available). */
   private def runTransform(spark: SparkSession, args: RunnerArgs): Long = {
     val sql = Option(args.inlineSql).getOrElse("").trim
     if (sql.isEmpty) {
       throw new IllegalArgumentException("--inline-sql is empty; nothing to execute")
     }
 
-    val df = spark.sql(sql)
+    val statements = sql
+      .split(';')
+      .map(_.trim)
+      .filter(_.nonEmpty)
+    if (statements.isEmpty) {
+      throw new IllegalArgumentException("--inline-sql resolved to zero statements")
+    }
+
+    statements.dropRight(1).foreach { stmt =>
+      log(args, s"executing setup statement: ${preview(stmt)}")
+      spark.sql(stmt).collect()
+    }
+
+    val finalStmt = statements.last
+    log(args, s"executing final statement: ${preview(finalStmt)}")
+    val df = spark.sql(finalStmt)
     log(args, s"executed sql, schema=${df.schema.simpleString}")
 
     args.inlineFormat match {

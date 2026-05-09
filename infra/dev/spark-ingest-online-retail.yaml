@@ -1,22 +1,15 @@
-# Smoke test SparkApplication. Renders our pipeline-runner image, writes a
-# 1-row Iceberg table via the Scala main, and exits.
-#
-# Usage:
-#   kubectl apply -f infra/dev/spark-smoke.yaml
-#   kubectl get sparkapplication -n openfoundry -w
-#   kubectl logs -n openfoundry pipeline-run-smoke-001-driver
-#
-# Verify result via Lakekeeper REST:
-#   curl ... /catalog/v1/<warehouse-id>/namespaces/default/tables/smoke
+# Ingest the Online Retail II CSV from s3://openfoundry-iceberg/raw/ into the
+# lakekeeper-managed Iceberg table `default.online_retail_raw`.
+# Schema mirrors what tools/online-retail/convert_and_upload.py produced.
 ---
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
 metadata:
-  name: pipeline-run-smoke-001
+  name: poc-ingest-retail
   namespace: openfoundry
   labels:
     openfoundry.io/component: pipeline-run
-    openfoundry.io/pipeline-id: "smoke"
+    openfoundry.io/pipeline-id: "online-retail-ingest"
     openfoundry.io/run-id: "001"
 spec:
   type: Scala
@@ -27,21 +20,35 @@ spec:
   mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
   arguments:
     - "--pipeline-id"
-    - "smoke"
+    - "online-retail-ingest"
     - "--run-id"
     - "001"
     - "--input-dataset"
-    - "lakekeeper.default.smoke"
+    - "lakekeeper.default.online_retail_raw"
     - "--output-dataset"
-    - "lakekeeper.default.smoke"
+    - "lakekeeper.default.online_retail_raw"
     - "--catalog"
     - "lakekeeper"
     - "--catalog-uri"
     - "http://lakekeeper.lakekeeper.svc:8181/catalog"
-    - "--inline-sql"
-    - "SELECT 1 AS one"
     - "--inline-format"
     - "iceberg"
+    - "--inline-sql"
+    - >-
+      CREATE OR REPLACE TEMPORARY VIEW raw_csv USING csv OPTIONS (
+        path 's3a://openfoundry-iceberg/raw/online_retail.csv',
+        header 'true', inferSchema 'false'
+      );
+      SELECT
+        invoice,
+        stockcode,
+        description,
+        CAST(quantity AS INT) AS quantity,
+        CAST(invoice_date AS TIMESTAMP) AS invoice_date,
+        CAST(price AS DOUBLE) AS price,
+        CAST(customer_id AS BIGINT) AS customer_id,
+        country
+      FROM raw_csv
   sparkVersion: "3.5.4"
   restartPolicy:
     type: Never
@@ -49,7 +56,7 @@ spec:
   driver:
     cores: 1
     coreRequest: "200m"
-    memory: "512m"
+    memory: "768m"
     serviceAccount: spark
     env:
       - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
@@ -58,7 +65,7 @@ spec:
     cores: 1
     coreRequest: "200m"
     instances: 1
-    memory: "512m"
+    memory: "768m"
     env:
       - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
       - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
