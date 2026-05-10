@@ -332,6 +332,11 @@ func ExecuteActionWithRuntime(state *ontologykernel.AppState, fnRuntime ActionFu
 			body.Justification, params, executed.preview, auditResult); auditErr != nil {
 			logAuditFailure(action.ID, auditErr)
 		}
+		// Best-effort Kafka audit publish for the Iceberg time-travel sink.
+		if kafkaErr := publishActionAuditToKafka(r.Context(), state, claims, action, plan.target,
+			executed.targetObjectID, "success", params, executed.preview, auditResult); kafkaErr != nil {
+			logKafkaAuditFailure(action.ID, kafkaErr)
+		}
 		if notifErr := emitActionNotifications(r.Context(), state, claims, action, plan.target,
 			params, body.Justification, executed); notifErr != nil {
 			logNotificationFailure(action.ID, notifErr)

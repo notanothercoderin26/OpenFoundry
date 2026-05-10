@@ -193,12 +193,16 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		strings.HasPrefix(path, "/api/v1/ontology/graph"),
 		strings.HasPrefix(path, "/api/v1/ontology/quiver"),
 		strings.HasPrefix(path, "/api/v1/ontology/object-sets"),
-		(strings.HasPrefix(path, "/api/v1/ontology/types/") &&
-			(strings.HasSuffix(path, "/objects/query") || strings.HasSuffix(path, "/objects/knn"))):
+		(strings.HasPrefix(path, "/api/v1/ontology/types/") && strings.HasSuffix(path, "/objects/knn")):
 		return u.OntologyQuery
 
 	case strings.HasPrefix(path, "/api/v1/ontology/links/") && strings.Contains(path, "/instances"):
 		return u.ObjectDatabase
+	// `/objects/query` goes to ObjectDatabase (filter pushdown over the same
+	// store the dashboard reads). The historical OntologyQuery target had its
+	// own storage backend; keeping reads + queries co-located prevents the
+	// split-brain we hit during the PoC. `/objects/knn` stays on OntologyQuery
+	// since the vector index lives there.
 	case strings.HasPrefix(path, "/api/v1/ontology/types/") && strings.Contains(path, "/objects"):
 		return u.ObjectDatabase
 

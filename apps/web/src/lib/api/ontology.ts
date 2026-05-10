@@ -157,8 +157,20 @@ export function executeInlineEdit(
   );
 }
 
-export function queryObjects(typeId: string, body: { equals?: Record<string, unknown>; limit?: number }) {
-  return api.post<{ data: ObjectInstance[]; total: number }>(
+export interface ObjectQueryFilter {
+  property_name: string;
+  operator?: 'equals' | 'contains';
+  value: unknown;
+}
+
+export function queryObjects(typeId: string, body: {
+  equals?: Record<string, unknown>;
+  filters?: ObjectQueryFilter[];
+  limit?: number;
+  page?: number;
+  per_page?: number;
+}) {
+  return api.post<{ data: ObjectInstance[]; total: number; page?: number; per_page?: number }>(
     `/ontology/types/${typeId}/objects/query`,
     body,
   );

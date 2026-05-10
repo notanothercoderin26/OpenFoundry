@@ -1,6 +1,7 @@
 package ontologykernel
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -59,4 +60,19 @@ type AppState struct {
 	// ErrPythonRuntimeNotWired (legacy behaviour). Wire it from the
 	// service binary's main with libs/python-sidecar.
 	PythonRuntime PythonInlineRuntime
+
+	// ActionAuditPublisher publishes action audit events to a streaming
+	// bus (Kafka topic `ontology.actions.applied.v1`) so a downstream
+	// Spark Structured Streaming sink can append them to the Iceberg
+	// `lakekeeper.default.action_log` table for time-travel auditability.
+	// When nil the kernel skips the publish — the audit-service HTTP path
+	// (AuditServiceURL) and the in-line revision log keep working.
+	ActionAuditPublisher ActionAuditPublisher
+}
+
+// ActionAuditPublisher is the minimum surface the kernel needs to publish
+// an action audit event. The concrete impl in services/ontology-actions-service
+// adapts segmentio/kafka-go's Writer; tests can stub this to capture events.
+type ActionAuditPublisher interface {
+	PublishActionAudit(ctx context.Context, key []byte, payload []byte) error
 }

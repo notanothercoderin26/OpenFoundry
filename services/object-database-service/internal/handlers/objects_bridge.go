@@ -228,6 +228,157 @@ func (h *Handlers) DeleteObjectByOntologyType(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// queryFilter mirrors the WorkshopVariable.static_filter shape from
+// apps/web/src/routes/apps/WorkshopEditorPage.tsx — same operators, same
+// JSON keys, so the SPA can forward filters verbatim.
+type queryFilter struct {
+	PropertyName string `json:"property_name"`
+	Operator     string `json:"operator,omitempty"` // equals | contains  (default: equals)
+	Value        any    `json:"value"`
+}
+
+type queryRequest struct {
+	// Filters is the WorkshopVariable.static_filter[s] shape — the richer
+	// form with `operator` per filter (equals|contains).
+	Filters []queryFilter `json:"filters"`
+	// Equals is the existing SPA shape used by lib/api/ontology.ts:queryObjects
+	// — a flat map { property: expected }. Treated as "equals" filters.
+	Equals  map[string]any `json:"equals"`
+	Page    int            `json:"page"`
+	PerPage uint32         `json:"per_page"`
+	// Limit mirrors the SPA's `queryObjects` body: cap on items when no
+	// per_page is set. We unify with per_page below.
+	Limit int `json:"limit"`
+}
+
+func matchesFilter(props map[string]any, f queryFilter) bool {
+	actual, ok := props[f.PropertyName]
+	if !ok {
+		// "not present" matches "" target so the SPA's `equals ""` checks work.
+		actualStr := ""
+		expectedStr := strings.ToLower(strings.TrimSpace(toStringValue(f.Value)))
+		return strings.EqualFold(actualStr, expectedStr)
+	}
+	actualStr := strings.ToLower(strings.TrimSpace(toStringValue(actual)))
+	expectedStr := strings.ToLower(strings.TrimSpace(toStringValue(f.Value)))
+	switch strings.ToLower(strings.TrimSpace(f.Operator)) {
+	case "contains":
+		return strings.Contains(actualStr, expectedStr)
+	default: // "equals" + unknown
+		return actualStr == expectedStr
+	}
+}
+
+func toStringValue(v any) string {
+	if v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return t
+	case bool:
+		if t {
+			return "true"
+		}
+		return "false"
+	case json.Number:
+		return t.String()
+	case float64:
+		// avoid scientific notation for integral floats
+		if t == float64(int64(t)) {
+			return strconv.FormatInt(int64(t), 10)
+		}
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	default:
+		// fall back to JSON encoding — covers nested objects and arrays
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+}
+
+// QueryObjectsByOntologyType serves POST /api/v1/ontology/types/{type_id}/objects/query.
+// Server-side filter pushdown for the SPA's WorkshopVariable.static_filter / static_filters.
+// Today the InMemory store can't filter natively (no native CQL); we materialise
+// the full per-tenant+type list and filter in Go. For Cassandra this should be
+// replaced with a secondary-index lookup (`SELECT … WHERE type_id=? AND property_name=value`)
+// once the schema supports it.
+func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Request) {
+	tenant := tenantFromRequest(r)
+	typeID := storage.TypeId(chi.URLParam(r, "type_id"))
+
+	var body queryRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Merge the two filter shapes: `equals` map gets normalised into the
+	// richer Filters list as plain equals.
+	for k, v := range body.Equals {
+		body.Filters = append(body.Filters, queryFilter{PropertyName: k, Operator: "equals", Value: v})
+	}
+	perPage := body.PerPage
+	if perPage == 0 && body.Limit > 0 {
+		perPage = uint32(body.Limit)
+	}
+	if perPage == 0 {
+		perPage = 25
+	}
+	if perPage > 5000 {
+		perPage = 5000
+	}
+	page := body.Page
+	if page < 1 {
+		page = 1
+	}
+
+	full, err := h.Objects.ListByType(r.Context(), tenant, typeID, storage.Page{Size: 1_000_000}, parseConsistency(r.URL.Query().Get("consistency")))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	matched := make([]ontologyObject, 0)
+	for i := range full.Items {
+		obj := &full.Items[i]
+		props := map[string]any{}
+		if len(obj.Payload) > 0 {
+			_ = json.Unmarshal(obj.Payload, &props)
+		}
+		ok := true
+		for _, f := range body.Filters {
+			if !matchesFilter(props, f) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			matched = append(matched, toOntologyObject(obj))
+		}
+	}
+
+	total := len(matched)
+	start := (page - 1) * int(perPage)
+	end := start + int(perPage)
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+	pageItems := matched[start:end]
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data":     pageItems,
+		"total":    total,
+		"page":     page,
+		"per_page": perPage,
+	})
+}
+
 // CreateObjectByOntologyType serves POST /api/v1/ontology/types/{type_id}/objects.
 // Body shape: `{ properties: {...} }`. Used by the SPA to seed manual rows; the
 // real bulk path is the indexer (see docs/poc-online-retail/RUNTIME-INDEXER.md).

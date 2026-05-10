@@ -864,6 +864,81 @@ func logNotificationFailure(actionID uuid.UUID, err error) {
 	log.Printf("ontology action notification emit failed action=%s err=%s", actionID, err.Error())
 }
 
+func logKafkaAuditFailure(actionID uuid.UUID, err error) {
+	log.Printf("ontology action kafka audit publish failed action=%s err=%s", actionID, err.Error())
+}
+
+// publishActionAuditToKafka emits a flat envelope to the
+// `ontology.actions.applied.v1` topic so a Spark Structured Streaming sink
+// (see infra/dev/action-log-sink.yaml) can append it to the Iceberg table
+// `lakekeeper.default.action_log` for time-travel auditability.
+//
+// No-op when state.ActionAuditPublisher is nil. Failures are returned so the
+// caller can warn-log; the kernel never short-circuits the action on a Kafka
+// failure (audit-service HTTP path + revision log keep working).
+func publishActionAuditToKafka(
+	ctx context.Context,
+	state *ontologykernel.AppState,
+	claims *authmw.Claims,
+	action models.ActionType,
+	target *domain.ObjectInstance,
+	targetObjectID *uuid.UUID,
+	status string,
+	parameters json.RawMessage,
+	previousState json.RawMessage,
+	newState any,
+) error {
+	if state == nil || state.ActionAuditPublisher == nil {
+		return nil
+	}
+	var orgID string
+	if claims.OrgID != nil {
+		orgID = claims.OrgID.String()
+	}
+	tenant := domain.TenantFromClaims(claims)
+	objIDStr := ""
+	if targetObjectID != nil {
+		objIDStr = targetObjectID.String()
+	}
+	var paramAny, prevAny, newAny any
+	_ = json.Unmarshal(parameters, &paramAny)
+	_ = json.Unmarshal(previousState, &prevAny)
+	switch v := newState.(type) {
+	case json.RawMessage:
+		_ = json.Unmarshal(v, &newAny)
+	default:
+		newAny = v
+	}
+	envelope := map[string]any{
+		"event_id":        uuid.New().String(),
+		"action_type_id":  action.ID.String(),
+		"action_name":     action.Name,
+		"object_type_id":  action.ObjectTypeID.String(),
+		"object_id":       objIDStr,
+		"tenant":          string(tenant),
+		"actor_sub":       claims.Sub.String(),
+		"actor_email":     claims.Email,
+		"organization_id": orgID,
+		"status":          status,
+		"parameters":      paramAny,
+		"previous_state":  prevAny,
+		"new_state":       newAny,
+		"applied_at_ms":   time.Now().UnixMilli(),
+	}
+	if target != nil {
+		envelope["target_classification"] = classificationForTarget(target)
+	}
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("marshal action audit envelope: %w", err)
+	}
+	key := []byte(objIDStr)
+	if len(key) == 0 {
+		key = []byte(action.ID.String())
+	}
+	return state.ActionAuditPublisher.PublishActionAudit(ctx, key, payload)
+}
+
 // ── helpers ────────────────────────────────────────────────────────
 
 func optionalString(s string) any {

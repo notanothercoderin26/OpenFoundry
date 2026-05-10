@@ -22,6 +22,7 @@ import (
 
 	"github.com/gocql/gocql"
 	"github.com/jackc/pgx/v5/pgxpool"
+	kafka "github.com/segmentio/kafka-go"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	cassandrakernel "github.com/openfoundry/openfoundry-go/libs/cassandra-kernel"
@@ -181,7 +182,39 @@ func newAppState(cfg *config.Config, pool *pgxpool.Pool, storeBag stores.Stores)
 		NodeRuntimeCommand:            cfg.NodeRuntimeCommand,
 		ConnectorManagementServiceURL: cfg.ConnectorManagementServiceURL,
 	}
+	// Wire the Kafka audit publisher when KAFKA_BOOTSTRAP_SERVERS is set.
+	// The Iceberg `lakekeeper.default.action_log` table is hydrated from this
+	// topic by the Spark Structured Streaming sink (action-log-sink CR).
+	if brokers := strings.TrimSpace(os.Getenv("KAFKA_BOOTSTRAP_SERVERS")); brokers != "" {
+		topic := strings.TrimSpace(os.Getenv("ACTION_AUDIT_TOPIC"))
+		if topic == "" {
+			topic = "ontology.actions.applied.v1"
+		}
+		state.ActionAuditPublisher = newKafkaActionAuditPublisher(brokers, topic)
+	}
 	return state
+}
+
+// kafkaActionAuditPublisher implements ontologykernel.ActionAuditPublisher.
+type kafkaActionAuditPublisher struct {
+	writer *kafka.Writer
+	topic  string
+}
+
+func newKafkaActionAuditPublisher(brokers, topic string) *kafkaActionAuditPublisher {
+	w := &kafka.Writer{
+		Addr:                   kafka.TCP(splitCSV(brokers)...),
+		Topic:                  topic,
+		Balancer:               &kafka.Hash{},
+		RequiredAcks:           kafka.RequireAll,
+		AllowAutoTopicCreation: true, // dev convenience; tighten in prod
+		WriteTimeout:           10 * time.Second,
+	}
+	return &kafkaActionAuditPublisher{writer: w, topic: topic}
+}
+
+func (p *kafkaActionAuditPublisher) PublishActionAudit(ctx context.Context, key, payload []byte) error {
+	return p.writer.WriteMessages(ctx, kafka.Message{Key: key, Value: payload})
 }
 
 var keyspaceNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,47}$`)

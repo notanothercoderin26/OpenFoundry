@@ -1,0 +1,104 @@
+# SparkApplication para el ActionLogStreamSink — consume eventos de
+# `ontology.actions.applied.v1` (Kafka) y los appendea a la tabla Iceberg
+# `lakekeeper.default.action_log` (audit log inmutable con time-travel).
+#
+# REQUIERE PRIMERO crear la tabla Iceberg vía Spark SQL (one-shot):
+#
+#   CREATE TABLE IF NOT EXISTS lakekeeper.default.action_log (
+#     event_id              STRING,
+#     action_type_id        STRING,
+#     action_name           STRING,
+#     object_type_id        STRING,
+#     object_id             STRING,
+#     tenant                STRING,
+#     actor_sub             STRING,
+#     actor_email           STRING,
+#     organization_id       STRING,
+#     status                STRING,
+#     parameters            STRING,
+#     previous_state        STRING,
+#     new_state             STRING,
+#     target_classification STRING,
+#     applied_at_ms         BIGINT,
+#     kafka_ts              TIMESTAMP
+#   )
+#   USING iceberg
+#   PARTITIONED BY (days(from_unixtime(applied_at_ms / 1000)));
+#
+# (Se puede aplicar como SparkApplication batch one-shot reusando el
+# pipeline-runner main con --inline-sql.)
+#
+# Time-travel ejemplo (consultar el estado del log a un snapshot pasado):
+#
+#   SELECT * FROM lakekeeper.default.action_log VERSION AS OF <snapshot_id>;
+#
+# NO arrancar este CR en el cluster Lima 24/7 — consume memoria de Spark
+# de forma permanente. Para una demo: aplicarlo, dejar que procese 1-2
+# triggers, comprobar la tabla, suspender.
+---
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: action-log-stream-sink-001
+  namespace: openfoundry
+  labels:
+    openfoundry.io/component: audit-stream-sink
+    openfoundry.io/topic: "ontology.actions.applied.v1"
+spec:
+  type: Scala
+  mode: cluster
+  image: registry.registry.svc.cluster.local:5000/pipeline-runner:indexer-002
+  imagePullPolicy: IfNotPresent
+  mainClass: "com.openfoundry.audit.ActionLogStreamSink"
+  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
+  arguments:
+    - "--kafka-brokers"
+    - "openfoundry-kafka-bootstrap.kafka.svc:9092"
+    - "--topic"
+    - "ontology.actions.applied.v1"
+    - "--table"
+    - "lakekeeper.default.action_log"
+    - "--catalog-uri"
+    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
+    - "--checkpoint"
+    - "s3a://openfoundry-iceberg/_checkpoints/action_log"
+    - "--trigger-seconds"
+    - "30"
+  sparkVersion: "3.5.4"
+  restartPolicy:
+    type: Never
+  driver:
+    cores: 1
+    coreRequest: "200m"
+    memory: "1024m"
+    serviceAccount: spark
+    env:
+      - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
+      - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
+  executor:
+    cores: 1
+    coreRequest: "200m"
+    instances: 1
+    memory: "1536m"
+    memoryOverhead: "512m"
+    env:
+      - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
+      - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
+  deps:
+    packages:
+      - "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.4"
+  sparkConf:
+    spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    spark.sql.catalog.lakekeeper: "org.apache.iceberg.spark.SparkCatalog"
+    spark.sql.catalog.lakekeeper.type: "rest"
+    spark.sql.catalog.lakekeeper.uri: "http://lakekeeper.lakekeeper.svc:8181/catalog"
+    spark.sql.catalog.lakekeeper.warehouse: "openfoundry"
+    spark.sql.catalog.lakekeeper.credential: "lakekeeper:s"
+    spark.sql.catalog.lakekeeper.oauth2-server-uri: "http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token"
+    spark.sql.catalog.lakekeeper.scope: "openid"
+    spark.sql.defaultCatalog: "lakekeeper"
+    spark.hadoop.fs.s3a.endpoint: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+    spark.hadoop.fs.s3a.path.style.access: "true"
+    spark.hadoop.fs.s3a.aws.credentials.provider: "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+    spark.sql.parquet.enableVectorizedReader: "false"
+    spark.sql.iceberg.vectorization.enabled: "false"

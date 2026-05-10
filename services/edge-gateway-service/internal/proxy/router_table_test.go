@@ -115,7 +115,7 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/ontology/types/X/properties/P/objects/Y/inline-edit", "ontology-actions"},
 		{"/api/v1/ontology/types/X/inline-edit-batch", "ontology-actions"},
 		{"/api/v1/ontology/search?q=x", "ontology-query"},
-		{"/api/v1/ontology/types/X/objects/query", "ontology-query"},
+		{"/api/v1/ontology/types/X/objects/query", "object-db"},
 		{"/api/v1/ontology/types/X/objects", "object-db"},
 		{"/api/v1/ontology/links/X/instances/y", "object-db"},
 		{"/api/v1/ontology/interfaces", "ontology-def"},

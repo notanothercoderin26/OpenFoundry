@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { getApp, updateApp, type AppDefinition, type AppPage, type AppWidget, type AppSettings, type WorkshopHeaderSettings } from '@/lib/api/apps';
-import { getActionType, listActionTypes, listObjectTypes, listObjects, listProperties, updateObject, type ActionInputField, type ActionType, type ObjectInstance, type ObjectType, type Property } from '@/lib/api/ontology';
+import { getActionType, listActionTypes, listObjectTypes, listObjects, listProperties, queryObjects, updateObject, type ActionInputField, type ActionType, type ObjectInstance, type ObjectType, type Property } from '@/lib/api/ontology';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { EChartCanvas } from '@/lib/components/EChartCanvas';
 
@@ -435,24 +435,31 @@ function readWorkshopVariables(settings: AppSettings | null | undefined): Worksh
   return Array.isArray(raw) ? raw : [];
 }
 
-function applyStaticFilters(rows: ObjectInstance[], variable: WorkshopVariable | null): ObjectInstance[] {
-  if (!variable) return rows;
-  const filters = [
-    ...(variable.static_filter ? [variable.static_filter] : []),
-    ...(Array.isArray(variable.static_filters) ? variable.static_filters : []),
-  ].filter((entry) => entry && entry.property_name);
-  if (filters.length === 0) return rows;
-  return rows.filter((row) => {
-    const props = (row.properties as Record<string, unknown>) ?? {};
-    return filters.every((filter) => {
-      const actual = props[filter.property_name];
-      const expected = filter.value;
-      if ((filter.operator ?? 'equals') === 'contains') {
-        return String(actual ?? '').toLowerCase().includes(String(expected ?? '').toLowerCase());
-      }
-      return String(actual ?? '').toLowerCase() === String(expected ?? '').toLowerCase();
-    });
-  });
+// fetchObjectsForVariable picks the cheapest path: when the variable carries
+// a `static_filter[s]`, push the filter to the bridge via /objects/query so
+// the wire payload only contains matching rows. Otherwise, fall back to a
+// plain listObjects.
+//
+// Both legs return { data, total }; the data is already filter-applied by
+// the time it returns (server-side when there's a filter, server-side trivially
+// when there isn't).
+async function fetchObjectsForVariable(
+  objectTypeId: string,
+  variable: WorkshopVariable | null,
+  perPage = 5000,
+): Promise<{ data: ObjectInstance[]; total: number }> {
+  const filters = variable
+    ? [
+        ...(variable.static_filter ? [variable.static_filter] : []),
+        ...(Array.isArray(variable.static_filters) ? variable.static_filters : []),
+      ].filter((entry) => entry && entry.property_name)
+    : [];
+  if (filters.length === 0) {
+    const list = await listObjects(objectTypeId, { per_page: perPage });
+    return { data: list.data, total: list.total };
+  }
+  const result = await queryObjects(objectTypeId, { filters, per_page: perPage });
+  return { data: result.data, total: result.total };
 }
 
 export function WorkshopEditorPage() {
@@ -2082,11 +2089,11 @@ function ObjectTableWidgetView({ widget, variables }: { widget: AppWidget; varia
     }
     let cancelled = false;
     setLoading(true);
-    void Promise.all([listProperties(objectTypeId), listObjects(objectTypeId, { per_page: 5000 })])
-      .then(([propResponse, listResponse]) => {
+    void Promise.all([listProperties(objectTypeId), fetchObjectsForVariable(objectTypeId, sourceVariable)])
+      .then(([propResponse, fetchResponse]) => {
         if (cancelled) return;
         setProperties(propResponse);
-        setRows(applyStaticFilters(listResponse.data, sourceVariable));
+        setRows(fetchResponse.data);
       })
       .catch(() => {
         if (cancelled) return;
@@ -2784,9 +2791,9 @@ function ObjectSetTitleWidgetView({ widget, variables = [], objectTypes = [] }: 
       return;
     }
     let cancelled = false;
-    void listObjects(objectTypeId, { per_page: 5000 })
+    void fetchObjectsForVariable(objectTypeId, variable)
       .then((response) => {
-        if (!cancelled) setCount(applyStaticFilters(response.data, variable).length);
+        if (!cancelled) setCount(response.total);
       })
       .catch(() => {
         if (!cancelled) setCount(null);
@@ -3553,10 +3560,10 @@ function ChartPieWidgetView({ widget, variables }: { widget: AppWidget; variable
     }
     let cancelled = false;
     setLoading(true);
-    void listObjects(objectTypeId, { per_page: 5000 })
+    void fetchObjectsForVariable(objectTypeId, sourceVariable)
       .then((response) => {
         if (cancelled) return;
-        setRows(applyStaticFilters(response.data, sourceVariable));
+        setRows(response.data);
       })
       .catch(() => {
         if (cancelled) return;
@@ -3901,10 +3908,10 @@ function ChartXyWidgetView({ widget, variables }: { widget: AppWidget; variables
     }
     let cancelled = false;
     setLoading(true);
-    void listObjects(objectTypeId, { per_page: 5000 })
+    void fetchObjectsForVariable(objectTypeId, sourceVariable)
       .then((response) => {
         if (cancelled) return;
-        setRows(applyStaticFilters(response.data, sourceVariable));
+        setRows(response.data);
       })
       .catch(() => {
         if (cancelled) return;
