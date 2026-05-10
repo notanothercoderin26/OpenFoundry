@@ -58,20 +58,30 @@ exist, which version is deployed, and whether a dependency is healthy.
 
 ### M1.2 Aggregated health
 
-- [ ] Gateway endpoint `GET /api/v1/_meta/health` returning:
-      `{ services: [{name, version, status, dependencies:[{name,
-      status, latency_ms}]}], generated_at }`.
-- [ ] Each service implements `GET /_meta/deps`: probes its declared
-      backing stores (PG, Cassandra, Kafka, Lakekeeper, Redis) and
-      reports `{name, kind, status, last_check_ms}`.
+- [x] Gateway endpoint `GET /api/v1/_meta/health` returning:
+      `{ services: [{name, status, payload, error?}], generated_at }`.
+      Per-service payload is the upstream `/_meta/health` envelope
+      (status `ok`/`degraded`, dependency probe results).
+      → `services/edge-gateway-service/internal/meta/aggregator.go`
+      (`HealthHandler`); cached for 30s alongside the capability
+      and version aggregations.
+- [x] Each service implements `GET /_meta/health` and `GET /_meta/deps`
+      via `libs/capabilities` (auto-mounted by `Registry.Mount`).
+      Probes are registered with `caps.RegisterDependency(...)`; with
+      no probes the service still reports `status: ok` and an empty
+      dependency list, so the surface is uniform across the fleet.
 - [ ] Verifier helper `agent.health()` (Python) that calls
       `_meta/health` and asserts everything is `serving`.
 
 ### M1.3 Versions & build provenance
 
-- [ ] `GET /_meta/version` per service: `{version, git_sha, built_at,
-      go_version}`. Already partially in logs; surface as JSON.
-- [ ] Aggregator `GET /api/v1/_meta/versions` for one-shot drift checks.
+- [x] `GET /_meta/version` per service: `{schema_version, service,
+      version, git_sha, git_dirty, built_at, go_version, os, arch}`.
+      Auto-mounted by `Registry.Mount`; sources commit/build info
+      from `runtime/debug.ReadBuildInfo` so no service needs custom
+      ldflags.
+- [x] Aggregator `GET /api/v1/_meta/versions` for one-shot drift
+      checks. Same fan-out + 30s cache as the capability aggregator.
 
 **Exit criteria:** an agent given only a gateway URL and a JWT can
 enumerate every reachable endpoint, the running version of every

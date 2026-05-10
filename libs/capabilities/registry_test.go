@@ -104,8 +104,8 @@ func TestRegistry_RegisterAndServe(t *testing.T) {
 	if snap.Service != "test-service" || snap.Version != "1.2.3" {
 		t.Fatalf("unexpected identity: %+v", snap)
 	}
-	if len(snap.Capabilities) != 2 {
-		t.Fatalf("expected 2 capabilities (meta + thing), got %d: %+v",
+	if len(snap.Capabilities) != 5 {
+		t.Fatalf("expected 5 capabilities (4 meta + thing), got %d: %+v",
 			len(snap.Capabilities), snap.Capabilities)
 	}
 	// Sorted by ID — meta entry should appear first.

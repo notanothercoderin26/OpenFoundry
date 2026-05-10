@@ -141,13 +141,18 @@ func scan(servicesDir string) ([]stableEntry, error) {
 				}
 			case *ast.CallExpr:
 				if isMountCall(node) {
-					id := "_meta.capabilities.list"
-					out[service+"|"+id] = stableEntry{
-						ID:      id,
-						Service: service,
-						Method:  "GET",
-						Path:    "/_meta/capabilities",
-						Source:  "mount",
+					// `Registry.Mount` registers four stable meta caps;
+					// keep this list in sync with libs/capabilities/registry.go.
+					mountCaps := []stableEntry{
+						{ID: "_meta.capabilities.list", Method: "GET", Path: "/_meta/capabilities"},
+						{ID: "_meta.deps.get", Method: "GET", Path: "/_meta/deps"},
+						{ID: "_meta.health.get", Method: "GET", Path: "/_meta/health"},
+						{ID: "_meta.version.get", Method: "GET", Path: "/_meta/version"},
+					}
+					for _, e := range mountCaps {
+						e.Service = service
+						e.Source = "mount"
+						out[service+"|"+e.ID] = e
 					}
 				}
 			}

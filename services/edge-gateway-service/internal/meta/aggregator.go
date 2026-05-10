@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"reflect"
 	"sort"
@@ -27,8 +28,9 @@ import (
 
 // Aggregator caches the fan-out response with a fixed TTL.
 //
-// Cache key is global (the snapshot is identical for every caller) so
-// a single in-process cache suffices. The aggregator never touches
+// Cache key is the upstream meta path (`/_meta/capabilities`,
+// `/_meta/health`, `/_meta/version`) so a single instance backs all
+// three gateway-side meta endpoints. The aggregator never touches
 // auth — capability discovery is unauthenticated by design (just
 // like /healthz), and only metadata is returned.
 type Aggregator struct {
@@ -38,8 +40,8 @@ type Aggregator struct {
 	now       func() time.Time
 
 	mu     sync.Mutex
-	cached *Response
-	expiry time.Time
+	cached map[string]*Response // keyed by upstream meta path
+	expiry map[string]time.Time
 }
 
 type upstream struct {
@@ -53,11 +55,11 @@ type Response struct {
 	Services    []ServiceEntry `json:"services"`
 }
 
-// ServiceEntry is the per-service slice of the aggregated catalog.
-//
-// Status is `ok` when the upstream replied 200 with a parseable
-// snapshot, `error` otherwise (Error is then populated). Capabilities
-// is nil on error.
+// ServiceEntry is the per-service slice of any aggregated meta
+// response. The `Snapshot` / `Capabilities` pair is populated by the
+// capabilities fan-out; `Payload` is the raw JSON body returned by
+// generic upstream meta endpoints (health, version, deps) so the
+// gateway can stay schema-agnostic.
 type ServiceEntry struct {
 	Service      string                    `json:"service"`
 	URL          string                    `json:"url"`
@@ -65,6 +67,7 @@ type ServiceEntry struct {
 	Error        string                    `json:"error,omitempty"`
 	Snapshot     *capabilities.Snapshot    `json:"snapshot,omitempty"`
 	Capabilities []capabilities.Capability `json:"capabilities,omitempty"`
+	Payload      json.RawMessage           `json:"payload,omitempty"`
 }
 
 // New builds an aggregator from the gateway's UpstreamURLs config.
@@ -79,6 +82,8 @@ func New(u config.UpstreamURLs, ttl time.Duration) *Aggregator {
 		client:    &http.Client{Timeout: 5 * time.Second},
 		ttl:       ttl,
 		now:       time.Now,
+		cached:    map[string]*Response{},
+		expiry:    map[string]time.Time{},
 	}
 }
 
@@ -120,42 +125,59 @@ func enumerate(u config.UpstreamURLs) []upstream {
 	return out
 }
 
-// Handler serves the aggregated catalog.
+// Handler serves the aggregated catalog at `/_meta/capabilities`.
 func (a *Aggregator) Handler() http.Handler {
+	return a.handlerFor("/_meta/capabilities", true)
+}
+
+// HealthHandler serves the aggregated `/_meta/health` envelope.
+func (a *Aggregator) HealthHandler() http.Handler {
+	return a.handlerFor("/_meta/health", false)
+}
+
+// VersionHandler serves the aggregated `/_meta/version` payloads.
+func (a *Aggregator) VersionHandler() http.Handler {
+	return a.handlerFor("/_meta/version", false)
+}
+
+// handlerFor returns an http.Handler that fans out to `path` on
+// every upstream and returns a [Response]. When `decodeSnapshot` is
+// true the body is parsed into [capabilities.Snapshot]; otherwise it
+// is forwarded verbatim as `payload`.
+func (a *Aggregator) handlerFor(path string, decodeSnapshot bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := a.snapshot(r.Context())
+		resp := a.snapshot(r.Context(), path, decodeSnapshot)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "public, max-age=30")
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 }
 
-func (a *Aggregator) snapshot(ctx context.Context) *Response {
+func (a *Aggregator) snapshot(ctx context.Context, path string, decodeSnapshot bool) *Response {
 	a.mu.Lock()
-	if a.cached != nil && a.now().Before(a.expiry) {
-		cached := a.cached
+	if cached, ok := a.cached[path]; ok && a.now().Before(a.expiry[path]) {
 		a.mu.Unlock()
 		return cached
 	}
 	a.mu.Unlock()
 
-	resp := a.fanOut(ctx)
+	resp := a.fanOut(ctx, path, decodeSnapshot)
 
 	a.mu.Lock()
-	a.cached = resp
-	a.expiry = a.now().Add(a.ttl)
+	a.cached[path] = resp
+	a.expiry[path] = a.now().Add(a.ttl)
 	a.mu.Unlock()
 	return resp
 }
 
-func (a *Aggregator) fanOut(ctx context.Context) *Response {
+func (a *Aggregator) fanOut(ctx context.Context, path string, decodeSnapshot bool) *Response {
 	results := make([]ServiceEntry, len(a.upstreams))
 	var wg sync.WaitGroup
 	for i, up := range a.upstreams {
 		wg.Add(1)
 		go func(i int, up upstream) {
 			defer wg.Done()
-			results[i] = a.fetch(ctx, up)
+			results[i] = a.fetch(ctx, up, path, decodeSnapshot)
 		}(i, up)
 	}
 	wg.Wait()
@@ -165,9 +187,9 @@ func (a *Aggregator) fanOut(ctx context.Context) *Response {
 	}
 }
 
-func (a *Aggregator) fetch(ctx context.Context, up upstream) ServiceEntry {
+func (a *Aggregator) fetch(ctx context.Context, up upstream, path string, decodeSnapshot bool) ServiceEntry {
 	entry := ServiceEntry{Service: up.name, URL: up.url, Status: "error"}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, up.url+"/_meta/capabilities", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, up.url+path, nil)
 	if err != nil {
 		entry.Error = err.Error()
 		return entry
@@ -178,22 +200,38 @@ func (a *Aggregator) fetch(ctx context.Context, up upstream) ServiceEntry {
 		return entry
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		entry.Error = "upstream status " + resp.Status
-		return entry
-	}
-	var snap capabilities.Snapshot
-	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+	// `/_meta/health` returns 503 on degraded; capture the body anyway.
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		entry.Error = err.Error()
 		return entry
 	}
+	if resp.StatusCode >= 500 && resp.StatusCode != http.StatusServiceUnavailable {
+		entry.Error = "upstream status " + resp.Status
+		return entry
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		entry.Error = "upstream status " + resp.Status
+		return entry
+	}
+	if decodeSnapshot {
+		var snap capabilities.Snapshot
+		if err := json.Unmarshal(body, &snap); err != nil {
+			entry.Error = err.Error()
+			return entry
+		}
+		entry.Status = "ok"
+		entry.Snapshot = &snap
+		entry.Capabilities = snap.Capabilities
+		if snap.Service != "" {
+			entry.Service = snap.Service
+		}
+		return entry
+	}
+	entry.Payload = json.RawMessage(body)
 	entry.Status = "ok"
-	entry.Snapshot = &snap
-	entry.Capabilities = snap.Capabilities
-	// Prefer the upstream's self-reported name so the response stays
-	// authoritative even if the koanf field name drifts.
-	if snap.Service != "" {
-		entry.Service = snap.Service
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		entry.Status = "degraded"
 	}
 	return entry
 }

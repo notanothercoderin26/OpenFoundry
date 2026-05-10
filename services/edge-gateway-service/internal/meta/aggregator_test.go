@@ -120,13 +120,13 @@ func TestAggregator_CacheExpires(t *testing.T) {
 	agg.now = func() time.Time { return now }
 
 	ctx := context.Background()
-	_ = agg.snapshot(ctx)
-	_ = agg.snapshot(ctx)
+	_ = agg.snapshot(ctx, "/_meta/capabilities", true)
+	_ = agg.snapshot(ctx, "/_meta/capabilities", true)
 	if h := atomic.LoadInt32(&hits); h != 1 {
 		t.Fatalf("first two calls should share cache, hits=%d", h)
 	}
 	now = now.Add(time.Second) // jump well past TTL
-	_ = agg.snapshot(ctx)
+	_ = agg.snapshot(ctx, "/_meta/capabilities", true)
 	if h := atomic.LoadInt32(&hits); h != 2 {
 		t.Fatalf("expired cache should refetch, hits=%d", h)
 	}

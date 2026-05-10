@@ -70,6 +70,8 @@ func New(ctx context.Context, cfg *config.Config, metrics *observability.Metrics
 	// many agents poll in lockstep.
 	aggregator := meta.New(cfg.Upstream, 30*time.Second)
 	r.Method(http.MethodGet, "/api/v1/_meta/capabilities", aggregator.Handler())
+	r.Method(http.MethodGet, "/api/v1/_meta/health", aggregator.HealthHandler())
+	r.Method(http.MethodGet, "/api/v1/_meta/versions", aggregator.VersionHandler())
 
 	// Proxy chain — every other route is forwarded.
 	proxyHandler := proxy.NewHandler(cfg, jwtCfg)

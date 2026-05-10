@@ -32,6 +32,7 @@ type Registry struct {
 
 	mu    sync.RWMutex
 	items map[string]Capability // keyed by Capability.ID
+	deps  []DependencyProbe
 }
 
 // New builds an empty registry owned by `service` (e.g.
@@ -146,11 +147,17 @@ func (rg *Registry) Handler() http.Handler {
 	})
 }
 
-// Mount registers `GET /_meta/capabilities` on `r` AND records the
-// `_meta.capabilities.list` capability itself, so the catalog
-// includes its own entry. Equivalent to calling [Registry.Register]
-// with a hand-crafted capability + [Registry.Handler] but spelt
-// once.
+// Mount registers the four agent-facing meta endpoints on `r` and
+// records each as a stable capability so the catalog includes them.
+//
+// Endpoints:
+//
+//   - `GET /_meta/capabilities` — the catalog itself.
+//   - `GET /_meta/version`      — build provenance (M1.3).
+//   - `GET /_meta/health`       — composite health envelope (M1.2).
+//   - `GET /_meta/deps`         — raw per-dependency probe results (M1.2).
+//
+// All four are unauthenticated by design (parity with `/healthz`).
 func (rg *Registry) Mount(r Router) {
 	rg.MustRegister(r, Capability{
 		ID:           "_meta.capabilities.list",
@@ -161,4 +168,31 @@ func (rg *Registry) Mount(r Router) {
 		Summary:      "List every capability this service exposes.",
 		Tags:         []string{"meta"},
 	}, rg.Handler())
+	rg.MustRegister(r, Capability{
+		ID:           "_meta.version.get",
+		Method:       http.MethodGet,
+		Path:         "/_meta/version",
+		Stable:       true,
+		RequiresAuth: false,
+		Summary:      "Build provenance for this service binary.",
+		Tags:         []string{"meta"},
+	}, rg.versionHandler())
+	rg.MustRegister(r, Capability{
+		ID:           "_meta.health.get",
+		Method:       http.MethodGet,
+		Path:         "/_meta/health",
+		Stable:       true,
+		RequiresAuth: false,
+		Summary:      "Composite health envelope including dependency probes.",
+		Tags:         []string{"meta"},
+	}, rg.healthHandler())
+	rg.MustRegister(r, Capability{
+		ID:           "_meta.deps.get",
+		Method:       http.MethodGet,
+		Path:         "/_meta/deps",
+		Stable:       true,
+		RequiresAuth: false,
+		Summary:      "Raw per-dependency probe results.",
+		Tags:         []string{"meta"},
+	}, rg.depsHandler())
 }

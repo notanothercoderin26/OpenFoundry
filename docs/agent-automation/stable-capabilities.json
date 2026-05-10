@@ -10,10 +10,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "agent-runtime-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "agent-runtime-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "agent-runtime-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "ai-evaluation-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "ai-evaluation-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "ai-evaluation-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "ai-evaluation-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -24,10 +66,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "application-composition-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "application-composition-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "application-composition-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "audit-compliance-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "audit-compliance-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "audit-compliance-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "audit-compliance-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -38,10 +122,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "authorization-policy-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "authorization-policy-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "authorization-policy-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "code-repository-review-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "code-repository-review-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "code-repository-review-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "code-repository-review-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -52,10 +178,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "connector-management-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "connector-management-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "connector-management-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "dataset-versioning-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "dataset-versioning-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "dataset-versioning-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "dataset-versioning-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -66,10 +234,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "entity-resolution-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "entity-resolution-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "entity-resolution-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "federation-product-exchange-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "federation-product-exchange-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "federation-product-exchange-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "federation-product-exchange-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -80,10 +290,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "iceberg-catalog-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "iceberg-catalog-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "iceberg-catalog-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "identity-federation-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "identity-federation-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "identity-federation-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "identity-federation-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -94,10 +346,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "ingestion-replication-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "ingestion-replication-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "ingestion-replication-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "lineage-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "lineage-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "lineage-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "lineage-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -108,10 +402,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "llm-catalog-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "llm-catalog-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "llm-catalog-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "media-sets-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "media-sets-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "media-sets-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "media-sets-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -122,10 +458,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "media-transform-runtime-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "media-transform-runtime-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "media-transform-runtime-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "model-catalog-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "model-catalog-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "model-catalog-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "model-catalog-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -136,10 +514,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "model-deployment-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "model-deployment-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "model-deployment-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "notebook-runtime-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "notebook-runtime-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "notebook-runtime-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "notebook-runtime-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -150,10 +570,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "notification-alerting-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "notification-alerting-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "notification-alerting-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "object-database-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "object-database-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "object-database-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "object-database-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -164,10 +626,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "ontology-actions-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "ontology-actions-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "ontology-actions-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "ontology-definition-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "ontology-definition-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "ontology-definition-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "ontology-definition-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -178,10 +682,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "ontology-exploratory-analysis-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "ontology-exploratory-analysis-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "ontology-exploratory-analysis-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "ontology-indexer",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "ontology-indexer",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "ontology-indexer",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "ontology-indexer",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -192,10 +738,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "ontology-query-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "ontology-query-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "ontology-query-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "pipeline-build-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "pipeline-build-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "pipeline-build-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "pipeline-build-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -206,10 +794,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "reindex-coordinator-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "reindex-coordinator-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "reindex-coordinator-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "retrieval-context-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "retrieval-context-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "retrieval-context-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "retrieval-context-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -220,10 +850,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "sdk-generation-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "sdk-generation-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "sdk-generation-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "solution-design-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "solution-design-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "solution-design-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "solution-design-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -234,10 +906,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "sql-bi-gateway-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "sql-bi-gateway-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "sql-bi-gateway-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "telemetry-governance-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "telemetry-governance-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "telemetry-governance-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "telemetry-governance-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     },
     {
@@ -248,10 +962,52 @@
       "source": "mount"
     },
     {
+      "id": "_meta.deps.get",
+      "service": "tenancy-organizations-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "tenancy-organizations-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "tenancy-organizations-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
       "id": "_meta.capabilities.list",
       "service": "workflow-automation-service",
       "method": "GET",
       "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "workflow-automation-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "workflow-automation-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "workflow-automation-service",
+      "method": "GET",
+      "path": "/_meta/version",
       "source": "mount"
     }
   ]
