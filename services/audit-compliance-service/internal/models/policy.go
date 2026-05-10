@@ -1,6 +1,4 @@
 // Audit-policy CRUD types.
-//
-// Mirrors `services/audit-compliance-service/src/models/policy.rs` 1:1.
 package models
 
 import "encoding/json"

@@ -2,9 +2,6 @@
 // Flight SQL server backed by [queryengine.QueryContext], with
 // `allow_anonymous = true` so no JWT is required.
 //
-// Mirrors services/sql-bi-gateway-service/tests/flight_sql_round_trip.rs:
-// open a Flight SQL channel, call Execute, fetch the resulting Arrow
-// stream, and assert a single row with value 1.
 
 package flightsql
 

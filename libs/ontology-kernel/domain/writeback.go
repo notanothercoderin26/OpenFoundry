@@ -16,7 +16,6 @@
 //     that carries event_id and committed_version, so the caller can
 //     retry the *same* call with the *same* input.
 //
-// Mirrors `libs/ontology-kernel/src/domain/writeback.rs`.
 
 package domain
 

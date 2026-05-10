@@ -1,13 +1,11 @@
 // Funnel run-ledger reconstructor.
 //
-// Mirrors the subset of `libs/ontology-kernel/src/domain/funnel_repository.rs`
-// the storage handler exercises today: `ListRunsForTenant` plus the
-// supporting payload decoder and per-run accumulator. Funnel source
+// Funnel source
 // CRUD (the bulk of the Rust file, ~700 LOC) lives behind
 // `handlers/funnel`; it lands when that bounded context is ported.
 //
 // The semantics are byte-identical to Rust:
-//   - kind filter is `"funnel_run"` exactly,
+//  - kind filter is `"funnel_run"` exactly,
 //   - events fold left-to-right by `run_id`, started → terminal,
 //   - default trigger_type when only a started event lands is "manual",
 //   - default status when no terminal event lands is "running".

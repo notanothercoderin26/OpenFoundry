@@ -1,7 +1,4 @@
-// Writeback proposal handler. Mirrors `pub async fn propose_writeback`
-// in src/handlers.rs: a POST appends a single entry to the
-// ActionLogStore under the `exploratory.writeback_proposed` kind and
-// returns the materialised proposal with status `"pending"`.
+// Writeback proposal handler.
 
 package handlers
 

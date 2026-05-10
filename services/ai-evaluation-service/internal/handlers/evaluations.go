@@ -1,6 +1,5 @@
 // Package handlers exposes the HTTP surface of ai-evaluation-service:
-// /api/v1/evaluations/benchmark + /api/v1/guardrails/evaluate. Mirrors
-// services/ai-evaluation-service/src/handlers/evaluations.rs verbatim.
+// /api/v1/evaluations/benchmark + /api/v1/guardrails/evaluate.
 //
 // The benchmark path validates the prompt (guardrail-blocked prompts
 // 400 before any provider runs), filters providers by the optional

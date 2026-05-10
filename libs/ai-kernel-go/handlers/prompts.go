@@ -17,7 +17,7 @@ import (
 )
 
 // PromptsHandlers is the prompt-templates surface (list / create /
-// update / render). Mirrors libs/ai-kernel/src/handlers/prompts.rs.
+// update / render).
 type PromptsHandlers struct {
 	Pool *pgxpool.Pool
 }

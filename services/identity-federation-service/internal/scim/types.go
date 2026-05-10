@@ -1,20 +1,8 @@
 // Package scim ports services/identity-federation-service/src/
-// hardening/scim.rs + handlers/scim.rs verbatim. Mirrors the
-// SCIM 2.0 (RFC 7643/7644) provisioning contract used by the
-// identity-federation-service /scim/v2/* surface.
-//
-// This file (types.go) ports hardening/scim.rs in full: route
-// constants, schema URNs, every wire-payload struct (ScimUser,
-// ScimGroup, ScimMeta, ScimEmail, ScimName, ScimGroupMember,
-// ScimListResponse, ScimPatchRequest, ScimPatchOperation,
-// ScimError, ServiceProviderConfig, Feature, FilterFeature,
-// AuthenticationScheme, ScimSchemaResource, ScimSchemaAttribute,
-// ScimResourceType), and the metadata builders
-// (ServiceProviderConfigPayload / SchemaResources /
-// ResourceTypes).
+// hardening/scim.rs + handlers/scim.rs verbatim.
 //
 // Slice ledger:
-//   - 3.7b.3.1 — types + metadata builders + discovery endpoints
+//  - 3.7b.3.1 — types + metadata builders + discovery endpoints
 //     (this) + GetUser + ListUsers + filter parser + in-mem store.
 //   - 3.7b.3.2 (next) — CreateUser + PatchUser + DeleteUser.
 //   - 3.7b.3.3 — Group endpoints.

@@ -9,7 +9,7 @@ import (
 
 // EmbedText produces a 12-dim normalised vector. Deterministic and
 // dependency-free — used as the dev/test signal until a real
-// embedding model is wired. Mirrors Rust src/domain/rag/embedder.rs.
+// embedding model is wired.
 func EmbedText(content string) []float32 {
 	vector := make([]float32, 12)
 	vectorLen := len(vector)

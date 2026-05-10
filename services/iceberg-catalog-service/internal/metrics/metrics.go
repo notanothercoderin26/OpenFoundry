@@ -1,8 +1,5 @@
 // Package metrics declares the Prometheus families specific to
-// iceberg-catalog-service. Mirrors services/iceberg-catalog-service/src/metrics.rs
-// — names, labels and help text are byte-for-byte identical so the
-// dashboards and alerts wired against the Rust crate keep firing
-// against the Go service unchanged.
+// iceberg-catalog-service.
 //
 // The HTTP instrumentation families (RESTRequestsTotal,
 // RESTRequestLatencySeconds, RESTRequestsInFlight) are populated by the

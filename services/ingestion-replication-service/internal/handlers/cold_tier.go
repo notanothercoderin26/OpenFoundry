@@ -1,10 +1,7 @@
 package handlers
 
 // HTTP bridge that ships archived stream branches to the
-// dataset-versioning-service cold-tier endpoint. Mirrors the inline
-// reqwest call in
-// services/ingestion-replication-service/src/event_streaming/handlers/branches.rs
-// (`commit_cold` block of archive_branch).
+// dataset-versioning-service cold-tier endpoint.
 
 import (
 	"bytes"

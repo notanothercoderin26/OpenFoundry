@@ -1,6 +1,6 @@
 // Schema + object graph builder.
 //
-// Mirrors `libs/ontology-kernel/src/domain/graph.rs`. The schema
+// The schema
 // branch is a straight pgx port; the object branch keeps its full
 // BFS expansion + summary pipeline but accepts an injected
 // [GraphObjectLoader] so callers can wire whatever read-model

@@ -5,8 +5,6 @@
 // In `America/New_York`, on 2026-11-01 clocks fall back from 02:00
 // EDT to 01:00 EST — 01:00–01:59 happens twice. A cron set for
 // 01:30 local fires twice that day.
-//
-// Mirrors libs/scheduling-cron/tests/cron_dst_backward_doubles_fire.rs.
 package schedulingcron_test
 
 import (

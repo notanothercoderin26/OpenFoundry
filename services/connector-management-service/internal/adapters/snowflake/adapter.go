@@ -56,8 +56,7 @@ import (
 
 const (
 	// ConnectorType is the `connections.connector_type` value the registry
-	// binds this adapter under. Mirrors the Rust `CONNECTOR_NAME`
-	// constant in `src/connectors/snowflake.rs`.
+	// binds this adapter under.
 	ConnectorType = "snowflake"
 
 	defaultSourceKind = "snowflake_table"

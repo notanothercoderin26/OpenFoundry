@@ -6,7 +6,6 @@
 // performs the expansion through storage-abstraction so the same
 // logic works against Cassandra-backed adjacency indexes.
 //
-// Mirrors `libs/ontology-kernel/src/domain/traversal.rs`.
 
 package domain
 

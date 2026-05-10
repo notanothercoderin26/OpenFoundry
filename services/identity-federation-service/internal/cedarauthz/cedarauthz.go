@@ -1,21 +1,20 @@
 // Package cedarauthz wires Cedar policy enforcement for
-// identity-federation-service (S3.1.i). Mirrors
-// services/identity-federation-service/src/cedar_authz.rs verbatim.
+// identity-federation-service (S3.1.i).
 //
-// Three responsibilities:
+//Three responsibilities:
 //
-//  1. Bundled policy bootstrap. The 3 admin policies live on disk
+// 1. Bundled policy bootstrap. The 3 admin policies live on disk
 //     at policies/identity_admin.cedar and are baked into the
 //     binary via go:embed. BundledPolicyRecords parses them
 //     through cedar.NewPolicySetFromBytes and feeds the records to
 //     cedarauthz.NewWithPolicies so they are strict-validated
 //     against the bundled schema before the engine takes traffic.
 //
-//  2. Hot-reload subscriber. SpawnPolicyReload hooks the
+// 2. Hot-reload subscriber. SpawnPolicyReload hooks the
 //     `authz.policy.changed` NATS subject (per ADR-0027) and
 //     rewrites the in-memory policy set on every change event.
 //
-//  3. AdminAuthzGuard middleware (in guard.go) — the chi middleware
+// 3. AdminAuthzGuard middleware (in guard.go) — the chi middleware
 //     that handlers compose for /jwks/rotate, /scim/v2/*, etc. It
 //     differs from cedarauthz.Guard in one important way: it reads
 //     `kind`, `mfa_age_secs` and `groups` from claims.Attributes

@@ -1,7 +1,6 @@
 // Project-scoped access controls used by every kernel handler that
 // needs to enforce project membership.
 //
-// Mirrors `libs/ontology-kernel/src/domain/project_access.rs`.
 
 package domain
 

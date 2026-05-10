@@ -1,8 +1,6 @@
 // Audit-event wire types + helpers.
 //
-// Mirrors `services/audit-compliance-service/src/models/audit_event.rs`
-// 1:1: same enum vocabulary, same JSON tags, same default-retention
-// fallback. The hash-chain projections (`previous_hash`, `entry_hash`,
+// The hash-chain projections (`previous_hash`, `entry_hash`,
 // `sequence`) are populated by `domain/immutablelog`, never by callers.
 package models
 

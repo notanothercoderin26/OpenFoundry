@@ -1,8 +1,5 @@
 // Package saga is the saga choreography helper for OpenFoundry's
 // Foundry-pattern orchestration substrate (ADR-0037, Tarea 1.2).
-// Mirrors libs/saga/src/{lib.rs,events.rs} 1:1 against pgx + the
-// Go outbox helper.
-//
 // This file (`events.go`) ports the wire-format payloads + topic
 // constants from libs/saga/src/events.rs. The runner emits these
 // payloads through the transactional outbox (one row per state

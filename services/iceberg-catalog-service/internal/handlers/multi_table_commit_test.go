@@ -1,8 +1,5 @@
 // Tests for the MultiTableCommit handler — POST /iceberg/v1/transactions/commit
-// (ICA-6). Mirrors `#[cfg(test)]` from
-// services/iceberg-catalog-service/src/handlers/rest_catalog/transactions.rs
-// and the wrapper-level tests in
-// services/iceberg-catalog-service/src/domain/foundry_transaction.rs.
+// (ICA-6).
 //
 // Covers:
 //

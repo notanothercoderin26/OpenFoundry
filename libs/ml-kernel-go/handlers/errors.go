@@ -2,9 +2,6 @@
 // of the OpenFoundry ML plane (libs/ml-kernel in Rust). The
 // model-catalog / model-deployment / experiment-tracking / feature-
 // store services bind these onto their own routers.
-//
-// Mirrors libs/ml-kernel/src/handlers/{mod,overview,predictions,
-// training,features,deployments,models,experiments}.rs.
 package handlers
 
 import (

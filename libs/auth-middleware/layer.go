@@ -31,8 +31,6 @@ import (
 )
 
 // AuthUser is the typed wrapper around an authenticated *Claims.
-// Mirrors `pub struct AuthUser(pub Claims)` in layer.rs.
-//
 // Use AuthUserFromContext or AuthUserFromRequest to extract it
 // after the auth middleware has run; on missing claims both helpers
 // return ok=false (the Rust side returns 401 directly via

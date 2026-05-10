@@ -12,7 +12,6 @@
 //  2. **Clearance covers markings.** The user editing the property
 //     must hold every marking on the backing media set.
 //
-// Mirrors `libs/ontology-kernel/src/domain/media_reference_validator.rs`.
 
 package domain
 

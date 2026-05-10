@@ -36,7 +36,6 @@ import (
 const DefaultKafkaTimeout = 5 * time.Second
 
 // LiveTestOutcome is the outcome of a successful broker probe.
-// Mirrors libs/event-bus-control/src/kafka_live.rs::LiveTestOutcome.
 type LiveTestOutcome struct {
 	TopicCount        int
 	BrokerCount       int

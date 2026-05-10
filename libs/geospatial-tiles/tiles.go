@@ -1,7 +1,5 @@
 // Package geospatialtiles is the tile-key + URL helper for geo-anchored
-// media-set layers. Mirrors libs/geospatial-tiles/src/lib.rs verbatim —
-// same TileCoord shape, same /tiles/{rid}/{z}/{x}/{y}.png path
-// template, same TileSourceDescriptor descriptor.
+// media-set layers.
 //
 // The wire-form URL shape is owned here so media-sets-service,
 // geospatial-intelligence-service, the front-end Map raster source and

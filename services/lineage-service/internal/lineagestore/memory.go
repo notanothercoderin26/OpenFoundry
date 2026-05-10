@@ -11,9 +11,6 @@ import (
 )
 
 // MemoryStore is the unit-test / no-Cassandra fallback for [Store].
-//
-// Mirrors `MemoryLineageRuntimeStore` from tracker.rs: relations live
-// in a single map keyed by relation id, guarded by a RWMutex.
 type MemoryStore struct {
 	mu        sync.RWMutex
 	relations map[uuid.UUID]models.LineageRelationRecord

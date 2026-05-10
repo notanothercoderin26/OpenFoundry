@@ -1,6 +1,6 @@
 // Hybrid lexical + semantic ontology search orchestrator.
 //
-// Mirrors `libs/ontology-kernel/src/domain/search/mod.rs`. The
+// The
 // pipeline is:
 //
 //  1. Build the candidate document corpus via

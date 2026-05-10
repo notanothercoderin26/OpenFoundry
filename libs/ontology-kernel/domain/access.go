@@ -1,7 +1,5 @@
 // Package-level access checks used by every kernel handler that
-// returns object instances. Mirrors `libs/ontology-kernel/src/domain/access.rs`
-// 1:1: same marking vocabulary, same clearance ranks, same admin
-// short-circuit, same per-organization rejection.
+// returns object instances.
 package domain
 
 import (

@@ -1,8 +1,5 @@
 // Package server hosts the HTTP-health-mode surface for lineage-service.
 //
-// Mirrors the Rust binary's RuntimeMode::HttpHealth: a public /health
-// endpoint plus the JWT-gated /api/v1/lineage query + workflow-sync
-// surface ported from `services/lineage-service/src/handlers/lineage.rs`.
 // The Kafka → Iceberg sink lives in a separate runtime gated on
 // iceberg-go availability and is not mounted here.
 package server

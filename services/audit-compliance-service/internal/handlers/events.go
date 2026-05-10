@@ -1,6 +1,5 @@
 // Top-level handlers — overview, list with filters, get, append,
-// anomalies, collectors. Mirrors `handlers/events.rs` 1:1 (the Rust
-// impl lives in src/handlers/events.rs).
+// anomalies, collectors.
 
 package handlers
 

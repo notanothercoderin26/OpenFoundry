@@ -19,14 +19,9 @@ import (
 )
 
 // VaultTransitSigner is the production TransitKeyClient backed by
-// HashiCorp Vault Transit. Mirrors hardening/vault_signer.rs::
-// VaultTransitSigner verbatim:
-//
-//   - Pluggable auth: static `VAULT_TOKEN` OR Kubernetes
-//     ServiceAccount JWT login (with the role-issued token cached
-//     in-process for the rest of the binary's lifetime).
+// HashiCorp Vault Transit.
 //   - Retry policy: configurable attempts × backoff, only retries
-//     on classifiable transient failures (HTTP transport errors,
+//    on classifiable transient failures (HTTP transport errors,
 //     5xx and 429 from Vault).
 //   - Wire shape: signs over a SHA-256 digest with prehashed=true,
 //     hash_algorithm=sha2-256, signature_algorithm=pkcs1v15.

@@ -1,9 +1,5 @@
 // Phase 5C — execute_action_batch (N-target orchestration).
 //
-// Mirrors `pub async fn execute_action_batch` and the helper
-// `execute_batched_function_invocation` in
-// `libs/ontology-kernel/src/handlers/actions.rs`.
-//
 // The Rust impl gates two distinct execution shapes behind the
 // `batched_execution` flag pulled out of the action's config envelope:
 //

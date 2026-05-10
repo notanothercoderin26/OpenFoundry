@@ -1,7 +1,6 @@
 // Rule engine: pure-evaluator + DB-backed catalog + machinery queue.
 //
-// Mirrors `libs/ontology-kernel/src/domain/rules.rs` 1:1 across the
-// 14 public symbols. The pure-logic functions (DeriveChangedProperties,
+// The pure-logic functions (DeriveChangedProperties,
 // EvaluateRuleAgainstObject, BuildRuleEffectPreview,
 // BuildRuleEvaluateResponse, derivedPriorityScore, dynamicPressureFromQueue)
 // are byte-for-byte equivalent to the Rust impl and exhaustively

@@ -5,7 +5,6 @@
 // This module keeps handlers free of inline SQL and talks only to
 // storage-abstraction DefinitionStore.
 //
-// Mirrors `libs/ontology-kernel/src/domain/object_set_repository.rs`.
 
 package domain
 

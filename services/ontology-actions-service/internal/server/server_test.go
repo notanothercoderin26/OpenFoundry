@@ -65,8 +65,6 @@ func devToken(t *testing.T) string {
 	return tok
 }
 
-// Mirrors `list_action_types_requires_bearer_token` from
-// `services/ontology-actions-service/tests/health.rs`.
 func TestListActionTypesRequiresBearerToken(t *testing.T) {
 	t.Parallel()
 	router := newTestRouter(t)

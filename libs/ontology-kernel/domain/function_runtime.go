@@ -1,7 +1,5 @@
 // Function-package runtime: parsing, validation, dispatch.
 //
-// Mirrors `libs/ontology-kernel/src/domain/function_runtime.rs` 1:1
-// at the API surface (every public symbol the Rust crate exports).
 // Behavioural parity:
 //
 //   - TypeScript / JavaScript inline functions execute via Node

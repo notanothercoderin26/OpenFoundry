@@ -718,7 +718,6 @@ type BranchEnvelope struct {
 }
 
 // Topic and event_type strings for `foundry.branch.events.v1`.
-// Mirrors Rust src/domain/branch_events.rs.
 const (
 	BranchEventsTopic       = "foundry.branch.events.v1"
 	EventBranchCreated      = "dataset.branch.created.v1"

@@ -3,9 +3,7 @@
 // Wraps net/http/httptest with sane defaults so each test can spin up
 // a fresh ephemeral server and obtain its base URL to inject into the
 // service AppState (e.g. data_asset_catalog_url, retention_policy_url,
-// lineage client base, audit sink). Mirrors `libs/testing/src/mocks.rs`
-// on the Rust side — the Go module sticks to the standard library since
-// httptest is enough for the matching surface.
+// lineage client base, audit sink).
 package testingx
 
 import (

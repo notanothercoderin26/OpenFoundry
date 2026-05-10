@@ -333,7 +333,6 @@ func IsBackendError(err error) bool {
 // ----------------------------------------------------------------------
 
 // ObjectStore exposes CRUD over Object with optimistic concurrency.
-// Mirrors trait ObjectStore in repositories.rs.
 type ObjectStore interface {
 	// Get fetches one object by (tenant, id). Returns (nil, nil)
 	// for a genuine miss; reserves NotFound for the case where the

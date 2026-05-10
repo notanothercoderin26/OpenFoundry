@@ -1,11 +1,5 @@
 // Package branches hosts the operation layer for media-set branches.
-// Mirrors services/media-sets-service/src/handlers/branches.rs:
-//
-//   - list / create / delete / reset / merge
-//
-// Each mutation runs the relevant Cedar check first, persists inside
-// a pgx transaction, and emits the matching audit envelope through
-// libs/audit-trail's outbox helper. ADR-0022 atomicity preserved.
+// ADR-0022 atomicity preserved.
 package branches
 
 import (

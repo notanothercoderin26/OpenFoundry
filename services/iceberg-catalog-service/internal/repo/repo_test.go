@@ -1,6 +1,4 @@
-// Tests for the Iceberg table CRUD lifecycle (ICA-2). Mirrors the
-// surface that services/iceberg-catalog-service/src/domain/table.rs and
-// the rest_catalog/tables.rs handlers exercise.
+// Tests for the Iceberg table CRUD lifecycle (ICA-2).
 package repo_test
 
 import (

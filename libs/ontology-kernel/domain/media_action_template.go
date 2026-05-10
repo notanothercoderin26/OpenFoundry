@@ -10,7 +10,6 @@
 // `media_reference`-typed field, plus the convention that the
 // field's `default_value` carries the backing media set's RID.
 //
-// Mirrors `libs/ontology-kernel/src/domain/media_action_template.rs`.
 
 package domain
 

@@ -11,8 +11,7 @@ import (
 )
 
 // IndexDocument splits a document into KnowledgeChunks (chunked +
-// embedded). Mirrors Rust src/domain/rag/indexer.rs:
-//   - chunking_strategy="fine" → max_chars=320; else max_chars=520.
+// embedded).
 //   - Each chunk's metadata = {"strategy": chunking_strategy}.
 //   - chunk.id = "{document_id}-{position}".
 //   - token_count = whitespace-separated word count.

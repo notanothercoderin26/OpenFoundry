@@ -1,9 +1,6 @@
 // Package statemachine is the Postgres-backed state-machine helper
 // for OpenFoundry's Foundry-pattern orchestration substrate
-// (ADR-0037). Mirrors libs/state-machine/src/lib.rs verbatim — same
-// Loaded / PgStore / WithRetry contract, same SQL shape, same column
-// layout (id / state / state_data / version / expires_at /
-// created_at / updated_at).
+// (ADR-0037).
 //
 // Each consumer service owns the state-machine table inside its own
 // schema; this package handles the optimistic-concurrency UPDATE +

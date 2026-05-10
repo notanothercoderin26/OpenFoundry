@@ -291,8 +291,7 @@ type RenderedResources struct {
 }
 
 // RenderResources validates an IngestJobSpec and converts it into Kubernetes
-// resources. Pure function — performs no I/O. Mirrors Rust `render_resources`
-// (services/ingestion-replication-service/src/control_plane.rs).
+// resources. Pure function — performs no I/O.
 func RenderResources(spec *IngestJobSpec) (*RenderedResources, error) {
 	if spec == nil || strings.TrimSpace(spec.Name) == "" {
 		return nil, fmt.Errorf("IngestJobSpec.name must not be empty")

@@ -1,16 +1,15 @@
 package handlers
 
-// IRF-8 — Stream branches REST surface (Bloque E1). Mirrors
-// services/ingestion-replication-service/src/event_streaming/handlers/branches.rs.
+// IRF-8 — Stream branches REST surface (Bloque E1).
 //
-//   GET    /api/v1/streaming/streams/{id}/branches
+//  GET    /api/v1/streaming/streams/{id}/branches
 //   POST   /api/v1/streaming/streams/{id}/branches
 //   GET    /api/v1/streaming/streams/{id}/branches/{name}
 //   DELETE /api/v1/streaming/streams/{id}/branches/{name}
 //   POST   /api/v1/streaming/streams/{id}/branches/{name}:merge
 //   POST   /api/v1/streaming/streams/{id}/branches/{name}:archive
 //
-// Cold-branch materialisation delegates to dataset-versioning-service
+//Cold-branch materialisation delegates to dataset-versioning-service
 // over HTTP using the injected ColdTierBridge — failures only surface
 // in the response message (the local row is always written first).
 

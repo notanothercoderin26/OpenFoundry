@@ -584,8 +584,6 @@ func (r *Repo) CurrentSchema(ctx context.Context, streamID uuid.UUID) ([]byte, s
 
 // ListSchemaHistory returns every accepted schema version for streamID
 // in descending version order — used by GET /streams/{id}/schema/history.
-// Mirrors the Rust query that drives StreamSchemaHistoryRow ↔ StreamSchemaVersion
-// in event_streaming/handlers/schemas.rs.
 func (r *Repo) ListSchemaHistory(ctx context.Context, streamID uuid.UUID) ([]models.StreamSchemaVersion, error) {
 	rows, err := r.Pool.Query(ctx,
 		`SELECT id, stream_id, version, schema_avro, fingerprint, compatibility,

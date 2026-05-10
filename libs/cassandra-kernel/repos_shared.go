@@ -11,8 +11,7 @@ import (
 )
 
 // Shared helpers used by every Cassandra-backed Store implementation
-// in this package. Mirrors the prelude of
-// libs/cassandra-kernel/src/repos.rs.
+// in this package.
 
 // driverErr wraps a gocql/driver-level error in a RepoBackend
 // RepoError. Mirrors fn driver_err.

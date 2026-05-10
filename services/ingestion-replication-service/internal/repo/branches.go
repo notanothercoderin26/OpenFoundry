@@ -1,8 +1,6 @@
 package repo
 
-// IRF-8 — Stream branches CRUD. Mirrors
-// services/ingestion-replication-service/src/event_streaming/handlers/branches.rs
-// at the data-layer level.
+// IRF-8 — Stream branches CRUD.
 
 import (
 	"context"

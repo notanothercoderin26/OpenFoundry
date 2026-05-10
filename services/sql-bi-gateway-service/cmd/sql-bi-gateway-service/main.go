@@ -12,7 +12,7 @@
 // The saved-queries Postgres pool is connected best-effort: if the
 // CNPG cluster is unreachable the side router still serves /healthz
 // so the Flight SQL surface stays available during BI database
-// outages. Mirrors the Rust main.rs `match PgPoolOptions::connect`.
+// outages.
 package main
 
 import (

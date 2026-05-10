@@ -3,9 +3,6 @@
 // services (llm-catalog, ai-evaluation, retrieval-context,
 // agent-runtime, model-catalog) instantiate Handlers with their pgx
 // pool and bind the methods onto their own router.
-//
-// Mirrors the Rust libs/ai-kernel/src/handlers/{mod,tools,prompts,
-// agents,knowledge,chat}.rs file layout — one file per surface.
 package handlers
 
 import (

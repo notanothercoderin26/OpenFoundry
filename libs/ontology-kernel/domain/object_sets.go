@@ -1,7 +1,6 @@
 // Object set definition validation + filter / projection helpers.
 //
-// Mirrors `libs/ontology-kernel/src/domain/object_sets.rs` for the
-// subset that does NOT depend on `domain::function_runtime`. The two
+// The two
 // store-bound helpers (`evaluate_object_set` and `resolve_traversals`,
 // which call `load_accessible_object_set` / `load_linked_objects`)
 // will land in iter 7c₅ alongside the function_runtime port.

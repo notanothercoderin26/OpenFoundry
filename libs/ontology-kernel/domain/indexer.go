@@ -1,15 +1,12 @@
 // Search-document indexer.
 //
-// Mirrors `libs/ontology-kernel/src/domain/indexer.rs` 1:1: produces
-// the same `SearchDocument` records, in the same order, applying the
-// same `kind` / `object_type_filter` filters, with the same body /
-// snippet / metadata composition rules. Every SQL query is text-
+// Every SQL query is text-
 // identical to the Rust source so EXPLAIN plans match across
 // languages.
 //
 // The Rust impl is consumed by both the search-handler index
 // rebuilder and by the storage-insights endpoint that counts
-// documents by kind. Both call sites land under the same Go API.
+//documents by kind. Both call sites land under the same Go API.
 package domain
 
 import (

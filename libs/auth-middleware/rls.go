@@ -9,7 +9,7 @@ import (
 
 // RLSContext is the row-level security context derived from user
 // claims. Services use this to scope DB queries to the user's
-// org / permissions. Mirrors libs/auth-middleware/src/row_level_security.rs.
+// org / permissions.
 type RLSContext struct {
 	UserID      uuid.UUID
 	OrgID       *uuid.UUID

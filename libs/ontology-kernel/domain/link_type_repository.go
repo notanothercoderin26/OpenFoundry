@@ -4,7 +4,6 @@
 // definitions remain declarative S1 metadata on PostgreSQL. Handlers
 // consume this module instead of embedding inline SQL.
 //
-// Mirrors `libs/ontology-kernel/src/domain/link_type_repository.rs`.
 
 package domain
 

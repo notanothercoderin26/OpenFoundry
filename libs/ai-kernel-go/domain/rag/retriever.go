@@ -8,8 +8,6 @@ import (
 )
 
 // Search retrieves the top-K knowledge hits matching the query.
-// Mirrors Rust src/domain/rag/retriever.rs::search — embeds the
-// query then delegates to SearchWithEmbedding.
 func Search(query string, documents []models.KnowledgeDocument, topK uint32, minScore float32) []models.KnowledgeSearchResult {
 	q := EmbedText(query)
 	return SearchWithEmbedding(q, documents, topK, minScore)

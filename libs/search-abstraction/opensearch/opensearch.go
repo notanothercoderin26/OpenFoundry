@@ -1,5 +1,5 @@
 // Package opensearch is the OpenSearch-backed SearchBackend
-// implementation. Mirrors libs/search-abstraction/src/opensearch.rs.
+// implementation.
 //
 // Wire format:
 //

@@ -15,8 +15,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
 )
 
-// PredictionsHandlers exposes realtime + batch prediction endpoints.
-// Mirrors libs/ml-kernel/src/handlers/predictions.rs:
+// PredictionsHandlers exposes realtime + batch prediction endpoints:
 //   - POST /api/v1/deployments/{id}/predictions    (realtime)
 //   - GET  /api/v1/predictions/batch                (list)
 //   - POST /api/v1/predictions/batch                (create)

@@ -1,5 +1,4 @@
-// Saved-map handlers. Mirrors `pub async fn list_maps` and
-// `pub async fn create_map` in src/handlers.rs.
+// Saved-map handlers.
 
 package handlers
 

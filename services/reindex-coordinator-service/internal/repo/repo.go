@@ -23,7 +23,7 @@ import (
 )
 
 // ProcessedEventsTable is the fully-qualified name of the per-batch
-// dedup table. Mirrors `PROCESSED_EVENTS_TABLE` in the Rust main.rs.
+// dedup table.
 const ProcessedEventsTable = "reindex_coordinator.processed_events"
 
 // NewProcessedEventsStore wires an idempotency.PgStore to the

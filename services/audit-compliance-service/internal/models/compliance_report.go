@@ -1,7 +1,5 @@
 // Compliance-report + GDPR types.
 //
-// Mirrors `services/audit-compliance-service/src/models/compliance_report.rs`
-// 1:1.
 package models
 
 import (

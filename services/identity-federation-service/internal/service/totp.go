@@ -16,12 +16,12 @@ import (
 )
 
 // TOTP enrolment / verification helpers — RFC 6238 SHA-1, 30-second
-// window, 6 digits. Mirrors `domain/mfa.rs` byte-for-byte:
-//   - same base32 alphabet (RFC 4648, no padding)
-//   - same otpauth URI template
-//   - same hash_token (sha256 → URL-safe base64 no padding)
-//   - same recovery code generation (10 chars uppercase)
-//   - same ±1 window verification
+// window, 6 digits. Conventions:
+//   - base32 alphabet (RFC 4648, no padding)
+//   - otpauth URI template
+//   - hash_token (sha256 → URL-safe base64 no padding)
+//   - recovery code generation (10 chars uppercase)
+//   - ±1 window verification
 
 // Enrollment is the result of CreateEnrollment.
 type Enrollment struct {

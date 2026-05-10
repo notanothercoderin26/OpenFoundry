@@ -248,8 +248,6 @@ type AppendBatchResponse struct {
 
 // MultiTableCommitRequest is the body of POST /iceberg/v1/transactions/commit.
 //
-// Mirrors Rust's `MultiTableCommitRequest` in
-// services/iceberg-catalog-service/src/handlers/rest_catalog/transactions.rs.
 // Every entry in `TableChanges` either lands together or is rolled back —
 // row-level locks are taken in deterministic table-id order so concurrent
 // commits cannot deadlock.

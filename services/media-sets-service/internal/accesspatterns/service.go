@@ -1,14 +1,5 @@
 // Package accesspatterns hosts the operation layer for media-set
-// access patterns. Mirrors libs/services/media-sets-service/src/handlers/
-// access_patterns.rs:
-//
-//   - register / list / get / per-kind lookup (CRUD)
-//   - run: PERSIST / CACHE_TTL cache lookup → worker HTTP call →
-//     compute-seconds charged via libs/observability/costmodel +
-//     mirrored into the media_compute_seconds_total Prometheus counter
-//     → audit envelope `media_set.access_pattern_invoked` enqueued via
-//     libs/audit-trail+outbox in the same Postgres transaction as the
-//     ledger insert (ADR-0022 atomicity).
+// access patterns.
 //
 // The HTTP transport sits behind transformclient.Client — easy to fake
 // in tests via the Worker interface below.

@@ -82,8 +82,7 @@ func SupportedExecutionModes() []string {
 }
 
 // ValidateExecutionMode returns true when mode is one of the
-// supported execution modes (case-insensitive). Mirrors Rust
-// validate_execution_mode in handlers/tools.rs.
+// supported execution modes (case-insensitive).
 func ValidateExecutionMode(mode string) bool {
 	for _, candidate := range SupportedExecutionModes() {
 		if strings.EqualFold(candidate, mode) {

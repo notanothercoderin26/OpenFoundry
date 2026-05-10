@@ -11,7 +11,6 @@ import (
 )
 
 // metricStatus classifies a drift score against its threshold.
-// Mirrors Rust src/domain/drift.rs::metric_status.
 func metricStatus(score, threshold float64) string {
 	switch {
 	case score >= threshold:
@@ -29,11 +28,7 @@ func roundScore(v float64) float64 {
 }
 
 // GenerateDriftReport produces a deterministic drift report given
-// baseline + observed row counts and a variant count. Mirrors Rust
-// src/domain/drift.rs::generate_report verbatim, including the
-// 0.12/0.09 base scores, 1.5 volume-shift cap, the dataset-score
-// >= 0.25 OR concept-score >= 0.18 retraining trigger, and the
-// canonical recommendation strings.
+// baseline + observed row counts and a variant count.
 func GenerateDriftReport(req models.GenerateDriftReportRequest, variantCount int) models.DriftReport {
 	baselineRows := int64(10_000)
 	if req.BaselineRows != nil {

@@ -710,13 +710,7 @@ func (h *Handlers) RenameTable(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// MultiTableCommit handles POST /iceberg/v1/transactions/commit. Mirrors
-// the Rust handler in
-// services/iceberg-catalog-service/src/handlers/rest_catalog/transactions.rs:
-// every change in the body lands together inside a single Postgres
-// transaction, with row-level SELECT … FOR UPDATE locks taken in
-// deterministic table-id order so concurrent multi-table commits never
-// deadlock. Conflicts surface as 409 Retryable so the pipeline-build
+// MultiTableCommit handles POST /iceberg/v1/transactions/commit.Conflicts surface as 409 Retryable so the pipeline-build
 // executor can re-snapshot inputs and retry the job.
 func (h *Handlers) MultiTableCommit(w http.ResponseWriter, r *http.Request) {
 	caller, ok := authmw.FromContext(r.Context())

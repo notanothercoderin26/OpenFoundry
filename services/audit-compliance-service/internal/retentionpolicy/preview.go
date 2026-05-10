@@ -1,7 +1,5 @@
 // Retention preview — simulates which transactions/files a policy
-// would purge `as_of_days` days from now. Mirrors
-// `domain/retention.rs::run_preview` 1:1, including the "DVS table
-// not found" fallback (returns warnings without failing the request).
+// would purge `as_of_days` days from now.
 
 package retentionpolicy
 

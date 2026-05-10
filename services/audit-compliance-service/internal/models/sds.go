@@ -1,7 +1,4 @@
 // Sensitive-Data-Scanning (SDS) request + response payloads.
-//
-// Mirrors `services/audit-compliance-service/src/sds/models/sensitive_data.rs`
-// 1:1.
 package models
 
 import (

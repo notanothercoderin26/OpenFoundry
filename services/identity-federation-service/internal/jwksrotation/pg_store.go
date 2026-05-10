@@ -10,10 +10,7 @@ import (
 )
 
 // PostgresJwksKeyStore is the production JwksKeyStore backed by the
-// `jwks_keys` table in the identity control-plane database. Mirrors
-// services/identity-federation-service/src/hardening/jwks_rotation.rs::
-// PostgresJwksKeyStore verbatim — same SQL shape, same atomic
-// rotate/rollback semantics under a single transaction.
+// `jwks_keys` table in the identity control-plane database.
 //
 // The schema lives at the package level (JwksKeysDDL +
 // JwksKeysActiveIndexDDL + JwksKeysVersionIndexDDL constants in

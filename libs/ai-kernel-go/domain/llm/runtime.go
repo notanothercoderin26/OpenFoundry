@@ -90,8 +90,7 @@ func (f *FakeRuntime) CompleteText(_ context.Context, req CompletionRequest) (Co
 }
 
 // CompleteText routes per-provider api_mode to the matching protocol
-// implementation. Mirrors libs/ai-kernel/src/domain/llm/runtime.rs's
-// fn complete_text. The chat handler receives the runtime's full
+// implementation.The chat handler receives the runtime's full
 // reply + token counts; surrounding code synthesises the
 // LlmUsageSummary + ChatRoutingMetadata.
 //

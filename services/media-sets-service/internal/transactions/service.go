@@ -1,8 +1,7 @@
 // Package transactions hosts the operation layer for media-set
-// transactions (open / commit / abort / list). Mirrors
-// services/media-sets-service/src/handlers/transactions.rs.
+// transactions (open / commit / abort / list).
 //
-// Atomicity: the close path runs the state flip + the optional
+//Atomicity: the close path runs the state flip + the optional
 // REPLACE-mode soft-delete + the branch head advance + the audit emit
 // inside a single pgx.Tx so a partial close can never leave the row
 // in COMMITTED with the head pointer unmoved.
@@ -25,7 +24,6 @@ import (
 )
 
 // MaxItemsPerTransaction is the Foundry per-transaction item cap.
-// Mirrors transactions.rs MAX_ITEMS_PER_TRANSACTION.
 const MaxItemsPerTransaction int64 = 10_000
 
 // ── Errors ───────────────────────────────────────────────────────

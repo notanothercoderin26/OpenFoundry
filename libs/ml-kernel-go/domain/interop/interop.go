@@ -1,7 +1,7 @@
 // Package interop hosts the model-version schema normalisation +
 // tracking-source merging + framework / adapter inference helpers.
 //
-// Mirrors libs/ml-kernel/src/domain/interop.rs verbatim. Every public
+// Every public
 // function pairs 1:1 with the Rust side and the wire-format output
 // is byte-identical (modulo map iteration order, which is a Rust
 // BTreeMap on serialisation; Go's encoding/json sorts map keys

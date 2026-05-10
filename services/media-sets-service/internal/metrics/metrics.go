@@ -1,9 +1,5 @@
 // Package metrics declares the Prometheus families specific to
-// media-sets-service. Mirrors libs/services/media-sets-service/src/metrics.rs:
-// names, labels and help text are byte-for-byte identical so dashboards
-// and the Prometheus rules in
-// infra/k8s/platform/observability/prometheus-rules/media-sets.yaml
-// keep working unchanged.
+// media-sets-service.
 package metrics
 
 import (

@@ -1,6 +1,5 @@
 // Composition helpers — link CRUD primitives shared by the actions,
-// links and indexer handlers. Mirrors
-// `libs/ontology-kernel/src/domain/composition.rs`.
+// links and indexer handlers.
 package domain
 
 import (

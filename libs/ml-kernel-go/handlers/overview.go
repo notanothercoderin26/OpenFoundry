@@ -8,8 +8,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
 )
 
-// OverviewHandlers exposes the ML-platform landing summary. Mirrors
-// libs/ml-kernel/src/handlers/overview.rs.
+// OverviewHandlers exposes the ML-platform landing summary.
 type OverviewHandlers struct {
 	Pool *pgxpool.Pool
 }

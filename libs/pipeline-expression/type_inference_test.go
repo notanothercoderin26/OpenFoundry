@@ -1,6 +1,5 @@
 // Comprehensive type-inference coverage for the Pipeline Builder
-// expression DSL. Mirrors libs/pipeline-expression/tests/type_inference.rs
-// 1:1 — same harness, same categories, same case names.
+// expression DSL.
 package pipelineexpression_test
 
 import (

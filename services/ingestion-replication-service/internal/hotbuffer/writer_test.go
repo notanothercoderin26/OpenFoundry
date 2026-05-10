@@ -10,9 +10,6 @@ import (
 )
 
 func TestTopicForMatchesRustFormat(t *testing.T) {
-	// Mirrors `topic_for` in
-	// services/ingestion-replication-service/src/event_streaming/domain/hot_buffer/mod.rs:
-	// "openfoundry.streams.{stream_id}".
 	id := uuid.MustParse("00000000-0000-0000-0000-0000000000aa")
 	if got, want := TopicFor(id), "openfoundry.streams.00000000-0000-0000-0000-0000000000aa"; got != want {
 		t.Errorf("TopicFor: got %q, want %q", got, want)

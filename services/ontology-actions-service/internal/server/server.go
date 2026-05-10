@@ -1,9 +1,4 @@
 // Package server wires the HTTP surface for ontology-actions-service.
-//
-// Mirrors `services/ontology-actions-service/src/lib.rs::build_router`
-// 1:1 at the URL level: every action / funnel / function / rule path
-// from the Rust router is mounted here, JWT-protected, and delegated to
-// the state-backed ontology-kernel handlers.
 package server
 
 import (

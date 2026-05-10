@@ -1,8 +1,6 @@
 // Retention runner — periodically polls the active policies + their
 // targets, marks the files for retirement, and physically deletes
-// after the per-policy grace period elapses. Mirrors
-// `services/audit-compliance-service/src/lineage_deletion/domain/retention_runner.rs`
-// 1:1.
+// after the per-policy grace period elapses.
 
 package lineagedeletion
 

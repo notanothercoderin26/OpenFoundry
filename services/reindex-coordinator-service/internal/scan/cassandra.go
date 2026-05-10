@@ -1,7 +1,4 @@
-// Live Cassandra paginated scanner. Mirrors the
-// `CassandraScanner` portion of `services/reindex-coordinator-service/
-// src/scan.rs` so the two coordinators publish bit-for-bit identical
-// `ontology.reindex.v1` records during the cut-over.
+// Live Cassandra paginated scanner.
 //
 // Two-query pattern, identical to the legacy Go worker
 // (`workers-go/reindex/activities/activities.go::scan`):

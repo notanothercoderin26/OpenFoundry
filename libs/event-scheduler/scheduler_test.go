@@ -1,7 +1,4 @@
-// Unit tests for the cron-driven scheduler. Mirrors the
-// `#[cfg(test)] mod tests { ... }` block in
-// libs/event-scheduler/src/lib.rs 1:1 — same case names, same
-// fixture, same assertions.
+// Unit tests for the cron-driven scheduler.
 package eventscheduler_test
 
 import (

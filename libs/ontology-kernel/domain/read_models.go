@@ -1,7 +1,4 @@
-// Read-model helpers shared across kernel handlers. Mirrors the
-// subset of `libs/ontology-kernel/src/domain/read_models.rs` needed
-// by the storage handler today: tenant derivation + a converter
-// from `Object` (storage) to `ObjectInstance` (handler view).
+// Read-model helpers shared across kernel handlers.
 //
 // `search_hit_to_object_instance`, `load_object_instance_from_read_model`
 // and `list_accessible_objects_by_type` land alongside the search

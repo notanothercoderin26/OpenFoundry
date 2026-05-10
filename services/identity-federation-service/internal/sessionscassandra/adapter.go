@@ -2,23 +2,9 @@
 // refresh-token adapter used by identity-federation-service after
 // slice 2 of the migration plan.
 //
-// Mirrors `services/identity-federation-service/src/sessions_cassandra.rs`
-// but ports a smaller initial subset:
-//
-//   - user_session  — sliding TTL 30 min, partition by (user_id, hour_bucket)
-//   - refresh_token — TTL 30 d, partition by token_hash_prefix (2-byte)
-//
-// Tables added in later slices (matching the slice plan in the inventory):
-//
-//   - oauth_state                — slice 5 (OAuth/OIDC)
-//   - scoped_session_by_user/_by_id — slice 7 (scoped sessions UI)
-//   - refresh_token_by_id        — slice 7
-//   - repository_session_by_id   — when storage-abstraction lands
-//
-// Wiring note: the slice-1 Issuer still keeps refresh tokens in
-// Postgres. Flipping the active backend to this Cassandra adapter is a
+// Flipping the active backend to this Cassandra adapter is a
 // one-line swap inside cmd/.../main.go and will be done in a follow-up
-// once a Cassandra/Scylla instance is wired into the dev environment
+//once a Cassandra/Scylla instance is wired into the dev environment
 // (the slice-1 dev workflow with only Postgres keeps working until then).
 package sessionscassandra
 

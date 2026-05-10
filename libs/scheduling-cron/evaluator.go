@@ -5,7 +5,6 @@ import "time"
 // maxForwardYears is the inclusive cap that prevents run-away
 // searches when an expression is satisfiable only on a never-
 // occurring date (e.g. `0 0 31 2 *` or `JAN-MAR` with `30 FEB`).
-// Mirrors MAX_FORWARD_YEARS in evaluator.rs.
 const maxForwardYears = 10
 
 // NextFireAfter returns the smallest UTC instant strictly greater

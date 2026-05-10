@@ -1,8 +1,5 @@
 // Package schedulingcron is the Foundry-parity cron parser &
-// evaluator. Mirrors libs/scheduling-cron/src/lib.rs verbatim:
-//
-//   - Unix 5-field (`min hour dom month dow`) and Quartz 6-field
-//     (`sec min hour dom month dow`) flavours.
+// evaluator.
 //   - Special characters: `*`, `-`, `/`, `,`, `L`, `#`, month names
 //     `JAN-DEC`, weekday names `SUN-SAT`. Both `0` and `7` are Sunday.
 //   - Vixie semantics for DOM/DOW: when **both** fields are not `*`,

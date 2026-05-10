@@ -8,10 +8,6 @@ import (
 )
 
 // AccessClaimsInput is the parameter bag for [BuildAccessClaims].
-//
-// Mirrors libs/auth-middleware/src/jwt.rs::build_access_claims with
-// every argument promoted to a struct field — keeps the call sites
-// readable in Go where positional 9-arg calls would be brittle.
 type AccessClaimsInput struct {
 	UserID      uuid.UUID
 	Email       string

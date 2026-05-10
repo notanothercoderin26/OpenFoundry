@@ -5,7 +5,6 @@
 // PG access out of HTTP handlers while S1 finishes the Cassandra
 // runtime migration.
 //
-// Mirrors `libs/ontology-kernel/src/domain/binding_repository.rs`.
 
 package domain
 

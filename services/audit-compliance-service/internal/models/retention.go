@@ -1,8 +1,5 @@
 // Retention-policy + retention-runner types.
 //
-// Mirrors `services/audit-compliance-service/src/retention_policy/models/retention.rs`
-// 1:1 plus the runner-side projections from
-// `lineage_deletion/domain/retention_runner.rs`.
 package models
 
 import (

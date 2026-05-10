@@ -9,9 +9,7 @@ import (
 
 // UpdateMemory rolls forward an AgentMemorySnapshot using the
 // latest user message + agent response + retrieved knowledge
-// citations. Mirrors Rust src/domain/agents/memory.rs verbatim:
-//   - short_term_notes: append truncated user message (120 chars),
-//     then truncate to 6 entries.
+// citations.
 //   - long_term_references: append unique document_titles from
 //     knowledge_hits (in order), then truncate to 8 entries.
 //   - last_run_summary: truncated final response (180 chars).

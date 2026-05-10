@@ -7,7 +7,6 @@
 // handlers away from direct SQL while preserving the existing public
 // action models.
 //
-// Mirrors `libs/ontology-kernel/src/domain/action_repository.rs`.
 
 package domain
 

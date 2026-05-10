@@ -35,9 +35,7 @@ const (
 )
 
 // Handlers carries the dependencies the saved-view / saved-map /
-// writeback handlers consume. Mirrors `pub(crate) struct AppState` in
-// Rust src/main.rs (the `actions` field lands with OEA-2 — kept here
-// so the same struct serves both slices).
+// writeback handlers consume.
 type Handlers struct {
 	Definitions storageabstraction.DefinitionStore
 	Actions     storageabstraction.ActionLogStore

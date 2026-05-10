@@ -5,7 +5,6 @@
 // belong to declarative control-plane metadata, so SQL stays behind
 // this repository boundary.
 //
-// Mirrors `libs/ontology-kernel/src/domain/storage_repository.rs`.
 
 package domain
 

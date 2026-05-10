@@ -1,7 +1,5 @@
 // Lineage-deletion request + audit trace types.
 //
-// Mirrors `services/audit-compliance-service/src/lineage_deletion/models/deletion.rs`
-// 1:1.
 package models
 
 import (

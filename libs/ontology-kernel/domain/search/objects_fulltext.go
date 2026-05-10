@@ -2,7 +2,6 @@
 // SearchBackend.Search and reshapes the hits into the
 // [ObjectFulltextHit] surface the handlers expose.
 //
-// Mirrors `libs/ontology-kernel/src/domain/search/objects_fulltext.rs`.
 
 package search
 

@@ -38,8 +38,6 @@ func marshalJSONForTest(t *testing.T, v any) json.RawMessage {
 	return out
 }
 
-// Mirrors `matches_rule_with_numeric_and_equals_conditions` in
-// `libs/ontology-kernel/src/domain/rules.rs::tests`.
 func TestEvaluateRuleAgainstObject_MatchesNumericAndEquals(t *testing.T) {
 	t.Parallel()
 	rule := &models.OntologyRule{

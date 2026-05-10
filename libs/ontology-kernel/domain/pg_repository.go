@@ -7,7 +7,7 @@
 // `pgx` calls directly; any remaining PG interaction is routed
 // through this module or a typed repository built on top of it.
 //
-// Mirrors `libs/ontology-kernel/src/domain/pg_repository.rs`. The
+// The
 // Rust source uses `sqlx::QueryBuilder<Postgres>` for dynamic WHERE
 // clauses; Go uses [pgQueryBuilder] (declared at the bottom of this
 // file) which keeps the same `$N` parameter discipline pgx requires.

@@ -4,8 +4,6 @@
 // In `America/New_York`, on 2026-03-08 clocks jump from 02:00 EST to
 // 03:00 EDT — the entire 02:00–02:59 hour is missing. A cron that
 // would otherwise fire at 02:30 must skip that day.
-//
-// Mirrors libs/scheduling-cron/tests/cron_dst_forward_skips_fire.rs.
 package schedulingcron_test
 
 import (

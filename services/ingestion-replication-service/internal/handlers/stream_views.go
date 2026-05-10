@@ -1,11 +1,10 @@
 package handlers
 
-// IRF-5 — Foundry "Reset stream" workflow. Mirrors the Rust handler at
-// services/ingestion-replication-service/src/event_streaming/handlers/stream_views.rs.
+// IRF-5 — Foundry "Reset stream" workflow.
 //
-//   POST /api/v1/streaming/streams/{id}:reset
+//  POST /api/v1/streaming/streams/{id}:reset
 //
-// Rotates the stream's view RID so push consumers must re-fetch the
+//Rotates the stream's view RID so push consumers must re-fetch the
 // POST URL, retires the previous active view, mints a fresh one with
 // generation+1, and best-effort truncates the underlying Kafka topic
 // + resets consumer offsets via the streaming runtime.

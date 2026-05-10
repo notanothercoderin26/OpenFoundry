@@ -1,9 +1,5 @@
 // Phase 5C — execute_inline_edit + execute_inline_edit_batch.
 //
-// Mirrors `pub async fn execute_inline_edit` and
-// `pub async fn execute_inline_edit_batch` in
-// `libs/ontology-kernel/src/handlers/actions.rs`.
-//
 // Inline edits let dashboards rewrite a single property on an object
 // by re-using a configured update_object action. The endpoint resolves
 // the action whose `property_mappings` covers the target property,

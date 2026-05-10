@@ -1,6 +1,5 @@
 // Package vespa is the Vespa-backed SearchBackend implementation,
-// the production search target per ADR-0028. Mirrors
-// libs/search-abstraction/src/vespa.rs.
+// the production search target per ADR-0028.
 //
 // Wire format:
 //

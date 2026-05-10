@@ -10,12 +10,6 @@ import (
 )
 
 // RouteProviders filters + ranks providers for a given request.
-// Mirrors Rust src/domain/llm/gateway.rs::route_providers verbatim:
-//
-//   - Filter: enabled=true; route_rules.use_cases empty OR contains
-//     use_case OR contains "general"; supports every required
-//     modality (case-insensitive); when require_private_network is
-//     set, network_scope ∈ {private, hybrid, local}.
 //   - Sort: provider_rank desc (with health, weight, private bonus,
 //     multimodal bonus, error-rate penalty), tiebreaker on
 //     load_balance_weight desc.

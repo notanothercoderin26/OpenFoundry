@@ -1,10 +1,6 @@
 // validate + execute paths.
 //
-// Mirrors the core of `handlers/actions.rs::{validate_action,
-// execute_action, plan_action, plan_preview, execute_plan}` for the
-// Rust executable operation set: UpdateObject, DeleteObject,
-// CreateLink, InvokeWebhook, InvokeFunction (HTTP + inline
-// Python/sidecar), and the interface-typed action operations. Object
+// Object
 // updates route their primary writes through
 // the same writeback substrate the rules + funnel handlers consume
 // (`handlers/objects.ApplyObjectWrite`), so retries collapse on the

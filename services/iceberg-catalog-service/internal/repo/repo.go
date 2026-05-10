@@ -972,10 +972,7 @@ func scanMetadataFile(r rowLikeT) (*models.MetadataFile, error) {
 }
 
 // MultiTableCommit applies a batched all-or-nothing commit across
-// every table named in `body`. Mirrors the Rust handler's flow in
-// services/iceberg-catalog-service/src/handlers/rest_catalog/transactions.rs:
-//
-//  1. Resolve every (namespace, table) outside the lock.
+// every table named in `body`.Resolve every (namespace, table) outside the lock.
 //  2. Sort the resolved tables by `id` so SELECT … FOR UPDATE locks
 //     are taken in a deterministic order — this is what prevents
 //     deadlocks between two commits that share two or more tables.

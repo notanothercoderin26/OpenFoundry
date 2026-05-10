@@ -5,11 +5,6 @@
 //
 //   - *repo.RequirementError       → 409 Conflict + envelope.kind
 //   - *domain.SchemaIncompatibleError → 422 Unprocessable Entity + diff
-//
-// Mirrors `#[cfg(test)]` from
-// services/iceberg-catalog-service/src/handlers/rest_catalog/tables.rs
-// (the `enforce_schema_strict` + commit-failure branches) plus a few
-// edge cases the Go side benefits from pinning explicitly.
 package handlers_test
 
 import (

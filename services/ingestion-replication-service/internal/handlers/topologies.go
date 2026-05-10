@@ -1,14 +1,12 @@
 package handlers
 
-// IRF-1 — DAG topology runtime endpoints. Mirrors the Rust handler at
-// services/ingestion-replication-service/src/event_streaming/handlers/topologies.rs
-// for the run/replay paths that drive the in-process engine.
+// IRF-1 — DAG topology runtime endpoints.
 //
 //   POST   /api/v1/streaming/topologies/{id}:run
-//   POST   /api/v1/streaming/topologies/{id}:replay
+//  POST   /api/v1/streaming/topologies/{id}:replay
 //
 // run/replay route into the engine in internal/engine. Production callers
-// can inject Engine directly, or provide a Store that implements the
+//can inject Engine directly, or provide a Store that implements the
 // engine.RuntimeStore plus optional sink/lineage interfaces so the handler
 // can construct the in-process engine on demand. When neither path is
 // available, handlers return a stable configuration error instead of

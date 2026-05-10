@@ -340,9 +340,7 @@ func (s *InMemoryActionLogStore) ListForAction(_ context.Context, tenant storage
 // ---- MockObjectStore (record-and-return) -----------------------------------
 
 // MockObjectStore records every call against it and returns canned
-// responses queued via the `Return*` helpers. Mirrors the spirit of
-// the `mockall::mock!{ pub ObjectStoreImpl ... }` macro from
-// stores/mock.rs without requiring runtime codegen.
+// responses queued via the `Return*` helpers.
 //
 // Test code typically does:
 //

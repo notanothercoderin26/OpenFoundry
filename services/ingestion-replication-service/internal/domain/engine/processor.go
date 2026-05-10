@@ -1,8 +1,7 @@
 // Package engine holds the pure, side-effect-free helpers that drive the
 // in-process topology DAG executor. The runtime engine in
 // internal/engine composes these helpers with the runtime store and sink
-// uploaders. Mirrors the Rust helpers under
-// services/ingestion-replication-service/src/event_streaming/domain/engine/processor.rs.
+// uploaders.
 package engine
 
 import (

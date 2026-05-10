@@ -1,8 +1,5 @@
 // Package cedarauthz wires Cedar policy enforcement for
-// media-sets-service. Mirrors services/media-sets-service/src/domain/
-// cedar.rs verbatim:
-//
-//   - Bundled default policies (6) embedded from policies/media_sets.cedar.
+// media-sets-service.
 //   - Entity hydration helpers for MediaSet + MediaItem (the schema
 //     for these entities is already declared in libs/authz-cedar-go's
 //     bundled cedarschema; this package only ships the policies).

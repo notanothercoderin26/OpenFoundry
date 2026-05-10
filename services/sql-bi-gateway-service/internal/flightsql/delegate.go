@@ -15,8 +15,7 @@ import (
 // delegateQuery forwards sql to a remote Flight SQL endpoint and
 // collects every Arrow record batch it returns. Used to fan out
 // queries to sql-warehousing-service (Iceberg shared compute pool)
-// and to the Vespa / Postgres / Trino Flight SQL fronts. Mirrors
-// `delegate_to_remote` in flight_sql.rs.
+// and to the Vespa / Postgres / Trino Flight SQL fronts.
 func delegateQuery(ctx context.Context, endpoint, sql string) ([]arrow.RecordBatch, *arrow.Schema, error) {
 	client, err := dialFlightSQL(ctx, endpoint)
 	if err != nil {

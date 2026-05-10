@@ -1,7 +1,5 @@
 // Package mediascanner is the Sensitive Data Scanner integration for
-// media sets. Mirrors libs/media-scanner/src/lib.rs verbatim — same
-// PII tag taxonomy, same finding/report shapes, same Scanner trait,
-// same Mock runtime semantics.
+// media sets.
 //
 // Per Foundry's "Sensitive Data Scanner / Media set scanning" doc:
 // per item, run an OCR/extract-text pass and surface a list of

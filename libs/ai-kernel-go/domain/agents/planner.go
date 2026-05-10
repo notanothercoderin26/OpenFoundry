@@ -8,8 +8,7 @@ import (
 )
 
 // BuildPlan returns a deterministic plan-act-observe sequence.
-// Mirrors Rust src/domain/agents/planner.rs verbatim:
-//   1. analyze-request — always first.
+// analyze-request — always first.
 //   2. retrieve-context — only when knowledge_hits is non-empty.
 //   3. tool-{name} — first N tools where N = max(max_iterations, 1).
 //   4. synthesize-answer — always last.

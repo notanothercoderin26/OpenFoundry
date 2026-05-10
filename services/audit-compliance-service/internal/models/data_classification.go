@@ -1,7 +1,5 @@
 // Data-classification + anomaly-alert types.
 //
-// Mirrors `services/audit-compliance-service/src/models/data_classification.rs`
-// 1:1.
 package models
 
 import (

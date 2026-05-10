@@ -16,7 +16,7 @@ import (
 )
 
 // ToolsHandlers wraps a pgx pool and exposes the tool-registry
-// CRUD surface. Mirrors Rust libs/ai-kernel/src/handlers/tools.rs:
+// CRUD surface:
 //   - GET    list_tools
 //   - POST   create_tool   (validates name + execution_mode)
 //   - PATCH  update_tool   (validates execution_mode if provided)

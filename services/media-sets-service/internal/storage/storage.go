@@ -1,9 +1,4 @@
 // Package storage abstracts the byte-store backing media items.
-// Mirrors the Rust `domain/storage.rs` `BackendMediaStorage` trait
-// with one concrete in-process implementation (HMACBackend) so the
-// service can issue presigned URLs without a real S3 hop in dev /
-// integration tests.
-//
 // Production swaps HMACBackend for an S3 / MinIO backend that signs
 // against the actual bucket; the interface below is what wiring
 // expects.

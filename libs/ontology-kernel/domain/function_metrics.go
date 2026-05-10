@@ -1,7 +1,4 @@
-// Function-package run recorder. Mirrors
-// `libs/ontology-kernel/src/domain/function_metrics.rs` 1:1 — same
-// SQL shape (16 columns, same order, same parameter binding) and same
-// error message format. The id is generated server-side via
+// Function-package run recorder.The id is generated server-side via
 // `uuid.NewV7` to match the Rust `Uuid::now_v7` call site.
 //
 // The Rust source consumes `&AppState` to reach the `sqlx` pool. The

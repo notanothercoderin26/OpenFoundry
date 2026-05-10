@@ -1,6 +1,6 @@
 // Package server hosts the HTTP surface for workflow-automation-service.
 //
-// Mirrors `services/workflow-automation-service/src/main.rs::build_router`:
+// Routes:
 //
 //	/healthz                                            (always-on)
 //	/metrics                                            (always-on)

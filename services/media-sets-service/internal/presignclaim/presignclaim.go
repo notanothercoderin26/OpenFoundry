@@ -1,7 +1,5 @@
 // Package presignclaim mints + verifies the short-lived claim
-// embedded in presigned download URLs. Mirrors the Rust functions
-// `mint_presign_claim` and `verify_presign_claim` in
-// services/media-sets-service/src/domain/cedar.rs.
+// embedded in presigned download URLs.
 //
 // Claim shape:
 //

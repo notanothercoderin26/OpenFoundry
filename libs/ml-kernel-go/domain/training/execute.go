@@ -8,9 +8,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
 )
 
-// Execution bundles the result of a TrainingJob run. Mirrors Rust
-// TrainingExecution struct in libs/ml-kernel/src/domain/training/
-// mod.rs.
+// Execution bundles the result of a TrainingJob run.
 type Execution struct {
 	Trials              []models.TrainingTrial
 	BestHyperparameters json.RawMessage

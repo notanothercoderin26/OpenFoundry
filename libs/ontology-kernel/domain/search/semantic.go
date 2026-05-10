@@ -11,7 +11,6 @@
 //     single `embedding` field). Resolved against the
 //     `ai_providers` PG table by `provider:<uuid>` reference.
 //
-// Mirrors `libs/ontology-kernel/src/domain/search/semantic.rs`.
 
 package search
 

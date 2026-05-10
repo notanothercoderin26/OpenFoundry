@@ -7,7 +7,7 @@ import (
 )
 
 // CallerClearances is the per-request set of marking ids the caller
-// is cleared for. Mirrors libs/auth-middleware/src/markings.rs.
+// is cleared for.
 //
 // Built via [CallerClearancesFromClaims] (resolver-backed) or
 // [CallerClearancesFromClaimsNamesOnly] (legacy string ladder).

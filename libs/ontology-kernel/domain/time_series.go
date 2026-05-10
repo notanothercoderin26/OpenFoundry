@@ -1,7 +1,6 @@
-// Time-series + Quiver Vega-Lite spec builder. Mirrors
-// `libs/ontology-kernel/src/domain/time_series.rs`.
+// Time-series + Quiver Vega-Lite spec builder.
 //
-// Despite the file name (kept for 1:1 parity with the Rust source),
+//Despite the file name (kept for 1:1 parity with the Rust source),
 // this module is the spec-template for the Quiver visual-function
 // surface — pure logic, no IO.
 

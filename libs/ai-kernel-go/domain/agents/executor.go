@@ -20,10 +20,9 @@ import (
 
 // ExecutePlan walks the plan, dispatching each step that names a
 // tool to ExecuteTool and synthesising structured observations for
-// the synthesize-answer / retrieve-context built-in steps. Mirrors
-// libs/ai-kernel/src/domain/agents/executor.rs::execute_plan.
+// the synthesize-answer / retrieve-context built-in steps.
 //
-// `client`, `incomingHeaders`, and `ctx` are forwarded to the HTTP
+//`client`, `incomingHeaders`, and `ctx` are forwarded to the HTTP
 // tool dispatch (http_json + openfoundry_api). All other tool modes
 // are pure-logic and don't touch the network.
 func ExecutePlan(

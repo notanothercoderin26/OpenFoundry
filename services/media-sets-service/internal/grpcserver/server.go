@@ -3,7 +3,7 @@
 //
 // Each RPC delegates to the same service-layer ops the REST handlers
 // use, so behaviour stays in lockstep without a second copy of the
-// SQL. Mirrors services/media-sets-service/src/grpc.rs verbatim.
+// SQL.
 package grpcserver
 
 import (

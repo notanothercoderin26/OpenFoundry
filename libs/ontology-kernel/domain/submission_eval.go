@@ -18,7 +18,6 @@
 //     "criterion failed" string so the user-facing list is never
 //     empty.
 //
-// Mirrors `libs/ontology-kernel/src/domain/submission_eval.rs`.
 
 package domain
 

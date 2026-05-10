@@ -212,8 +212,7 @@ func (r *Repo) InsertInvocation(ctx context.Context, tx pgx.Tx, e LedgerEntry) e
 
 // ParamsHash is the SHA-256 of the canonical-form params JSON. Used
 // to distinguish cache entries for the same pattern with different
-// runtime params (e.g. `resize 64×64` vs `resize 128×128`). Mirrors
-// the Rust `params_hash` helper in handlers/access_patterns.rs.
+// runtime params (e.g. `resize 64×64` vs `resize 128×128`).
 func ParamsHash(params json.RawMessage) string {
 	if len(params) == 0 {
 		return zeroHash

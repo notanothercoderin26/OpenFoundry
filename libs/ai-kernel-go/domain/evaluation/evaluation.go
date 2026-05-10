@@ -2,7 +2,7 @@
 // (cache hit-rate, risk / safety score, cost estimate, benchmark
 // scoring) used by the chat + benchmark + overview handlers.
 //
-// Mirrors libs/ai-kernel/src/domain/evaluation.rs verbatim. All
+// All
 // floating-point math is done in float32 to match the Rust source so
 // snapshot tests stay byte-identical.
 package evaluation

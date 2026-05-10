@@ -1,12 +1,5 @@
 // Source CRUD + run lifecycle helpers for funnel repository.
 //
-// Mirrors the remaining 19 public symbols of
-// `libs/ontology-kernel/src/domain/funnel_repository.rs` that the
-// Phase 1 port left out: source create/update/delete, dataset and
-// pipeline existence checks, health metrics aggregator, run lifecycle
-// (create_run + complete_run + mark_source_ran + fail_run), and the
-// per-source / per-run readers.
-//
 // The Phase 1 file (`funnel_repository.go`) carries `ListRunsForTenant`
 // + the event payload / accumulator / decoder. We re-use those here and
 // only add the surface the funnel handler reaches into.

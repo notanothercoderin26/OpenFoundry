@@ -1,6 +1,5 @@
 // Lexical (token + exact-match) full-text scorer for ontology search.
 //
-// Mirrors `libs/ontology-kernel/src/domain/search/fulltext.rs`.
 // Pure logic, no IO. Used by the hybrid orchestrator in
 // [search.go] as the lexical half of the score.
 

@@ -9,8 +9,6 @@ import (
 // (rendered, missing) — `missing` lists the variable names that
 // weren't found in `variables`. When `strict` is false, missing
 // `{{key}}` placeholders are kept verbatim in the output.
-//
-// Mirrors Rust src/domain/llm/provider.rs::interpolate_template.
 func InterpolateTemplate(template string, variables json.RawMessage, strict bool) (string, []string) {
 	var values map[string]json.RawMessage
 	_ = json.Unmarshal(variables, &values) // empty/non-object → values stays nil

@@ -1,8 +1,7 @@
 // `schedules-tick` is a single-shot CLI that runs one
 // [eventscheduler.Scheduler.Tick] and exits.
 //
-// Mirrors libs/event-scheduler/src/bin/schedules-tick.rs verbatim —
-// same env contract, same exit semantics. Intended deployment is a
+// Intended deployment is a
 // Kubernetes CronJob running every minute.
 //
 // Environment:

@@ -1,17 +1,6 @@
 // Package mediaitems hosts the operation layer for media items.
-// Mirrors services/media-sets-service/src/handlers/items.rs:
-//
-//   - presigned upload (with Foundry path-dedup contract)
-//   - presigned download (Cedar gate + audit emit)
-//   - list (parent-set view gate + per-item read filter)
-//   - get / delete (per-item Cedar gates)
-//   - register-virtual (virtual sets only)
-//   - patch markings (manage gate; granular override)
-//
-// Each mutation runs the relevant Cedar check first, persists inside
-// a pgx transaction, and emits the matching audit envelope through
-// libs/audit-trail's outbox helper. ADR-0022 atomicity preserved end
-// to end.
+// ADR-0022 atomicity preserved end
+//to end.
 package mediaitems
 
 import (

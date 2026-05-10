@@ -2,8 +2,6 @@
 // that drives the `pending → expired` transition for every row in
 // `audit_compliance.approval_requests` whose `expires_at <= now()`.
 //
-// Mirrors `services/workflow-automation-service/src/bin/approvals_timeout_sweep.rs`.
-//
 // Intended deployment: Kubernetes CronJob running every 5 min.
 // Each pod boots, opens a Postgres pool, runs one
 // state_machine.PgStore.TimeoutSweep, applies the Expire event to

@@ -1,9 +1,5 @@
 // Package searchabstraction is the search backend abstraction for
-// OpenFoundry. Mirrors libs/search-abstraction/src/lib.rs:
-//
-//   - Re-exports the canonical SearchBackend trait surface from
-//     storage-abstraction so services can depend on this package
-//     when they only need search.
+// OpenFoundry.
 //   - Ships SanitizeDocType + BackendChoice + the env-driven
 //     factory.
 //

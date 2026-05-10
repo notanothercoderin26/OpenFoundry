@@ -1,5 +1,4 @@
-// Package retention hosts the retention reaper. Mirrors
-// services/media-sets-service/src/domain/retention.rs verbatim.
+// Package retention hosts the retention reaper.
 //
 // Contract (`Advanced media set settings.md`):
 //

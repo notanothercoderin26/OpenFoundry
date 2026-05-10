@@ -3,8 +3,6 @@
 // is one row per `Cron Expression | Meaning` table line; every row
 // seeds an `after` instant and asserts the next fire instant matches
 // the documented description.
-//
-// Mirrors libs/scheduling-cron/tests/cron_doc_examples.rs.
 package schedulingcron_test
 
 import (

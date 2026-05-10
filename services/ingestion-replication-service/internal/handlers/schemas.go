@@ -1,12 +1,11 @@
 package handlers
 
-// Schema validation + history endpoints (Bloque E2). Mirrors
-// services/ingestion-replication-service/src/event_streaming/handlers/schemas.rs.
+// Schema validation + history endpoints (Bloque E2).
 //
-//   POST /api/v1/streaming/streams/{id}/schema:validate
+//  POST /api/v1/streaming/streams/{id}/schema:validate
 //   GET  /api/v1/streaming/streams/{id}/schema/history
 //
-// The Rust implementation delegates fingerprinting and compatibility
+//The Rust implementation delegates fingerprinting and compatibility
 // checks to the event_bus_control::schema_registry crate. We expose
 // the same behaviour through a SchemaRegistry interface so production
 // wiring injects the real registry (BusControlSchemaRegistry, backed

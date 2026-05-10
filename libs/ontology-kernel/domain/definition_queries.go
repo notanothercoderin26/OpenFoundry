@@ -1,6 +1,5 @@
 // Control-plane definition lookups shared by ontology handlers.
 //
-// Mirrors `libs/ontology-kernel/src/domain/definition_queries.rs`.
 // Declarative ontology metadata stays on PostgreSQL during the
 // migration to Cassandra; this module centralises every remaining
 // PG-backed lookup so handlers consume typed Go functions instead of
