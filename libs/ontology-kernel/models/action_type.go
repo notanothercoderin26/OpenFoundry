@@ -46,8 +46,29 @@ type ActionInputField struct {
 // ActionPropertyMapping mirrors `struct ActionPropertyMapping`.
 type ActionPropertyMapping struct {
 	PropertyName string          `json:"property_name"`
-	InputName    *string         `json:"input_name"`
-	Value        json.RawMessage `json:"value"`
+	InputName    *string         `json:"input_name,omitempty"`
+	Value        json.RawMessage `json:"value,omitempty"`
+	// Kind + StaticValue are accepted for backward compatibility with the
+	// historical Rust-era schema (`{"kind":"static","static_value":"X"}`).
+	// When present, UnmarshalJSON normalises them onto Value.
+	Kind        string          `json:"kind,omitempty"`
+	StaticValue json.RawMessage `json:"static_value,omitempty"`
+}
+
+// UnmarshalJSON normalises the legacy `{kind, static_value}` shape into
+// the current `value` field so the rest of the action engine doesn't
+// need to know about the alternate encoding.
+func (m *ActionPropertyMapping) UnmarshalJSON(data []byte) error {
+	type raw ActionPropertyMapping
+	var r raw
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	if len(r.Value) == 0 && len(r.StaticValue) > 0 {
+		r.Value = r.StaticValue
+	}
+	*m = ActionPropertyMapping(r)
+	return nil
 }
 
 // UpdateObjectActionConfig mirrors `struct UpdateObjectActionConfig`.

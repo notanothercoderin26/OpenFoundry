@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/libs/observability"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/handler"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/tabular"
@@ -49,7 +50,7 @@ func NewHTTPServer(cfg *config.Config, deps Deps) *http.Server {
 
 // BuildRouter is exposed for in-process tests (parity with
 // `tower::ServiceExt::oneshot` callers in Rust).
-func BuildRouter(_ *config.Config, deps Deps) http.Handler {
+func BuildRouter(cfg *config.Config, deps Deps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -59,6 +60,10 @@ func BuildRouter(_ *config.Config, deps Deps) http.Handler {
 	if deps.Metrics != nil {
 		r.Method(http.MethodGet, "/metrics", deps.Metrics.Handler())
 	}
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
 
 	saved := handler.New(deps.Pool, deps.Log)
 	r.Route("/api/v1/queries/saved", func(api chi.Router) {
@@ -80,6 +85,14 @@ func BuildRouter(_ *config.Config, deps Deps) http.Handler {
 		r.Route("/api/v1/tabular", func(api chi.Router) {
 			tb.Mount(api)
 		})
+	}
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "sql-bi-gateway",
+		AuthPaths: []string{"/api/v1"},
+		Tags:      []string{"bi"},
+	}); err != nil {
+		panic("sql-bi-gateway-service: capability ingest failed: " + err.Error())
 	}
 
 	return r

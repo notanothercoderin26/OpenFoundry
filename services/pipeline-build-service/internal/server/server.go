@@ -41,6 +41,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/config"
@@ -72,6 +73,10 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
 	if m != nil {
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	// Rust-compatible SparkApplication submission surface from the Rust /api/v1/pipeline nest.
@@ -150,6 +155,14 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
 		v1.Get("/jobs/{rid}/logs/stream", handler.StreamJobLogsV1)
 		v1.Get("/jobs/{rid}/logs/ws", handler.WSJobLogsV1)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "pipeline-build",
+		AuthPaths: []string{"/api/v1/pipeline", "/api/v1", "/v1"},
+		Tags:      []string{"pipelines"},
+	}); err != nil {
+		panic("pipeline-build-service: capability ingest failed: " + err.Error())
+	}
 
 	return r
 }

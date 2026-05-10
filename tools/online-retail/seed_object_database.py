@@ -21,10 +21,11 @@
 import argparse
 import csv
 import json
+import math
 import os
 import sys
 import time
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib import request as urllib_request
@@ -105,7 +106,9 @@ def main() -> int:
             products.setdefault(stockcode, {
                 "stockcode": stockcode,
                 "description": (row.get("description") or "").strip(),
-                "unit_price": price,
+                # `price` is the canonical fixture name (see
+                # tools/online-retail/sql/03-properties-and-link-types.sql).
+                "price": price,
             })
 
             cust_entry = customers.setdefault(customer_id, {
@@ -122,22 +125,48 @@ def main() -> int:
 
             tx_id = f"{row['invoice']}-{stockcode}"
             transactions.append({
-                "id": tx_id,
+                # Canonical fixture names — keep aligned with
+                # tools/online-retail/sql/03-properties-and-link-types.sql
+                # and tools/online-retail/dashboard-app-definition.json so
+                # the property_list / table widgets don't render "—".
+                "transaction_id": tx_id,
                 "invoice": (row.get("invoice") or "").strip(),
                 "stockcode": stockcode,
+                "description": (row.get("description") or "").strip(),
                 "customer_id": customer_id,
                 "quantity": qty,
-                "unit_price": price,
-                "line_total": round(qty * price, 2),
+                "price": price,
+                "revenue": round(qty * price, 2),
                 "invoice_date": invoice_date,
                 "country": (row.get("country") or "").strip(),
+                # `revenue_zscore` and `is_anomaly` are filled in below
+                # once the per-stockcode population is known.
+                "revenue_zscore": 0.0,
+                "is_anomaly": False,
                 # The dashboard "Anomalies" widget filters on review_status.
                 # The Spark anomaly transform flagged a subset; for the seed
                 # we mark high-quantity rows as needs_review so the widget
                 # has rows.
                 "review_status": "needs_review" if qty >= 12 else "clean",
-                "anomaly_reason": "qty>=12" if qty >= 12 else None,
             })
+
+    # Compute revenue z-score per stockcode and flag |z| > 3 as is_anomaly.
+    # Mirrors the Spark anomaly transform contract documented in the
+    # fixture (`abs(z) > 3`).
+    by_sku: "dict[str, list[float]]" = defaultdict(list)
+    for t in transactions:
+        by_sku[t["stockcode"]].append(t["revenue"])
+    sku_stats: dict[str, tuple[float, float]] = {}
+    for sku, rev in by_sku.items():
+        n = len(rev)
+        mean = sum(rev) / n
+        var = sum((r - mean) ** 2 for r in rev) / n if n > 1 else 0.0
+        sku_stats[sku] = (mean, math.sqrt(var))
+    for t in transactions:
+        mean, sd = sku_stats[t["stockcode"]]
+        z = (t["revenue"] - mean) / sd if sd > 0 else 0.0
+        t["revenue_zscore"] = round(z, 4)
+        t["is_anomaly"] = abs(z) > 3
 
     print(f"parsed: {len(transactions)} transactions, "
           f"{len(products)} products, {len(customers)} customers "
@@ -147,7 +176,20 @@ def main() -> int:
     started = time.time()
 
     def post(type_id: str, properties: dict) -> None:
-        http_post(f"{base}/{type_id}/objects", args.token, {"properties": properties})
+        # Retry with exponential back-off when the gateway throttles us.
+        delay = 0.25
+        for attempt in range(6):
+            try:
+                http_post(f"{base}/{type_id}/objects", args.token, {"properties": properties})
+                return
+            except HTTPError as e:
+                if e.code == 429 and attempt < 5:
+                    time.sleep(delay)
+                    delay *= 2
+                    continue
+                raise
+        # Light throttle to stay under the gateway's per-IP token bucket.
+        time.sleep(0.01)
 
     for stockcode, p in products.items():
         post(TYPE_PRODUCT, p)

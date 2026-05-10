@@ -16,6 +16,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/config"
@@ -51,6 +52,10 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handl
 	if m != nil {
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
 
 	if h != nil {
 		r.Route("/api/v1/marketplace", func(api chi.Router) {
@@ -123,6 +128,14 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handl
 			api.Patch("/shares/{id}/sync-status", d.UpdateSyncStatus)
 			api.Post("/queries", d.ConsumeQuery)
 		})
+	}
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "federation",
+		AuthPaths: []string{"/api/v1/marketplace", "/v1/marketplace", "/v1/products", "/api/v1/product-distribution"},
+		Tags:      []string{"marketplace"},
+	}); err != nil {
+		panic("federation-product-exchange-service: capability ingest failed: " + err.Error())
 	}
 
 	return r

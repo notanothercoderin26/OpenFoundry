@@ -16,6 +16,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/config"
@@ -54,6 +55,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.
 	r.Get("/health", healthHandler)
 	r.Get("/version", versionHandler(cfg))
 	r.Method(http.MethodGet, "/metrics", m.Handler())
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
 
 	// /api/v1 is the Go management surface retained for clients that
 	// integrated before the Rust REST Catalog route table was ported.
@@ -158,6 +163,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.
 		api.Post("/namespaces/{namespace}/tables/{table}/alter-schema", h.AlterSchema)
 		api.Post("/transactions/commit", h.MultiTableCommit)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "iceberg-catalog",
+		AuthPaths: []string{"/api/v1", "/v1/iceberg-clients", "/iceberg/v1"},
+		Tags:      []string{"iceberg"},
+	}); err != nil {
+		panic("iceberg-catalog-service: capability ingest failed: " + err.Error())
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{

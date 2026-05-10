@@ -34,6 +34,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/workflow-automation-service/internal/approvals"
@@ -79,6 +80,10 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options) ch
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
 
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	if opts == nil || opts.JWT == nil {
 		return r
 	}
@@ -122,6 +127,14 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options) ch
 			}
 		})
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "workflow",
+		AuthPaths: []string{"/api/v1"},
+		Tags:      []string{"workflows"},
+	}); err != nil {
+		panic("workflow-automation-service: capability ingest failed: " + err.Error())
+	}
 
 	return r
 }

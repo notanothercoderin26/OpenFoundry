@@ -25,6 +25,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/edge-gateway-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/edge-gateway-service/internal/handler"
+	"github.com/openfoundry/openfoundry-go/services/edge-gateway-service/internal/meta"
 	"github.com/openfoundry/openfoundry-go/services/edge-gateway-service/internal/middleware"
 	"github.com/openfoundry/openfoundry-go/services/edge-gateway-service/internal/middleware/ratelimit"
 	"github.com/openfoundry/openfoundry-go/services/edge-gateway-service/internal/proxy"
@@ -61,6 +62,14 @@ func New(ctx context.Context, cfg *config.Config, metrics *observability.Metrics
 	r.Use(chimw.Recoverer)
 	r.Get("/healthz", handler.Health(cfg.Service.Name, cfg.Service.Version))
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
+
+	// Capability aggregator — fans out to every upstream's
+	// `/_meta/capabilities` and returns the merged catalog. Mounted
+	// here (outside the proxy group) so the gateway intercepts the
+	// path instead of forwarding it. 30s cache softens the burst when
+	// many agents poll in lockstep.
+	aggregator := meta.New(cfg.Upstream, 30*time.Second)
+	r.Method(http.MethodGet, "/api/v1/_meta/capabilities", aggregator.Handler())
 
 	// Proxy chain — every other route is forwarded.
 	proxyHandler := proxy.NewHandler(cfg, jwtCfg)

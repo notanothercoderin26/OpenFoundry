@@ -16,6 +16,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	ontologykernel "github.com/openfoundry/openfoundry-go/libs/ontology-kernel"
@@ -48,6 +49,15 @@ func BuildRouter(cfg *config.Config, state *ontologykernel.AppState, m *observab
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(30 * time.Second))
 
+	// Capability registry — exposes `GET /_meta/capabilities` so the
+	// gateway aggregator (services/edge-gateway-service/internal/meta)
+	// can discover what this binary serves. The kernel handlers mount
+	// their routes through chi directly (Mount(r, state)); after the
+	// API surface is fully built we walk it with `IngestChiRoutes`
+	// to synthesise capability entries automatically.
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	// Public probes.
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -72,6 +82,17 @@ func BuildRouter(cfg *config.Config, state *ontologykernel.AppState, m *observab
 		mountFunctions(api, state)
 		mountRules(api, state)
 	})
+
+	// Walk the fully built router and synthesise capabilities for
+	// every ontology route. Curated entries (none yet) would have
+	// taken precedence; auth flag is derived from the path prefix.
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "ontology",
+		AuthPaths: []string{"/api/v1/ontology"},
+		Tags:      []string{"ontology"},
+	}); err != nil {
+		panic("ontology-actions-service: capability ingest failed: " + err.Error())
+	}
 
 	return r
 }

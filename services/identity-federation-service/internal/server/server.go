@@ -14,6 +14,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/config"
@@ -44,6 +45,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
 
 	// /api/v1/auth/* — public (no bearer required, the endpoints
 	// handle credentials themselves).
@@ -119,6 +124,17 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Patch("/restricted-views/{id}", rv.Update)
 		api.Delete("/restricted-views/{id}", rv.Delete)
 	})
+
+	// Synthesise capabilities for every mounted route. Anything
+	// under /api/v1/auth/mfa or /api/v1 (excluding the public
+	// /api/v1/auth) requires a Bearer token.
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "identity",
+		AuthPaths: []string{"/api/v1/auth/mfa", "/api/v1/users", "/api/v1/roles", "/api/v1/groups", "/api/v1/permissions", "/api/v1/api-keys", "/api/v1/restricted-views"},
+		Tags:      []string{"identity"},
+	}); err != nil {
+		panic("identity-federation-service: capability ingest failed: " + err.Error())
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{

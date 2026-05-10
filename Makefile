@@ -52,6 +52,14 @@ gen-sqlc: ## Generate type-safe DB code via sqlc.
 	@command -v sqlc >/dev/null 2>&1 || { echo "sqlc not found — run 'make tools'"; exit 1; }
 	sqlc generate
 
+.PHONY: capabilities-snapshot
+capabilities-snapshot: ## Regenerate docs/agent-automation/stable-capabilities.json.
+	$(GO) run ./tools/capabilities-snapshot
+
+.PHONY: capabilities-check
+capabilities-check: ## Fail if the stable-capabilities snapshot is out of date.
+	$(GO) run ./tools/capabilities-snapshot -check
+
 # ---------------------------------------------------------------------------
 # Build / test / lint
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/media-sets-service/internal/config"
@@ -40,6 +41,10 @@ func New(
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
 
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
@@ -82,6 +87,14 @@ func New(
 		// Retention window PATCH (synchronous reaper hook).
 		api.Patch("/media-sets/{rid}/retention", ret.PatchRetention)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "media-sets",
+		AuthPaths: []string{"/api/v1"},
+		Tags:      []string{"media"},
+	}); err != nil {
+		panic("media-sets-service: capability ingest failed: " + err.Error())
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{

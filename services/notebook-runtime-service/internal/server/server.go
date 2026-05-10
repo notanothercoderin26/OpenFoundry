@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/config"
@@ -58,6 +59,10 @@ func BuildRouterWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observabil
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
 
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
@@ -99,6 +104,14 @@ func BuildRouterWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observabil
 		api.Post("/notepad/documents/{document_id}/presence", state.UpsertPresence)
 		api.Post("/notepad/documents/{document_id}/export", state.ExportDocument)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "notebook-runtime",
+		AuthPaths: []string{"/api/v1"},
+		Tags:      []string{"notebook"},
+	}); err != nil {
+		panic("notebook-runtime-service: capability ingest failed: " + err.Error())
+	}
 
 	return r
 }

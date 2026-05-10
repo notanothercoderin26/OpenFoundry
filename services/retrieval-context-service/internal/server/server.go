@@ -14,6 +14,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/retrieval-context-service/internal/config"
 )
@@ -44,6 +45,18 @@ func buildRouter(cfg *config.Config, m *observability.Metrics) chi.Router {
 	if m != nil {
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "retrieval-context",
+		AuthPaths: nil,
+		Tags:      []string{"ai"},
+	}); err != nil {
+		panic("retrieval-context-service: capability ingest failed: " + err.Error())
+	}
+
 	return r
 }
 

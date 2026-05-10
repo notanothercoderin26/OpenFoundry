@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "generator": "tools/capabilities-snapshot",
+  "entries": [
+    {
+      "id": "_meta.capabilities.list",
+      "service": "agent-runtime-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "ai-evaluation-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "application-composition-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "audit-compliance-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "authorization-policy-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "code-repository-review-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "connector-management-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "dataset-versioning-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "entity-resolution-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "federation-product-exchange-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "iceberg-catalog-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "identity-federation-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "ingestion-replication-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "lineage-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "llm-catalog-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "media-sets-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "media-transform-runtime-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "model-catalog-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "model-deployment-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "notebook-runtime-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "notification-alerting-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "object-database-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "ontology-actions-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "ontology-definition-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "ontology-exploratory-analysis-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "ontology-indexer",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "ontology-query-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "pipeline-build-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "reindex-coordinator-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "retrieval-context-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "sdk-generation-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "solution-design-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "sql-bi-gateway-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "telemetry-governance-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "tenancy-organizations-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "workflow-automation-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    }
+  ]
+}

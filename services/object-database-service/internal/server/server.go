@@ -20,6 +20,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/object-database-service/internal/config"
@@ -66,6 +67,11 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
 
+	// Capability registry — M1.1. Surface internal-only routes too
+	// (this service has no per-route auth; the gateway gates access).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	r.Route("/api/v1/object-database", func(api chi.Router) {
 		api.Get("/status", h.Status)
 		api.Get("/objects/{tenant}/{object_id}", h.GetObject)
@@ -89,6 +95,15 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 		api.Patch("/{object_id}", h.UpdateObjectByOntologyType)
 		api.Delete("/{object_id}", h.DeleteObjectByOntologyType)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix: "object-database",
+		// No per-route auth on this service — leave RequiresAuth=false.
+		AuthPaths: nil,
+		Tags:      []string{"objects"},
+	}); err != nil {
+		panic("object-database-service: capability ingest failed: " + err.Error())
+	}
 
 	return r
 }

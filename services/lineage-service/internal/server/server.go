@@ -20,6 +20,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/config"
@@ -67,6 +68,10 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options) ch
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
 
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	if opts != nil && opts.JWT != nil && opts.Handlers != nil {
 		r.Route("/api/v1/lineage", func(api chi.Router) {
 			api.Use(authmw.Middleware(opts.JWT))
@@ -80,6 +85,14 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options) ch
 			api.Post("/workflows/{id}/sync", opts.Handlers.SyncWorkflowLineage)
 			api.Delete("/workflows/{id}", opts.Handlers.DeleteWorkflowLineage)
 		})
+	}
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "lineage",
+		AuthPaths: []string{"/api/v1/lineage"},
+		Tags:      []string{"lineage"},
+	}); err != nil {
+		panic("lineage-service: capability ingest failed: " + err.Error())
 	}
 
 	return r

@@ -17,6 +17,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/ontology-exploratory-analysis-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/ontology-exploratory-analysis-service/internal/handlers"
@@ -66,12 +67,24 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, h *handlers.Handl
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
 
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	if h != nil {
 		h.MountViews(r)
 		h.MountMaps(r)
 		if h.Actions != nil {
 			h.MountWriteback(r)
 		}
+	}
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "ontology-eda",
+		AuthPaths: []string{"/api/v1"},
+		Tags:      []string{"ontology"},
+	}); err != nil {
+		panic("ontology-exploratory-analysis-service: capability ingest failed: " + err.Error())
 	}
 
 	return r

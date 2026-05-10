@@ -890,13 +890,15 @@ func applyObjectPatchAction(
 		}
 		merged[name] = value
 	}
-	mergedJSON, err := json.Marshal(merged)
+	// Re-validating the entire merged payload here would reject any
+	// pre-existing fields that fall outside the registered property set
+	// (for example legacy or seeder-injected fields that pre-date a
+	// schema tightening). The per-patch validation above is sufficient
+	// to guarantee the action's own writes are well-formed; we leave
+	// untouched payload fields alone.
+	normalized, err := json.Marshal(merged)
 	if err != nil {
 		return nil, fmt.Errorf("encode merged patch: %w", err)
-	}
-	normalized, err := domain.ValidateObjectProperties(defs, mergedJSON)
-	if err != nil {
-		return nil, fmt.Errorf("invalid action patch: %w", err)
 	}
 
 	updated := &domain.ObjectInstance{

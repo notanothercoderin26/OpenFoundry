@@ -14,6 +14,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/config"
@@ -42,6 +43,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, sub *Subsystems, m *observab
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
 
 	// ── Audit-events append (anonymous; gateway / in-cluster posts) ──
 	if sub.Audit != nil {
@@ -129,6 +134,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, sub *Subsystems, m *observab
 			api.Get("/saga-audit-events", sub.Audit.ListSagaAuditEvents)
 		}
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "audit-compliance",
+		AuthPaths: []string{"/api/v1"},
+		Tags:      []string{"audit"},
+	}); err != nil {
+		panic("audit-compliance-service: capability ingest failed: " + err.Error())
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{

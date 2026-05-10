@@ -14,6 +14,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/config"
@@ -51,6 +52,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
 
 	// Rust main.rs builds some route groups under nested Axum routers before mounting
 	// them below /api/v1. The parity audit reports those inner groups separately,
@@ -152,6 +157,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		iceberg.Get("/namespaces/{namespace}/tables", h.IcebergListTables)
 		iceberg.Get("/namespaces/{namespace}/tables/{table}", h.IcebergLoadTable)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "connector-management",
+		AuthPaths: []string{"/api/v1", "/data-connection"},
+		Tags:      []string{"data-connection"},
+	}); err != nil {
+		panic("connector-management-service: capability ingest failed: " + err.Error())
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{

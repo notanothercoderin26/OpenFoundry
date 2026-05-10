@@ -86,3 +86,4 @@ docs_original_palantir_foundry/
 
 # ArgoCD: real Slack creds (only the .example.yaml is checked in)
 infra/argocd/notifications/slack-secret.yaml
+/capabilities-snapshot

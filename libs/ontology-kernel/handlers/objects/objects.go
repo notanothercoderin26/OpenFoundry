@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gocql/gocql"
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
@@ -182,10 +183,11 @@ func AppendObjectRevision(
 		return fmt.Errorf("encode revision payload: %w", err)
 	}
 	objectID := storage.ObjectId(object.ID.String())
-	actionID, err := uuid.NewV7()
-	if err != nil {
-		return fmt.Errorf("uuid v7 for revision id: %w", err)
-	}
+	// The action store is backed by Cassandra in production, where
+	// `action_id` is a TimeUUID column. Mint a v1 UUID here; v7 fails
+	// the gocql TimeUUID version check ("Invalid version for TimeUUID
+	// type: 0x7").
+	actionID := gocql.TimeUUID()
 	return state.Stores.Actions.Append(ctx, storage.ActionLogEntry{
 		Tenant:       domain.TenantFromClaims(claims),
 		ActionID:     actionID.String(),

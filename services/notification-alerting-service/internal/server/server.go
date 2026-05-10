@@ -13,6 +13,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/notification-alerting-service/internal/config"
@@ -50,6 +51,10 @@ func New(d Deps) *http.Server {
 	})
 	r.Method(http.MethodGet, "/metrics", d.Metrics.Handler())
 
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(d.Config.Service.Name, d.Config.Service.Version)
+	caps.Mount(r)
+
 	// /api/v1 — websocket upgrade is unauthenticated at the bearer layer
 	// (it carries its own short-lived ticket as a query param).
 	r.Route("/api/v1", func(api chi.Router) {
@@ -69,6 +74,14 @@ func New(d Deps) *http.Server {
 
 	// /internal — no auth; restrict at network layer.
 	r.Post("/internal/notifications", sendH.Internal)
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "notification",
+		AuthPaths: []string{"/api/v1/notifications"},
+		Tags:      []string{"notifications"},
+	}); err != nil {
+		panic("notification-alerting-service: capability ingest failed: " + err.Error())
+	}
 
 	addr := d.Config.Server.Host + ":" + itoa(int(d.Config.Server.Port))
 	return &http.Server{

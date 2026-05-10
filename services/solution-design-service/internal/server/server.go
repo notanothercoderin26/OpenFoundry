@@ -14,6 +14,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/solution-design-service/internal/config"
@@ -47,6 +48,10 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
 
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	r.Route("/api/v1/solution-design", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 
@@ -56,6 +61,14 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 		api.Get("/{id}/references", h.ListSecondary)
 		api.Post("/{id}/references", h.CreateSecondary)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "solution-design",
+		AuthPaths: []string{"/api/v1/solution-design"},
+		Tags:      []string{"solution-design"},
+	}); err != nil {
+		panic("solution-design-service: capability ingest failed: " + err.Error())
+	}
 
 	return r
 }

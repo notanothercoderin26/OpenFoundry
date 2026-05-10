@@ -14,6 +14,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/handlers"
@@ -54,6 +55,10 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
 
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	r.Post("/v1/code-security/scans", h.CreateCodeSecurityScan)
 
 	r.Route("/v1/global-branches", func(api chi.Router) {
@@ -64,6 +69,14 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 		api.Get("/{id}/resources", h.ListResources)
 		api.Post("/{id}/promote", h.Promote)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "code-review",
+		AuthPaths: []string{"/v1/global-branches"},
+		Tags:      []string{"code"},
+	}); err != nil {
+		panic("code-repository-review-service: capability ingest failed: " + err.Error())
+	}
 
 	return r
 }

@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError } from '@/lib/api/client';
 import { getPublishedApp, type AppDefinition, type AppEmbedInfo } from '@/lib/api/apps';
 import { AppRenderer } from '@/lib/components/apps/AppRenderer';
+import { WorkshopRuntimeProvider } from '@/lib/components/apps/widgets';
 import { ErrorBanner } from '@/lib/components/ErrorBanner';
 import { LoadingState } from '@/lib/components/LoadingState';
 
@@ -239,16 +240,18 @@ export function AppRuntimePage() {
         )}
 
         {status === 'ready' && app && (
-          <AppRenderer
-            app={app}
-            mode="published"
-            initialPageId={initialPageId}
-            initialRuntimeParameters={runtimeParameters}
-            publishedVersionNumber={meta.versionNumber}
-            publishedAt={meta.publishedAt}
-            embed={meta.embed}
-            chrome="immersive"
-          />
+          <WorkshopRuntimeProvider app={app}>
+            <AppRenderer
+              app={app}
+              mode="published"
+              initialPageId={initialPageId}
+              initialRuntimeParameters={runtimeParameters}
+              publishedVersionNumber={meta.versionNumber}
+              publishedAt={meta.publishedAt}
+              embed={meta.embed}
+              chrome="immersive"
+            />
+          </WorkshopRuntimeProvider>
         )}
       </main>
     </div>

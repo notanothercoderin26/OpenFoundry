@@ -35,7 +35,8 @@ const NO_OP_RUNTIME: RuntimeApi = {
   onButtonClick: () => undefined,
 };
 
-const WorkshopRuntimeContext = createContext<RuntimeApi>(NO_OP_RUNTIME);
+export const WorkshopRuntimeContext = createContext<RuntimeApi>(NO_OP_RUNTIME);
+export type { RuntimeApi };
 
 function useRuntime(): RuntimeApi {
   return useContext(WorkshopRuntimeContext);
@@ -183,7 +184,7 @@ interface ButtonParameterDefault {
   static_value?: string;
 }
 
-interface ButtonGroupButton {
+export interface ButtonGroupButton {
   id: string;
   label: string;
   on_click_kind: ButtonOnClickKind;
@@ -390,7 +391,7 @@ interface VariableStaticFilter {
   value: unknown;
 }
 
-interface WorkshopVariable {
+export interface WorkshopVariable {
   id: string;
   kind: VariableKind;
   name: string;
@@ -430,7 +431,7 @@ const FILTER_COMPONENT_LABEL: Record<FilterComponent, string> = {
   range_date: 'Date range',
 };
 
-function readWorkshopVariables(settings: AppSettings | null | undefined): WorkshopVariable[] {
+export function readWorkshopVariables(settings: AppSettings | null | undefined): WorkshopVariable[] {
   const raw = (settings as unknown as { workshop_variables?: WorkshopVariable[] } | null | undefined)?.workshop_variables;
   return Array.isArray(raw) ? raw : [];
 }
@@ -2065,7 +2066,7 @@ function ColumnConfiguration({
   );
 }
 
-function ObjectTableWidgetView({ widget, variables }: { widget: AppWidget; variables: WorkshopVariable[] }) {
+export function ObjectTableWidgetView({ widget, variables }: { widget: AppWidget; variables: WorkshopVariable[] }) {
   const sourceVariableId = (widget.props as { source_variable_id?: string })?.source_variable_id ?? '';
   const sourceVariable = variables.find((v) => v.id === sourceVariableId) ?? null;
   const objectTypeId = sourceVariable?.object_type_id ?? (widget.props as { object_type_id?: string })?.object_type_id ?? '';
@@ -2274,7 +2275,7 @@ function FilterListGlyph() {
   );
 }
 
-function FilterListWidgetView({ widget }: { widget: AppWidget }) {
+export function FilterListWidgetView({ widget }: { widget: AppWidget }) {
   const filters = ((widget.props as { filters?: FilterEntry[] })?.filters) ?? [];
   const layout = ((widget.props as { layout?: string })?.layout) ?? 'vertical';
   const runtime = useRuntime();
@@ -2779,7 +2780,7 @@ function SplitGlyph({ dir }: { dir: "above" | "below" | "left" | "right" }) {
   );
 }
 
-function ObjectSetTitleWidgetView({ widget, variables = [], objectTypes = [] }: { widget: AppWidget; variables?: WorkshopVariable[]; objectTypes?: ObjectType[] }) {
+export function ObjectSetTitleWidgetView({ widget, variables = [], objectTypes = [] }: { widget: AppWidget; variables?: WorkshopVariable[]; objectTypes?: ObjectType[] }) {
   const sourceVariableId = (widget.props as { source_variable_id?: string })?.source_variable_id ?? "";
   const variable = variables.find((v) => v.id === sourceVariableId) ?? null;
   const objectTypeId = variable?.object_type_id ?? "";
@@ -2813,7 +2814,7 @@ function ObjectSetTitleWidgetView({ widget, variables = [], objectTypes = [] }: 
   );
 }
 
-function ButtonGroupWidgetView({ widget }: { widget: AppWidget }) {
+export function ButtonGroupWidgetView({ widget }: { widget: AppWidget }) {
   const buttons: ButtonGroupButton[] = ((widget.props as { buttons?: ButtonGroupButton[] })?.buttons) ?? [];
   const fillHorizontal = Boolean((widget.props as { fill_horizontal?: boolean })?.fill_horizontal);
   const orientation = (widget.props as { orientation?: "horizontal" | "vertical" })?.orientation ?? "horizontal";
@@ -2840,7 +2841,7 @@ function ButtonGroupWidgetView({ widget }: { widget: AppWidget }) {
   );
 }
 
-function PropertyListWidgetView({ widget, variables }: { widget: AppWidget; variables: WorkshopVariable[] }) {
+export function PropertyListWidgetView({ widget, variables }: { widget: AppWidget; variables: WorkshopVariable[] }) {
   const sourceVariableId = (widget.props as { source_variable_id?: string })?.source_variable_id ?? "";
   const variable = variables.find((v) => v.id === sourceVariableId) ?? null;
   const items: PropertyListItem[] = ((widget.props as { items?: PropertyListItem[] })?.items) ?? [];
@@ -3546,7 +3547,7 @@ function readPieProps(widget: AppWidget) {
   };
 }
 
-function ChartPieWidgetView({ widget, variables }: { widget: AppWidget; variables: WorkshopVariable[] }) {
+export function ChartPieWidgetView({ widget, variables }: { widget: AppWidget; variables: WorkshopVariable[] }) {
   const cfg = readPieProps(widget);
   const sourceVariable = variables.find((v) => v.id === cfg.sourceVariableId) ?? null;
   const objectTypeId = sourceVariable?.object_type_id ?? cfg.objectTypeId ?? '';
@@ -3893,7 +3894,7 @@ function readXyConfig(widget: AppWidget) {
   };
 }
 
-function ChartXyWidgetView({ widget, variables }: { widget: AppWidget; variables: WorkshopVariable[] }) {
+export function ChartXyWidgetView({ widget, variables }: { widget: AppWidget; variables: WorkshopVariable[] }) {
   const cfg = readXyConfig(widget);
   const layer = cfg.layers[0] ?? null;
   const sourceVariable = layer ? variables.find((v) => v.id === layer.source_variable_id) ?? null : null;
@@ -4302,7 +4303,7 @@ function PreviewRuntime({
   );
 }
 
-function ActionFormModal({
+export function ActionFormModal({
   button,
   variables = [],
   activeObjects = {},

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/telemetry-governance-service/internal/config"
@@ -36,6 +37,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, pool *pgxpool.Pool, m *obser
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
 
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	smH := &streamingmonitors.Handlers{Repo: &streamingmonitors.Repo{Pool: pool}}
 
 	r.Route("/api/v1", func(api chi.Router) {
@@ -45,6 +50,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, pool *pgxpool.Pool, m *obser
 		}
 		mountStreamingMonitors(api, smH)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "telemetry-governance",
+		AuthPaths: []string{"/api/v1"},
+		Tags:      []string{"telemetry"},
+	}); err != nil {
+		panic("telemetry-governance-service: capability ingest failed: " + err.Error())
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{

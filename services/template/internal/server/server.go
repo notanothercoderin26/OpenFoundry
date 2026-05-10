@@ -14,6 +14,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/template/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/template/internal/handler"
@@ -39,15 +40,25 @@ func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger) (
 	r.Use(chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
 
+	// Capability registry — every route that should be discoverable by
+	// agents (see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md
+	// M1.1) is registered through `caps.Register` instead of the bare
+	// chi `Get`/`Post` helpers. The catalog itself is mounted at
+	// `GET /_meta/capabilities` and self-registers, so it appears in
+	// the snapshot.
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+
 	// Public endpoints (no auth).
 	r.Get("/healthz", handler.Health(cfg.Service.Name, cfg.Service.Version))
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
+	caps.Mount(r)
 
-	// Authenticated API mount.
-	r.Route("/api", func(api chi.Router) {
-		api.Use(authmw.Middleware(jwtCfg))
-		mountAPIRoutes(api)
-	})
+	// Authenticated API mount. We use `With` (not `Route`) so the
+	// returned router is still rooted at "/", which keeps the paths in
+	// the capability catalog absolute (e.g. `/api/whoami`, not
+	// `/whoami`). New routes go through `mountAPIRoutes`.
+	api := r.With(authmw.Middleware(jwtCfg))
+	mountAPIRoutes(api, caps)
 
 	shutdownTimeout := 15 * time.Second
 	if d, err := time.ParseDuration(cfg.Server.ShutdownTimeout); err == nil {
@@ -97,11 +108,22 @@ func (s *Server) shutdown() error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// mountAPIRoutes is the single hook real services extend.
-func mountAPIRoutes(r chi.Router) {
-	r.Get("/whoami", func(w http.ResponseWriter, req *http.Request) {
+// mountAPIRoutes is the single hook real services extend. New routes
+// MUST be added through `caps.Register` (or `MustRegister`) so they
+// show up in `/_meta/capabilities`. Use bare `chi` only for routes
+// that are deliberately invisible to agents (e.g. legacy redirects).
+func mountAPIRoutes(r chi.Router, caps *capabilities.Registry) {
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "template.whoami.get",
+		Method:       http.MethodGet,
+		Path:         "/api/whoami",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Echo the calling principal's email — reference handler.",
+		Tags:         []string{"identity", "template"},
+	}, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		c, _ := authmw.FromContext(req.Context())
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_, _ = w.Write([]byte(`{"email":"` + c.Email + `"}`))
-	})
+	}))
 }

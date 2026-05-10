@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/domain/serving"
 	mlhandlers "github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/handlers"
 	mlmodels "github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
@@ -78,8 +79,19 @@ func buildRouterE(cfg *config.Config, m *observability.Metrics) (chi.Router, err
 	if m != nil {
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
 	mountDeploymentRoutes(r, "/api/v1/deployments", deploymentHandler)
 	mountDeploymentRoutes(r, "/api/v1/model-deployment/deployments", deploymentHandler)
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "model-deployment",
+		AuthPaths: []string{"/api/v1"},
+		Tags:      []string{"models"},
+	}); err != nil {
+		panic("model-deployment-service: capability ingest failed: " + err.Error())
+	}
 	return r, nil
 }
 

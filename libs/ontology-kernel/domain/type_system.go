@@ -90,7 +90,10 @@ func rustSliceDebug(values []string) string {
 func ValidatePropertyValue(propertyType string, value json.RawMessage) error {
 	trimmed := bytes.TrimSpace(value)
 	switch propertyType {
-	case "string":
+	case "string", "enum":
+		// `enum` is a string with a constrained value set; the allowed
+		// values are enforced by validation_rules.enum_values further up
+		// the stack. Here we only check the JSON shape.
 		if !isJSONString(trimmed) {
 			return fmt.Errorf("expected string value")
 		}

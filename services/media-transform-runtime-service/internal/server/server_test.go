@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/openfoundry/openfoundry-go/libs/observability"
+	"github.com/openfoundry/openfoundry-go/services/media-transform-runtime-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/media-transform-runtime-service/internal/runtime"
 )
 
@@ -37,7 +38,10 @@ func makeSolidPNG(t *testing.T, w, h int, c color.RGBA) []byte {
 
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(BuildRouter(observability.NewMetrics()))
+	cfg := &config.Config{}
+	cfg.Service.Name = "media-transform-runtime-service"
+	cfg.Service.Version = "test"
+	return httptest.NewServer(BuildRouter(cfg, observability.NewMetrics()))
 }
 
 func TestHealthzPlainText(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/model-catalog-service/internal/config"
@@ -47,6 +48,10 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
 
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	r.Route("/api/v1/model-catalog", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 
@@ -66,6 +71,14 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 		api.Get("/objectives", h.ListObjectives)
 		api.Post("/objectives", h.CreateObjective)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "model-catalog",
+		AuthPaths: []string{"/api/v1/model-catalog"},
+		Tags:      []string{"models"},
+	}); err != nil {
+		panic("model-catalog-service: capability ingest failed: " + err.Error())
+	}
 
 	return r
 }

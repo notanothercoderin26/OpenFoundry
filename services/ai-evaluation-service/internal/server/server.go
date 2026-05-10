@@ -16,6 +16,7 @@ import (
 
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/llm"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/ai-evaluation-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/ai-evaluation-service/internal/handlers"
@@ -54,11 +55,23 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, opts Options) chi
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
 
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
 	h := &handlers.Handlers{Pool: opts.Pool, Runtime: opts.Runtime}
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Post("/evaluations/benchmark", h.BenchmarkProviders)
 		api.Post("/guardrails/evaluate", h.EvaluateGuardrails)
 	})
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "ai-evaluation",
+		AuthPaths: []string{"/api/v1"},
+		Tags:      []string{"ai"},
+	}); err != nil {
+		panic("ai-evaluation-service: capability ingest failed: " + err.Error())
+	}
 
 	return r
 }

@@ -15,6 +15,7 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -22,8 +23,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/gocql/gocql"
 	"github.com/google/uuid"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/object-database-service/internal/storage"
 )
 
@@ -341,9 +344,30 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	matched := make([]ontologyObject, 0)
+	// `objects_by_type` is append-only: every Put fans out a new row
+	// keyed on (type_id, updated_at, object_id). After an in-place
+	// property update the table holds both the old and the new
+	// summary for the same object_id. Dedupe by keeping the most
+	// recently updated row per object_id before applying the filter
+	// — otherwise stale `properties_summary` values pollute counts.
+	latestByID := map[storage.ObjectId]int{}
 	for i := range full.Items {
 		obj := &full.Items[i]
+		if prev, ok := latestByID[obj.ID]; ok {
+			if full.Items[prev].UpdatedAtMs >= obj.UpdatedAtMs {
+				continue
+			}
+		}
+		latestByID[obj.ID] = i
+	}
+	deduped := make([]int, 0, len(latestByID))
+	for _, idx := range latestByID {
+		deduped = append(deduped, idx)
+	}
+
+	matched := make([]ontologyObject, 0)
+	for _, idx := range deduped {
+		obj := &full.Items[idx]
 		props := map[string]any{}
 		if len(obj.Payload) > 0 {
 			_ = json.Unmarshal(obj.Payload, &props)
@@ -399,13 +423,33 @@ func (h *Handlers) CreateObjectByOntologyType(w http.ResponseWriter, r *http.Req
 		return
 	}
 	now := time.Now().UnixMilli()
-	id := storage.ObjectId(uuid.NewString())
+	// Mint a TimeUUID (UUIDv1) so the value is accepted by the Cassandra
+	// `object_id timeuuid` column. UUIDv4 from google/uuid would be rejected by
+	// gocql with "Invalid version for TimeUUID type".
+	id := storage.ObjectId(gocql.TimeUUID().String())
+	owner := storage.OwnerId(strings.TrimSpace(string(tenant)))
+	if claims, ok := authmw.FromContext(r.Context()); ok && claims != nil {
+		owner = storage.OwnerId(claims.Sub.String())
+	} else if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
+		// The gateway already validated the JWT; here we only decode the
+		// subject (UUID) to use as the object owner. Best-effort — if it
+		// fails we fall through to the deterministic PoC fallback below.
+		if sub := jwtSubjectUnverified(strings.TrimPrefix(hdr, "Bearer ")); sub != "" {
+			owner = storage.OwnerId(sub)
+		}
+	}
+	if _, err := uuid.Parse(string(owner)); err != nil {
+		// Deterministic PoC owner UUID — only used when the request is
+		// unauthenticated (e.g. seed scripts or /healthz introspection).
+		owner = storage.OwnerId("00000000-0000-1000-8000-000000000001")
+	}
 	obj := storage.Object{
 		Tenant:      tenant,
 		ID:          id,
 		TypeID:      typeID,
 		Version:     1,
 		Payload:     payload,
+		Owner:       &owner,
 		CreatedAtMs: &now,
 		UpdatedAtMs: now,
 	}
@@ -414,4 +458,25 @@ func (h *Handlers) CreateObjectByOntologyType(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusCreated, toOntologyObject(&obj))
+}
+
+// jwtSubjectUnverified extracts the `sub` claim from a JWT without
+// validating its signature. The gateway already authenticated the
+// request; here we only need the user id to populate Object.Owner.
+func jwtSubjectUnverified(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Sub)
 }

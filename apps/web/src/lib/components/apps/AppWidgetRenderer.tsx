@@ -9,6 +9,7 @@ import { MediaPreviewWidget } from '@/lib/components/app-builder/MediaPreviewWid
 import { MediaUploaderWidget } from '@/lib/components/app-builder/MediaUploaderWidget';
 import { ChartWidget } from '@/lib/components/dashboard/ChartWidget';
 import { TableWidget } from '@/lib/components/dashboard/TableWidget';
+import { getWidget } from '@/lib/components/apps/widgets';
 
 interface Props {
   widget: AppWidget;
@@ -518,7 +519,7 @@ export function AppWidgetRenderer({
         <div className="min-h-0 flex-1"><MediaPreviewWidget widget={widget} runtimeParameters={runtimeParameters} /></div>
       ) : widget.widget_type === 'media_uploader' ? (
         <div className="min-h-0 flex-1"><MediaUploaderWidget widget={widget} runtimeParameters={runtimeParameters} onAction={onAction} /></div>
-      ) : widget.widget_type === 'container' ? (
+      ) : widget.widget_type === 'container' || widget.widget_type === 'section' ? (
         <div className="flex flex-1 flex-col gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
           <div className="text-sm font-medium text-slate-600">{stringProp('title', widget.title)}</div>
           {childWidgets.length === 0 ? (
@@ -539,9 +540,25 @@ export function AppWidgetRenderer({
             </div>
           )}
         </div>
-      ) : (
-        <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-300 text-sm text-slate-500">Unsupported widget type.</div>
-      )}
+      ) : (() => {
+        // Registry fallback: lookup the widget_type in the shared registry
+        // so that Workshop widgets (object_set_title, chart_pie, chart_xy,
+        // object_table, filter_list, property_list, button_group) render
+        // here too. Adding a new widget type is one register() call —
+        // both editor preview and published runtime pick it up.
+        const entry = getWidget(widget.widget_type);
+        if (entry) {
+          const Component = entry.Component;
+          return (
+            <div className="min-h-0 flex-1">
+              <Component widget={widget} />
+            </div>
+          );
+        }
+        return (
+          <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-300 text-sm text-slate-500">Unsupported widget type.</div>
+        );
+      })()}
 
       {dataset && widget.binding?.source_type === 'dataset' && (
         <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">Dataset binding currently exposes metadata while row preview is still limited in the dataset service.</div>

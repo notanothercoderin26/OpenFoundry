@@ -16,6 +16,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/reindex-coordinator-service/internal/config"
 )
@@ -47,6 +48,18 @@ func buildRouter(cfg *config.Config, m *observability.Metrics) chi.Router {
 	r.Get("/healthz", healthHandler)
 	if m != nil {
 		r.Method(http.MethodGet, "/metrics", m.Handler())
+	}
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "reindex-coordinator",
+		AuthPaths: nil,
+		Tags:      []string{"search"},
+	}); err != nil {
+		panic("reindex-coordinator-service: capability ingest failed: " + err.Error())
 	}
 
 	return r

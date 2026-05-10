@@ -13,12 +13,13 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/openfoundry/openfoundry-go/libs/observability"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/services/media-transform-runtime-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/media-transform-runtime-service/internal/runtime"
 )
 
 func New(cfg *config.Config, m *observability.Metrics) *http.Server {
-	r := buildRouter(m)
+	r := buildRouter(cfg, m)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -28,11 +29,11 @@ func New(cfg *config.Config, m *observability.Metrics) *http.Server {
 }
 
 // BuildRouter is exposed for tests.
-func BuildRouter(m *observability.Metrics) http.Handler {
-	return buildRouter(m)
+func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
+	return buildRouter(cfg, m)
 }
 
-func buildRouter(m *observability.Metrics) chi.Router {
+func buildRouter(cfg *config.Config, m *observability.Metrics) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(60 * time.Second))
@@ -45,6 +46,18 @@ func buildRouter(m *observability.Metrics) chi.Router {
 	r.Post("/transform", runtime.TransformHandler)
 	if m != nil {
 		r.Method(http.MethodGet, "/metrics", m.Handler())
+	}
+
+	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.Mount(r)
+
+	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
+		IDPrefix:  "media-transform",
+		AuthPaths: nil,
+		Tags:      []string{"media"},
+	}); err != nil {
+		panic("media-transform-runtime-service: capability ingest failed: " + err.Error())
 	}
 
 	return r
