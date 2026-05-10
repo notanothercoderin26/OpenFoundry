@@ -22,7 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
+	"net/http"
 	"time"
 
 	"github.com/gocql/gocql"
@@ -99,29 +99,37 @@ func Kafka(name string, brokers []string) capabilities.DependencyProbe {
 }
 
 // HTTP returns a probe that issues a GET against `url` and accepts
-// any 2xx/3xx as healthy. Useful for upstream sidecar dependencies
-// (Lakekeeper, OPA, vector store control plane, …).
-func HTTP(name, url string) capabilities.DependencyProbe {
+// any 2xx/3xx as healthy. `kind` lets callers report a richer label
+// than "http" (e.g. "lakekeeper", "opa", "jwks") in /_meta/health.
+func HTTP(name, kind, url string) capabilities.DependencyProbe {
+	if kind == "" {
+		kind = "http"
+	}
 	return capabilities.DependencyProbe{
 		Name: name,
-		Kind: "http",
+		Kind: capabilities.DependencyKind(kind),
 		Probe: func(ctx context.Context) error {
 			if url == "" {
 				return errors.New("no url configured")
 			}
-			d := net.Dialer{Timeout: deadlineFromCtx(ctx, 800*time.Millisecond)}
-			// We avoid net/http here to keep the probe dependency-free
-			// at the TCP layer — most failures we care about are
-			// connectivity issues, not HTTP semantics.
-			conn, err := d.DialContext(ctx, "tcp", hostPortFromURL(url))
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 			if err != nil {
 				return err
 			}
-			_ = conn.Close()
+			resp, err := httpProbeClient.Do(req)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode >= 400 {
+				return fmt.Errorf("http %s", resp.Status)
+			}
 			return nil
 		},
 	}
 }
+
+var httpProbeClient = &http.Client{Timeout: 2 * time.Second}
 
 func deadlineFromCtx(ctx context.Context, fallback time.Duration) time.Duration {
 	if dl, ok := ctx.Deadline(); ok {
@@ -130,32 +138,4 @@ func deadlineFromCtx(ctx context.Context, fallback time.Duration) time.Duration 
 		}
 	}
 	return fallback
-}
-
-// hostPortFromURL extracts host:port from the most common URL shapes
-// without pulling net/url. Falls back to the raw input.
-func hostPortFromURL(raw string) string {
-	s := raw
-	for _, prefix := range []string{"http://", "https://"} {
-		if len(s) >= len(prefix) && s[:len(prefix)] == prefix {
-			s = s[len(prefix):]
-			break
-		}
-	}
-	if i := indexByte(s, '/'); i >= 0 {
-		s = s[:i]
-	}
-	if i := indexByte(s, ':'); i < 0 {
-		return s + ":80"
-	}
-	return s
-}
-
-func indexByte(s string, c byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
 }

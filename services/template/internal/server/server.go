@@ -28,7 +28,7 @@ type Server struct {
 }
 
 // New builds a Server with all middleware and routes mounted.
-func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger) (*Server, error) {
+func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger, probes ...capabilities.DependencyProbe) (*Server, error) {
 	jwtCfg := authmw.NewJWTConfig(cfg.JWT.Secret).
 		WithIssuer(cfg.JWT.Issuer).
 		WithAudience(cfg.JWT.Audience)
@@ -51,6 +51,9 @@ func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger) (
 	// Public endpoints (no auth).
 	r.Get("/healthz", handler.Health(cfg.Service.Name, cfg.Service.Version))
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	// Authenticated API mount. We use `With` (not `Route`) so the

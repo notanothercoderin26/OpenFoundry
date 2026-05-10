@@ -23,7 +23,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/config"
 )
 
-func New(cfg *config.Config, m *observability.Metrics) *http.Server {
+func New(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(15 * time.Second))
@@ -36,6 +36,9 @@ func New(cfg *config.Config, m *observability.Metrics) *http.Server {
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{

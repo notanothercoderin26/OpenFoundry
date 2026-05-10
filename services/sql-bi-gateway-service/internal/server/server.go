@@ -39,18 +39,18 @@ type Deps struct {
 
 // NewHTTPServer builds the chi-backed *http.Server bound to the
 // healthz port.
-func NewHTTPServer(cfg *config.Config, deps Deps) *http.Server {
+func NewHTTPServer(cfg *config.Config, deps Deps, probes ...capabilities.DependencyProbe) *http.Server {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.HealthzPort)
 	return &http.Server{
 		Addr:              addr,
-		Handler:           BuildRouter(cfg, deps),
+		Handler:           BuildRouter(cfg, deps, probes...),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }
 
 // BuildRouter is exposed for in-process tests (parity with
 // `tower::ServiceExt::oneshot` callers in Rust).
-func BuildRouter(cfg *config.Config, deps Deps) http.Handler {
+func BuildRouter(cfg *config.Config, deps Deps, probes ...capabilities.DependencyProbe) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -63,6 +63,9 @@ func BuildRouter(cfg *config.Config, deps Deps) http.Handler {
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	saved := handler.New(deps.Pool, deps.Log)

@@ -30,16 +30,16 @@ var (
 	SeedModelVersionID = uuid.MustParse("10000000-0000-0000-0000-000000000101")
 )
 
-func New(cfg *config.Config, m *observability.Metrics) *http.Server {
-	srv, err := NewE(cfg, m)
+func New(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	srv, err := NewE(cfg, m, probes...)
 	if err != nil {
 		panic(err)
 	}
 	return srv
 }
 
-func NewE(cfg *config.Config, m *observability.Metrics) (*http.Server, error) {
-	r, err := buildRouterE(cfg, m)
+func NewE(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) (*http.Server, error) {
+	r, err := buildRouterE(cfg, m, probes...)
 	if err != nil {
 		return nil, err
 	}
@@ -51,19 +51,19 @@ func NewE(cfg *config.Config, m *observability.Metrics) (*http.Server, error) {
 	}, nil
 }
 
-func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
-	r, err := buildRouterE(cfg, m)
+func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	r, err := buildRouterE(cfg, m, probes...)
 	if err != nil {
 		panic(err)
 	}
 	return r
 }
 
-func BuildRouterE(cfg *config.Config, m *observability.Metrics) (http.Handler, error) {
-	return buildRouterE(cfg, m)
+func BuildRouterE(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) (http.Handler, error) {
+	return buildRouterE(cfg, m, probes...)
 }
 
-func buildRouterE(cfg *config.Config, m *observability.Metrics) (chi.Router, error) {
+func buildRouterE(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) (chi.Router, error) {
 	deploymentHandler, err := defaultDeploymentHandler(cfg)
 	if err != nil {
 		return nil, err
@@ -82,6 +82,9 @@ func buildRouterE(cfg *config.Config, m *observability.Metrics) (chi.Router, err
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 	mountDeploymentRoutes(r, "/api/v1/deployments", deploymentHandler)
 	mountDeploymentRoutes(r, "/api/v1/model-deployment/deployments", deploymentHandler)

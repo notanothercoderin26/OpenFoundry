@@ -34,7 +34,7 @@ type Deps struct {
 }
 
 // New builds the http.Server with all middleware + routes mounted.
-func New(d Deps) *http.Server {
+func New(d Deps, probes ...capabilities.DependencyProbe) *http.Server {
 	historyH := &handlers.History{Notifications: d.Notifications, Notifier: d.Notifier}
 	prefsH := &handlers.Preferences{Repo: d.Preferences}
 	sendH := &handlers.Send{Notifier: d.Notifier}
@@ -53,6 +53,9 @@ func New(d Deps) *http.Server {
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(d.Config.Service.Name, d.Config.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	// /api/v1 — websocket upgrade is unauthenticated at the bearer layer

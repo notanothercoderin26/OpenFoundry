@@ -23,24 +23,24 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/handler"
 )
 
-func New(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics) *http.Server {
-	return NewWithKernel(cfg, pool, m, nil)
+func New(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	return NewWithKernel(cfg, pool, m, nil, probes...)
 }
 
-func NewWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel) *http.Server {
+func NewWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel, probes ...capabilities.DependencyProbe) *http.Server {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	return &http.Server{
 		Addr:              addr,
-		Handler:           BuildRouterWithKernel(cfg, pool, m, py),
+		Handler:           BuildRouterWithKernel(cfg, pool, m, py, probes...),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }
 
-func BuildRouter(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics) http.Handler {
-	return BuildRouterWithKernel(cfg, pool, m, nil)
+func BuildRouter(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return BuildRouterWithKernel(cfg, pool, m, nil, probes...)
 }
 
-func BuildRouterWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel) http.Handler {
+func BuildRouterWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel, probes ...capabilities.DependencyProbe) http.Handler {
 	state := &handler.State{Cfg: cfg, Pool: pool, PythonKernel: py}
 
 	r := chi.NewRouter()
@@ -61,6 +61,9 @@ func BuildRouterWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observabil
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)

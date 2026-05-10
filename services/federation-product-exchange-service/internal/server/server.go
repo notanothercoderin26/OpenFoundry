@@ -24,8 +24,8 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/productdistribution"
 )
 
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics) *http.Server {
-	r := buildRouter(cfg, jwt, h, d, m)
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, jwt, h, d, m, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -34,11 +34,11 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *
 	}
 }
 
-func BuildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics) http.Handler {
-	return buildRouter(cfg, jwt, h, d, m)
+func BuildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, jwt, h, d, m, probes...)
 }
 
-func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics) chi.Router {
+func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -55,6 +55,9 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handl
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	if h != nil {

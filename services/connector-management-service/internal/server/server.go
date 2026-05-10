@@ -23,6 +23,11 @@ import (
 
 type ReadyCheck func(context.Context) error
 
+// New constructs the connector-management HTTP server.
+//
+// Probes registered via Probes argument show up under /_meta/health.
+var Probes []capabilities.DependencyProbe
+
 func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, readyChecks ...ReadyCheck) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
@@ -55,6 +60,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	// M1.2 follow-up: probes are wired here once dependency probes are registered.
+	for _, p := range Probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	// Rust main.rs builds some route groups under nested Axum routers before mounting

@@ -20,8 +20,8 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/llm-catalog-service/internal/config"
 )
 
-func New(cfg *config.Config, m *observability.Metrics) *http.Server {
-	r := buildRouter(cfg, m)
+func New(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, m, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -30,11 +30,11 @@ func New(cfg *config.Config, m *observability.Metrics) *http.Server {
 	}
 }
 
-func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
-	return buildRouter(cfg, m)
+func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, m, probes...)
 }
 
-func buildRouter(cfg *config.Config, m *observability.Metrics) chi.Router {
+func buildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(15 * time.Second))
@@ -50,6 +50,9 @@ func buildRouter(cfg *config.Config, m *observability.Metrics) chi.Router {
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{

@@ -23,6 +23,7 @@ import (
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	cedarauthzlib "github.com/openfoundry/openfoundry-go/libs/authz-cedar-go"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/media-sets-service/internal/accesspatterns"
 	"github.com/openfoundry/openfoundry-go/services/media-sets-service/internal/branches"
@@ -145,7 +146,7 @@ func main() {
 		go runGRPC(ctx, cfg.GRPCPort, log, r, itemsSvc, txSvc)
 	}
 
-	srv := server.New(cfg, jwt, h, ap, items, branchHandlers, txHandlers, retHandlers, o)
+	srv := server.New(cfg, jwt, h, ap, items, branchHandlers, txHandlers, retHandlers, o, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

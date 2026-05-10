@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -23,6 +24,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	databus "github.com/openfoundry/openfoundry-go/libs/event-bus-data"
 	"github.com/openfoundry/openfoundry-go/libs/idempotency"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
@@ -110,12 +113,16 @@ func main() {
 		ApprovalTTLHours:           cfg.ApprovalTTLHours,
 	}
 
+	wfProbes := []capabilities.DependencyProbe{probes.Postgres("primary", pool)}
+	if cfg.KafkaBootstrap != "" {
+		wfProbes = append(wfProbes, probes.Kafka("workflow-events", splitCSV(cfg.KafkaBootstrap)))
+	}
 	srv := server.New(cfg, metrics, &server.Options{
 		JWT:         jwtConfig,
 		Workflows:   handlers.NewCrudHandlers(appState),
 		Approvals:   approvals.NewHandlers(appState),
 		Automations: automationoperations.NewHandlers(appState),
-	})
+	}, wfProbes...)
 
 	// ── Background consumer best-effort boots ─────────────────────────
 	var wg sync.WaitGroup
@@ -228,4 +235,18 @@ func firstNonEmptyEnv(keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func splitCSV(v string) []string {
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

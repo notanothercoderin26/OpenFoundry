@@ -33,6 +33,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	databus "github.com/openfoundry/openfoundry-go/libs/event-bus-data"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/reindex-coordinator-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/reindex-coordinator-service/internal/repo"
@@ -77,7 +79,11 @@ func main() {
 
 	metrics := observability.NewMetrics()
 	coordinatorMetrics := runtime.NewMetrics(metrics.Registry)
-	srv := server.New(cfg, metrics)
+	reindexProbes := []capabilities.DependencyProbe{probes.Postgres("primary", pool)}
+	if cfg.KafkaBootstrap != "" {
+		reindexProbes = append(reindexProbes, probes.Kafka("reindex-events", splitCSV(cfg.KafkaBootstrap)))
+	}
+	srv := server.New(cfg, metrics, reindexProbes...)
 
 	throttle, err := runtime.ThrottleFromEnv()
 	if err != nil {

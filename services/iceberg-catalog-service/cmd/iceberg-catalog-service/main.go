@@ -19,6 +19,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/authz"
 	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/config"
@@ -93,7 +95,11 @@ func main() {
 		OAuthValidator: oauthValidator,
 		Metrics:        icebergMetrics,
 	}
-	srv := server.New(cfg, jwt, deps, metrics)
+	icebergProbes := []capabilities.DependencyProbe{probes.Postgres("primary", pool)}
+	if lk := os.Getenv("LAKEKEEPER_URL"); lk != "" {
+		icebergProbes = append(icebergProbes, probes.HTTP("lakekeeper", "lakekeeper", lk))
+	}
+	srv := server.New(cfg, jwt, deps, metrics, icebergProbes...)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

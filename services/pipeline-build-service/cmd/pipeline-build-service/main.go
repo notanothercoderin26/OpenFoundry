@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	pythonsidecar "github.com/openfoundry/openfoundry-go/libs/python-sidecar"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/config"
@@ -113,7 +114,7 @@ func main() {
 	}
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, metrics)
+	srv := server.New(cfg, metrics, probes.Postgres("primary", pool))
 	if err := run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

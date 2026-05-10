@@ -38,7 +38,7 @@ type Deps struct {
 	Metrics        *icmetrics.Metrics
 }
 
-func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.Metrics) *http.Server {
+func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	h := deps.Handlers
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
@@ -58,6 +58,9 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	// /api/v1 is the Go management surface retained for clients that

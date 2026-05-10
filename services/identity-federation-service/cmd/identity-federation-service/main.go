@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/handlers"
@@ -100,7 +101,7 @@ func main() {
 	rbac := &handlers.RBAC{Repo: r}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, auth, mfa, wa, sso, rbac, metrics)
+	srv := server.New(cfg, jwt, auth, mfa, wa, sso, rbac, metrics, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

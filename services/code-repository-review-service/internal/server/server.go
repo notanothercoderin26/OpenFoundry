@@ -20,8 +20,8 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/handlers"
 )
 
-func New(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics) *http.Server {
-	r := buildRouter(cfg, h, m)
+func New(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, h, m, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -31,11 +31,11 @@ func New(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics) *ht
 }
 
 // BuildRouter is exposed for tests so httptest can mount it.
-func BuildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics) http.Handler {
-	return buildRouter(cfg, h, m)
+func BuildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, h, m, probes...)
 }
 
-func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics) chi.Router {
+func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -57,6 +57,9 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	r.Post("/v1/code-security/scans", h.CreateCodeSecurityScan)

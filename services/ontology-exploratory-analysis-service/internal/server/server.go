@@ -23,8 +23,8 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/ontology-exploratory-analysis-service/internal/handlers"
 )
 
-func New(cfg *config.Config, m *observability.Metrics) *http.Server {
-	r := buildRouter(cfg, m, nil)
+func New(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, m, nil, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -36,8 +36,8 @@ func New(cfg *config.Config, m *observability.Metrics) *http.Server {
 // BuildRouter returns the substrate-only router (only /health,
 // /readiness, /healthz, /metrics). Mirrors the Rust binary's
 // substrate-only surface.
-func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
-	return buildRouter(cfg, m, nil)
+func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, m, nil, probes...)
 }
 
 // BuildRouterWithHandlers returns a router with the saved-view /
@@ -45,11 +45,11 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
 // probes. Callers thread an OEA Handlers value when they want the
 // Rust-equivalent CRUD surface live; the binary main passes nil to
 // preserve the substrate-only contract documented in src/main.rs.
-func BuildRouterWithHandlers(cfg *config.Config, m *observability.Metrics, h *handlers.Handlers) http.Handler {
-	return buildRouter(cfg, m, h)
+func BuildRouterWithHandlers(cfg *config.Config, m *observability.Metrics, h *handlers.Handlers, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, m, h, probes...)
 }
 
-func buildRouter(cfg *config.Config, m *observability.Metrics, h *handlers.Handlers) chi.Router {
+func buildRouter(cfg *config.Config, m *observability.Metrics, h *handlers.Handlers, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(15 * time.Second))
@@ -69,6 +69,9 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, h *handlers.Handl
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	if h != nil {

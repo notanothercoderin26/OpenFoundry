@@ -32,8 +32,8 @@ type Options struct {
 	Handlers *handlers.Handlers
 }
 
-func New(cfg *config.Config, m *observability.Metrics, opts *Options) *http.Server {
-	r := buildRouter(cfg, m, opts)
+func New(cfg *config.Config, m *observability.Metrics, opts *Options, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, m, opts, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -42,11 +42,11 @@ func New(cfg *config.Config, m *observability.Metrics, opts *Options) *http.Serv
 	}
 }
 
-func BuildRouter(cfg *config.Config, m *observability.Metrics, opts *Options) http.Handler {
-	return buildRouter(cfg, m, opts)
+func BuildRouter(cfg *config.Config, m *observability.Metrics, opts *Options, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, m, opts, probes...)
 }
 
-func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options) chi.Router {
+func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -67,6 +67,9 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options) ch
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	if opts != nil && opts.JWT != nil && opts.Handlers != nil {

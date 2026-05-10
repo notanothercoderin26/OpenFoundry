@@ -32,6 +32,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/authorization-policy-service/internal/config"
@@ -92,7 +93,11 @@ func main() {
 	h := handlers.NewHandlers(r, nc)
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, h, metrics, probes.Postgres("authz", pool))
+	authzProbes := []capabilities.DependencyProbe{probes.Postgres("authz", pool)}
+	if opa := os.Getenv("OPA_URL"); opa != "" {
+		authzProbes = append(authzProbes, probes.HTTP("opa", "opa", opa))
+	}
+	srv := server.New(cfg, jwt, h, metrics, authzProbes...)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

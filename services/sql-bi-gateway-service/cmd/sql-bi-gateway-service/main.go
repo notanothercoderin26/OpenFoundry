@@ -28,6 +28,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/flightsql"
@@ -66,11 +68,15 @@ func main() {
 		}
 	}()
 
+	var sqlProbes []capabilities.DependencyProbe
+	if pool != nil {
+		sqlProbes = append(sqlProbes, probes.Postgres("primary", pool))
+	}
 	httpSrv := server.NewHTTPServer(cfg, server.Deps{
 		Pool:    pool,
 		Metrics: metrics,
 		Log:     log,
-	})
+	}, sqlProbes...)
 	flight := flightsql.New(cfg, log)
 
 	var wg sync.WaitGroup

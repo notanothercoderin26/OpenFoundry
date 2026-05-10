@@ -26,7 +26,7 @@ import (
 )
 
 // New builds the http.Server with the four feature CRUD blocks mounted.
-func New(cfg *config.Config, jwt *authmw.JWTConfig, pool *pgxpool.Pool, m *observability.Metrics) *http.Server {
+func New(cfg *config.Config, jwt *authmw.JWTConfig, pool *pgxpool.Pool, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -39,6 +39,9 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, pool *pgxpool.Pool, m *obser
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	smH := &streamingmonitors.Handlers{Repo: &streamingmonitors.Repo{Pool: pool}}

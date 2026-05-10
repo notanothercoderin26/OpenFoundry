@@ -48,16 +48,16 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/handler"
 )
 
-func New(cfg *config.Config, m *observability.Metrics) *http.Server {
+func New(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	return &http.Server{
 		Addr:              addr,
-		Handler:           BuildRouter(cfg, m),
+		Handler:           BuildRouter(cfg, m, probes...),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }
 
-func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
+func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(60 * time.Second))
@@ -76,6 +76,9 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)

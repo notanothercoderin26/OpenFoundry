@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/codesecurity"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/config"
@@ -91,7 +92,7 @@ func main() {
 		log.Warn("KAFKA_BROKERS unset — branch event consumer disabled")
 	}
 
-	srv := server.New(cfg, h, metrics)
+	srv := server.New(cfg, h, metrics, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

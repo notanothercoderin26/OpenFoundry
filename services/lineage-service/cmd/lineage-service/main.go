@@ -32,6 +32,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/handlers"
@@ -74,8 +75,10 @@ func main() {
 	// both set — same fallback rule as the Rust HTTP-health mode.
 	// Without those, only /health, /healthz and /metrics are mounted.
 	var lineageOpts *server.Options
+	var pool *pgxpool.Pool
 	if cfg.DatabaseURL != "" && cfg.JWTSecret != "" {
-		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+		var err error
+		pool, err = pgxpool.New(ctx, cfg.DatabaseURL)
 		if err != nil {
 			log.Error("pgx pool failed", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -111,7 +114,7 @@ func main() {
 	}
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, metrics, lineageOpts)
+	srv := server.New(cfg, metrics, lineageOpts, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
