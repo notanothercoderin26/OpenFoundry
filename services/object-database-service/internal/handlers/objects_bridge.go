@@ -74,9 +74,12 @@ func toOntologyObject(obj *storage.Object) ontologyObject {
 }
 
 // ListObjectsByOntologyType serves GET /api/v1/ontology/types/{type_id}/objects.
-// Pagination on the SPA side is page+per_page; we map per_page → storage.Page.Size
-// and re-emit total. Strict pagination via opaque tokens isn't exposed here
-// (the Workshop dashboard widgets ask for the first page).
+// Pagination on the SPA side is page+per_page; we map per_page → storage.Page.Size.
+//
+// `total` is the underlying cardinality, computed via a separate unbounded list
+// against the same tenant+type. This is O(N) — fine for PoC scale (10⁴) and
+// the in-memory store. For Cassandra at 10⁶+ rows, swap to a denormalised
+// counter (see NEXT-STEPS.md §4.1).
 func (h *Handlers) ListObjectsByOntologyType(w http.ResponseWriter, r *http.Request) {
 	tenant := tenantFromRequest(r)
 	typeID := storage.TypeId(chi.URLParam(r, "type_id"))
@@ -97,8 +100,9 @@ func (h *Handlers) ListObjectsByOntologyType(w http.ResponseWriter, r *http.Requ
 			page = n
 		}
 	}
+	consistency := parseConsistency(q.Get("consistency"))
 
-	res, err := h.Objects.ListByType(r.Context(), tenant, typeID, storage.Page{Size: perPage}, parseConsistency(q.Get("consistency")))
+	res, err := h.Objects.ListByType(r.Context(), tenant, typeID, storage.Page{Size: perPage}, consistency)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -107,9 +111,21 @@ func (h *Handlers) ListObjectsByOntologyType(w http.ResponseWriter, r *http.Requ
 	for i := range res.Items {
 		items = append(items, toOntologyObject(&res.Items[i]))
 	}
+
+	total := len(items)
+	if perPage < 5000 || res.NextToken != nil {
+		// Page is potentially a slice of a larger set; ask for the full list
+		// to materialise the real total. Skip when caller already pulled the
+		// whole set in one shot (per_page>=5000 and no continuation).
+		full, err := h.Objects.ListByType(r.Context(), tenant, typeID, storage.Page{Size: 1_000_000}, consistency)
+		if err == nil {
+			total = len(full.Items)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     items,
-		"total":    len(items),
+		"total":    total,
 		"page":     page,
 		"per_page": perPage,
 	})
@@ -129,6 +145,87 @@ func (h *Handlers) GetObjectByOntologyType(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, toOntologyObject(obj))
+}
+
+// UpdateObjectByOntologyType serves PATCH /api/v1/ontology/types/{type_id}/objects/{object_id}.
+// Body shape: `{ properties: {...}, replace?: bool }`. The default behavior
+// merges the provided properties into the existing payload, matching the SPA's
+// inline-action update flow.
+func (h *Handlers) UpdateObjectByOntologyType(w http.ResponseWriter, r *http.Request) {
+	tenant := tenantFromRequest(r)
+	typeID := storage.TypeId(chi.URLParam(r, "type_id"))
+	objID := storage.ObjectId(chi.URLParam(r, "object_id"))
+
+	var body struct {
+		Properties map[string]any `json:"properties"`
+		Replace    bool           `json:"replace"`
+		Marking    *string        `json:"marking,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	existing, err := h.Objects.Get(r.Context(), tenant, objID, parseConsistency(r.URL.Query().Get("consistency")))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if existing == nil || existing.TypeID != typeID {
+		http.NotFound(w, r)
+		return
+	}
+
+	props := map[string]any{}
+	if !body.Replace && len(existing.Payload) > 0 {
+		_ = json.Unmarshal(existing.Payload, &props)
+	}
+	for k, v := range body.Properties {
+		props[k] = v
+	}
+	payload, err := json.Marshal(props)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	next := *existing
+	next.Payload = payload
+	next.UpdatedAtMs = time.Now().UnixMilli()
+	if body.Marking != nil && strings.TrimSpace(*body.Marking) != "" {
+		next.Markings = []storage.MarkingId{storage.MarkingId(strings.TrimSpace(*body.Marking))}
+	}
+	expected := existing.Version
+	outcome, err := h.Objects.Put(r.Context(), next, &expected)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if outcome.Kind == storage.PutVersionConflict {
+		writeOutcomeResponse(w, outcome)
+		return
+	}
+	if outcome.NewVersion > 0 {
+		next.Version = outcome.NewVersion
+	}
+	writeJSON(w, http.StatusOK, toOntologyObject(&next))
+}
+
+// DeleteObjectByOntologyType serves DELETE /api/v1/ontology/types/{type_id}/objects/{object_id}.
+// Matches the SPA's `deleteObject(typeId, objectId)` contract.
+func (h *Handlers) DeleteObjectByOntologyType(w http.ResponseWriter, r *http.Request) {
+	tenant := tenantFromRequest(r)
+	objID := storage.ObjectId(chi.URLParam(r, "object_id"))
+	deleted, err := h.Objects.Delete(r.Context(), tenant, objID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !deleted {
+		http.NotFound(w, r)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // CreateObjectByOntologyType serves POST /api/v1/ontology/types/{type_id}/objects.

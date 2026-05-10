@@ -85,6 +85,8 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 		api.Get("/", h.ListObjectsByOntologyType)
 		api.Post("/", h.CreateObjectByOntologyType)
 		api.Get("/{object_id}", h.GetObjectByOntologyType)
+		api.Patch("/{object_id}", h.UpdateObjectByOntologyType)
+		api.Delete("/{object_id}", h.DeleteObjectByOntologyType)
 	})
 
 	return r

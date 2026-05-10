@@ -384,6 +384,12 @@ interface FilterEntry {
 
 type VariableKind = 'object_set' | 'object_set_definition' | 'filter_output' | 'object_set_active_object';
 
+interface VariableStaticFilter {
+  property_name: string;
+  operator?: 'equals' | 'contains';
+  value: unknown;
+}
+
 interface WorkshopVariable {
   id: string;
   kind: VariableKind;
@@ -391,6 +397,8 @@ interface WorkshopVariable {
   object_type_id: string;
   source_widget_id?: string;
   filter_variable_id?: string;
+  static_filter?: VariableStaticFilter;
+  static_filters?: VariableStaticFilter[];
 }
 
 const VARIABLE_KIND_LABEL: Record<VariableKind, string> = {
@@ -427,6 +435,26 @@ function readWorkshopVariables(settings: AppSettings | null | undefined): Worksh
   return Array.isArray(raw) ? raw : [];
 }
 
+function applyStaticFilters(rows: ObjectInstance[], variable: WorkshopVariable | null): ObjectInstance[] {
+  if (!variable) return rows;
+  const filters = [
+    ...(variable.static_filter ? [variable.static_filter] : []),
+    ...(Array.isArray(variable.static_filters) ? variable.static_filters : []),
+  ].filter((entry) => entry && entry.property_name);
+  if (filters.length === 0) return rows;
+  return rows.filter((row) => {
+    const props = (row.properties as Record<string, unknown>) ?? {};
+    return filters.every((filter) => {
+      const actual = props[filter.property_name];
+      const expected = filter.value;
+      if ((filter.operator ?? 'equals') === 'contains') {
+        return String(actual ?? '').toLowerCase().includes(String(expected ?? '').toLowerCase());
+      }
+      return String(actual ?? '').toLowerCase() === String(expected ?? '').toLowerCase();
+    });
+  });
+}
+
 export function WorkshopEditorPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -448,6 +476,7 @@ export function WorkshopEditorPage() {
   const [variables, setVariables] = useState<WorkshopVariable[]>([]);
   const [editingVariableId, setEditingVariableId] = useState<string | null>(null);
   const [varAddMenuOpen, setVarAddMenuOpen] = useState(false);
+  const [previewPageId, setPreviewPageId] = useState('');
 
   useEffect(() => {
     if (!id) return;
@@ -481,7 +510,19 @@ export function WorkshopEditorPage() {
     };
   }, [id]);
 
-  const activePage = pages[0] ?? null;
+  useEffect(() => {
+    if (pages.length === 0) {
+      setPreviewPageId('');
+      return;
+    }
+    if (!previewPageId || !pages.some((page) => page.id === previewPageId)) {
+      setPreviewPageId(pages[0].id);
+    }
+  }, [pages, previewPageId]);
+
+  const activePage = mode === 'preview'
+    ? pages.find((page) => page.id === previewPageId) ?? pages[0] ?? null
+    : pages[0] ?? null;
 
   function patchPage(patch: Partial<AppPage>) {
     setPages((current) => current.map((page, index) => (index === 0 ? { ...page, ...patch } : page)));
@@ -535,15 +576,6 @@ export function WorkshopEditorPage() {
     }
   }
 
-  if (!app || !activePage) {
-    return (
-      <div style={{ padding: 32 }}>
-        <p className="of-text-muted">{error || 'Loading editor…'}</p>
-        <Link to="/apps" className="of-link">Back to Workshop</Link>
-      </div>
-    );
-  }
-
   useEffect(() => {
     if (mode === 'preview') return;
     function onKey(event: KeyboardEvent) {
@@ -555,6 +587,15 @@ export function WorkshopEditorPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [mode, id, navigate]);
+
+  if (!app || !activePage) {
+    return (
+      <div style={{ padding: 32 }}>
+        <p className="of-text-muted">{error || 'Loading editor…'}</p>
+        <Link to="/apps" className="of-link">Back to Workshop</Link>
+      </div>
+    );
+  }
 
   const selectedSection = selection.kind === 'section' ? activePage.widgets.find((s) => s.id === selection.id) ?? null : null;
   const selectedWidget = selection.kind === 'widget'
@@ -575,6 +616,34 @@ export function WorkshopEditorPage() {
         onOpenLineage={() => navigate(`/workflow-lineage?app=${encodeURIComponent(app.id)}`)}
       >
         <main style={{ overflow: 'auto', padding: 18 }}>
+          {pages.length > 1 ? (
+            <nav role="tablist" aria-label="Workshop pages" style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+              {pages.map((page) => {
+                const isActive = page.id === activePage.id;
+                return (
+                  <button
+                    key={page.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setPreviewPageId(page.id)}
+                    style={{
+                      padding: '7px 12px',
+                      border: `1px solid ${isActive ? 'var(--status-info)' : 'var(--border-subtle)'}`,
+                      borderRadius: 4,
+                      background: isActive ? 'rgba(45, 114, 210, 0.08)' : '#fff',
+                      color: isActive ? 'var(--status-info)' : 'var(--text-strong)',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: isActive ? 600 : 500,
+                    }}
+                  >
+                    {page.name}
+                  </button>
+                );
+              })}
+            </nav>
+          ) : null}
           <div style={{ background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 6, padding: 14, display: 'grid', gridTemplateColumns: activePage.widgets.map((section) => `${flexValue(section)}fr`).join(' '), gap: 14, minHeight: 320 }}>
             {activePage.widgets.map((section) => {
               const paddingControls = ((section.props as { padding_controls?: string })?.padding_controls) ?? 'no-padding';
@@ -2013,11 +2082,11 @@ function ObjectTableWidgetView({ widget, variables }: { widget: AppWidget; varia
     }
     let cancelled = false;
     setLoading(true);
-    void Promise.all([listProperties(objectTypeId), listObjects(objectTypeId, { per_page: 200 })])
+    void Promise.all([listProperties(objectTypeId), listObjects(objectTypeId, { per_page: 5000 })])
       .then(([propResponse, listResponse]) => {
         if (cancelled) return;
         setProperties(propResponse);
-        setRows(listResponse.data);
+        setRows(applyStaticFilters(listResponse.data, sourceVariable));
       })
       .catch(() => {
         if (cancelled) return;
@@ -2030,7 +2099,7 @@ function ObjectTableWidgetView({ widget, variables }: { widget: AppWidget; varia
     return () => {
       cancelled = true;
     };
-  }, [objectTypeId, runtime.refreshKey]);
+  }, [objectTypeId, runtime.refreshKey, sourceVariable]);
 
   const visibleColumns = columns.length > 0 ? columns : properties.map((property) => property.name);
 
@@ -2703,18 +2772,36 @@ function SplitGlyph({ dir }: { dir: "above" | "below" | "left" | "right" }) {
   );
 }
 
-function ObjectSetTitleWidgetView({ widget, variables, objectTypes }: { widget: AppWidget; variables: WorkshopVariable[]; objectTypes: ObjectType[] }) {
+function ObjectSetTitleWidgetView({ widget, variables = [], objectTypes = [] }: { widget: AppWidget; variables?: WorkshopVariable[]; objectTypes?: ObjectType[] }) {
   const sourceVariableId = (widget.props as { source_variable_id?: string })?.source_variable_id ?? "";
   const variable = variables.find((v) => v.id === sourceVariableId) ?? null;
   const objectTypeId = variable?.object_type_id ?? "";
   const objectType = objectTypes.find((t) => t.id === objectTypeId);
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!objectTypeId) {
+      setCount(null);
+      return;
+    }
+    let cancelled = false;
+    void listObjects(objectTypeId, { per_page: 5000 })
+      .then((response) => {
+        if (!cancelled) setCount(applyStaticFilters(response.data, variable).length);
+      })
+      .catch(() => {
+        if (!cancelled) setCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [objectTypeId, variable]);
   if (!variable) {
     return <div style={{ padding: 12 }}><p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>Select an object set in the inspector.</p></div>;
   }
   return (
     <div style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: 8 }}>
       <Glyph name="cube" size={16} tone="#2d72d2" />
-      <strong style={{ fontSize: 16 }}>{objectType?.display_name || objectType?.name || variable.name}</strong>
+      <strong style={{ fontSize: 16 }}>{count === null ? "…" : count.toLocaleString()} {objectType?.display_name || objectType?.name || variable.name}</strong>
     </div>
   );
 }
@@ -2752,6 +2839,7 @@ function PropertyListWidgetView({ widget, variables }: { widget: AppWidget; vari
   const items: PropertyListItem[] = ((widget.props as { items?: PropertyListItem[] })?.items) ?? [];
   const numColumns = Number((widget.props as { number_of_columns?: number })?.number_of_columns ?? 2);
   const objectTypeId = variable?.object_type_id ?? "";
+  const runtime = useRuntime();
   const [properties, setProperties] = useState<Property[]>([]);
   const [sample, setSample] = useState<ObjectInstance | null>(null);
   useEffect(() => {
@@ -2778,6 +2866,8 @@ function PropertyListWidgetView({ widget, variables }: { widget: AppWidget; vari
     return <div style={{ padding: 12 }}><p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>Select an object set in the inspector.</p></div>;
   }
   const allNames = items.flatMap((item) => item.property_names);
+  const active = runtime.activeObjects[sourceVariableId] ?? null;
+  const object = variable.kind === "object_set_active_object" ? active : sample;
   return (
     <div style={{ padding: 12 }}>
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(1, numColumns)}, minmax(0, 1fr))`, gap: "6px 18px" }}>
@@ -2785,7 +2875,7 @@ function PropertyListWidgetView({ widget, variables }: { widget: AppWidget; vari
           <p className="of-text-muted" style={{ margin: 0, fontSize: 12, gridColumn: "1 / -1" }}>No properties added. Use the inspector to add values.</p>
         ) : allNames.map((name) => {
           const property = properties.find((p) => p.name === name);
-          const value = sample ? String((sample.properties as Record<string, unknown>)?.[name] ?? "") : "";
+          const value = object ? String((object.properties as Record<string, unknown>)?.[name] ?? "") : "";
           return (
             <div key={name} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center", fontSize: 12 }}>
               <span className="of-text-muted">{property?.display_name || name}</span>
@@ -3463,10 +3553,10 @@ function ChartPieWidgetView({ widget, variables }: { widget: AppWidget; variable
     }
     let cancelled = false;
     setLoading(true);
-    void listObjects(objectTypeId, { per_page: 500 })
+    void listObjects(objectTypeId, { per_page: 5000 })
       .then((response) => {
         if (cancelled) return;
-        setRows(response.data);
+        setRows(applyStaticFilters(response.data, sourceVariable));
       })
       .catch(() => {
         if (cancelled) return;
@@ -3478,7 +3568,7 @@ function ChartPieWidgetView({ widget, variables }: { widget: AppWidget; variable
     return () => {
       cancelled = true;
     };
-  }, [objectTypeId, cfg.groupBy]);
+  }, [objectTypeId, cfg.groupBy, sourceVariable]);
 
   const data = useMemo(() => {
     if (!cfg.groupBy) return [] as Array<{ name: string; value: number }>;
@@ -3811,10 +3901,10 @@ function ChartXyWidgetView({ widget, variables }: { widget: AppWidget; variables
     }
     let cancelled = false;
     setLoading(true);
-    void listObjects(objectTypeId, { per_page: 500 })
+    void listObjects(objectTypeId, { per_page: 5000 })
       .then((response) => {
         if (cancelled) return;
-        setRows(response.data);
+        setRows(applyStaticFilters(response.data, sourceVariable));
       })
       .catch(() => {
         if (cancelled) return;
@@ -3826,7 +3916,7 @@ function ChartXyWidgetView({ widget, variables }: { widget: AppWidget; variables
     return () => {
       cancelled = true;
     };
-  }, [objectTypeId, layer?.x_property]);
+  }, [objectTypeId, layer?.x_property, sourceVariable]);
 
   const echartsOption = useMemo(() => {
     if (!layer || !layer.x_property) return null;
@@ -4207,16 +4297,16 @@ function PreviewRuntime({
 
 function ActionFormModal({
   button,
-  variables,
-  activeObjects,
-  objectTypes,
+  variables = [],
+  activeObjects = {},
+  objectTypes = [],
   onClose,
   onSuccess,
 }: {
   button: ButtonGroupButton;
-  variables: WorkshopVariable[];
-  activeObjects: Record<string, ObjectInstance | null>;
-  objectTypes: ObjectType[];
+  variables?: WorkshopVariable[];
+  activeObjects?: Record<string, ObjectInstance | null>;
+  objectTypes?: ObjectType[];
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -4238,7 +4328,7 @@ function ActionFormModal({
         const mappings = config?.property_mappings ?? [];
         const initialValues: Record<string, string> = {};
         for (const field of fetched.input_schema ?? []) {
-          const def = button.parameter_defaults[field.name];
+          const def = button.parameter_defaults?.[field.name];
           if (def?.kind === 'static' && def.static_value !== undefined) {
             initialValues[field.name] = def.static_value;
           } else if (def?.kind === 'active_object' || def?.kind === 'variable') {
@@ -4278,11 +4368,22 @@ function ActionFormModal({
 
   const orderField = (action?.input_schema ?? []).find((field) => field.property_type === 'object_reference' || field.name.toLowerCase().includes('order') || field.name === 'object');
   const orderId = orderField ? formValues[orderField.name] : '';
+  const defaultActiveObject = useMemo(() => {
+    for (const def of Object.values(button.parameter_defaults ?? {})) {
+      if ((def.kind === 'active_object' || def.kind === 'variable') && def.variable_id) {
+        const object = activeObjects[def.variable_id];
+        if (object) return object;
+      }
+    }
+    const objectVariable = variables.find((v) => v.kind === 'object_set_active_object');
+    return objectVariable ? activeObjects[objectVariable.id] ?? null : null;
+  }, [activeObjects, button.parameter_defaults, variables]);
+  const targetObjectId = orderId || defaultActiveObject?.id || '';
   const objectType = action ? objectTypes.find((entry) => entry.id === action.object_type_id) ?? null : null;
 
   async function submit() {
     if (!action) return;
-    if (!orderId) {
+    if (!targetObjectId) {
       setError('Pick an order to update.');
       return;
     }
@@ -4311,7 +4412,7 @@ function ActionFormModal({
           properties[field.name] = value;
         }
       }
-      await updateObject(action.object_type_id, orderId, { properties });
+      await updateObject(action.object_type_id, targetObjectId, { properties });
       onSuccess();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Submit failed');
@@ -4344,7 +4445,15 @@ function ActionFormModal({
                     <Glyph name="chevron-down" size={11} />
                   </span>
                 </label>
-              ) : null}
+              ) : (
+                <div style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Object <span style={{ color: 'var(--status-danger)' }}>*</span></span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 4, background: '#f7f9fa' }}>
+                    <Glyph name="cube" size={12} tone="#2d72d2" />
+                    <span style={{ flex: 1, fontSize: 13 }}>{targetObjectId || objectType?.display_name || objectType?.name || 'Select an object'}</span>
+                  </span>
+                </div>
+              )}
               {(action.input_schema ?? []).filter((field) => field !== orderField).map((field) => (
                 <label key={field.name} style={{ display: 'grid', gap: 4 }}>
                   <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>

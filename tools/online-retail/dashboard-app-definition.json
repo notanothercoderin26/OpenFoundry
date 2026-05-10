@@ -45,11 +45,16 @@
       },
       {
         "id": "var_anomalies",
-        "kind": "object_set_definition",
-        "name": "Anomalies only (is_anomaly = true)",
-        "object_type_id": "678b55fe-db5f-4d3a-bbf2-8cb643af8d32",
-        "filter_variable_id": "var_filter_anomalies"
+      "kind": "object_set_definition",
+      "name": "Anomalies only (review_status = needs_review)",
+      "object_type_id": "678b55fe-db5f-4d3a-bbf2-8cb643af8d32",
+      "static_filter": {
+        "property_name": "review_status",
+        "operator": "equals",
+        "value": "needs_review"
       },
+      "filter_variable_id": "var_filter_anomalies"
+    },
       {
         "id": "var_customers",
         "kind": "object_set",
