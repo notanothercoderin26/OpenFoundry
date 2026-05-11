@@ -80,6 +80,9 @@ spec:
       - name: "lima-k3s-node2"
         devices:
           - name: "/dev/vdb"
+      - name: "lima-k3s-node3"
+        devices:
+          - name: "/dev/vdb"
   healthCheck:
     daemonHealth:
       mon:

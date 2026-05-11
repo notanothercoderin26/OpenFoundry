@@ -24,6 +24,7 @@ declare -A DISKS=(
   [k3s-master]=rook-osd-master
   [k3s-node1]=rook-osd-node1
   [k3s-node2]=rook-osd-node2
+  [k3s-node3]=rook-osd-node3
 )
 
 # 1. create disks
