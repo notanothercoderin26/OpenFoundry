@@ -44,7 +44,7 @@ DO $$
 BEGIN
   ALTER TABLE media_set_branches
     ADD CONSTRAINT media_set_branches_branch_rid_key UNIQUE (branch_rid);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
 -- Parent branch RID. Self-referential so deleting an intermediate
@@ -136,7 +136,7 @@ BEGIN
         FOREIGN KEY (transaction_rid)
         REFERENCES media_set_transactions(rid)
         ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
 -- New `branch_rid` column references the generated branch identifier.
@@ -161,7 +161,7 @@ BEGIN
         FOREIGN KEY (branch_rid)
         REFERENCES media_set_branches(branch_rid)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
 -- The denormalised `(media_set_rid, branch)` columns stay around so
