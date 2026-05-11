@@ -1,0 +1,513 @@
+# Foundry Streaming and Data Connection 1:1 parity checklist
+
+Date: 2026-05-11
+Scope: public-docs-based parity plan for OpenFoundry's advanced Data Connection
+and streaming surfaces: sources, connectors/source types, workers, agents,
+network egress, credentials, source permissions, exploration, batch syncs,
+file-based sync modes, table syncs, media sync handoffs, streaming syncs,
+push-based stream ingestion, streams, checkpoints, CDC syncs, virtual tables,
+virtual media handoffs, exports, streaming exports, table exports, webhooks,
+connections from code, external transforms, source imports in Python, compute
+module alternatives, operational history, health, retry behavior, and governance
+controls for exporting Foundry data into external systems.
+
+This document is intentionally implementation-oriented. It does not attempt to
+clone Palantir branding, private source code, proprietary assets, screenshots,
+or any non-public behavior. The target is **functional parity based on public
+Palantir Foundry documentation**: the same product concepts, comparable
+connection authoring and operator workflows, compatible resource models where
+useful, and OpenFoundry-native implementation details that can be tested
+locally.
+
+## Parity scope boundary
+
+All checklist work is governed by the
+[Foundry public-docs parity policy](../reference/foundry-public-docs-parity-policy.md).
+OpenFoundry may implement behavior described in public Palantir documentation,
+but contributors must not copy private source, decompile bundles, import
+tenant-specific exports, use Palantir branding, or reuse proprietary assets.
+The product target is functional parity in an OpenFoundry-native implementation,
+not a pixel-perfect clone.
+
+This checklist covers Data Connection capabilities that go beyond the webhook
+and lightweight REST source surface already tracked by the Workshop/Pipeline
+checklist. It should integrate with the Data Foundation checklist for datasets,
+branches, transactions, views, builds, schedules, retention, and Data Health;
+with the Media Sets checklist for media-specific semantics; with the Ontology
+checklist for object indexing over streams and CDC; and with the security
+checklist for markings, checkpoints, export control, and sensitive-data policy.
+
+## Status vocabulary
+
+| Status | Meaning |
+| --- | --- |
+| `todo` | Not implemented or not yet verified in OpenFoundry. |
+| `partial` | Some surface exists, but behavior is incomplete or not wired end-to-end. |
+| `blocked` | Requires a platform dependency, public documentation, or product decision. |
+| `done` | Implemented, tested, documented, and verified through UI or API smoke tests. |
+
+## Priority vocabulary
+
+| Priority | Meaning |
+| --- | --- |
+| `P0` | Required for credible ingestion/export workflows used by the Trail Running demo and basic production data movement. |
+| `P1` | Required for Foundry-style Data Connection and streaming parity beyond simple REST/webhook demos. |
+| `P2` | Advanced, governance-heavy, connector-specific, or scale-oriented parity. |
+
+## Official Palantir documentation library
+
+These public docs should be treated as the external behavioral contract while
+implementing this checklist.
+
+### Product, Data Integration, and Data Connection overview
+
+- [Data integration overview](https://www.palantir.com/docs/foundry/data-integration/overview/)
+- [Connecting to data](https://www.palantir.com/docs/foundry/data-integration/connecting-to-data/)
+- [Source type overview](https://www.palantir.com/docs/foundry/data-integration/source-type-overview/)
+- [Data Connection overview](https://www.palantir.com/docs/foundry/data-connection/overview)
+- [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/)
+
+### Source setup, networking, agents, and permissions
+
+- [Initial setup overview](https://www.palantir.com/docs/foundry/data-connection/initial-setup-overview/)
+- [Set up a source](https://www.palantir.com/docs/foundry/data-connection/set-up-source)
+- [Configure egress](https://www.palantir.com/docs/foundry/administration/configure-egress/)
+- [Agent proxy configuration reference](https://www.palantir.com/docs/foundry/data-connection/agent-proxy/)
+- [Available connectors: other source types](https://www.palantir.com/docs/foundry/available-connectors/other-source-types/)
+
+### Syncs, streams, CDC, and virtualized data
+
+- [Set up a sync](https://www.palantir.com/docs/foundry/data-connection/set-up-sync)
+- [File-based syncs](https://www.palantir.com/docs/foundry/data-connection/file-based-syncs/)
+- [Set up a streaming sync](https://www.palantir.com/docs/foundry/data-connection/set-up-streaming-sync/)
+- [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/)
+- [Push data into a stream](https://www.palantir.com/docs/foundry/data-connection/push-based-ingestion/)
+- [Change data capture](https://www.palantir.com/docs/foundry/data-integration/change-data-capture)
+- [Virtual tables](https://www.palantir.com/docs/foundry/data-integration/virtual-tables/)
+- [Set up a media set sync](https://www.palantir.com/docs/foundry/data-connection/media-set-sync)
+
+### Exports, webhooks, and connections from code
+
+- [Exports overview](https://www.palantir.com/docs/foundry/data-connection/export-overview/)
+- [Webhooks overview](https://www.palantir.com/docs/foundry/data-connection/webhooks-overview)
+- [Set up a Webhook](https://www.palantir.com/docs/foundry/data-connection/webhooks-setup/)
+- [Webhooks configuration reference](https://www.palantir.com/docs/foundry/data-connection/webhooks-reference)
+- [External transforms](https://www.palantir.com/docs/foundry/data-connection/external-transforms)
+- [Sources in Python environments](https://www.palantir.com/docs/foundry/data-connection/sources-in-python/)
+
+### Observability and downstream integration
+
+- [Data Health](https://www.palantir.com/docs/foundry/observability/data-health/)
+- [Builds core concepts](https://www.palantir.com/docs/foundry/data-integration/builds/)
+- [Schedules core concepts](https://www.palantir.com/docs/foundry/data-integration/schedules/)
+- [Create incremental syncs](https://www.palantir.com/docs/foundry/building-pipelines/create-incremental-syncs/)
+
+## Target OpenFoundry resource model
+
+The implementation should define stable OpenFoundry-owned resources that can map
+to public Foundry concepts without requiring Palantir RID formats. Compatibility
+aliases may be accepted at service boundaries, but persisted state should use
+OpenFoundry canonical IDs.
+
+| Public Foundry concept | OpenFoundry resource target | Required notes |
+| --- | --- | --- |
+| Source | `data_source` | One connection to an external system with connector type, worker, network policy, credentials, permissions, capabilities, and default output location. |
+| Source type / connector | `connector_type` | Registry entry describing supported capabilities, worker compatibility, credentials schema, network requirements, exploration behavior, and setup form. |
+| Worker | `connection_worker` | Runtime placement for connection capabilities: OpenFoundry worker, agent worker, or code-driven alternative. |
+| Agent | `connection_agent` | Agent process registration, heartbeat, version, host metadata, reachable network policies, and capability compatibility. |
+| Egress policy | `egress_policy` | Network route, allowlist, proxy mode, target host/port, agent proxy behavior, and approval state. |
+| Credential | `connection_credential` | Encrypted secret material with schema, rotation metadata, owner, usage references, and audit events. |
+| Source permission | `source_permission` | Resource roles for viewing source configuration, editing source, using source, importing source into code, and exporting Foundry data through the source. |
+| Capability | `connection_capability` | Batch sync, file sync, table sync, media sync, streaming sync, CDC sync, file export, table export, streaming export, webhook, virtual table, virtual media, and exploration support. |
+| Exploration session | `source_exploration` | Browse/test connection session that lists external folders, files, databases, schemas, tables, topics, queues, and sample schemas. |
+| Sync | `data_sync` | Configured import from external system into a dataset, stream, or media set with mode, schedule/build integration, schema, history, and output resource. |
+| File sync | `file_sync` | Sync specialization for external files with path filters, file limits, already-synced filtering, transformers, and transaction behavior. |
+| Streaming sync | `streaming_sync` | Long-running pull from an external stream/topic/queue into an OpenFoundry stream. |
+| CDC sync | `cdc_sync` | Changelog sync with primary key, ordering column, deletion column, live/archive views, and downstream changelog metadata. |
+| Stream | `stream_dataset` | Tabular stream with hot buffer, cold/archive dataset, schema, branch, permissions, checkpoint state, consistency mode, and replay behavior. |
+| Push ingestion endpoint | `stream_ingest_endpoint` | Authenticated REST endpoint for pushing records into streams by dataset/stream ID and branch. |
+| Virtual table | `virtual_table` | Foundry-style pointer to an external table with schema, query pushdown metadata, update detection, lineage, permissions, and limitations. |
+| Export | `data_export` | Configured push from Foundry dataset or stream to an external destination with type, mode, schedule/start-stop control, history, and governance. |
+| Webhook | `connection_webhook` | Request definition on a source with input parameters, request builder, output extraction, history, and action/function integration. |
+| Code import | `source_code_import` | Allowlist and generated bindings for using a source from Python transforms, external functions, or compute modules. |
+| Connection job | `connection_job` | Run instance for sync/export/exploration/webhook/virtual registration with status, logs, retries, metrics, and build integration. |
+| Data health check | `connection_health_check` | Health rule over sources, agents, syncs, streams, exports, virtual tables, and webhooks. |
+| Export control policy | `source_export_policy` | Governance configuration describing whether Foundry inputs may be exported, what markings/orgs are exportable, and audit behavior. |
+
+## Milestone A: minimum viable Data Connection and streaming parity
+
+### Data Connection application and source setup
+
+- [ ] `SDC.1` Data Connection application shell (`P0`, `todo`)
+  - Provide Sources, Syncs, Streams, Exports, Webhooks, Virtual Tables, Agents, and Health views.
+  - Include global search, capability filters, worker filters, owner filters, status filters, recent failures, and source-type discovery.
+  - Show clear entry points for New source, Explore, Create sync, Create export, Create webhook, and Register virtual table.
+  - Docs: [Data Connection overview](https://www.palantir.com/docs/foundry/data-connection/overview), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
+
+- [ ] `SDC.2` Connector/source type registry (`P0`, `todo`)
+  - Define a registry for connector categories: databases, filesystems/blob stores, event streams, message queues, REST APIs, productivity tools, SaaS applications, geospatial systems, media sources, and generic connectors.
+  - Store per-connector supported capabilities, worker compatibility, credential fields, network requirements, setup docs link, and feature flags.
+  - Render capability tags on new-source cards and source overview pages.
+  - Docs: [Source type overview](https://www.palantir.com/docs/foundry/data-integration/source-type-overview/), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/), [Available connectors: other source types](https://www.palantir.com/docs/foundry/available-connectors/other-source-types/).
+
+- [ ] `SDC.3` Source CRUD and overview page (`P0`, `todo`)
+  - Create, get, list, update, archive/delete, and duplicate sources.
+  - Track source name, description, connector type, project/folder, owner, worker, network policy, credential references, default output location, supported capabilities, health, usage, and audit metadata.
+  - Provide source tabs for Overview, Configuration, Credentials, Networking, Explore, Syncs, Exports, Webhooks, Virtual Tables, Code imports, Permissions, and History.
+  - Docs: [Set up a source](https://www.palantir.com/docs/foundry/data-connection/set-up-source), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
+
+- [ ] `SDC.4` Worker selection and compatibility validation (`P0`, `todo`)
+  - Support OpenFoundry worker and agent worker choices.
+  - Validate that selected worker is allowed for the connector type and capability being configured.
+  - Explain which capabilities are unavailable for each worker/source combination.
+  - Docs: [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/), [Set up a source](https://www.palantir.com/docs/foundry/data-connection/set-up-source), [Initial setup overview](https://www.palantir.com/docs/foundry/data-connection/initial-setup-overview/).
+
+- [ ] `SDC.5` Credential storage and rotation metadata (`P0`, `todo`)
+  - Store encrypted credentials or references to external secrets.
+  - Support username/password, API key, bearer token, OAuth/client secret, cloud identity reference, certificate/key, and connector-specific secret fields.
+  - Track secret version, last rotated, created by, credential test status, source usage, and audit events without exposing secret values.
+  - Docs: [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/), [Set up a source](https://www.palantir.com/docs/foundry/data-connection/set-up-source).
+
+- [ ] `SDC.6` Network egress policy integration (`P0`, `todo`)
+  - Create and attach direct egress policies for Foundry-worker connections.
+  - Create and attach agent proxy policies for agent-mediated private-network connections where supported.
+  - Validate host, port, protocol, proxy mode, policy status, and allowed organizations before connection tests.
+  - Docs: [Initial setup overview](https://www.palantir.com/docs/foundry/data-connection/initial-setup-overview/), [Configure egress](https://www.palantir.com/docs/foundry/administration/configure-egress/), [Agent proxy configuration reference](https://www.palantir.com/docs/foundry/data-connection/agent-proxy/).
+
+- [ ] `SDC.7` Source connection tests and exploration (`P0`, `todo`)
+  - Test connectivity, authentication, permissions, and simple metadata discovery from source setup and overview pages.
+  - Browse external folders, files, databases, schemas, tables, topics, queues, streams, and sample rows where supported.
+  - Store exploration sessions without persisting secret values or unauthorized sample data.
+  - Docs: [Set up a source](https://www.palantir.com/docs/foundry/data-connection/set-up-source), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
+
+### Batch, file, and table sync basics
+
+- [ ] `SDC.8` Generic sync resource model (`P0`, `todo`)
+  - Create sync resources from a source and capability type.
+  - Track output dataset/stream/media set, source path/table/topic, schema, write mode, transaction mode, schedule/build integration, last run, next run, health, and history.
+  - Creating a batch sync should create or select an OpenFoundry dataset output.
+  - Docs: [Set up a sync](https://www.palantir.com/docs/foundry/data-connection/set-up-sync), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
+
+- [ ] `SDC.9` File-based sync modes (`P0`, `todo`)
+  - Support default snapshot mirror, incremental append, historical snapshot plus incremental recent files, exclude-already-synced filters, file count limits, include/exclude glob filters, and path metadata columns where available.
+  - Store low-level settings and warn on contradictory options.
+  - Emit dataset transactions consistent with the selected mode.
+  - Docs: [File-based syncs](https://www.palantir.com/docs/foundry/data-connection/file-based-syncs/), [Set up a sync](https://www.palantir.com/docs/foundry/data-connection/set-up-sync).
+
+- [ ] `SDC.10` Table batch syncs (`P0`, `todo`)
+  - Browse tables, select one or more tables, infer schema, configure output dataset location, and run syncs.
+  - Support full snapshot and incremental modes where the connector can identify new or changed records.
+  - Capture source table schema, destination schema, row counts, transaction IDs, and run history.
+  - Docs: [Set up a sync](https://www.palantir.com/docs/foundry/data-connection/set-up-sync), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
+
+- [ ] `SDC.11` Sync run lifecycle and history (`P0`, `todo`)
+  - Track queued, running, succeeded, failed, cancelled, retrying, ignored, and partially successful states.
+  - Persist start/end time, duration, worker/agent, build/job ID, source offsets or file checkpoints, output transaction, rows/files/bytes transferred, retries, and logs.
+  - Link sync run history to Data Foundation build/job history where the sync is executed by the build system.
+  - Docs: [Set up a sync](https://www.palantir.com/docs/foundry/data-connection/set-up-sync), [Builds core concepts](https://www.palantir.com/docs/foundry/data-integration/builds/).
+
+### Streams and streaming sync basics
+
+- [ ] `SDC.12` Stream resource model (`P0`, `todo`)
+  - Model streams as tabular resources with schema, permissions, branch, hot buffer, cold/archive dataset, consistency guarantee, checkpoints, and replay metadata.
+  - Expose stream details, live view, archive/dataset view, schema, offsets, checkpoints, source syncs, consumers, and health.
+  - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
+
+- [ ] `SDC.13` Streaming sync setup (`P0`, `todo`)
+  - Create long-running syncs from supported streaming sources to OpenFoundry streams.
+  - Configure source topic/queue/stream, consumer group or equivalent, schema, key fields, start offset, consistency guarantee, checkpoint interval, and output stream location.
+  - Use start/stop controls rather than one-shot run controls.
+  - Docs: [Set up a streaming sync](https://www.palantir.com/docs/foundry/data-connection/set-up-streaming-sync/), [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
+
+- [ ] `SDC.14` Stream hot/cold storage and hybrid reads (`P0`, `todo`)
+  - Store recent records in a low-latency hot buffer.
+  - Archive stream records to cold storage as a dataset on a fixed cadence or configurable policy.
+  - Provide a hybrid read path that combines hot and cold storage for stream-aware applications.
+  - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
+
+- [ ] `SDC.15` Stream checkpoints and restart behavior (`P0`, `todo`)
+  - Persist checkpoint state, last processed source location, operator state metadata, size, duration, status, and timestamp.
+  - Restart failed streaming jobs from the latest completed checkpoint when possible.
+  - Show recent checkpoint status on stream job detail pages.
+  - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
+
+- [ ] `SDC.16` Streaming consistency modes (`P0`, `todo`)
+  - Support at-least-once mode and document duplicate-tolerant consumer requirements.
+  - Support exactly-once mode where the selected runtime and sink can guarantee it.
+  - Block or downgrade exactly-once mode when a source/sink combination cannot provide the guarantee.
+  - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
+
+- [ ] `SDC.17` Push-based stream ingestion (`P0`, `todo`)
+  - Provide authenticated REST endpoints for pushing records into streams by stream/dataset ID and branch.
+  - Validate schema, token, branch, rate limits, record count, and idempotency key where supported.
+  - Recommend streaming syncs when a source connector exists and listeners when inbound systems cannot authenticate or conform to stream schemas.
+  - Docs: [Push data into a stream](https://www.palantir.com/docs/foundry/data-connection/push-based-ingestion/), [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
+
+### Webhook and REST source basics
+
+- [ ] `SDC.18` REST API source and webhook setup (`P0`, `todo`)
+  - Create REST API sources with base domains, auth configuration, additional secrets, network policy, worker selection, and source permissions.
+  - Create webhooks associated with one source.
+  - Configure method, relative path, query parameters, headers, body, authorization references, and timeout/retry behavior.
+  - Docs: [Webhooks overview](https://www.palantir.com/docs/foundry/data-connection/webhooks-overview), [Set up a Webhook](https://www.palantir.com/docs/foundry/data-connection/webhooks-setup/), [Webhooks configuration reference](https://www.palantir.com/docs/foundry/data-connection/webhooks-reference).
+
+- [ ] `SDC.19` Webhook input and output parameters (`P0`, `todo`)
+  - Support Boolean, integer, long, double, string, date, timestamp, list, record, optional, and attachment parameter metadata where locally supported.
+  - Map action/function parameters into webhook inputs and allow conditional skip when mapping returns no request.
+  - Extract outputs using whole response, key path, array index, JSON extractor, HTTP status, and full response string where supported.
+  - Docs: [Webhooks configuration reference](https://www.palantir.com/docs/foundry/data-connection/webhooks-reference).
+
+- [ ] `SDC.20` Webhook invocation history (`P0`, `todo`)
+  - Record invocation time, caller, action/function context, source, webhook, input parameter summary, HTTP status, parsed outputs, error, retry attempts, and redacted request/response metadata.
+  - Enforce secret redaction and payload retention limits.
+  - Docs: [Webhooks configuration reference](https://www.palantir.com/docs/foundry/data-connection/webhooks-reference), [Webhooks overview](https://www.palantir.com/docs/foundry/data-connection/webhooks-overview).
+
+## Milestone B: credible Foundry-style Data Connection and streaming parity
+
+### Change data capture
+
+- [ ] `SDC.21` CDC sync setup (`P1`, `todo`)
+  - Create CDC syncs for supported relational connectors and changelog-shaped streaming middleware inputs.
+  - Capture source table, primary key columns, ordering column, deletion column, output stream, schema, start position, and connector-derived metadata.
+  - Validate that source tables and databases are configured to expose changelog data.
+  - Docs: [Change data capture](https://www.palantir.com/docs/foundry/data-integration/change-data-capture).
+
+- [ ] `SDC.22` CDC live and archive views (`P1`, `todo`)
+  - Display live changelog entries and archive/current-state view for CDC streams.
+  - Resolve archive view by ordering column and deletion marker according to configured resolution strategy.
+  - Show primary key resolution strategy in stream schema details.
+  - Docs: [Change data capture](https://www.palantir.com/docs/foundry/data-integration/change-data-capture), [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
+
+- [ ] `SDC.23` CDC downstream integration (`P1`, `todo`)
+  - Make CDC metadata available to Pipeline Builder, Ontology indexing, stream processing, archive views, and Data Health checks.
+  - Warn that custom or manually backfilled changelog streams must preserve ordering semantics before object indexing.
+  - Docs: [Change data capture](https://www.palantir.com/docs/foundry/data-integration/change-data-capture), [Create incremental syncs](https://www.palantir.com/docs/foundry/building-pipelines/create-incremental-syncs/).
+
+### Virtual tables and virtualized data
+
+- [ ] `SDC.24` Virtual table registration (`P1`, `todo`)
+  - Register individual virtual tables from supported source systems.
+  - Support bulk registration for tabular source types and automatic registration where product policy enables it.
+  - Store external database/schema/table references, display name, save location, source, schema, owner, and permissions.
+  - Docs: [Virtual tables](https://www.palantir.com/docs/foundry/data-integration/virtual-tables/).
+
+- [ ] `SDC.25` Virtual table query and pushdown model (`P1`, `todo`)
+  - Query virtual tables without first copying data into OpenFoundry datasets.
+  - Track whether computation happens in OpenFoundry, source system, or hybrid pushdown.
+  - Expose limitations for interactive performance, compute usage, unsupported features, and unsupported worker/network modes.
+  - Docs: [Virtual tables](https://www.palantir.com/docs/foundry/data-integration/virtual-tables/).
+
+- [ ] `SDC.26` Virtual table update detection and lineage (`P1`, `todo`)
+  - Detect source-side table updates where the connector supports versioning or update detection.
+  - Use update detection to skip unnecessary downstream builds.
+  - Show virtual table lineage from source through downstream datasets, object outputs, and pipelines.
+  - Docs: [Virtual tables](https://www.palantir.com/docs/foundry/data-integration/virtual-tables/).
+
+- [ ] `SDC.27` Virtual tables as pipeline inputs and outputs (`P1`, `todo`)
+  - Allow virtual tables as Pipeline Builder/code transform inputs where supported.
+  - Allow transforms to create virtual tables as outputs when OpenFoundry handles orchestration but storage remains external.
+  - Block unsupported workflows such as incompatible external-system decorators or unsupported host applications.
+  - Docs: [Virtual tables](https://www.palantir.com/docs/foundry/data-integration/virtual-tables/), [External transforms](https://www.palantir.com/docs/foundry/data-connection/external-transforms).
+
+### Exports
+
+- [ ] `SDC.28` Export resource model (`P1`, `todo`)
+  - Create file, table, and streaming export resources from sources that support export capabilities.
+  - Track input dataset or stream, destination path/table/topic, export type, export mode, schedule/start-stop behavior, export controls, history, and health.
+  - Docs: [Exports overview](https://www.palantir.com/docs/foundry/data-connection/export-overview/), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
+
+- [ ] `SDC.29` File exports (`P1`, `todo`)
+  - Export raw files from an input dataset to external filesystems or blob stores.
+  - By default, export only files modified since the last successfully exported transaction.
+  - Support overwrite behavior configuration, destination subfolder guidance, full re-export workaround, and export history.
+  - Docs: [Exports overview](https://www.palantir.com/docs/foundry/data-connection/export-overview/).
+
+- [ ] `SDC.30` Table exports (`P1`, `todo`)
+  - Export schema-bearing dataset rows into external database tables.
+  - Support efficient mirror mode and full dataset without truncation mode.
+  - Validate exact column names, types, Parquet-backed input, destination table existence, truncate permission, and unsupported nested types.
+  - Docs: [Exports overview](https://www.palantir.com/docs/foundry/data-connection/export-overview/).
+
+- [ ] `SDC.31` Streaming exports (`P1`, `todo`)
+  - Export records continuously from an OpenFoundry stream to supported external queues/topics while the export job is running.
+  - Support start/stop controls, restart from previous export offset, schedule-triggered restart, and replay behavior selection.
+  - Provide duplicate/drop warning when exporting replayed records or skipping replayed records.
+  - Docs: [Exports overview](https://www.palantir.com/docs/foundry/data-connection/export-overview/), [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
+
+- [ ] `SDC.32` Export scheduling and history (`P1`, `todo`)
+  - Schedule file and table exports through the same schedule/build system used for datasets.
+  - Show schedules that trigger an export from the export overview page.
+  - Show export job history, build report links, row/file counts, offsets, errors, and retry attempts.
+  - Docs: [Exports overview](https://www.palantir.com/docs/foundry/data-connection/export-overview/), [Schedules core concepts](https://www.palantir.com/docs/foundry/data-integration/schedules/).
+
+### Sources from code and extensibility
+
+- [ ] `SDC.33` Source imports in Python transforms (`P1`, `todo`)
+  - Allow approved sources to be imported into Python transforms through generated bindings.
+  - Render imported sources as links and friendly names in code repositories.
+  - Pick up credential, egress, and exportable-marking changes from source configuration at build start without requiring code changes.
+  - Docs: [External transforms](https://www.palantir.com/docs/foundry/data-connection/external-transforms), [Sources in Python environments](https://www.palantir.com/docs/foundry/data-connection/sources-in-python/).
+
+- [ ] `SDC.34` External transform patterns (`P1`, `todo`)
+  - Support code-based alternatives for batch sync, file export, table batch sync, table export, media sync handoffs, virtual table registration, and virtual media registration.
+  - Provide examples for REST APIs, databases, buffered Parquet writes, CSV exports, lightweight transforms, and private network access through agent proxy policies.
+  - Docs: [External transforms](https://www.palantir.com/docs/foundry/data-connection/external-transforms), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
+
+- [ ] `SDC.35` Compute module alternatives (`P1`, `blocked`)
+  - Support compute-module-style alternatives for streaming syncs, streaming exports, CDC syncs, and webhooks when OpenFoundry has long-running arbitrary-language compute modules.
+  - Mark blocked until compute module runtime, deployment, and source-import contracts exist.
+  - Docs: [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
+
+- [ ] `SDC.36` Source export controls for code imports (`P1`, `todo`)
+  - Require source owners to explicitly enable whether Foundry inputs may be used in jobs with access to the external system.
+  - Store exportable markings/organizations or OpenFoundry-native equivalents on the source.
+  - Block builds that combine Foundry inputs with an external source unless the source export policy allows it.
+  - Docs: [External transforms](https://www.palantir.com/docs/foundry/data-connection/external-transforms).
+
+### Agents, permissions, and health
+
+- [ ] `SDC.37` Agent registry and heartbeat (`P1`, `todo`)
+  - Register agents with ID, version, environment, host, status, last heartbeat, connected sources, supported connector capabilities, and assigned proxy policies.
+  - Show agent health and agent-related connection failures from source and admin pages.
+  - Docs: [Initial setup overview](https://www.palantir.com/docs/foundry/data-connection/initial-setup-overview/), [Agent proxy configuration reference](https://www.palantir.com/docs/foundry/data-connection/agent-proxy/).
+
+- [ ] `SDC.38` Source permissions and governance (`P1`, `todo`)
+  - Implement roles for source view, source edit, source use, source ownership, webhook execution, sync creation, export creation, and code import.
+  - Enforce that source visibility, credential visibility, external sample visibility, and output dataset permissions are distinct.
+  - Audit permission changes and source use by downstream jobs.
+  - Docs: [Set up a source](https://www.palantir.com/docs/foundry/data-connection/set-up-source), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
+
+- [ ] `SDC.39` Data Connection health checks (`P1`, `todo`)
+  - Monitor sources, agents, credentials, network policies, syncs, streams, exports, webhooks, CDC metadata, virtual tables, and schedules.
+  - Surface recent failures, stale syncs, stream lag, checkpoint failures, agent offline, credential expiration, schema drift, destination schema mismatch, and export policy violations.
+  - Docs: [Data Connection overview](https://www.palantir.com/docs/foundry/data-connection/overview), [Data Health](https://www.palantir.com/docs/foundry/observability/data-health/).
+
+- [ ] `SDC.40` Automatic retries and failure recovery (`P1`, `todo`)
+  - Implement retry/backoff policies for transient source, network, credential, and destination failures.
+  - Preserve enough checkpoint/source state to avoid full reruns when possible.
+  - Escalate persistent failures to Data Health and schedule/build history.
+  - Docs: [Data Connection overview](https://www.palantir.com/docs/foundry/data-connection/overview), [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
+
+## Milestone C: advanced connector coverage, scale, and governance
+
+### Advanced ingestion surfaces
+
+- [ ] `SDC.41` Media sync handoff (`P2`, `todo`)
+  - Set up media set syncs from supported file/media sources.
+  - Delegate media schema, conversion, transformations, transactional policy, and media reference behavior to the Media Sets checklist.
+  - Track source, selected paths, output media set, sync history, errors, and usage.
+  - Docs: [Set up a media set sync](https://www.palantir.com/docs/foundry/data-connection/media-set-sync), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
+
+- [ ] `SDC.42` Virtual media handoff (`P2`, `blocked`)
+  - Register external media files as virtual media items without copying media into OpenFoundry storage.
+  - Block until Media Sets virtual media semantics and object storage authorization are defined locally.
+  - Docs: [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/), [External transforms](https://www.palantir.com/docs/foundry/data-connection/external-transforms).
+
+- [ ] `SDC.43` Listener-style inbound ingestion (`P2`, `blocked`)
+  - Support inbound webhook/listener flows for external systems that cannot authenticate with stream push APIs or conform to stream schemas.
+  - Provide schema mapping, auth strategy, replay/idempotency controls, and dead-letter handling.
+  - Mark blocked until public listener documentation or local product policy is sufficient to define exact semantics.
+  - Docs: [Push data into a stream](https://www.palantir.com/docs/foundry/data-connection/push-based-ingestion/).
+
+- [ ] `SDC.44` Connector-specific capability packs (`P2`, `todo`)
+  - Implement capability packs for high-value connector families such as PostgreSQL, SQL Server, Oracle, Db2, Kafka, Kinesis, SQS, Pub/Sub, S3-compatible object stores, SFTP/FTPS, Foundry-to-Foundry, Snowflake, BigQuery, Databricks, and generic REST.
+  - Each pack should declare supported sync/export/virtual/CDC/webhook/exploration capabilities and source-specific validation.
+  - Docs: [Source type overview](https://www.palantir.com/docs/foundry/data-integration/source-type-overview/), [Change data capture](https://www.palantir.com/docs/foundry/data-integration/change-data-capture), [Exports overview](https://www.palantir.com/docs/foundry/data-connection/export-overview/).
+
+### Streaming scale and operations
+
+- [ ] `SDC.45` Stream lag and throughput metrics (`P2`, `todo`)
+  - Track ingestion rate, consumption rate, hot buffer size, archive lag, checkpoint duration, checkpoint size, processing lag, retries, and dropped/duplicate warnings.
+  - Show metrics per stream, streaming sync, streaming export, topic/partition, and consumer.
+  - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/), [Data Health](https://www.palantir.com/docs/foundry/observability/data-health/).
+
+- [ ] `SDC.46` Stream replay controls (`P2`, `todo`)
+  - Support safe replay after breaking processing logic changes.
+  - Explain downstream implications for streaming exports, CDC archive views, object indexing, and duplicate-tolerant consumers.
+  - Require explicit confirmation before replaying streams with active exports.
+  - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/), [Exports overview](https://www.palantir.com/docs/foundry/data-connection/export-overview/), [Change data capture](https://www.palantir.com/docs/foundry/data-integration/change-data-capture).
+
+- [ ] `SDC.47` Dead-letter and quarantine handling (`P2`, `todo`)
+  - Quarantine records that fail schema validation, serialization, permission checks, or destination writes.
+  - Provide dead-letter stream/dataset outputs with redaction and retention controls.
+  - Allow replay from quarantine after schema or connector fixes.
+  - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/), [Data Connection overview](https://www.palantir.com/docs/foundry/data-connection/overview).
+
+### Governance, auditing, and compliance
+
+- [ ] `SDC.48` Checkpoint and justification hooks (`P2`, `blocked`)
+  - Require user justification before sensitive exports, external transforms with Foundry inputs, webhook execution with attachments, or source credential changes.
+  - Integrate with OpenFoundry security/governance checkpoint semantics once implemented.
+  - Docs: [External transforms](https://www.palantir.com/docs/foundry/data-connection/external-transforms), [Exports overview](https://www.palantir.com/docs/foundry/data-connection/export-overview/).
+
+- [ ] `SDC.49` Sensitive data and export policy propagation (`P2`, `blocked`)
+  - Propagate dataset markings or OpenFoundry-native security labels through syncs, virtual table materializations, external transforms, exports, and webhooks.
+  - Enforce exportable marking/organization policy on all paths that combine Foundry data with external systems.
+  - Block until security/governance label semantics are stable.
+  - Docs: [External transforms](https://www.palantir.com/docs/foundry/data-connection/external-transforms), [Exports overview](https://www.palantir.com/docs/foundry/data-connection/export-overview/).
+
+- [ ] `SDC.50` Full connection audit trail (`P2`, `todo`)
+  - Emit immutable audit events for source CRUD, credential updates, network policy changes, permission changes, exploration, sync/export/webhook creation, run execution, code imports, and virtual registration.
+  - Filter audit by source, user, capability, external endpoint, output resource, branch, marking/export policy, and time window.
+  - Docs: [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/), [External transforms](https://www.palantir.com/docs/foundry/data-connection/external-transforms).
+
+- [ ] `SDC.51` Resource cleanup and retention (`P2`, `todo`)
+  - Identify unused sources, stale credentials, disconnected agents, abandoned sync outputs, stopped streaming exports, inactive webhooks, orphaned virtual tables, and old run logs.
+  - Provide cleanup plans that preserve lineage, audit, and downstream resource warnings.
+  - Docs: [Data Connection overview](https://www.palantir.com/docs/foundry/data-connection/overview), [Virtual tables](https://www.palantir.com/docs/foundry/data-integration/virtual-tables/).
+
+## Implementation inventory to collect before coding
+
+- [ ] `INV.1` Identify existing OpenFoundry connector/source models, REST source models, credential stores, network policy resources, and source permission models.
+- [ ] `INV.2` Identify existing connector-management-service APIs, generated OpenAPI routes, frontend Data Connection routes, and SDK clients.
+- [ ] `INV.3` Identify existing dataset-versioning-service transaction, branch, schema, file, table-read, and view primitives used by sync outputs.
+- [ ] `INV.4` Identify existing pipeline-build-service job, build, schedule, logs, retry, and lineage integration points for sync and export jobs.
+- [ ] `INV.5` Identify existing stream, queue, Kafka-compatible, hot-buffer, cold-storage, checkpoint, offset, and consumer primitives.
+- [ ] `INV.6` Identify existing CDC metadata, key-by, deletion-marker, ordering-column, archive-view, and Ontology indexing primitives.
+- [ ] `INV.7` Identify existing virtual table and external query pushdown abstractions, including unsupported worker/network combinations.
+- [ ] `INV.8` Identify existing webhook source/action integration, request builder, parameter mapping, output extraction, invocation history, and side-effect policy code.
+- [ ] `INV.9` Identify existing external transform/source import support in Python, TypeScript, sidecars, lightweight compute, and compute modules.
+- [ ] `INV.10` Identify existing export resources, export controls, schedule integration, table/file/stream destination writers, and replay semantics.
+- [ ] `INV.11` Identify existing agent registration, heartbeat, versioning, proxy routing, and private-network test fixtures.
+- [ ] `INV.12` Identify existing Data Health, notifications, audit, retention, and security/governance primitives for connection operations.
+- [ ] `INV.13` Produce a machine-readable parity matrix sibling JSON after inventory, following the pattern of [foundry-feature-parity-matrix.json](./foundry-feature-parity-matrix.json).
+
+## Suggested service boundaries
+
+| Surface | Responsibilities |
+| --- | --- |
+| `connector-management-service` | Source CRUD, connector registry, capability registry, credentials, worker selection, network policy attachment, exploration, source permissions, code import settings. |
+| `data-sync-service` | Batch syncs, file syncs, table syncs, CDC sync setup, sync runs, source checkpoints, output dataset/stream commits, sync history. |
+| `streaming-service` | Stream resource model, hot buffer, cold/archive storage, schema, checkpoints, consistency mode, push ingestion, replay, lag metrics, streaming sync/export runtime. |
+| `virtualization service` | Virtual table registration, external schema discovery, query pushdown, update detection, virtual lineage, virtual media handoff. |
+| `export-service` | File/table/streaming exports, export modes, destination writers, export schedules, export history, replay behavior, destination schema validation. |
+| `webhook service` | REST API source webhooks, request builder, parameter mapping, output extraction, invocation history, action/function integration. |
+| `agent service` | Agent registration, heartbeats, agent proxy policy routing, agent capability compatibility, agent health. |
+| `pipeline-build-service` | Build/schedule integration for syncs/exports, logs, retries, build reports, lineage edges, job status. |
+| `dataset-versioning-service` | Output datasets, transactions, branches, schemas, file manifests, stream archive datasets, virtual table dataset-like views. |
+| `security/governance service` | Export controls, markings/org labels, source roles, checkpoints/justification, audit policy, credential access controls. |
+| `data-health service` | Health checks for sources, agents, syncs, streams, exports, webhooks, virtual tables, CDC, lag, checkpoint failures, and schema drift. |
+| `apps/web` | Data Connection UI, source setup wizard, sync/export/webhook builders, stream detail pages, virtual table registration UI, agents page, health/history panels. |
+
+## Acceptance criteria for first complete Streaming and Data Connection milestone
+
+- [ ] A user can create a REST API source, configure credentials and egress, test the connection, and create a webhook with typed input/output parameters.
+- [ ] A user can create a filesystem/blob source, explore files, create a file sync, run it, and see output dataset transactions with file/row/byte counts.
+- [ ] A user can create a table source, browse schemas/tables, create a table batch sync, infer schema, run it, and inspect history/logs.
+- [ ] A user can create a stream, configure a streaming sync from a supported source, start/stop it, inspect hot/cold records, and see checkpoint state.
+- [ ] A user can push records into a stream through an authenticated push ingestion endpoint and read the records from stream live view.
+- [ ] A user can configure a CDC sync with primary key, ordering column, and deletion column; live and archive views show expected changelog/current-state behavior.
+- [ ] A user can register a virtual table, query it, see source/lineage/update-detection metadata, and use it as a supported pipeline input.
+- [ ] A user can create file, table, and streaming exports where supported, run or start them, and inspect export history.
+- [ ] Source imports into code enforce source export controls before a transform can combine Foundry inputs with external system access.
+- [ ] Data Health surfaces source connection failures, stale syncs, agent offline state, stream lag, checkpoint failures, webhook failures, and export failures.
+- [ ] Permission checks prevent unauthorized users from viewing secrets, invoking sources, exporting Foundry data, or reading output datasets/streams.
+- [ ] All OpenFoundry runtime UI is OpenFoundry-native and does not use Palantir branding, screenshots, icons, fonts, or proprietary assets.
+
+## Test plan expectations
+
+- Unit tests for source validation, connector capability compatibility, worker/network compatibility, credential redaction, source permission decisions, sync mode validation, stream checkpoint transitions, CDC resolution, export mode validation, webhook parameter extraction, and export-control policy evaluation.
+- API tests for source CRUD, connection tests, exploration, credentials, egress policy attachment, sync CRUD/run/history, stream CRUD/live/archive reads, push ingestion, CDC syncs, virtual tables, exports, webhooks, agents, source code imports, and health checks.
+- Integration tests for file sync to dataset transactions, table sync schema inference, streaming sync checkpoint restart, push ingestion to hot/cold stream views, CDC archive resolution, virtual table pipeline input, table export validation, streaming export replay behavior, and webhook action integration.
+- E2E tests for source setup wizard, source exploration, file sync creation/run, streaming sync start/stop, CDC setup, virtual table registration, export setup/history, webhook setup/invocation, source import governance, and Data Connection health dashboards.
+- Regression tests proving secrets are never exposed, aborted/failed sync outputs are not visible as committed dataset views, branch-only stream writes do not leak to main, unauthorized virtual table reads are blocked, and export controls cannot be bypassed through code imports or webhooks.
