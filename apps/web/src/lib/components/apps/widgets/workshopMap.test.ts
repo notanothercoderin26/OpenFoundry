@@ -11,6 +11,7 @@ import {
   buildMapTemplateRenderRequest,
   collectFeatureBounds,
   createWorkshopMapStyle,
+  isWorkshopMapLayerVisible,
   mergeMapTemplateWidgetProps,
   normalizeSavedOverlayConfig,
   readMapLayerConfigs,
@@ -338,5 +339,26 @@ describe('Workshop Map widget feature shaping', () => {
 
     expect(request.parameter_values).toEqual({ radius: 3.5 });
     expect(request.variable_mappings).toEqual({ trail_set: 'var-trails' });
+  });
+
+  it('resolves layer visibility from boolean-like variables with static fallback', () => {
+    const [layer] = readMapLayerConfigs({
+      layers: [
+        {
+          id: 'coffee',
+          title: 'Coffee shops',
+          source: 'object_set',
+          visibility_variable_id: 'show-coffee',
+          visible: true,
+        },
+      ],
+    });
+    const engine = {
+      getPrimitive: (variableId: string) => (variableId === 'show-coffee' ? 'false' : undefined),
+    };
+
+    expect(isWorkshopMapLayerVisible(layer, engine)).toBe(false);
+    expect(isWorkshopMapLayerVisible({ ...layer, visibility_variable_id: '' }, engine)).toBe(true);
+    expect(isWorkshopMapLayerVisible({ ...layer, visibility_variable_id: 'missing', visible: false }, engine)).toBe(false);
   });
 });

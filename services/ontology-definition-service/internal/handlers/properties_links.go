@@ -54,6 +54,10 @@ func (h *Handlers) CreateProperty(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "name + property_type are required")
 		return
 	}
+	if err := models.ValidatePropertyType(body.PropertyType); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	created, err := h.Repo.CreateProperty(r.Context(), typeID, &body)
 	if err != nil {
 		slog.Error("create property", slog.String("error", err.Error()))

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/openfoundry/openfoundry-go/libs/ontology-kernel/models"
 )
 
 // ValidPropertyTypes mirrors the `VALID_TYPES` slice in
@@ -13,8 +15,13 @@ import (
 // surfaced by [ValidatePropertyType].
 var ValidPropertyTypes = []string{
 	"string",
+	"text",
 	"integer",
+	"long",
 	"float",
+	"double",
+	"decimal",
+	"number",
 	"boolean",
 	"date",
 	"timestamp",
@@ -23,7 +30,11 @@ var ValidPropertyTypes = []string{
 	"vector",
 	"reference",
 	"geo_point",
+	"geopoint",
+	"geoshape",
+	"geojson",
 	"media_reference",
+	"time_series",
 	// TASK J — struct property/parameter type. Recursive validation
 	// happens in handlers/actions::materialize_parameters because it
 	// needs the nested `struct_fields` schema, which
@@ -42,6 +53,17 @@ func ValidatePropertyType(propertyType string) error {
 		if t == propertyType {
 			return nil
 		}
+	}
+	metadata := models.PropertyTypeMetadataFor(propertyType)
+	if metadata.IsArray && metadata.ArrayItemType != nil {
+		itemMetadata := models.PropertyTypeMetadataFor(*metadata.ArrayItemType)
+		if itemMetadata.TypeFamily == "unknown" {
+			return fmt.Errorf(`invalid property type '%s', valid types: %s`, propertyType, rustSliceDebug(ValidPropertyTypes))
+		}
+		if metadata.ArrayAllowed {
+			return nil
+		}
+		return fmt.Errorf("property type '%s' cannot be used as an array item", *metadata.ArrayItemType)
 	}
 	return fmt.Errorf(`invalid property type '%s', valid types: %s`, propertyType, rustSliceDebug(ValidPropertyTypes))
 }
@@ -77,19 +99,41 @@ func rustSliceDebug(values []string) string {
 //   - float: must be a number (integers also accepted, mirroring
 //     `is_f64() || is_i64()` in Rust).
 //   - boolean: must be a JSON bool.
-//   - json / array: anything is accepted.
+//   - json: anything is accepted.
+//   - array: must be an array; typed arrays validate each element.
 //   - struct: must be a JSON object.
 //   - vector: must be a non-empty array of numeric values.
 //   - reference: must be a string (UUID-shape not enforced here).
-//   - geo_point: must be an object with numeric `lat`/`latitude`
+//   - geopoint: must be an object with numeric `lat`/`latitude`
 //     and `lon`/`longitude`, both within range.
+//   - geoshape: must be a GeoJSON-like object or non-empty string.
 //   - media_reference: string OR object carrying a non-empty
-//     `uri`/`url`.
+//     `uri`/`url` or media `reference`.
+//   - time_series: must be a string reference, object, or array.
 //   - attachment: string OR object carrying a non-empty
 //     `attachment_rid`/`rid`.
 func ValidatePropertyValue(propertyType string, value json.RawMessage) error {
 	trimmed := bytes.TrimSpace(value)
-	switch propertyType {
+	metadata := models.PropertyTypeMetadataFor(propertyType)
+	if metadata.IsArray {
+		if metadata.ArrayItemType == nil {
+			if !isJSONArray(trimmed) {
+				return fmt.Errorf("expected array value")
+			}
+			return nil
+		}
+		var arr []json.RawMessage
+		if err := json.Unmarshal(trimmed, &arr); err != nil {
+			return fmt.Errorf("expected array value")
+		}
+		for _, entry := range arr {
+			if err := ValidatePropertyValue(*metadata.ArrayItemType, entry); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	switch metadata.BaseType {
 	case "string", "enum":
 		// `enum` is a string with a constrained value set; the allowed
 		// values are enforced by validation_rules.enum_values further up
@@ -113,7 +157,7 @@ func ValidatePropertyValue(propertyType string, value json.RawMessage) error {
 			return fmt.Errorf("expected boolean value")
 		}
 		return nil
-	case "json", "array":
+	case "json":
 		return nil
 	case "struct":
 		if !isJSONObject(trimmed) {
@@ -144,30 +188,55 @@ func ValidatePropertyValue(propertyType string, value json.RawMessage) error {
 			return fmt.Errorf("expected UUID string for reference")
 		}
 		return nil
-	case "geo_point":
+	case "geopoint":
 		var obj map[string]json.RawMessage
 		if err := json.Unmarshal(trimmed, &obj); err != nil || obj == nil {
-			return fmt.Errorf("expected object value with lat/lon for geo_point")
+			return fmt.Errorf("expected object value with lat/lon for geopoint")
 		}
 		latRaw, ok := pickKey(obj, "lat", "latitude")
 		if !ok {
-			return fmt.Errorf("geo_point requires numeric lat/lon fields")
+			return fmt.Errorf("geopoint requires numeric lat/lon fields")
 		}
 		lonRaw, ok := pickKey(obj, "lon", "longitude")
 		if !ok {
-			return fmt.Errorf("geo_point requires numeric lat/lon fields")
+			return fmt.Errorf("geopoint requires numeric lat/lon fields")
 		}
 		var lat, lon float64
 		if err := json.Unmarshal(latRaw, &lat); err != nil {
-			return fmt.Errorf("geo_point requires numeric lat/lon fields")
+			return fmt.Errorf("geopoint requires numeric lat/lon fields")
 		}
 		if err := json.Unmarshal(lonRaw, &lon); err != nil {
-			return fmt.Errorf("geo_point requires numeric lat/lon fields")
+			return fmt.Errorf("geopoint requires numeric lat/lon fields")
 		}
 		if lat < -90 || lat > 90 || lon < -180 || lon > 180 {
-			return fmt.Errorf("geo_point latitude/longitude out of range")
+			return fmt.Errorf("geopoint latitude/longitude out of range")
 		}
 		return nil
+	case "geoshape":
+		if isNonEmptyJSONString(trimmed) {
+			return nil
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(trimmed, &obj); err != nil || obj == nil {
+			return fmt.Errorf("expected GeoJSON object or non-empty string for geoshape")
+		}
+		if rawType, ok := obj["type"]; ok && isNonEmptyJSONString(bytes.TrimSpace(rawType)) {
+			if _, ok := obj["coordinates"]; ok {
+				return nil
+			}
+			if _, ok := obj["geometries"]; ok {
+				return nil
+			}
+			if _, ok := obj["features"]; ok {
+				return nil
+			}
+		}
+		if rawGeoJSON, ok := pickKey(obj, "geojson", "geometry"); ok {
+			if isJSONObject(bytes.TrimSpace(rawGeoJSON)) || isNonEmptyJSONString(bytes.TrimSpace(rawGeoJSON)) {
+				return nil
+			}
+		}
+		return fmt.Errorf("geoshape requires GeoJSON type with coordinates/geometries/features")
 	case "media_reference":
 		if isJSONString(trimmed) {
 			return nil
@@ -176,15 +245,23 @@ func ValidatePropertyValue(propertyType string, value json.RawMessage) error {
 		if err := json.Unmarshal(trimmed, &obj); err != nil || obj == nil {
 			return fmt.Errorf("expected string or object for media_reference")
 		}
+		if _, ok := obj["reference"]; ok {
+			return nil
+		}
 		uriRaw, ok := pickKey(obj, "uri", "url")
 		if !ok {
-			return fmt.Errorf("media_reference requires a non-empty uri or url")
+			return fmt.Errorf("media_reference requires a non-empty uri, url, or reference")
 		}
 		var uri string
 		if err := json.Unmarshal(uriRaw, &uri); err != nil || strings.TrimSpace(uri) == "" {
-			return fmt.Errorf("media_reference requires a non-empty uri or url")
+			return fmt.Errorf("media_reference requires a non-empty uri, url, or reference")
 		}
 		return nil
+	case "time_series":
+		if isNonEmptyJSONString(trimmed) || isJSONObject(trimmed) || isJSONArray(trimmed) {
+			return nil
+		}
+		return fmt.Errorf("expected string, object, or array value for time_series")
 	case "attachment":
 		if isJSONString(trimmed) {
 			return nil
@@ -222,9 +299,21 @@ func isJSONString(b []byte) bool {
 	return len(b) >= 2 && b[0] == '"' && b[len(b)-1] == '"'
 }
 
-func isJSONBool(b []byte) bool { return bytes.Equal(b, []byte("true")) || bytes.Equal(b, []byte("false")) }
+func isNonEmptyJSONString(b []byte) bool {
+	if !isJSONString(b) {
+		return false
+	}
+	var value string
+	return json.Unmarshal(b, &value) == nil && strings.TrimSpace(value) != ""
+}
+
+func isJSONBool(b []byte) bool {
+	return bytes.Equal(b, []byte("true")) || bytes.Equal(b, []byte("false"))
+}
 
 func isJSONObject(b []byte) bool { return len(b) > 0 && b[0] == '{' }
+
+func isJSONArray(b []byte) bool { return len(b) > 0 && b[0] == '[' }
 
 // isJSONNumber accepts any JSON number (integer or float).
 func isJSONNumber(b []byte) bool {

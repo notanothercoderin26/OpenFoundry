@@ -380,7 +380,7 @@ func validateActionDefinition(
 			if strings.TrimSpace(field.Name) == "" {
 				return errors.New("action input field name is required")
 			}
-			if err := domain.ValidatePropertyType(field.PropertyType); err != nil {
+			if err := validateActionParameterType(field.PropertyType); err != nil {
 				return errors.New(field.Name + ": " + err.Error())
 			}
 		}
@@ -395,12 +395,24 @@ func validateActionDefinition(
 // operations and preserve Rust's interface-resolution gate.
 func parseOperationKind(raw string) (string, error) {
 	switch raw {
-	case "update_object", "create_link", "delete_object",
+	case "modify_object":
+		return "update_object", nil
+	case "create_object", "update_object", "create_or_modify_object",
+		"create_link", "delete_link", "delete_object",
 		"invoke_function", "invoke_webhook",
 		"create_interface", "modify_interface", "delete_interface",
 		"create_interface_link", "delete_interface_link":
 		return raw, nil
 	default:
 		return "", errors.New("invalid action operation kind '" + raw + "'")
+	}
+}
+
+func validateActionParameterType(propertyType string) error {
+	switch strings.TrimSpace(strings.ToLower(propertyType)) {
+	case "object_reference", "object_reference_list", "object_set":
+		return nil
+	default:
+		return domain.ValidatePropertyType(propertyType)
 	}
 }

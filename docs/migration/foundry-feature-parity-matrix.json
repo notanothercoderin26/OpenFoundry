@@ -389,22 +389,50 @@
         "services/application-composition-service/internal/server/server.go",
         "services/application-composition-service/internal/handlers/apps.go",
         "services/application-composition-service/internal/repo/repo.go",
+        "apps/web/src/routes/apps/AppsPage.tsx",
         "apps/web/src/routes/apps/AppRuntimePage.tsx",
-        "apps/web/src/lib/components/apps/AppRenderer.tsx"
+        "apps/web/src/routes/apps/WorkshopEditorPage.tsx",
+        "apps/web/src/lib/components/apps/AppRenderer.tsx",
+        "apps/web/src/lib/components/apps/widgets/workshop-runtime-context.ts"
       ],
       "status": "partial",
       "owner": "application-composition-service, apps/web",
       "doc_refs": [
         "https://www.palantir.com/docs/foundry/workshop/overview/",
-        "https://www.palantir.com/docs/foundry/workshop/concepts-layouts/"
+        "https://www.palantir.com/docs/foundry/workshop/concepts-layouts/",
+        "https://www.palantir.com/docs/foundry/workshop/versions/"
       ],
       "tests": [
         "services/application-composition-service/internal/models/workshop_schema_test.go",
         "services/application-composition-service/internal/server/workshop_routes_test.go",
         "services/application-composition-service/internal/models/composition_test.go",
-        "services/application-composition-service/internal/server/server.go"
+        "apps/web/e2e/workshop-preview.spec.ts"
       ],
-      "notes": "WS.1/WS.2 are implemented for schema and frontend endpoint coverage: 2026-05-11.ws.1 normalizes pages/layouts/sections/overlays/widgets/configs/bindings/events/actions/variables/runtime metadata/public slug, and draft preview/public embed/page CRUD/template/Slate endpoints are mounted. Deeper publish/version lifecycle semantics remain tracked in WS.19."
+      "notes": "WS.1/WS.2/WS.18/WS.19 are implemented for schema, frontend endpoint coverage, preview semantics, and publish/version/promote lifecycle: 2026-05-11.ws.1 normalizes pages/layouts/sections/overlays/widgets/configs/bindings/events/actions/variables/runtime metadata/public slug; draft preview/page CRUD/template/Slate endpoints are mounted; editor preview renders draft state through the same AppRenderer as public runtime; public runtime loads immutable app_versions.app_snapshot; and rollback/promote creates a new published version from a historical snapshot while preserving changelog notes, author, and timestamps. Remaining partial status is for broader Workshop builder parity beyond this lifecycle row."
+    },
+    {
+      "foundry_feature": "Workshop: app permissions, public constraints, and audit",
+      "openfoundry_surface": [
+        "services/application-composition-service/internal/handlers/app_auth.go",
+        "services/application-composition-service/internal/repo/migrations/20260511004100_app_permissions_audit.sql",
+        "services/application-composition-service/internal/handlers/apps.go",
+        "services/application-composition-service/internal/handlers/workshop_endpoints.go",
+        "services/application-composition-service/internal/repo/repo.go",
+        "libs/ontology-kernel/handlers/actions/execute.go",
+        "libs/ontology-kernel/handlers/actions/batch.go"
+      ],
+      "status": "done",
+      "owner": "application-composition-service, ontology-actions-service",
+      "doc_refs": [
+        "https://www.palantir.com/docs/foundry/action-types/action-log",
+        "https://www.palantir.com/docs/foundry/api/"
+      ],
+      "tests": [
+        "services/application-composition-service/internal/server/workshop_routes_test.go",
+        "libs/ontology-kernel/handlers/actions/execute_test.go",
+        "libs/ontology-kernel/handlers/actions/batch_test.go"
+      ],
+      "notes": "WS.20 is implemented: app routes require JWT-backed apps:view, apps:edit, or apps:publish access through roles or permission keys; denied edit/publish attempts return 403 and append app_audit_events; successful app mutations publish best-effort audit rows with actor, permission/status, request metadata, timestamps, and details; public runtime rejects archived apps and non-published snapshots; and Workshop-triggered Ontology actions already persist action_attempt records for single and batch execution."
     },
     {
       "foundry_feature": "Workshop: templates, widget catalog, Slate package import/export, and page CRUD backend endpoints",
@@ -457,25 +485,71 @@
       "foundry_feature": "Workshop: object-aware widgets including Object Table, Filter List, Property List, Object Set Title, Chart XY, and Pie Chart",
       "openfoundry_surface": [
         "apps/web/src/routes/apps/WorkshopEditorPage.tsx",
+        "apps/web/src/lib/components/ontology/InlineEditCell.tsx",
         "apps/web/src/lib/components/apps/widgets/adapters.tsx",
-        "apps/web/src/lib/components/apps/AppWidgetRenderer.tsx"
+        "apps/web/src/lib/components/apps/AppWidgetRenderer.tsx",
+        "services/application-composition-service/internal/catalog/widget_catalog.v1.json",
+        "apps/web/src/lib/components/apps/widgets/chartXY.ts",
+        "apps/web/src/lib/components/apps/widgets/propertyList.ts",
+        "apps/web/src/lib/components/apps/widgets/objectSetTitle.ts",
+        "apps/web/src/lib/components/apps/widgets/workshopVariables.ts",
+        "apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts",
+        "services/object-database-service/internal/handlers/objects_bridge.go"
       ],
       "status": "partial",
       "owner": "apps/web, ontology services",
       "doc_refs": [
         "https://www.palantir.com/docs/foundry/workshop/widgets-object-table/index.html",
+        "https://www.palantir.com/docs/foundry/workshop/concepts-widgets",
+        "https://www.palantir.com/docs/foundry/workshop/object-set-filter-variables/",
         "https://www.palantir.com/docs/foundry/workshop/widgets-property-list",
+        "https://www.palantir.com/docs/foundry/workshop/widgets-object-set-title/",
         "https://www.palantir.com/docs/foundry/workshop/widgets-chart/"
       ],
       "tests": [
+        "apps/web/e2e/workshop-object-table.spec.ts",
+        "apps/web/e2e/workshop-actions.spec.ts",
+        "apps/web/e2e/workshop-filter-list.spec.ts",
+        "apps/web/e2e/workshop-property-list.spec.ts",
+        "apps/web/e2e/workshop-chart-xy.spec.ts",
+        "apps/web/src/lib/components/apps/widgets/chartXY.test.ts",
+        "apps/web/src/lib/components/apps/widgets/propertyList.test.ts",
+        "apps/web/src/lib/components/apps/widgets/objectSetTitle.test.ts",
+        "apps/web/src/lib/components/apps/widgets/workshopVariables.test.ts",
+        "apps/web/src/lib/components/apps/widgets/workshopObjectSets.test.ts",
+        "services/application-composition-service/internal/catalog/widget_catalog_test.go",
+        "services/object-database-service/internal/server/server_test.go",
         "docs/migration/foundry-workshop-pipeline-1to1-checklist.md"
       ],
-      "notes": "Workshop widget adapters are registered and render against the WS.4 variable engine. Remaining parity work is mainly richer object-set execution semantics and action wiring."
+      "notes": "WS.4/WS.5/WS.8/WS.9/WS.10/WS.11/WS.14/WS.17 are implemented for shared variable/object-set execution, Object Table parity v1, Filter List parity v1, Property List parity v1, Chart XY parity v1, Object Set Title parity v1, and selected-object-set bulk actions. Object Table supports configured columns, typed sort toggles, row height/wrapping, active-object output, multi-select selected-object-set output, selection events, row actions, selected-row action buttons, and inline edits. Filter List emits reusable object-set filters. Property List reads object-set inputs, selected-object-set outputs, and active-object variables, displays the first object, supports selected property lists, null hiding, adjacent/below layouts, wrapping, and basic value formatting. Object Set Title supports count mode, single-object title mode, object type icon/color metadata, title overrides, hide-by-default empty sets, and configured empty placeholders. Chart XY reads object-set layers, renders bar/line/scatter series with property aggregation and legend/axes, and publishes selected categories as filter and selected-object-set outputs. Remaining parity work is mainly deeper Foundry-specific options on metric-style widgets and Pie Chart."
+    },
+    {
+      "foundry_feature": "Workshop: Free-form Analysis widget",
+      "openfoundry_surface": [
+        "apps/web/src/lib/components/apps/widgets/FreeFormAnalysisWidget.tsx",
+        "apps/web/src/lib/components/apps/widgets/freeFormAnalysis.ts",
+        "apps/web/src/routes/apps/WorkshopEditorPage.tsx",
+        "apps/web/src/lib/components/apps/widgets/adapters.tsx",
+        "services/application-composition-service/internal/catalog/widget_catalog.v1.json"
+      ],
+      "status": "done",
+      "owner": "apps/web, application-composition-service",
+      "doc_refs": [
+        "https://www.palantir.com/docs/foundry/workshop/widget-free-form-analysis/"
+      ],
+      "tests": [
+        "apps/web/src/lib/components/apps/widgets/freeFormAnalysis.test.ts",
+        "apps/web/e2e/workshop-free-form-analysis.spec.ts",
+        "services/application-composition-service/internal/catalog/widget_catalog_test.go",
+        "services/application-composition-service/internal/catalog/testdata/widget_catalog_snapshot.json"
+      ],
+      "notes": "WS.21 is implemented for bounded runtime exploration: Free-form Analysis reads a configured input object set, lets users add filter/table/metric/bar/line/pie/text cards, searches and filters rows locally, saves analysis paths locally when enabled, renders charts through ECharts, and publishes the current filtered rows as an object_set_selection output variable for downstream widgets."
     },
     {
       "foundry_feature": "Workshop: variable engine and object set filter variables",
       "openfoundry_surface": [
         "apps/web/src/lib/components/apps/widgets/workshopVariables.ts",
+        "apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts",
         "apps/web/src/lib/components/apps/AppWidgetRenderer.tsx",
         "apps/web/src/lib/components/apps/widgets/WorkshopMapWidget.tsx",
         "apps/web/src/routes/apps/WorkshopEditorPage.tsx",
@@ -490,50 +564,61 @@
       ],
       "tests": [
         "apps/web/src/lib/components/apps/widgets/workshopVariables.test.ts",
+        "apps/web/src/lib/components/apps/widgets/workshopObjectSets.test.ts",
         "apps/web/src/lib/components/apps/widgets/workshopMap.test.ts",
         "services/application-composition-service/internal/models/workshop_schema_test.go"
       ],
-      "notes": "WS.4 is implemented: runtime variables now resolve through a central dependency graph with primitive, object-set, object-set filter, selected-object, aggregation, shape, URL, and runtime-parameter values. Editor preview and published runtime share the same engine; object widgets and Map widget consume linked filter variables and selected object-set outputs through engine helpers rather than ad hoc per-widget state."
+      "notes": "WS.4 and ONT.4 are implemented: runtime variables now resolve through a central dependency graph with primitive, object-set, composable object-set filter, selected-object, aggregation, shape, URL, and runtime-parameter values. Object-set filters support defaults, runtime widget output, direct filter payloads, primitive/function-backed value references, and composition from other filter variables. Editor preview and published runtime share the same engine; object widgets and Map widget consume linked filter variables and selected object-set outputs through engine helpers rather than ad hoc per-widget state."
     },
     {
       "foundry_feature": "Workshop: events and navigational actions",
       "openfoundry_surface": [
+        "apps/web/src/lib/components/apps/widgets/workshopEvents.ts",
+        "apps/web/src/lib/components/apps/widgets/WorkshopRuntimeProvider.tsx",
         "apps/web/src/lib/components/apps/AppRenderer.tsx",
         "apps/web/src/lib/components/apps/AppWidgetRenderer.tsx",
+        "apps/web/src/routes/apps/WorkshopEditorPage.tsx",
         "apps/web/src/lib/api/apps.ts"
       ],
-      "status": "partial",
+      "status": "done",
       "owner": "apps/web",
       "doc_refs": [
         "https://www.palantir.com/docs/foundry/workshop/concepts-events",
         "https://www.palantir.com/docs/foundry/workshop/widgets-button-group/"
       ],
       "tests": [
+        "apps/web/src/lib/components/apps/widgets/workshopEvents.test.ts",
+        "apps/web/e2e/workshop-events.spec.ts",
         "docs/migration/foundry-workshop-pipeline-1to1-checklist.md"
       ],
-      "notes": "Runtime event shapes and basic actions exist. Foundry-style event ordering, variable updates, action execution, exports, and command events need a formal engine."
+      "notes": "WS.6 is implemented: trigger-matched events execute sequentially with handlers for set variable, set/clear runtime parameters, navigate, open URL, filter, seed prompt, refresh, apply action, export, and command fallback. Button Group clicks and Object Table row selection now dispatch event chains through the shared runtime."
     },
     {
       "foundry_feature": "Workshop: Button Group triggering Ontology Actions",
       "openfoundry_surface": [
         "apps/web/src/routes/apps/WorkshopEditorPage.tsx",
+        "apps/web/src/lib/components/apps/widgets/WorkshopRuntimeProvider.tsx",
         "apps/web/src/lib/components/apps/widgets/adapters.tsx",
         "apps/web/src/lib/api/ontology.ts",
-        "libs/ontology-kernel/handlers/actions/execute.go"
+        "libs/ontology-kernel/handlers/actions/execute.go",
+        "libs/ontology-kernel/handlers/actions/batch.go"
       ],
-      "status": "partial",
+      "status": "done",
       "owner": "apps/web, ontology-actions-service",
       "doc_refs": [
         "https://www.palantir.com/docs/foundry/workshop/actions-use/",
+        "https://www.palantir.com/docs/foundry/action-types/rules",
         "https://www.palantir.com/docs/foundry/workshop/widgets-button-group/",
+        "https://www.palantir.com/docs/foundry/action-types/use-actions/",
         "https://www.palantir.com/docs/foundry/api/v2/ontologies-v2-resources/actions/apply-action/"
       ],
       "tests": [
+        "apps/web/e2e/workshop-actions.spec.ts",
+        "services/ontology-actions-service/internal/server/server_test.go",
         "libs/ontology-kernel/handlers/actions/execute_test.go",
-        "libs/ontology-kernel/handlers/actions/batch_test.go",
-        "docs/migration/foundry-workshop-pipeline-1to1-checklist.md"
+        "libs/ontology-kernel/handlers/actions/batch_test.go"
       ],
-      "notes": "Ontology action execution exists. Workshop action form/button integration still appears narrower than Foundry's generic Button Group action behavior."
+      "notes": "WS.7/WS.16/WS.17/ONT.5 are implemented: Button Group and Object Table action buttons open a generic action form, resolve static/active-object/selected-object-set/variable defaults through the Workshop variable engine, honor visible/disabled/hidden parameter settings, render required and object-reference/list fields, show local/server validation issues, validate through the action API, execute create/edit/create-or-modify/delete/link/webhook/function action kinds through the generic single or batch endpoint, surface operation-specific success toasts, keep partial-failure bulk forms open with per-target errors, and refresh runtime widgets after completion."
     },
     {
       "foundry_feature": "Workshop: Map widget",
@@ -543,13 +628,14 @@
         "apps/web/src/lib/components/apps/widgets/workshopMap.ts",
         "apps/web/src/routes/apps/WorkshopEditorPage.tsx",
         "apps/web/src/lib/components/apps/WidgetCatalog.tsx",
+        "services/application-composition-service/internal/catalog/widget_catalog.v1.json",
         "apps/web/src/lib/components/MapLibreCanvas.tsx",
         "apps/web/src/lib/api/geospatial.ts",
         "services/ontology-exploratory-analysis-service/internal/handlers/geospatial/map_templates.go",
         "services/ontology-exploratory-analysis-service/internal/repo/migrations/20260511003000_geospatial_map_templates.sql"
       ],
-      "status": "partial",
-      "owner": "apps/web, ontology-exploratory-analysis-service",
+      "status": "done",
+      "owner": "apps/web, application-composition-service, ontology-exploratory-analysis-service",
       "doc_refs": [
         "https://www.palantir.com/docs/foundry/workshop/widgets-map/",
         "https://www.palantir.com/docs/foundry/map/layer-editor",
@@ -561,31 +647,44 @@
       "tests": [
         "apps/web/src/lib/components/apps/widgets/workshopMap.test.ts",
         "apps/web/e2e/workshop-map-widget.spec.ts",
+        "services/application-composition-service/internal/catalog/widget_catalog_test.go",
         "services/ontology-exploratory-analysis-service/internal/domain/spatial/tile_server_test.go",
         "services/ontology-exploratory-analysis-service/internal/handlers/geospatial/tiles_test.go",
         "services/ontology-exploratory-analysis-service/internal/handlers/geospatial/map_templates_test.go",
         "docs/migration/foundry-workshop-pipeline-1to1-checklist.md"
       ],
-      "notes": "GEO.6/GEO.7/GEO.8/GEO.9/GEO.10/GEO.11/GEO.13 are implemented: MapLibre renders query-backed and object-set/object-type point/line/polygon layers, tooltips, legends, selectable objects, active-object and selected-object-set outputs, drawn rectangle GeoJSON shape output, shape-based object-set search output, clear/redraw shape controls, zoom-dependent point clusters with aggregate count labels, viewport-tile saved geospatial layers with bounded feature pages and simplified geometries, blank/raster base layers, saved/GeoJSON/MVT/raster overlay configs, runtime layer toggles, and saved map templates with constant layers, styling layers, object parameter mappings, overlays, viewport defaults, and interface options. Selected map objects can drive Property List, Object Table, Object Set Title, and Button Group action defaults; drawn shapes can drive Object Table search results. Advanced geospatial search remains a future row."
+      "notes": "WS.13 plus GEO.6/GEO.7/GEO.8/GEO.9/GEO.10/GEO.11/GEO.13 are implemented for Map widget v1: the editor exposes local object layer setup, overlay layer setup, base map/viewport settings, variable-backed visibility, selected-object and object-set outputs, drawn-shape outputs, shape search outputs, and map-template parameter/value mappings. Runtime MapLibre renders query-backed and object-set/object-type point/line/polygon layers, tooltips, legends, clusters, viewport-tile layers, saved/GeoJSON/MVT/raster overlays, and saved map templates. Selected map objects can drive Property List, Object Table, Object Set Title, and Button Group action defaults; drawn shapes can drive Object Table search results. Advanced geospatial joins/search remain future rows outside v1."
     },
     {
       "foundry_feature": "Workshop: Metric Card and function-backed display values",
       "openfoundry_surface": [
+        "apps/web/src/lib/components/apps/widgets/metricCard.ts",
+        "apps/web/src/lib/components/apps/widgets/workshopFunctions.ts",
+        "apps/web/src/lib/components/apps/widgets/workshopVariables.ts",
+        "apps/web/src/lib/components/apps/widgets/WorkshopRuntimeProvider.tsx",
+        "apps/web/src/routes/apps/WorkshopEditorPage.tsx",
+        "apps/web/src/lib/components/apps/widgets/adapters.tsx",
+        "services/application-composition-service/internal/catalog/widget_catalog.v1.json",
         "apps/web/src/lib/components/apps/AppWidgetRenderer.tsx",
         "apps/web/src/lib/api/ontology.ts",
         "libs/ontology-kernel/handlers/functions/functions.go"
       ],
-      "status": "partial",
-      "owner": "apps/web, ontology-actions-service",
+      "status": "done",
+      "owner": "apps/web, application-composition-service, ontology-actions-service",
       "doc_refs": [
         "https://www.palantir.com/docs/foundry/workshop/widgets-metric-card/",
         "https://www.palantir.com/docs/foundry/workshop/functions-use/"
       ],
       "tests": [
+        "apps/web/src/lib/components/apps/widgets/metricCard.test.ts",
+        "apps/web/src/lib/components/apps/widgets/workshopFunctions.test.ts",
+        "apps/web/src/lib/components/apps/widgets/workshopVariables.test.ts",
+        "apps/web/e2e/workshop-metric-card.spec.ts",
+        "services/application-composition-service/internal/catalog/widget_catalog_test.go",
         "libs/ontology-kernel/handlers/functions/functions_test.go",
         "docs/migration/foundry-workshop-pipeline-1to1-checklist.md"
       ],
-      "notes": "Metric-like rendering exists through widgets; first-class function-backed variables and caching/recompute semantics remain a gap."
+      "notes": "WS.12/WS.15 are implemented for Metric Cards and Function-backed variables: grouped numeric/string metrics resolve through the Workshop variable engine, render in card/tag/list styles, support static fallback values, number/integer/compact/percent/currency/unit formatting, prefix/suffix/empty-value handling, secondary values, and conditional formatting. function_output variables call Function packages with static and variable-bound parameters, compute stable cache keys, reuse successful results until dependencies or refresh change, expose results as primitive-compatible values, and let Metric Card display an effort estimator Function result."
     },
     {
       "foundry_feature": "Geospatial: public API routing for layers, query, clusters, geocode, tiles, templates, and routes",
@@ -803,9 +902,10 @@
       "tests": [
         "libs/ontology-kernel/handlers/actions/side_effects_test.go",
         "libs/ontology-kernel/handlers/actions/execute_test.go",
-        "services/connector-management-service/internal/handlers/handlers_test.go"
+        "services/connector-management-service/internal/handlers/handlers_test.go",
+        "apps/web/e2e/workshop-actions.spec.ts"
       ],
-      "notes": "Action execution has invoke_webhook planning and side-effect support; complete writeback/side-effect UX and end-to-end Workshop trigger remains to verify."
+      "notes": "Action execution has invoke_webhook planning and side-effect support, and WS.16 verifies Workshop can submit a webhook-style action through the generic action form. Production external-system delivery remains service-dependent."
     },
     {
       "foundry_feature": "Data Connection: inbound listeners",
@@ -848,11 +948,14 @@
       "foundry_feature": "Ontology Actions: apply/execute actions for object edits, links, webhooks, and functions",
       "openfoundry_surface": [
         "libs/ontology-kernel/handlers/actions/execute.go",
+        "libs/ontology-kernel/handlers/actions/actions.go",
+        "libs/ontology-kernel/models/action_type.go",
         "libs/ontology-kernel/handlers/actions/batch.go",
         "libs/ontology-kernel/handlers/actions/inline_edit.go",
-        "libs/ontology-kernel/handlers/objects/crud.go"
+        "libs/ontology-kernel/handlers/objects/crud.go",
+        "apps/web/src/lib/api/ontology.ts"
       ],
-      "status": "partial",
+      "status": "done",
       "owner": "ontology-actions-service, object-database-service, libs/ontology-kernel",
       "doc_refs": [
         "https://www.palantir.com/docs/foundry/api/v2/ontologies-v2-resources/actions/apply-action/",
@@ -861,11 +964,15 @@
       ],
       "tests": [
         "libs/ontology-kernel/handlers/actions/execute_test.go",
+        "libs/ontology-kernel/handlers/actions/actions_test.go",
+        "libs/ontology-kernel/models/iter4_test.go",
         "libs/ontology-kernel/handlers/actions/batch_test.go",
         "libs/ontology-kernel/handlers/actions/inline_edit_test.go",
-        "libs/ontology-kernel/handlers/objects/crud_test.go"
+        "libs/ontology-kernel/handlers/objects/crud_test.go",
+        "services/ontology-actions-service/internal/server/server_test.go",
+        "apps/web/e2e/workshop-actions.spec.ts"
       ],
-      "notes": "Execute, batch, and inline-edit paths exist. Workshop's Button Group still needs fully generic action form/apply integration."
+      "notes": "ONT.5 is implemented: the action runtime accepts the expanded operation-kind contract for create, update/modify, create-or-modify, delete, create/delete link, webhook invocation, function invocation, interface actions, side-effect webhooks, function response edits, and server-side validation. Workshop continues to use the same generic validate/execute/execute-batch endpoints; deeper action-log object materialization and revert UX remain separate rows."
     },
     {
       "foundry_feature": "Ontology Actions: action log, audit publication, metrics, and revert",
@@ -944,17 +1051,20 @@
       "tests": [
         "libs/ontology-kernel/handlers/actions/execute_test.go",
         "libs/ontology-kernel/handlers/actions/python_sidecar_integration_test.go",
-        "libs/ontology-kernel/domain/function_runtime_test.go"
+        "libs/ontology-kernel/domain/function_runtime_test.go",
+        "apps/web/e2e/workshop-actions.spec.ts"
       ],
-      "notes": "Action execution can invoke functions through the kernel runtime. Workshop exposure and stricter Foundry rule-combination semantics still need confirmation."
+      "notes": "Action execution can invoke functions through the kernel runtime, and WS.16 verifies Workshop can submit a function-backed action form. Stricter Foundry rule-combination semantics still need service-level confirmation."
     },
     {
       "foundry_feature": "Functions: object sets, filtering, search around, aggregations, and KNN-style retrieval",
       "openfoundry_surface": [
+        "apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts",
+        "services/object-database-service/internal/handlers/objects_bridge.go",
+        "apps/web/src/lib/components/ontology/ObjectSetFilterBuilder.tsx",
         "libs/ontology-kernel/handlers/objectsets/objectsets.go",
         "libs/ontology-kernel/domain/object_sets.go",
-        "libs/ontology-kernel/domain/search/semantic.go",
-        "apps/web/src/lib/components/ontology/ObjectSetFilterBuilder.tsx"
+        "libs/ontology-kernel/domain/search/semantic.go"
       ],
       "status": "partial",
       "owner": "ontology-query-service, object-database-service, libs/ontology-kernel, apps/web",
@@ -962,11 +1072,13 @@
         "https://www.palantir.com/docs/foundry/functions/api-object-sets/"
       ],
       "tests": [
+        "apps/web/src/lib/components/apps/widgets/workshopObjectSets.test.ts",
+        "services/object-database-service/internal/server/server_test.go",
         "libs/ontology-kernel/handlers/objectsets/objectsets_test.go",
         "libs/ontology-kernel/domain/search/search_test.go",
         "libs/ontology-kernel/domain/search/iter7d2_drift_test.go"
       ],
-      "notes": "Object set and semantic search primitives exist. Need explicit Workshop/function consumption contract for Foundry-style Search Around, aggregations, and KNN in user apps."
+      "notes": "Workshop object-set consumption now uses one declarative query contract for object type starts, chained sets, selected objects, saved sets, filters, sort, count, aggregations, and geospatial search-around; broader Functions SDK-style object-set authoring and KNN retrieval remain partial."
     }
   ]
 }

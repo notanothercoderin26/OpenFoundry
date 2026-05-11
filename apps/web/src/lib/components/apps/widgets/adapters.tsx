@@ -13,10 +13,13 @@ import {
   ChartXyWidgetView,
   FilterListWidgetView,
   MapWidgetView,
+  MetricCardWidgetView,
   ObjectSetTitleWidgetView,
   ObjectTableWidgetView,
   PropertyListWidgetView,
+  ScenarioWidgetView,
 } from '@/routes/apps/WorkshopEditorPage';
+import { FreeFormAnalysisWidget } from './FreeFormAnalysisWidget';
 
 import { registerWidget, type WidgetRenderProps } from './registry';
 import { useWorkshopData } from './workshop-context';
@@ -27,7 +30,8 @@ function ObjectTableAdapter({ widget }: WidgetRenderProps) {
 }
 
 function FilterListAdapter({ widget }: WidgetRenderProps) {
-  return <FilterListWidgetView widget={widget} />;
+  const { variables } = useWorkshopData();
+  return <FilterListWidgetView widget={widget} variables={variables} />;
 }
 
 function ObjectSetTitleAdapter({ widget }: WidgetRenderProps) {
@@ -54,9 +58,23 @@ function ChartXyAdapter({ widget }: WidgetRenderProps) {
   return <ChartXyWidgetView widget={widget} variables={variables} />;
 }
 
+function MetricCardAdapter({ widget }: WidgetRenderProps) {
+  const { variables } = useWorkshopData();
+  return <MetricCardWidgetView widget={widget} variables={variables} />;
+}
+
 function MapAdapter({ widget }: WidgetRenderProps) {
   const { variables } = useWorkshopData();
   return <MapWidgetView widget={widget} variables={variables} />;
+}
+
+function FreeFormAnalysisAdapter({ widget }: WidgetRenderProps) {
+  const { variables } = useWorkshopData();
+  return <FreeFormAnalysisWidget widget={widget} variables={variables} />;
+}
+
+function ScenarioAdapter({ widget }: WidgetRenderProps) {
+  return <ScenarioWidgetView widget={widget} />;
 }
 
 let registered = false;
@@ -71,5 +89,8 @@ export function registerWorkshopWidgets(): void {
   registerWidget({ type: 'property_list', Component: PropertyListAdapter, label: 'Property list', version: '1.0.0' });
   registerWidget({ type: 'chart_pie', Component: ChartPieAdapter, label: 'Pie chart', version: '1.0.0' });
   registerWidget({ type: 'chart_xy', Component: ChartXyAdapter, label: 'XY chart', version: '1.0.0' });
+  registerWidget({ type: 'metric', Component: MetricCardAdapter, label: 'Metric card', version: '1.0.0' });
   registerWidget({ type: 'map', Component: MapAdapter, label: 'Map', version: '1.0.0' });
+  registerWidget({ type: 'free_form_analysis', Component: FreeFormAnalysisAdapter, label: 'Free-form analysis', version: '1.0.0' });
+  registerWidget({ type: 'scenario', Component: ScenarioAdapter, label: 'Scenario controls', version: '1.0.0' });
 }

@@ -2,7 +2,8 @@ import type { MediaSet } from '@/lib/api/mediaSets';
 
 export type PropertyType =
   | 'string' | 'integer' | 'float' | 'boolean' | 'date' | 'timestamp' | 'json'
-  | 'array' | 'vector' | 'reference' | 'geo_point' | 'media_reference' | 'struct' | 'attachment';
+  | 'array' | 'vector' | 'reference' | 'geo_point' | 'geopoint' | 'geoshape'
+  | 'media_reference' | 'time_series' | 'struct' | 'attachment';
 
 interface PropertyTypeEditorProps {
   propertyType: PropertyType;
@@ -24,7 +25,9 @@ const OPTIONS: { value: PropertyType; label: string }[] = [
   { value: 'vector', label: 'Vector (embedding)' },
   { value: 'reference', label: 'Object reference' },
   { value: 'geo_point', label: 'Geo point' },
+  { value: 'geoshape', label: 'Geo shape' },
   { value: 'media_reference', label: 'Media reference' },
+  { value: 'time_series', label: 'Time series' },
   { value: 'struct', label: 'Struct' },
   { value: 'attachment', label: 'Attachment' },
 ];

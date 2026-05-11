@@ -57,7 +57,9 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func errBody(msg string) map[string]string { return map[string]string{"error": msg} }
 
-func unauthorized(w http.ResponseWriter)        { writeJSON(w, http.StatusUnauthorized, errBody("missing claims")) }
+func unauthorized(w http.ResponseWriter) {
+	writeJSON(w, http.StatusUnauthorized, errBody("missing claims"))
+}
 func badRequest(w http.ResponseWriter, m string) { writeJSON(w, http.StatusBadRequest, errBody(m)) }
 func forbidden(w http.ResponseWriter, m string)  { writeJSON(w, http.StatusForbidden, errBody(m)) }
 func notFound(w http.ResponseWriter, m string)   { writeJSON(w, http.StatusNotFound, errBody(m)) }
@@ -834,5 +836,6 @@ func scanInterfaceProperty(row interface{ Scan(...any) error }) (models.Interfac
 		&p.DefaultValue, &p.ValidationRules,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
+	models.EnrichInterfacePropertyMetadata(&p)
 	return p, err
 }

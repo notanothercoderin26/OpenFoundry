@@ -56,7 +56,10 @@ type actionPlanKind int
 const (
 	planUpdateObject actionPlanKind = iota
 	planDeleteObject
+	planCreateObject
+	planCreateOrModifyObject
 	planCreateLink
+	planDeleteLink
 	planInvokeWebhook
 	planInvokeFunction
 	planCreateInterface
@@ -394,6 +397,48 @@ func executePlanWithRuntime(
 	startedAt := time.Now().UTC()
 
 	switch plan.kind {
+	case planCreateObject:
+		created, err := createObjectAction(ctx, state, claims, action, plan.concreteObjectTypeID, plan.newObjectID, plan.patch)
+		if err != nil {
+			return executedAction{}, err
+		}
+		body, _ := json.Marshal(created)
+		targetID := created.ID
+		return executedAction{
+			targetObjectID: &targetID,
+			preview:        preview,
+			object:         body,
+			startedAt:      startedAt,
+		}, nil
+
+	case planCreateOrModifyObject:
+		if plan.target == nil {
+			created, err := createObjectAction(ctx, state, claims, action, plan.concreteObjectTypeID, plan.newObjectID, plan.patch)
+			if err != nil {
+				return executedAction{}, err
+			}
+			body, _ := json.Marshal(created)
+			targetID := created.ID
+			return executedAction{
+				targetObjectID: &targetID,
+				preview:        preview,
+				object:         body,
+				startedAt:      startedAt,
+			}, nil
+		}
+		updated, err := applyObjectPatchAction(ctx, state, claims, plan.target, plan.patch)
+		if err != nil {
+			return executedAction{}, err
+		}
+		body, _ := json.Marshal(updated)
+		targetID := plan.target.ID
+		return executedAction{
+			targetObjectID: &targetID,
+			preview:        preview,
+			object:         body,
+			startedAt:      startedAt,
+		}, nil
+
 	case planUpdateObject:
 		updated, err := applyObjectPatchAction(ctx, state, claims, plan.target, plan.patch)
 		if err != nil {
@@ -432,6 +477,25 @@ func executePlanWithRuntime(
 			targetObjectID: &targetID,
 			preview:        preview,
 			link:           body,
+			startedAt:      startedAt,
+		}, nil
+
+	case planDeleteLink:
+		deleted, err := domain.DeleteLink(ctx, state.Stores.Links, domain.TenantFromClaims(claims),
+			storage.LinkTypeId(plan.linkType.ID.String()),
+			storage.ObjectId(plan.linkSourceObject.String()),
+			storage.ObjectId(plan.linkTargetObject.String()))
+		if err != nil {
+			return executedAction{}, fmt.Errorf("failed to execute delete_link action: %w", err)
+		}
+		if !deleted {
+			return executedAction{}, errors.New("link no longer exists")
+		}
+		targetID := plan.target.ID
+		return executedAction{
+			targetObjectID: &targetID,
+			deleted:        true,
+			preview:        preview,
 			startedAt:      startedAt,
 		}, nil
 
@@ -1016,6 +1080,49 @@ func createInterfaceObjectAction(
 	return obj, nil
 }
 
+func createObjectAction(
+	ctx context.Context,
+	state *ontologykernel.AppState,
+	claims *authmw.Claims,
+	action models.ActionType,
+	objectTypeID uuid.UUID,
+	objectID uuid.UUID,
+	patch map[string]json.RawMessage,
+) (*domain.ObjectInstance, error) {
+	defs, err := loadEffectivePropertiesForAction(ctx, state, objectTypeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load property definitions: %w", err)
+	}
+	patchJSON, err := json.Marshal(patch)
+	if err != nil {
+		return nil, fmt.Errorf("encode create properties: %w", err)
+	}
+	normalized, err := domain.ValidateObjectProperties(defs, patchJSON)
+	if err != nil {
+		return nil, fmt.Errorf("invalid create properties: %w", err)
+	}
+	now := time.Now().UTC()
+	obj := &domain.ObjectInstance{
+		ID:             objectID,
+		ObjectTypeID:   objectTypeID,
+		Properties:     normalized,
+		CreatedBy:      claims.Sub,
+		OrganizationID: claims.OrgID,
+		Marking:        "public",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	extra, _ := json.Marshal(map[string]any{"source": "ontology_action", "action_id": action.ID.String()})
+	outcome, err := applyObjectWriteForAction(ctx, state, claims, obj, nil, "create", extra)
+	if err != nil {
+		return nil, err
+	}
+	if err := objects.AppendObjectRevision(ctx, state, claims, obj, "create", int64(outcome.CommittedVersion), nil); err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
 func applyObjectWriteForAction(
 	ctx context.Context,
 	state *ontologykernel.AppState,
@@ -1069,8 +1176,14 @@ func planAction(
 	if err != nil {
 		return actionPlan{}, []string{err.Error()}
 	}
+	if errs := validateActionParameterInputs(action, decodeParams(req.Parameters)); len(errs) > 0 {
+		return actionPlan{}, errs
+	}
 
 	switch operationKind {
+	case "create_object":
+		return planCreateObjectAction(ctx, state, claims, action, req)
+
 	case "update_object":
 		if req.TargetObjectID == nil {
 			return actionPlan{}, []string{"target_object_id is required for update_object actions"}
@@ -1088,6 +1201,9 @@ func planAction(
 		}
 		return actionPlan{kind: planUpdateObject, target: target, patch: patch}, nil
 
+	case "create_or_modify_object":
+		return planCreateOrModifyObjectAction(ctx, state, claims, action, req)
+
 	case "delete_object":
 		if req.TargetObjectID == nil {
 			return actionPlan{}, []string{"target_object_id is required for delete_object actions"}
@@ -1103,6 +1219,9 @@ func planAction(
 
 	case "create_link":
 		return planCreateLinkAction(ctx, state, claims, action, req)
+
+	case "delete_link":
+		return planDeleteLinkAction(ctx, state, claims, action, req)
 
 	case "invoke_webhook":
 		return planInvokeWebhookAction(ctx, state, claims, action, req)
@@ -1126,6 +1245,66 @@ func planAction(
 		return planDeleteInterfaceLinkAction(ctx, state, claims, action, req)
 	}
 	return actionPlan{}, []string{"unsupported operation_kind '" + operationKind + "'"}
+}
+
+func planCreateObjectAction(
+	ctx context.Context,
+	state *ontologykernel.AppState,
+	claims *authmw.Claims,
+	action models.ActionType,
+	req *models.ValidateActionRequest,
+) (actionPlan, []string) {
+	if err := ensureObjectTypeRecordExists(ctx, state, action.ObjectTypeID); err != nil {
+		return actionPlan{}, []string{err.Error()}
+	}
+	params := decodeParams(req.Parameters)
+	objectID, err := resolveCreateObjectID(action.Config, params, req.TargetObjectID, true)
+	if err != nil {
+		return actionPlan{}, []string{err.Error()}
+	}
+	patch, errs := buildUpdateObjectPatch(ctx, state, action, req.Parameters)
+	if len(errs) > 0 {
+		return actionPlan{}, errs
+	}
+	return actionPlan{kind: planCreateObject, concreteObjectTypeID: action.ObjectTypeID, newObjectID: objectID, patch: patch}, nil
+}
+
+func planCreateOrModifyObjectAction(
+	ctx context.Context,
+	state *ontologykernel.AppState,
+	claims *authmw.Claims,
+	action models.ActionType,
+	req *models.ValidateActionRequest,
+) (actionPlan, []string) {
+	if err := ensureObjectTypeRecordExists(ctx, state, action.ObjectTypeID); err != nil {
+		return actionPlan{}, []string{err.Error()}
+	}
+	params := decodeParams(req.Parameters)
+	objectID, err := resolveCreateObjectID(action.Config, params, req.TargetObjectID, true)
+	if err != nil {
+		return actionPlan{}, []string{err.Error()}
+	}
+	patch, errs := buildUpdateObjectPatch(ctx, state, action, req.Parameters)
+	if len(errs) > 0 {
+		return actionPlan{}, errs
+	}
+	target, err := objects.LoadObjectInstance(ctx, state, claims, objectID, storage.Strong())
+	if err != nil {
+		return actionPlan{}, []string{"failed to load target object: " + err.Error()}
+	}
+	if target == nil {
+		return actionPlan{kind: planCreateOrModifyObject, concreteObjectTypeID: action.ObjectTypeID, newObjectID: objectID, patch: patch}, nil
+	}
+	if err := domain.EnsureObjectAccess(claims, target); err != nil {
+		return actionPlan{}, []string{forbiddenLine(err.Error())}
+	}
+	if target.ObjectTypeID != action.ObjectTypeID {
+		return actionPlan{}, []string{"target object does not match the action's object_type_id"}
+	}
+	if err := ensureActionTargetPermission(action, target); err != nil {
+		return actionPlan{}, []string{err.Error()}
+	}
+	return actionPlan{kind: planCreateOrModifyObject, concreteObjectTypeID: action.ObjectTypeID, newObjectID: objectID, target: target, patch: patch}, nil
 }
 
 // planCreateLinkAction mirrors the Rust `ActionOperationKind::CreateLink`
@@ -1211,6 +1390,21 @@ func planCreateLinkAction(
 		linkSourceObject: sourceID,
 		linkTargetObject: targetLinkID,
 	}, nil
+}
+
+func planDeleteLinkAction(
+	ctx context.Context,
+	state *ontologykernel.AppState,
+	claims *authmw.Claims,
+	action models.ActionType,
+	req *models.ValidateActionRequest,
+) (actionPlan, []string) {
+	plan, errs := planCreateLinkAction(ctx, state, claims, action, req)
+	if len(errs) > 0 {
+		return actionPlan{}, errs
+	}
+	plan.kind = planDeleteLink
+	return plan, nil
 }
 
 // planInvokeWebhookAction mirrors `ActionOperationKind::InvokeWebhook`.
@@ -1676,6 +1870,17 @@ type createLinkActionConfig struct {
 	PropertiesInputName *string   `json:"properties_input_name,omitempty"`
 }
 
+type createObjectActionConfig struct {
+	IDInputName       string          `json:"id_input_name,omitempty"`
+	ObjectIDInputName string          `json:"object_id_input_name,omitempty"`
+	TargetInputName   string          `json:"target_object_input_name,omitempty"`
+	StaticObjectID    *uuid.UUID      `json:"static_object_id,omitempty"`
+	ObjectID          *uuid.UUID      `json:"object_id,omitempty"`
+	GenerateObjectID  *bool           `json:"generate_object_id,omitempty"`
+	PropertyMappings  json.RawMessage `json:"property_mappings,omitempty"`
+	StaticPatch       json.RawMessage `json:"static_patch,omitempty"`
+}
+
 func decodeParams(raw json.RawMessage) map[string]json.RawMessage {
 	out := map[string]json.RawMessage{}
 	if len(raw) == 0 || string(raw) == "null" {
@@ -1683,6 +1888,105 @@ func decodeParams(raw json.RawMessage) map[string]json.RawMessage {
 	}
 	_ = json.Unmarshal(raw, &out)
 	return out
+}
+
+func validateActionParameterInputs(action models.ActionType, params map[string]json.RawMessage) []string {
+	var errs []string
+	for _, field := range action.InputSchema {
+		raw, ok := params[field.Name]
+		if field.Required && (!ok || len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null") {
+			errs = append(errs, fmt.Sprintf("%s is required", field.Name))
+			continue
+		}
+		if !ok || len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
+			continue
+		}
+		if err := validateActionParameterValue(field.PropertyType, raw); err != nil {
+			errs = append(errs, field.Name+": "+err.Error())
+		}
+	}
+	return errs
+}
+
+func validateActionParameterValue(propertyType string, value json.RawMessage) error {
+	normalized := strings.TrimSpace(strings.ToLower(propertyType))
+	switch normalized {
+	case "object_reference":
+		_, err := parseUUIDRaw(value, "object_reference")
+		return err
+	case "object_reference_list":
+		var values []json.RawMessage
+		if err := json.Unmarshal(value, &values); err != nil {
+			return errors.New("expected array of object references")
+		}
+		for _, entry := range values {
+			if _, err := parseUUIDRaw(entry, "object_reference"); err != nil {
+				return err
+			}
+		}
+		return nil
+	case "object_set":
+		var values []json.RawMessage
+		if err := json.Unmarshal(value, &values); err == nil {
+			for _, entry := range values {
+				if _, err := parseUUIDRaw(entry, "object_reference"); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		var obj struct {
+			ObjectIDs []json.RawMessage `json:"object_ids"`
+			IDs       []json.RawMessage `json:"ids"`
+		}
+		if err := json.Unmarshal(value, &obj); err != nil {
+			return errors.New("expected object set reference list")
+		}
+		ids := obj.ObjectIDs
+		if len(ids) == 0 {
+			ids = obj.IDs
+		}
+		for _, entry := range ids {
+			if _, err := parseUUIDRaw(entry, "object_reference"); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return domain.ValidatePropertyValue(propertyType, value)
+	}
+}
+
+func resolveCreateObjectID(config json.RawMessage, params map[string]json.RawMessage, targetObjectID *uuid.UUID, allowGenerated bool) (uuid.UUID, error) {
+	if targetObjectID != nil {
+		return *targetObjectID, nil
+	}
+	var cfg createObjectActionConfig
+	_ = json.Unmarshal(operationConfigBytes(config), &cfg)
+	for _, name := range []string{cfg.IDInputName, cfg.ObjectIDInputName, cfg.TargetInputName, "__object_id", "object_id", "id"} {
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		if raw, ok := params[name]; ok && string(raw) != "null" {
+			return parseUUIDRaw(raw, name)
+		}
+	}
+	if cfg.StaticObjectID != nil {
+		return *cfg.StaticObjectID, nil
+	}
+	if cfg.ObjectID != nil {
+		return *cfg.ObjectID, nil
+	}
+	if cfg.GenerateObjectID != nil && !*cfg.GenerateObjectID {
+		return uuid.Nil, errors.New("object id is required for create object actions")
+	}
+	if allowGenerated {
+		if id, err := uuid.NewV7(); err == nil {
+			return id, nil
+		}
+		return uuid.New(), nil
+	}
+	return uuid.Nil, errors.New("object id is required")
 }
 
 func resolveUUIDParameter(params map[string]json.RawMessage, fieldName string) (uuid.UUID, error) {
@@ -1787,6 +2091,18 @@ func buildUpdateObjectPatch(
 				return nil, []string{fmt.Sprintf("missing input '%s' for property mapping", *m.InputName)}
 			}
 			value = v
+		case m.Kind == "parameter":
+			v, ok := paramMap[m.PropertyName]
+			if !ok {
+				return nil, []string{fmt.Sprintf("missing input '%s' for property mapping", m.PropertyName)}
+			}
+			value = v
+		case m.Kind == "unique_id":
+			generated, err := uuid.NewV7()
+			if err != nil {
+				generated = uuid.New()
+			}
+			value, _ = json.Marshal(generated.String())
 		case len(m.Value) > 0 && string(m.Value) != "null":
 			value = m.Value
 		default:
@@ -1911,6 +2227,25 @@ func ensureConfirmationJustification(action models.ActionType, justification *st
 
 func planPreview(plan actionPlan) json.RawMessage {
 	switch plan.kind {
+	case planCreateObject, planCreateOrModifyObject:
+		kind := "create_object"
+		if plan.kind == planCreateOrModifyObject {
+			kind = "create_or_modify_object"
+		}
+		var targetID uuid.UUID
+		if plan.target != nil {
+			targetID = plan.target.ID
+		} else {
+			targetID = plan.newObjectID
+		}
+		out, _ := json.Marshal(map[string]any{
+			"kind":             kind,
+			"object_type_id":   optionalUUIDValue(plan.concreteObjectTypeID),
+			"target_object_id": targetID,
+			"patch":            plan.patch,
+			"mode":             createOrModifyPreviewMode(plan),
+		})
+		return out
 	case planUpdateObject, planModifyInterface:
 		kind := "update_object"
 		if plan.kind == planModifyInterface {
@@ -1945,9 +2280,11 @@ func planPreview(plan actionPlan) json.RawMessage {
 			"patch":            plan.patch,
 		})
 		return out
-	case planCreateLink, planCreateInterfaceLink, planDeleteInterfaceLink:
+	case planCreateLink, planDeleteLink, planCreateInterfaceLink, planDeleteInterfaceLink:
 		kind := "create_link"
-		if plan.kind == planCreateInterfaceLink {
+		if plan.kind == planDeleteLink {
+			kind = "delete_link"
+		} else if plan.kind == planCreateInterfaceLink {
 			kind = "create_interface_link"
 		} else if plan.kind == planDeleteInterfaceLink {
 			kind = "delete_interface_link"
@@ -2005,9 +2342,16 @@ func planPreview(plan actionPlan) json.RawMessage {
 	return json.RawMessage(`null`)
 }
 
+func createOrModifyPreviewMode(plan actionPlan) string {
+	if plan.kind == planCreateOrModifyObject && plan.target != nil {
+		return "modify"
+	}
+	return "create"
+}
+
 func targetSnapshotFromPlan(plan actionPlan) *domain.ObjectInstance {
 	switch plan.kind {
-	case planUpdateObject, planDeleteObject, planCreateLink, planModifyInterface, planDeleteInterface, planInvokeWebhook, planInvokeFunction:
+	case planUpdateObject, planDeleteObject, planCreateObject, planCreateOrModifyObject, planCreateLink, planDeleteLink, planModifyInterface, planDeleteInterface, planInvokeWebhook, planInvokeFunction:
 		return plan.target
 	case planCreateInterfaceLink, planDeleteInterfaceLink:
 		return plan.target

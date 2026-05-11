@@ -734,8 +734,12 @@ func normaliseOntologyPropertyType(value string) string {
 		return "date"
 	case "timestamp", "datetime":
 		return "timestamp"
-	case "json", "array", "vector", "reference", "geo_point", "media_reference", "struct", "attachment":
+	case "json", "array", "vector", "reference", "media_reference", "struct", "attachment", "time_series":
 		return strings.ToLower(strings.TrimSpace(value))
+	case "geo_point", "geopoint":
+		return "geopoint"
+	case "geo_shape", "geoshape", "geojson", "geometry":
+		return "geoshape"
 	default:
 		return "string"
 	}

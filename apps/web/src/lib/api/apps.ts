@@ -51,6 +51,8 @@ export interface WorkshopVariableDefinition {
 	kind: string;
 	name: string;
 	object_type_id?: string;
+	object_set_id?: string;
+	saved_object_set_id?: string;
 	source_widget_id?: string;
 	source_variable_id?: string;
 	filter_variable_id?: string;
@@ -337,6 +339,9 @@ export interface AppPreviewResponse {
 	app: AppDefinition;
 	widget_catalog: WidgetCatalogItem[];
 	embed: AppEmbedInfo;
+	preview_mode?: 'draft' | string;
+	published_version_id?: string | null;
+	draft_updated_at?: string;
 }
 
 export interface PublishedAppResponse {
@@ -432,6 +437,12 @@ export interface UpdateAppParams {
 
 export interface PublishAppParams {
 	notes?: string;
+	changelog?: string;
+}
+
+export interface PromoteAppVersionParams {
+	notes?: string;
+	changelog?: string;
 }
 
 export function listApps(params?: { page?: number; per_page?: number; search?: string; status?: string }) {
@@ -502,6 +513,10 @@ export function listAppVersions(appId: string) {
 
 export function publishApp(appId: string, body: PublishAppParams = {}) {
 	return api.post<AppVersion>(`/apps/${appId}/publish`, body);
+}
+
+export function promoteAppVersion(appId: string, versionId: string, body: PromoteAppVersionParams = {}) {
+	return api.post<AppVersion>(`/apps/${appId}/versions/${versionId}/promote`, body);
 }
 
 export function getPublishedApp(slug: string) {

@@ -13,6 +13,7 @@ import {
   listApps,
   listWidgetCatalog,
   previewApp,
+  promoteAppVersion,
   publishApp,
   updateApp,
   type AppDefinition,
@@ -27,6 +28,7 @@ import {
   type WidgetCatalogItem,
 } from '@/lib/api/apps';
 import { AppRenderer } from '@/lib/components/apps/AppRenderer';
+import { WorkshopRuntimeProvider } from '@/lib/components/apps/widgets';
 import {
   PageCanvas,
   PageInspector,
@@ -57,6 +59,7 @@ interface Draft {
   description: string;
   status: string;
   template_key: string;
+  published_version_id: string | null;
   pages_json: string;
   settings_json: string;
   theme_json: string;
@@ -141,6 +144,7 @@ function emptyDraft(): Draft {
     description: '',
     status: 'draft',
     template_key: '',
+    published_version_id: null,
     pages_json: JSON.stringify(
       [
         {
@@ -169,6 +173,7 @@ function applyDefinition(definition: AppDefinition): Draft {
     description: definition.description,
     status: definition.status,
     template_key: definition.template_key ?? '',
+    published_version_id: definition.published_version_id ?? null,
     pages_json: JSON.stringify(definition.pages, null, 2),
     settings_json: JSON.stringify(definition.settings, null, 2),
     theme_json: JSON.stringify(definition.theme, null, 2),
@@ -187,7 +192,7 @@ function parseDraftDefinition(draft: Draft): AppDefinition {
     theme: JSON.parse(draft.theme_json) as AppDefinition['theme'],
     template_key: draft.template_key || null,
     created_by: null,
-    published_version_id: null,
+    published_version_id: draft.published_version_id,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -412,6 +417,24 @@ export function AppsPage() {
       setFeedback('Published a new app version.');
     } catch (cause) {
       setError(toErrorMessage(cause, 'Publish failed'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function promoteVersion(version: AppVersion) {
+    if (!draft.id) return;
+    setBusy(true); setError(''); setFeedback('');
+    try {
+      const promoted = await promoteAppVersion(draft.id, version.id, {
+        notes: `Rollback to v${version.version_number}`,
+      });
+      await loadVersions(draft.id);
+      await loadApp(draft.id, false);
+      await refresh();
+      setFeedback(`Published v${promoted.version_number} from v${version.version_number}.`);
+    } catch (cause) {
+      setError(toErrorMessage(cause, 'Rollback failed'));
     } finally {
       setBusy(false);
     }
@@ -878,7 +901,14 @@ export function AppsPage() {
         width="480px"
         onClose={() => setSecondaryPanel(null)}
       >
-        <VersionsList versions={versions} appId={draft.id} onRefresh={() => draft.id && loadVersions(draft.id)} />
+        <VersionsList
+          versions={versions}
+          appId={draft.id}
+          currentPublishedVersionId={draft.published_version_id}
+          busy={busy}
+          onRefresh={() => draft.id && loadVersions(draft.id)}
+          onPromote={promoteVersion}
+        />
       </Drawer>
 
       <Drawer
@@ -1389,27 +1419,63 @@ function SettingsDrawer({ draft, setDraft }: { draft: Draft; setDraft: Dispatch<
   );
 }
 
-function VersionsList({ versions, appId, onRefresh }: { versions: AppVersion[]; appId?: string; onRefresh: () => void }) {
+function VersionsList({
+  versions,
+  appId,
+  currentPublishedVersionId,
+  busy,
+  onRefresh,
+  onPromote,
+}: {
+  versions: AppVersion[];
+  appId?: string;
+  currentPublishedVersionId?: string | null;
+  busy: boolean;
+  onRefresh: () => void;
+  onPromote: (version: AppVersion) => void;
+}) {
   if (!appId) return <p className="of-text-muted" style={{ margin: 0 }}>Save the app before publishing versions.</p>;
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
         <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>{versions.length} release snapshots</p>
-        <button type="button" className="of-button" onClick={onRefresh}>Refresh</button>
+        <button type="button" className="of-button" onClick={onRefresh} disabled={busy}>Refresh</button>
       </div>
       <div style={{ display: 'grid', gap: 8 }}>
-        {versions.map((version) => (
-          <article key={version.id} className="of-panel-muted" style={{ display: 'grid', gap: 6, padding: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-              <strong style={{ color: 'var(--text-strong)' }}>v{version.version_number}</strong>
-              <span className={`of-chip ${version.published_at ? 'of-chip-active' : ''}`}>{version.status}</span>
-            </div>
-            <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
-              {version.published_at ? `Published ${version.published_at.slice(0, 16)}` : `Created ${version.created_at.slice(0, 16)}`}
-            </p>
-            {version.notes ? <p style={{ margin: 0, fontSize: 13 }}>{version.notes}</p> : null}
-          </article>
-        ))}
+        {versions.map((version) => {
+          const isCurrent = currentPublishedVersionId === version.id;
+          const editor = version.created_by ? `${version.created_by.slice(0, 8)}...` : 'Unknown';
+          return (
+            <article key={version.id} className="of-panel-muted" style={{ display: 'grid', gap: 8, padding: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                <strong style={{ color: 'var(--text-strong)' }}>v{version.version_number}</strong>
+                <span className={`of-chip ${isCurrent || version.published_at ? 'of-chip-active' : ''}`}>
+                  {isCurrent ? 'current' : version.status}
+                </span>
+              </div>
+              <div style={{ display: 'grid', gap: 3 }}>
+                <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+                  {version.published_at ? `Published ${version.published_at.slice(0, 16)}` : `Created ${version.created_at.slice(0, 16)}`}
+                </p>
+                <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>Author {editor}</p>
+              </div>
+              {version.notes ? (
+                <p style={{ margin: 0, fontSize: 13 }}>
+                  <span className="of-text-muted">Changelog: </span>
+                  {version.notes}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                className="of-button"
+                onClick={() => onPromote(version)}
+                disabled={busy || isCurrent}
+              >
+                {isCurrent ? 'Published' : 'Rollback to this version'}
+              </button>
+            </article>
+          );
+        })}
         {versions.length === 0 ? <p className="of-text-muted" style={{ margin: 0 }}>No versions yet.</p> : null}
       </div>
     </div>
@@ -1494,7 +1560,9 @@ function PreviewPanel({
         </section>
       ) : null}
       {app ? (
-        <AppRenderer app={app} mode="builder" />
+        <WorkshopRuntimeProvider app={app}>
+          <AppRenderer app={app} mode="builder" />
+        </WorkshopRuntimeProvider>
       ) : (
         <div className="of-panel-muted" style={{ display: 'grid', minHeight: 220, placeItems: 'center', padding: 16 }}>
           <p className="of-text-muted" style={{ margin: 0 }}>Run preview to render the current draft.</p>

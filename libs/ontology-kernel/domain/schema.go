@@ -88,6 +88,7 @@ func LoadEffectiveProperties(ctx context.Context, db *pgxpool.Pool, objectTypeID
 
 	entries := make([]effectivePropertyEntry, 0, len(shared)+len(interfaces)+len(direct))
 	for _, p := range shared {
+		models.EnrichSharedPropertyTypeMetadata(&p)
 		entries = append(entries, effectivePropertyEntry{
 			precedence: SharedPropertyPrecedence,
 			definition: EffectivePropertyDefinition{
@@ -105,6 +106,7 @@ func LoadEffectiveProperties(ctx context.Context, db *pgxpool.Pool, objectTypeID
 		})
 	}
 	for _, p := range interfaces {
+		models.EnrichInterfacePropertyMetadata(&p)
 		entries = append(entries, effectivePropertyEntry{
 			precedence: InterfacePropertyPrecedence,
 			definition: EffectivePropertyDefinition{
@@ -122,6 +124,7 @@ func LoadEffectiveProperties(ctx context.Context, db *pgxpool.Pool, objectTypeID
 		})
 	}
 	for _, p := range direct {
+		models.EnrichPropertyMetadata(&p)
 		entries = append(entries, effectivePropertyEntry{
 			precedence: DirectPropertyPrecedence,
 			definition: EffectivePropertyDefinition{
@@ -185,6 +188,7 @@ func loadSharedProperties(ctx context.Context, db *pgxpool.Pool, objectTypeID uu
 		); err != nil {
 			return nil, err
 		}
+		models.EnrichSharedPropertyTypeMetadata(&p)
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -215,6 +219,7 @@ func loadDirectProperties(ctx context.Context, db *pgxpool.Pool, objectTypeID uu
 				p.InlineEditConfig = &cfg
 			}
 		}
+		models.EnrichPropertyMetadata(&p)
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -236,6 +241,7 @@ func loadInterfaceProperties(ctx context.Context, db *pgxpool.Pool, objectTypeID
 		); err != nil {
 			return nil, err
 		}
+		models.EnrichInterfacePropertyMetadata(&p)
 		out = append(out, p)
 	}
 	return out, rows.Err()

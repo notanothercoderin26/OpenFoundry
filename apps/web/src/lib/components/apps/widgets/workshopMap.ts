@@ -23,6 +23,7 @@ export interface WorkshopMapLayerConfig {
   source: WorkshopMapLayerSource;
   loading_mode: WorkshopMapLoadingMode;
   source_variable_id: string;
+  visibility_variable_id: string;
   object_type_id: string;
   tile_layer_id: string;
   tile_page_size: number;
@@ -53,6 +54,7 @@ export interface WorkshopMapOverlayLayerConfig {
   id: string;
   title: string;
   source: WorkshopMapOverlaySource;
+  visibility_variable_id: string;
   url: string;
   resource_id: string;
   source_layer: string;
@@ -146,6 +148,7 @@ export function readMapLayerConfigs(props: Record<string, unknown> | null | unde
       source: 'binding',
       loading_mode: 'eager',
       source_variable_id: '',
+      visibility_variable_id: '',
       object_type_id: '',
       tile_layer_id: '',
       tile_page_size: 500,
@@ -184,6 +187,7 @@ function normalizeLayerConfig(entry: Record<string, unknown>, index: number): Wo
     source,
     loading_mode: loadingMode,
     source_variable_id: readString(entry.source_variable_id),
+    visibility_variable_id: readString(entry.visibility_variable_id, readString(entry.visible_variable_id)),
     object_type_id: readString(entry.object_type_id),
     tile_layer_id: readString(entry.tile_layer_id, readString(entry.layer_id, readString(entry.resource_id))),
     tile_page_size: readNumber(entry.tile_page_size, readNumber(entry.page_size, 500)),
@@ -244,6 +248,7 @@ function normalizeOverlayConfig(entry: Record<string, unknown>, index: number): 
     id: readString(entry.id, `overlay-${index + 1}`),
     title: readString(entry.title, readString(entry.name, `Overlay ${index + 1}`)),
     source,
+    visibility_variable_id: readString(entry.visibility_variable_id, readString(entry.visible_variable_id)),
     url: readString(entry.url, readString(entry.geojson_url, readString(entry.mvt_url, readString(entry.tile_url, readString(entry.tile_url_template))))),
     resource_id: readString(entry.resource_id, readString(entry.layer_id, readString(entry.saved_layer_id))),
     source_layer: readString(entry.source_layer, readString(entry.sourceLayer)),
@@ -296,6 +301,7 @@ export function normalizeSavedOverlayConfig(
     ...base,
     title: base.title || readString(resource.name, readString(resource.title, base.id)),
     source,
+    visibility_variable_id: base.visibility_variable_id,
     url,
     resource_id: base.resource_id || readString(resource.id),
     source_layer: base.source_layer || readString(resource.source_layer, readString(config.source_layer)),
@@ -773,6 +779,22 @@ export function buildMapTemplateRenderRequest(
   };
 }
 
+export function isWorkshopMapLayerVisible(
+  entry: Pick<WorkshopMapLayerConfig | WorkshopMapOverlayLayerConfig, 'visible' | 'visibility_variable_id'>,
+  engine: { getPrimitive: (variableId: string) => unknown } | null | undefined,
+) {
+  if (!entry.visibility_variable_id) return entry.visible;
+  const value = engine?.getPrimitive(entry.visibility_variable_id);
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on', 'visible'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off', 'hidden'].includes(normalized)) return false;
+  }
+  return entry.visible;
+}
+
 export function mergeMapTemplateWidgetProps(
   props: Record<string, unknown> | null | undefined,
   render: WorkshopMapTemplateRenderLike | null,
@@ -967,6 +989,9 @@ export function makeDefaultMapWidget(): AppWidget {
           title: 'Objects',
           source: 'binding',
           loading_mode: 'eager',
+          source_variable_id: '',
+          visibility_variable_id: '',
+          object_type_id: '',
           tile_layer_id: '',
           tile_page_size: 500,
           tile_simplify_tolerance: 0,

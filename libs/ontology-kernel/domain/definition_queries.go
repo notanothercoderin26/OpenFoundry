@@ -99,6 +99,7 @@ func LoadPropertyForObjectType(ctx context.Context, db *pgxpool.Pool, objectType
 			p.InlineEditConfig = &cfg
 		}
 	}
+	models.EnrichPropertyMetadata(&p)
 	return &p, nil
 }
 
@@ -134,6 +135,7 @@ func LoadObjectType(ctx context.Context, db *pgxpool.Pool, objectTypeID uuid.UUI
 	if err != nil {
 		return nil, err
 	}
+	models.EnrichObjectTypeMetadata(&t, nil)
 	return &t, nil
 }
 
@@ -198,6 +200,7 @@ func LoadObjectTypesByIDs(ctx context.Context, db *pgxpool.Pool, typeIDs []uuid.
 		); err != nil {
 			return nil, err
 		}
+		models.EnrichObjectTypeMetadata(&t, nil)
 		out = append(out, t)
 	}
 	return out, rows.Err()

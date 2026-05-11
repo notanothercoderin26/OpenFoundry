@@ -1,5 +1,5 @@
 {
-  "catalog_version": "2026-05-11.ws.3",
+  "catalog_version": "2026-05-11.ws.22",
   "schema_version": "openfoundry.workshop.widget_catalog.v1",
   "items": [
     {
@@ -44,8 +44,8 @@
       "category": "core",
       "display_icon": "list",
       "input_count": 1,
-      "output_count": 1,
-      "event_names": ["selection_change"],
+      "output_count": 2,
+      "event_names": ["select", "selection_change", "row_action"],
       "permissions": ["app:read", "ontology:read"],
       "supported_bindings": ["object_set"],
       "supports_children": false
@@ -78,7 +78,7 @@
       "widget_type": "object_set_title",
       "widget_kind": "object_set",
       "category": "core",
-      "display_icon": "document",
+      "display_icon": "cube",
       "input_count": 1,
       "output_count": 0,
       "event_names": [],
@@ -104,7 +104,7 @@
       "category": "visualization",
       "display_icon": "graph",
       "input_count": 1,
-      "output_count": 1,
+      "output_count": 2,
       "event_names": ["mark_select"],
       "permissions": ["app:read", "ontology:read"],
       "supported_bindings": ["object_set"],
@@ -123,13 +123,25 @@
       "supports_children": false
     },
     {
+      "widget_type": "free_form_analysis",
+      "widget_kind": "visualization",
+      "category": "visualization",
+      "display_icon": "graph",
+      "input_count": 1,
+      "output_count": 1,
+      "event_names": ["output_change"],
+      "permissions": ["app:read", "ontology:read"],
+      "supported_bindings": ["object_set"],
+      "supports_children": false
+    },
+    {
       "widget_type": "scenario",
       "widget_kind": "control",
       "category": "workshop",
       "display_icon": "settings",
       "input_count": 0,
       "output_count": 1,
-      "event_names": ["apply", "reset"],
+      "event_names": ["scenario_change", "scenario_reset"],
       "permissions": ["app:read"],
       "supported_bindings": [],
       "supports_children": false

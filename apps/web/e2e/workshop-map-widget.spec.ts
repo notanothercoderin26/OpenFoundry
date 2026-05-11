@@ -73,6 +73,7 @@ const appResponse = {
                   label_field: 'label',
                   filter_field: 'kind',
                   filter_value: 'coffee',
+                  visibility_variable_id: 'show-coffee-layer',
                   color: '#0f766e',
                   radius: 6,
                   visible: true,
@@ -217,6 +218,14 @@ const appResponse = {
       ontology_source_type_id: null,
       object_set_variables: [],
       workshop_variables: [
+        {
+          id: 'show-coffee-layer',
+          kind: 'boolean',
+          name: 'Show coffee layer',
+          object_type_id: '',
+          default_value: true,
+          source_widget_id: 'trail-map',
+        },
         {
           id: 'trail-objects',
           kind: 'object_set',
@@ -600,7 +609,9 @@ test('renders Workshop Map widget with MapLibre layers and nonblank canvas', asy
   await expect(page.getByRole('cell', { name: 'Hard' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Plan selected trail' })).toBeVisible();
   await page.getByRole('button', { name: 'Plan selected trail' }).click();
-  await expect(page.getByRole('dialog')).toContainText('trail-2');
+  const actionDialog = page.getByRole('dialog');
+  await expect(actionDialog).toContainText('Plan trail');
+  await expect(actionDialog.locator('input[placeholder="Object id"]')).toHaveValue('trail-2');
 
   const screenshot = await map.screenshot();
   expect(screenshot.length).toBeGreaterThan(8_000);

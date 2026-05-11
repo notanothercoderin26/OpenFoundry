@@ -31,6 +31,8 @@ type WorkshopVariable struct {
 	Kind             string           `json:"kind"`
 	Name             string           `json:"name"`
 	ObjectTypeID     string           `json:"object_type_id,omitempty"`
+	ObjectSetID      string           `json:"object_set_id,omitempty"`
+	SavedObjectSetID string           `json:"saved_object_set_id,omitempty"`
 	SourceWidgetID   string           `json:"source_widget_id,omitempty"`
 	SourceVariableID string           `json:"source_variable_id,omitempty"`
 	FilterVariableID string           `json:"filter_variable_id,omitempty"`

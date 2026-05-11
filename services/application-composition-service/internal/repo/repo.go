@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/services/application-composition-service/internal/models"
@@ -58,6 +59,38 @@ func (r *Repo) CreatePrimary(ctx context.Context, payload []byte) (models.Primar
 	var p models.PrimaryItem
 	err := row.Scan(&p.ID, &p.Payload, &p.CreatedAt)
 	return p, err
+}
+
+func (r *Repo) RecordAppAuditEvent(ctx context.Context, event models.AppAuditEvent) error {
+	if event.ID == uuid.Nil {
+		event.ID = uuid.New()
+	}
+	if len(event.Details) == 0 {
+		event.Details = json.RawMessage(`{}`)
+	}
+	if strings.TrimSpace(event.Status) == "" {
+		event.Status = "success"
+	}
+	if strings.TrimSpace(event.EventType) == "" {
+		return errors.New("event_type is required")
+	}
+	_, err := r.Pool.Exec(ctx,
+		`INSERT INTO app_audit_events
+		   (id, app_id, app_slug, version_id, actor_id, event_type, status, permission, ip_address, user_agent, details)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		event.ID,
+		event.AppID,
+		event.AppSlug,
+		event.VersionID,
+		event.ActorID,
+		event.EventType,
+		event.Status,
+		event.Permission,
+		event.IPAddress,
+		event.UserAgent,
+		[]byte(event.Details),
+	)
+	return err
 }
 
 func (r *Repo) GetPrimary(ctx context.Context, id uuid.UUID) (*models.PrimaryItem, error) {
@@ -108,14 +141,19 @@ func (r *Repo) CreateSecondary(ctx context.Context, parentID uuid.UUID, payload 
 // scanApp consumes a row matching `appColumns` (in order) and produces models.App.
 func scanApp(row pgx.Row) (*models.App, error) {
 	var a models.App
+	var publishedVersionID pgtype.UUID
 	err := row.Scan(
 		&a.ID, &a.Name, &a.Slug, &a.Description, &a.Status,
 		&a.Pages, &a.Theme, &a.Settings,
-		&a.TemplateKey, &a.CreatedBy, &a.PublishedVersionID,
+		&a.TemplateKey, &a.CreatedBy, &publishedVersionID,
 		&a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if publishedVersionID.Valid {
+		id := uuid.UUID(publishedVersionID.Bytes)
+		a.PublishedVersionID = &id
 	}
 	return &a, nil
 }
@@ -645,6 +683,110 @@ func (r *Repo) PublishApp(ctx context.Context, appID uuid.UUID, notes string, pu
 	}, nil
 }
 
+// PromoteAppVersion republishes an existing immutable version snapshot by
+// creating a fresh published version row. This matches Workshop's rollback
+// shape: reverting to an older save creates a new version based on it instead
+// of rewriting historical rows.
+func (r *Repo) PromoteAppVersion(ctx context.Context, appID, versionID uuid.UUID, notes string, promoter *uuid.UUID) (*models.AppVersion, error) {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	current, err := scanApp(tx.QueryRow(ctx, `SELECT `+appColumns+` FROM apps WHERE id = $1 FOR UPDATE`, appID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	source, err := scanAppVersion(tx.QueryRow(ctx,
+		`SELECT id, app_id, version_number, status, app_snapshot, notes, created_by, created_at, published_at
+		   FROM app_versions WHERE app_id = $1 AND id = $2`, appID, versionID))
+	if err != nil {
+		return nil, err
+	}
+	if source == nil {
+		return nil, nil
+	}
+
+	var nextVersion int
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(version_number), 0) + 1 FROM app_versions WHERE app_id = $1`, appID,
+	).Scan(&nextVersion); err != nil {
+		return nil, err
+	}
+
+	cleanNotes := strings.TrimSpace(notes)
+	if cleanNotes == "" {
+		cleanNotes = fmt.Sprintf("Promoted v%d", source.VersionNumber)
+	}
+
+	newVersionID := uuid.New()
+	now := time.Now().UTC()
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO app_versions (id, app_id, version_number, status, app_snapshot, notes, created_by, created_at, published_at)
+         VALUES ($1, $2, $3, 'published', $4, $5, $6, $7, $7)`,
+		newVersionID, appID, nextVersion, source.AppSnapshot, cleanNotes, promoter, now,
+	); err != nil {
+		return nil, err
+	}
+
+	publishedApp, err := appFromVersionSnapshot(current, newVersionID, now, source.AppSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	publishedContract, err := models.NormalizeAppContract(
+		publishedApp.Name,
+		publishedApp.Slug,
+		"published",
+		publishedApp.Pages,
+		publishedApp.Theme,
+		publishedApp.Settings,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE apps
+		    SET name = $1, slug = $2, description = $3, status = 'published',
+		        pages = $4, theme = $5, settings = $6, template_key = $7,
+		        published_version_id = $8, updated_at = $9
+		  WHERE id = $10`,
+		publishedApp.Name,
+		publishedApp.Slug,
+		publishedApp.Description,
+		[]byte(publishedContract.Pages),
+		[]byte(publishedContract.Theme),
+		[]byte(publishedContract.Settings),
+		publishedApp.TemplateKey,
+		newVersionID,
+		now,
+		appID,
+	); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &models.AppVersion{
+		ID:            newVersionID,
+		AppID:         appID,
+		VersionNumber: nextVersion,
+		Status:        "published",
+		AppSnapshot:   source.AppSnapshot,
+		Notes:         cleanNotes,
+		CreatedBy:     promoter,
+		CreatedAt:     now,
+		PublishedAt:   &now,
+	}, nil
+}
+
 func (r *Repo) ListAppVersions(ctx context.Context, appID uuid.UUID) ([]models.AppVersion, error) {
 	rows, err := r.Pool.Query(ctx,
 		`SELECT id, app_id, version_number, status, app_snapshot, notes, created_by, created_at, published_at
@@ -656,11 +798,15 @@ func (r *Repo) ListAppVersions(ctx context.Context, appID uuid.UUID) ([]models.A
 	out := make([]models.AppVersion, 0)
 	for rows.Next() {
 		var v models.AppVersion
+		var publishedAt pgtype.Timestamptz
 		if err := rows.Scan(
 			&v.ID, &v.AppID, &v.VersionNumber, &v.Status, &v.AppSnapshot,
-			&v.Notes, &v.CreatedBy, &v.CreatedAt, &v.PublishedAt,
+			&v.Notes, &v.CreatedBy, &v.CreatedAt, &publishedAt,
 		); err != nil {
 			return nil, err
+		}
+		if publishedAt.Valid {
+			v.PublishedAt = &publishedAt.Time
 		}
 		out = append(out, v)
 	}
@@ -669,16 +815,20 @@ func (r *Repo) ListAppVersions(ctx context.Context, appID uuid.UUID) ([]models.A
 
 // GetPublishedVersion returns the version row pointed to by apps.published_version_id.
 func (r *Repo) GetPublishedVersion(ctx context.Context, appID uuid.UUID) (*models.AppVersion, error) {
-	row := r.Pool.QueryRow(ctx,
+	return scanAppVersion(r.Pool.QueryRow(ctx,
 		`SELECT v.id, v.app_id, v.version_number, v.status, v.app_snapshot, v.notes,
 		        v.created_by, v.created_at, v.published_at
 		   FROM apps a
 		   JOIN app_versions v ON v.id = a.published_version_id
-		  WHERE a.id = $1`, appID)
+		  WHERE a.id = $1`, appID))
+}
+
+func scanAppVersion(row pgx.Row) (*models.AppVersion, error) {
 	var v models.AppVersion
+	var publishedAt pgtype.Timestamptz
 	err := row.Scan(
 		&v.ID, &v.AppID, &v.VersionNumber, &v.Status, &v.AppSnapshot,
-		&v.Notes, &v.CreatedBy, &v.CreatedAt, &v.PublishedAt,
+		&v.Notes, &v.CreatedBy, &v.CreatedAt, &publishedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -686,7 +836,58 @@ func (r *Repo) GetPublishedVersion(ctx context.Context, appID uuid.UUID) (*model
 	if err != nil {
 		return nil, err
 	}
+	if publishedAt.Valid {
+		v.PublishedAt = &publishedAt.Time
+	}
 	return &v, nil
+}
+
+type persistedAppVersionSnapshot struct {
+	SchemaVersion string          `json:"schema_version"`
+	Name          string          `json:"name"`
+	Slug          string          `json:"slug"`
+	Description   string          `json:"description"`
+	Status        string          `json:"status"`
+	Pages         json.RawMessage `json:"pages"`
+	Theme         json.RawMessage `json:"theme"`
+	Settings      json.RawMessage `json:"settings"`
+	TemplateKey   *string         `json:"template_key"`
+}
+
+func appFromVersionSnapshot(current *models.App, versionID uuid.UUID, updatedAt time.Time, raw json.RawMessage) (*models.App, error) {
+	if current == nil {
+		return nil, nil
+	}
+	published := *current
+	published.PublishedVersionID = &versionID
+	published.Status = "published"
+	published.UpdatedAt = updatedAt
+	if len(raw) == 0 || string(raw) == "null" {
+		return &published, nil
+	}
+	var snapshot persistedAppVersionSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(snapshot.Name) != "" {
+		published.Name = snapshot.Name
+	}
+	if strings.TrimSpace(snapshot.Slug) != "" {
+		published.Slug = snapshot.Slug
+	}
+	published.Description = snapshot.Description
+	if len(snapshot.Pages) > 0 {
+		published.Pages = snapshot.Pages
+	}
+	if len(snapshot.Theme) > 0 {
+		published.Theme = snapshot.Theme
+	}
+	if len(snapshot.Settings) > 0 {
+		published.Settings = snapshot.Settings
+	}
+	published.TemplateKey = snapshot.TemplateKey
+	published.Status = "published"
+	return &published, nil
 }
 
 func decodeAppPages(raw json.RawMessage) ([]models.AppPage, error) {

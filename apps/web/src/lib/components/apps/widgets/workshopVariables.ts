@@ -1,5 +1,7 @@
-import type { ObjectInstance } from '@/lib/api/ontology';
+import type { ObjectInstance, ObjectQuerySort, ObjectSetAggregationSpec } from '@/lib/api/ontology';
 import type { WorkshopMapFeatureCollection } from './workshopMap';
+import { functionVariableDependencies, readFunctionVariableConfig, type WorkshopFunctionRuntimeValue } from './workshopFunctions';
+import { normalizeWorkshopScenarioValue, type WorkshopScenarioValue } from './workshopScenarios';
 
 export type WorkshopVariablePrimitive =
   | null
@@ -16,6 +18,10 @@ export interface WorkshopVariableFilter {
   value?: unknown;
   min?: unknown;
   max?: unknown;
+  value_variable_id?: string;
+  values_variable_id?: string;
+  min_variable_id?: string;
+  max_variable_id?: string;
 }
 
 export interface WorkshopVariableLike {
@@ -23,6 +29,8 @@ export interface WorkshopVariableLike {
   kind: string;
   name: string;
   object_type_id?: string;
+  object_set_id?: string;
+  saved_object_set_id?: string;
   source_widget_id?: string;
   source_variable_id?: string;
   filter_variable_id?: string;
@@ -37,6 +45,7 @@ export interface WorkshopRuntimeFilterValue {
   search?: string;
   range_min?: string;
   range_max?: string;
+  filters?: WorkshopVariableFilter[];
 }
 
 export interface WorkshopRuntimeFilterMetadata {
@@ -53,6 +62,7 @@ export interface WorkshopVariableRuntimeState {
   filterValues?: Record<string, WorkshopRuntimeFilterValue>;
   filterMetadata?: Record<string, WorkshopRuntimeFilterMetadata>;
   primitiveValues?: Record<string, unknown>;
+  functionValues?: Record<string, WorkshopFunctionRuntimeValue>;
   runtimeParameters?: Record<string, string>;
 }
 
@@ -82,12 +92,22 @@ export interface PrimitiveVariableValue {
   source: 'runtime_parameter' | 'state' | 'static' | 'empty';
 }
 
+export interface ScenarioVariableValue {
+  kind: 'scenario';
+  variableId: string;
+  value: Record<string, string>;
+  scenario: WorkshopScenarioValue;
+  source: 'state' | 'static' | 'empty';
+}
+
 export interface ObjectSetVariableValue {
   kind: 'object_set';
   variableId: string;
   objectTypeId: string;
   sourceVariableId?: string;
   filters: WorkshopVariableFilter[];
+  sort?: ObjectQuerySort[];
+  aggregations?: ObjectSetAggregationSpec[];
   objects?: ObjectInstance[];
   objectIds?: string[];
 }
@@ -96,6 +116,10 @@ export interface ObjectSetFilterVariableValue {
   kind: 'object_set_filter';
   variableId: string;
   filters: WorkshopVariableFilter[];
+  defaultFilters: WorkshopVariableFilter[];
+  runtimeFilters: WorkshopVariableFilter[];
+  sourceFilterVariableIds: string[];
+  objectTypeIds: string[];
 }
 
 export interface SelectedObjectVariableValue {
@@ -118,13 +142,25 @@ export interface AggregationVariableValue {
   sourceVariableId: string;
 }
 
+export interface FunctionOutputVariableValue {
+  kind: 'function_output';
+  variableId: string;
+  value: unknown;
+  status: 'idle' | 'loading' | 'success' | 'error';
+  error?: string;
+  cacheKey?: string;
+  functionPackageId: string;
+}
+
 export type WorkshopResolvedVariableValue =
   | PrimitiveVariableValue
+  | ScenarioVariableValue
   | ObjectSetVariableValue
   | ObjectSetFilterVariableValue
   | SelectedObjectVariableValue
   | ShapeVariableValue
-  | AggregationVariableValue;
+  | AggregationVariableValue
+  | FunctionOutputVariableValue;
 
 export interface WorkshopVariableEngineResult {
   values: Record<string, WorkshopResolvedVariableValue>;
@@ -138,6 +174,7 @@ export interface WorkshopVariableEngineResult {
   getActiveObject: (variableId: string) => ObjectInstance | null;
   getSelectedObjectSet: (variableId: string) => ObjectInstance[];
   getPrimitive: (variableId: string) => unknown;
+  getScenario: (variableId: string) => WorkshopScenarioValue | undefined;
 }
 
 export const EMPTY_WORKSHOP_VARIABLE_ENGINE: WorkshopVariableEngineResult = {
@@ -152,6 +189,7 @@ export const EMPTY_WORKSHOP_VARIABLE_ENGINE: WorkshopVariableEngineResult = {
   getActiveObject: () => null,
   getSelectedObjectSet: () => [],
   getPrimitive: () => undefined,
+  getScenario: () => undefined,
 };
 
 const PRIMITIVE_KINDS = new Set([
@@ -233,7 +271,11 @@ export function createWorkshopVariableEngine(
     },
     getPrimitive: (variableId) => {
       const value = values[variableId];
-      return value?.kind === 'primitive' || value?.kind === 'aggregation' ? value.value : undefined;
+      return value?.kind === 'primitive' || value?.kind === 'aggregation' || value?.kind === 'function_output' || value?.kind === 'scenario' ? value.value : undefined;
+    },
+    getScenario: (variableId) => {
+      const value = values[variableId];
+      return value?.kind === 'scenario' ? value.scenario : undefined;
     },
   };
 }
@@ -289,6 +331,9 @@ function dependenciesForVariable(variable: WorkshopVariableLike): string[] {
   addDependency(deps, variable.filter_variable_id);
   addDependency(deps, stringFromMetadata(variable.metadata, 'source_variable_id'));
   addDependency(deps, stringFromMetadata(variable.metadata, 'filter_variable_id'));
+  for (const dependency of filterVariableIdsForVariable(variable)) addDependency(deps, dependency);
+  for (const dependency of filterValueVariableIds(variable)) addDependency(deps, dependency);
+  for (const dependency of functionVariableDependencies(variable)) addDependency(deps, dependency);
   const dependsOn = variable.metadata?.depends_on;
   if (Array.isArray(dependsOn)) {
     for (const dependency of dependsOn) addDependency(deps, typeof dependency === 'string' ? dependency : '');
@@ -338,7 +383,7 @@ function resolveVariable(
   state: WorkshopVariableRuntimeState,
   diagnostics: WorkshopVariableDiagnostic[],
 ): WorkshopResolvedVariableValue {
-  if (FILTER_KINDS.has(variable.kind)) return resolveFilterVariable(variable, state);
+  if (FILTER_KINDS.has(variable.kind)) return resolveFilterVariable(variable, values, state);
   if (OBJECT_SET_KINDS.has(variable.kind)) return resolveObjectSetVariable(variable, values);
   if (variable.kind === 'object_set_active_object') {
     return { kind: 'selected_object', variableId: variable.id, object: state.activeObjects?.[variable.id] ?? null };
@@ -357,9 +402,42 @@ function resolveVariable(
   if (variable.kind === 'shape_output') {
     return { kind: 'shape', variableId: variable.id, shape: state.shapeOutputs?.[variable.id] ?? null };
   }
+  if (variable.kind === 'scenario') return resolveScenarioVariable(variable, state);
   if (variable.kind === 'aggregation') return resolveAggregationVariable(variable, values, diagnostics);
+  if (variable.kind === 'function_output') return resolveFunctionOutputVariable(variable, state);
   if (PRIMITIVE_KINDS.has(variable.kind) || variable.kind.length > 0) return resolvePrimitiveVariable(variable, state);
   return { kind: 'primitive', variableId: variable.id, value: null, source: 'empty' };
+}
+
+function resolveScenarioVariable(
+  variable: WorkshopVariableLike,
+  state: WorkshopVariableRuntimeState,
+): ScenarioVariableValue {
+  const hasState = Object.prototype.hasOwnProperty.call(state.primitiveValues ?? {}, variable.id);
+  const rawValue = hasState ? state.primitiveValues?.[variable.id] : variable.default_value;
+  const scenario = normalizeWorkshopScenarioValue(rawValue, scenarioParametersFromVariable(variable));
+  return {
+    kind: 'scenario',
+    variableId: variable.id,
+    value: scenario.values,
+    scenario,
+    source: hasState ? 'state' : variable.default_value !== undefined ? 'static' : 'empty',
+  };
+}
+
+function scenarioParametersFromVariable(variable: WorkshopVariableLike) {
+  const parameters = variable.metadata?.parameters;
+  if (!Array.isArray(parameters)) return [];
+  return parameters
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
+    .map((entry) => ({
+      name: typeof entry.name === 'string' ? entry.name : '',
+      label: typeof entry.label === 'string' ? entry.label : undefined,
+      type: typeof entry.type === 'string' ? entry.type : undefined,
+      default_value: entry.default_value,
+      description: typeof entry.description === 'string' ? entry.description : undefined,
+    }))
+    .filter((entry) => entry.name);
 }
 
 function resolvePrimitiveVariable(
@@ -390,10 +468,11 @@ function resolveObjectSetVariable(
 ): ObjectSetVariableValue {
   const sourceVariableId = variable.source_variable_id || stringFromMetadata(variable.metadata, 'source_variable_id');
   const sourceValue = sourceVariableId ? values[sourceVariableId] : undefined;
-  const filterVariableId = variable.filter_variable_id || stringFromMetadata(variable.metadata, 'filter_variable_id');
-  const filterValue = filterVariableId ? values[filterVariableId] : undefined;
+  const filterVariableIds = filterVariableIdsForVariable(variable);
   const sourceObjectSet = sourceValue?.kind === 'object_set' ? sourceValue : undefined;
-  const filterOutput = filterValue?.kind === 'object_set_filter' ? filterValue : undefined;
+  const filterOutputs = filterVariableIds
+    .map((filterVariableId) => values[filterVariableId])
+    .filter((entry): entry is ObjectSetFilterVariableValue => entry?.kind === 'object_set_filter');
   return {
     kind: 'object_set',
     variableId: variable.id,
@@ -401,9 +480,11 @@ function resolveObjectSetVariable(
     sourceVariableId,
     filters: compactFilters([
       ...(sourceObjectSet?.filters ?? []),
-      ...(variable.static_filter ? [variable.static_filter] : []),
-      ...(Array.isArray(variable.static_filters) ? variable.static_filters : []),
-      ...(filterOutput?.filters ?? []),
+      ...resolveFilterValues([
+        ...(variable.static_filter ? [variable.static_filter] : []),
+        ...(Array.isArray(variable.static_filters) ? variable.static_filters : []),
+      ], values),
+      ...filterOutputs.flatMap((filterOutput) => filterOutput.filters),
     ]),
     objects: sourceObjectSet?.objects,
     objectIds: sourceObjectSet?.objectIds,
@@ -412,20 +493,34 @@ function resolveObjectSetVariable(
 
 function resolveFilterVariable(
   variable: WorkshopVariableLike,
+  resolvedValues: Record<string, WorkshopResolvedVariableValue>,
   state: WorkshopVariableRuntimeState,
 ): ObjectSetFilterVariableValue {
-  const filters: WorkshopVariableFilter[] = [];
-  filters.push(...defaultFilters(variable));
-  const values = state.filterValues ?? {};
+  const sourceFilterVariableIds = filterVariableIdsForVariable(variable);
+  const sourceFilters = sourceFilterVariableIds
+    .map((filterVariableId) => resolvedValues[filterVariableId])
+    .filter((entry): entry is ObjectSetFilterVariableValue => entry?.kind === 'object_set_filter')
+    .flatMap((filterVariable) => filterVariable.filters);
+  const defaultFilterList = defaultFilters(variable, resolvedValues);
+  const runtimeValues = state.filterValues ?? {};
   const metadata = state.filterMetadata ?? {};
-  for (const [filterId, value] of Object.entries(values)) {
+  const runtimeFilters: WorkshopVariableFilter[] = [];
+  for (const [filterId, value] of Object.entries(runtimeValues)) {
     const meta = metadata[filterId] ?? {};
     const matchesOutput = meta.outputVariableId && meta.outputVariableId === variable.id;
     const matchesWidget = meta.sourceWidgetId && variable.source_widget_id && meta.sourceWidgetId === variable.source_widget_id;
     if (!matchesOutput && !matchesWidget) continue;
-    filters.push(...runtimeFilterValueToFilters(value, meta));
+    runtimeFilters.push(...runtimeFilterValueToFilters(value, meta, resolvedValues));
   }
-  return { kind: 'object_set_filter', variableId: variable.id, filters: compactFilters(filters) };
+  return {
+    kind: 'object_set_filter',
+    variableId: variable.id,
+    filters: compactFilters([...sourceFilters, ...defaultFilterList, ...runtimeFilters]),
+    defaultFilters: defaultFilterList,
+    runtimeFilters: compactFilters(runtimeFilters),
+    sourceFilterVariableIds,
+    objectTypeIds: filterObjectTypeIds(variable),
+  };
 }
 
 function resolveAggregationVariable(
@@ -466,24 +561,51 @@ function resolveAggregationVariable(
   return { kind: 'aggregation', variableId: variable.id, metric, value, sourceVariableId };
 }
 
+function resolveFunctionOutputVariable(
+  variable: WorkshopVariableLike,
+  state: WorkshopVariableRuntimeState,
+): FunctionOutputVariableValue {
+  const config = readFunctionVariableConfig(variable);
+  const runtime = state.functionValues?.[variable.id];
+  return {
+    kind: 'function_output',
+    variableId: variable.id,
+    value: runtime?.value ?? null,
+    status: runtime?.status ?? 'idle',
+    error: runtime?.error,
+    cacheKey: runtime?.cache_key,
+    functionPackageId: config.function_package_id,
+  };
+}
+
 function runtimeFilterValueToFilters(
   value: WorkshopRuntimeFilterValue,
   metadata: WorkshopRuntimeFilterMetadata,
+  values: Record<string, WorkshopResolvedVariableValue>,
 ): WorkshopVariableFilter[] {
+  if (Array.isArray(value.filters) && value.filters.length > 0) {
+    return resolveFilterValues(value.filters, values);
+  }
   const propertyName = metadata.propertyName?.trim();
   if (!propertyName) return [];
   const filters: WorkshopVariableFilter[] = [];
   const search = value.search?.trim();
   if (search) filters.push({ property_name: propertyName, operator: 'contains', value: search });
-  for (const entry of value.values ?? []) {
-    if (entry.trim()) filters.push({ property_name: propertyName, operator: 'equals', value: entry });
+  const selectedValues = (value.values ?? []).map((entry) => entry.trim()).filter(Boolean);
+  if (selectedValues.length === 1) {
+    filters.push({ property_name: propertyName, operator: 'equals', value: selectedValues[0] });
+  } else if (selectedValues.length > 1) {
+    filters.push({ property_name: propertyName, operator: 'in', value: selectedValues });
   }
   if (value.range_min?.trim()) filters.push({ property_name: propertyName, operator: 'gte', value: value.range_min.trim() });
   if (value.range_max?.trim()) filters.push({ property_name: propertyName, operator: 'lte', value: value.range_max.trim() });
   return filters;
 }
 
-function defaultFilters(variable: WorkshopVariableLike): WorkshopVariableFilter[] {
+function defaultFilters(
+  variable: WorkshopVariableLike,
+  values: Record<string, WorkshopResolvedVariableValue>,
+): WorkshopVariableFilter[] {
   const defaults = [
     ...(variable.static_filter ? [variable.static_filter] : []),
     ...(Array.isArray(variable.static_filters) ? variable.static_filters : []),
@@ -492,17 +614,128 @@ function defaultFilters(variable: WorkshopVariableLike): WorkshopVariableFilter[
   if (isRecord(variable.default_value) && Array.isArray(variable.default_value.filters)) {
     defaults.push(...variable.default_value.filters);
   }
-  return compactFilters(defaults);
+  return resolveFilterValues(defaults, values);
+}
+
+function resolveFilterValues(
+  filters: unknown[],
+  values: Record<string, WorkshopResolvedVariableValue>,
+): WorkshopVariableFilter[] {
+  return compactFilters(filters).map((filter) => {
+    const next: WorkshopVariableFilter = { ...filter };
+    const valueVariableId = nonEmptyString(filter.value_variable_id) || valueVariableIdFromValue(filter.value);
+    const valuesVariableId = nonEmptyString(filter.values_variable_id);
+    const minVariableId = nonEmptyString(filter.min_variable_id);
+    const maxVariableId = nonEmptyString(filter.max_variable_id);
+    if (valueVariableId) next.value = primitiveValueFor(values[valueVariableId]);
+    if (valuesVariableId) next.value = arrayValueFor(values[valuesVariableId]);
+    if (minVariableId) {
+      const value = primitiveValueFor(values[minVariableId]);
+      next.min = value;
+      if (next.operator === 'gte' || next.operator === '>=' || next.value === undefined) next.value = value;
+    }
+    if (maxVariableId) {
+      const value = primitiveValueFor(values[maxVariableId]);
+      next.max = value;
+      if (next.operator === 'lte' || next.operator === '<=' || next.value === undefined) next.value = value;
+    }
+    if (isRecord(next.value) && typeof next.value.variable_id === 'string') {
+      next.value = primitiveValueFor(values[next.value.variable_id.trim()]);
+    }
+    return next;
+  });
 }
 
 function compactFilters(filters: unknown[]): WorkshopVariableFilter[] {
-  return filters
+  const seen = new Set<string>();
+  const out: WorkshopVariableFilter[] = [];
+  for (const filter of filters
     .filter((entry): entry is WorkshopVariableFilter => isRecord(entry) && typeof entry.property_name === 'string' && entry.property_name.trim().length > 0)
     .map((entry) => ({
       ...entry,
       property_name: entry.property_name.trim(),
       operator: typeof entry.operator === 'string' ? entry.operator : 'equals',
-    }));
+    }))) {
+    const key = stableStringify(filter);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(filter);
+  }
+  return out;
+}
+
+function filterVariableIdsForVariable(variable: WorkshopVariableLike): string[] {
+  const ids = new Set<string>();
+  addDependency(ids, variable.filter_variable_id);
+  addDependency(ids, stringFromMetadata(variable.metadata, 'filter_variable_id'));
+  addStringArrayDependencies(ids, variable.metadata?.filter_variable_ids);
+  if (FILTER_KINDS.has(variable.kind)) {
+    addDependency(ids, variable.source_variable_id);
+    addDependency(ids, stringFromMetadata(variable.metadata, 'source_variable_id'));
+    addDependency(ids, stringFromMetadata(variable.metadata, 'source_filter_variable_id'));
+    addStringArrayDependencies(ids, variable.metadata?.source_filter_variable_ids);
+  }
+  ids.delete(variable.id);
+  return [...ids];
+}
+
+function filterValueVariableIds(variable: WorkshopVariableLike): string[] {
+  const ids = new Set<string>();
+  for (const filter of [
+    ...(variable.static_filter ? [variable.static_filter] : []),
+    ...(Array.isArray(variable.static_filters) ? variable.static_filters : []),
+    ...(Array.isArray(variable.default_value) ? variable.default_value : []),
+    ...(isRecord(variable.default_value) && Array.isArray(variable.default_value.filters) ? variable.default_value.filters : []),
+  ]) {
+    if (!isRecord(filter)) continue;
+    addDependency(ids, typeof filter.value_variable_id === 'string' ? filter.value_variable_id : undefined);
+    addDependency(ids, typeof filter.values_variable_id === 'string' ? filter.values_variable_id : undefined);
+    addDependency(ids, typeof filter.min_variable_id === 'string' ? filter.min_variable_id : undefined);
+    addDependency(ids, typeof filter.max_variable_id === 'string' ? filter.max_variable_id : undefined);
+    if (isRecord(filter.value) && typeof filter.value.variable_id === 'string') addDependency(ids, filter.value.variable_id);
+  }
+  ids.delete(variable.id);
+  return [...ids];
+}
+
+function filterObjectTypeIds(variable: WorkshopVariableLike): string[] {
+  const ids = new Set<string>();
+  addDependency(ids, variable.object_type_id);
+  addStringArrayDependencies(ids, variable.metadata?.object_type_ids);
+  return [...ids];
+}
+
+function addStringArrayDependencies(deps: Set<string>, value: unknown) {
+  if (!Array.isArray(value)) return;
+  for (const entry of value) addDependency(deps, typeof entry === 'string' ? entry : undefined);
+}
+
+function primitiveValueFor(value: WorkshopResolvedVariableValue | undefined): unknown {
+  if (!value) return undefined;
+  if (value.kind === 'primitive' || value.kind === 'aggregation' || value.kind === 'function_output' || value.kind === 'scenario') {
+    return value.value;
+  }
+  if (value.kind === 'selected_object') return value.object?.id ?? null;
+  if (value.kind === 'object_set') return value.objectIds ?? value.objects?.map((object) => object.id) ?? [];
+  if (value.kind === 'object_set_filter') return value.filters;
+  if (value.kind === 'shape') return value.shape;
+  return undefined;
+}
+
+function arrayValueFor(value: WorkshopResolvedVariableValue | undefined): unknown[] {
+  const resolved = primitiveValueFor(value);
+  if (Array.isArray(resolved)) return resolved;
+  if (resolved === null || resolved === undefined || resolved === '') return [];
+  return [resolved];
+}
+
+function valueVariableIdFromValue(value: unknown): string {
+  if (!isRecord(value)) return '';
+  return typeof value.variable_id === 'string' ? value.variable_id.trim() : '';
+}
+
+function nonEmptyString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function runtimeParameterName(variable: WorkshopVariableLike): string {

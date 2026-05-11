@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,16 +30,33 @@ func TestObjectTypeJSONShape(t *testing.T) {
 		CreatedAt: time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
 		UpdatedAt: time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
 	}
+	models.EnrichObjectTypeMetadata(&v, []models.Property{
+		{ID: uuid.New(), ObjectTypeID: v.ID, Name: "label", DisplayName: "Label", PropertyType: "string"},
+		{ID: uuid.New(), ObjectTypeID: v.ID, Name: "trailhead", DisplayName: "Trailhead", PropertyType: "geopoint"},
+		{ID: uuid.New(), ObjectTypeID: v.ID, Name: "route", DisplayName: "Route", PropertyType: "geojson"},
+	})
 	out, err := json.Marshal(v)
 	require.NoError(t, err)
 	var view map[string]any
 	require.NoError(t, json.Unmarshal(out, &view))
 	for _, k := range []string{
-		"id", "name", "display_name", "description", "primary_key_property",
-		"icon", "color", "owner_id", "created_at", "updated_at",
+		"id", "rid", "name", "api_name", "display_name", "plural_display_name",
+		"description", "primary_key_property", "primary_key", "title_property",
+		"icon", "color", "status", "visibility", "properties", "property_count",
+		"searchable_property_names", "geopoint_property_names", "geoshape_property_names",
+		"owner_id", "created_at", "updated_at",
 	} {
 		assert.Contains(t, view, k)
 	}
+	assert.Equal(t, "Customer", view["api_name"])
+	assert.Equal(t, "active", view["status"])
+	assert.Equal(t, "normal", view["visibility"])
+	assert.Equal(t, "id", view["primary_key"])
+	assert.Equal(t, "label", view["title_property"])
+	assert.Equal(t, float64(3), view["property_count"])
+	assert.Equal(t, []any{"label", "id"}, view["searchable_property_names"])
+	assert.Equal(t, []any{"trailhead"}, view["geopoint_property_names"])
+	assert.Equal(t, []any{"route"}, view["geoshape_property_names"])
 }
 
 func TestCreateObjectTypeRequiresAuth(t *testing.T) {
@@ -70,4 +88,19 @@ func TestListObjectTypesRequiresAuth(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ListObjectTypes(rec, req)
 	assert.Equal(t, 401, rec.Code)
+}
+
+func TestCreatePropertyRejectsUnknownBaseType(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New()}
+	r := chi.NewRouter()
+	r.Post("/object-types/{id}/properties", h.CreateProperty)
+	req := httptest.NewRequest("POST", "/object-types/"+uuid.New().String()+"/properties",
+		strings.NewReader(`{"name":"mystery","property_type":"mystery_blob"}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "invalid property type")
 }

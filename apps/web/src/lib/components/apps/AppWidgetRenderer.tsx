@@ -11,7 +11,8 @@ import { ChartWidget } from '@/lib/components/dashboard/ChartWidget';
 import { TableWidget } from '@/lib/components/dashboard/TableWidget';
 import { getWidget, useWorkshopData } from '@/lib/components/apps/widgets';
 import { WorkshopMapWidget } from '@/lib/components/apps/widgets/WorkshopMapWidget';
-import { WorkshopRuntimeContext } from '@/routes/apps/WorkshopEditorPage';
+import { WorkshopRuntimeContext } from '@/lib/components/apps/widgets/workshop-runtime-context';
+import { buildWorkshopScenarioValue, type WorkshopScenarioStatus } from '@/lib/components/apps/widgets/workshopScenarios';
 
 interface Props {
   widget: AppWidget;
@@ -121,6 +122,7 @@ export function AppWidgetRenderer({
   const [error, setError] = useState('');
   const [formState, setFormState] = useState<Record<string, string>>({});
   const [scenarioState, setScenarioState] = useState<Record<string, string>>({});
+  const [scenarioStatus, setScenarioStatus] = useState<WorkshopScenarioStatus>('draft');
   const [agentPrompt, setAgentPrompt] = useState('');
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentError, setAgentError] = useState('');
@@ -154,6 +156,13 @@ export function AppWidgetRenderer({
 
   const formFields = useMemo(() => parseFormFields(props.fields), [props.fields]);
   const scenarioParameters = useMemo(() => parseScenarioParameters(props.parameters), [props.parameters]);
+  const scenarioPayload = useMemo(() => buildWorkshopScenarioValue({
+    parameters: scenarioParameters,
+    values: scenarioState,
+    status: scenarioStatus,
+    sourceWidgetId: widget.id,
+  }), [scenarioParameters, scenarioState, scenarioStatus, widget.id]);
+  const scenarioOutputVariableId = stringProp('output_variable_id', '');
   const content = interpolate(stringProp('content', ''), runtimeParameters);
   const imageUrl = interpolate(stringProp('url', ''), runtimeParameters);
   const imageAlt = stringProp('alt', widget.title);
@@ -171,6 +180,7 @@ export function AppWidgetRenderer({
   // Initialize scenario state on widget change
   useEffect(() => {
     setScenarioState(Object.fromEntries(scenarioParameters.map((p) => [p.name, p.default_value])));
+    setScenarioStatus('draft');
     setAgentResponse(null);
     setAgentError('');
     setAgentPrompt('');
@@ -186,15 +196,15 @@ export function AppWidgetRenderer({
         const v = runtimeParameters[p.name];
         if (v !== undefined && next[p.name] !== v) { next[p.name] = v; changed = true; }
       }
+      if (changed) setScenarioStatus('draft');
       return changed ? next : prev;
     });
   }, [widget.widget_type, scenarioParameters, runtimeParameters]);
 
   useEffect(() => {
     if (widget.widget_type !== 'scenario') return;
-    const outputVariableId = stringProp('output_variable_id', '');
-    if (outputVariableId) workshopRuntime.setPrimitiveValue(outputVariableId, scenarioState);
-  }, [scenarioState, stringProp, widget.widget_type, workshopRuntime]);
+    if (scenarioOutputVariableId) workshopRuntime.setPrimitiveValue(scenarioOutputVariableId, scenarioPayload);
+  }, [scenarioOutputVariableId, scenarioPayload, widget.widget_type, workshopRuntime]);
 
   // Seed agent prompt
   useEffect(() => {
@@ -210,13 +220,19 @@ export function AppWidgetRenderer({
     if (initialScenarioFiredRef.current === widget.id) return;
     initialScenarioFiredRef.current = widget.id;
     const initialState = Object.fromEntries(scenarioParameters.map((p) => [p.name, p.default_value]));
+    const initialPayload = buildWorkshopScenarioValue({
+      parameters: scenarioParameters,
+      values: initialState,
+      status: 'applied',
+      sourceWidgetId: widget.id,
+    });
     void onAction?.({
       id: `${widget.id}-scenario-initial`,
       trigger: 'scenario_change',
       action: 'set_parameters',
       label: 'Apply default scenario parameters',
       config: {},
-    }, initialState);
+    }, initialPayload);
   }, [widget.id, widget.widget_type, scenarioParameters, onAction]);
 
   // Load binding when widget or runtime parameters change
@@ -270,6 +286,13 @@ export function AppWidgetRenderer({
       await onAction?.({
         id: `${widget.id}-scenario-default`, trigger, action: 'set_parameters',
         label: 'Apply scenario parameters', config: {},
+      }, payload);
+      return;
+    }
+    if (events.length === 0 && trigger === 'scenario_reset') {
+      await onAction?.({
+        id: `${widget.id}-scenario-reset-default`, trigger, action: 'clear_parameters',
+        label: 'Reset scenario parameters', config: {},
       }, payload);
       return;
     }
@@ -403,7 +426,18 @@ export function AppWidgetRenderer({
           </div>
         </form>
       ) : widget.widget_type === 'scenario' ? (
-        <form className="flex h-full flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void triggerEvents('scenario_change', scenarioState); }}>
+        <form className="flex h-full flex-col gap-4" onSubmit={(e) => {
+          e.preventDefault();
+          const payload = buildWorkshopScenarioValue({
+            parameters: scenarioParameters,
+            values: scenarioState,
+            status: 'applied',
+            sourceWidgetId: widget.id,
+          });
+          setScenarioStatus('applied');
+          if (scenarioOutputVariableId) workshopRuntime.setPrimitiveValue(scenarioOutputVariableId, payload);
+          void triggerEvents('scenario_change', payload);
+        }}>
           <div>
             <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Scenario / what-if</div>
             <div className="mt-1 text-sm text-slate-600">{stringProp('headline', 'Scenario controls')}</div>
@@ -415,7 +449,7 @@ export function AppWidgetRenderer({
                 <label key={p.name} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                   <span className="block font-medium text-slate-700">{p.label}</span>
                   {p.description && <span className="mt-1 block text-xs text-slate-500">{p.description}</span>}
-                  <input type={p.type} value={scenarioState[p.name] ?? p.default_value} onChange={(e) => setScenarioState((s) => ({ ...s, [p.name]: e.target.value }))} className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2" />
+                  <input type={p.type} value={scenarioState[p.name] ?? p.default_value} onChange={(e) => { setScenarioStatus('draft'); setScenarioState((s) => ({ ...s, [p.name]: e.target.value })); }} className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2" />
                   {delta !== null && (
                     <div className={`mt-2 text-xs ${delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>Delta {delta.toFixed(2)}</div>
                   )}
@@ -427,11 +461,16 @@ export function AppWidgetRenderer({
             <button type="submit" className="rounded-xl bg-[var(--app-primary,#0f766e)] px-4 py-2 text-sm font-medium text-white">{stringProp('apply_label', 'Apply scenario')}</button>
             <button type="button" onClick={() => {
               const next = Object.fromEntries(scenarioParameters.map((p) => [p.name, p.default_value]));
+              const payload = buildWorkshopScenarioValue({
+                parameters: scenarioParameters,
+                values: next,
+                status: 'reset',
+                sourceWidgetId: widget.id,
+              });
               setScenarioState(next);
-              void onAction?.({
-                id: `${widget.id}-scenario-reset`, trigger: 'scenario_change', action: 'clear_parameters',
-                label: 'Reset scenario parameters', config: {},
-              }, next);
+              setScenarioStatus('reset');
+              if (scenarioOutputVariableId) workshopRuntime.setPrimitiveValue(scenarioOutputVariableId, payload);
+              void triggerEvents('scenario_reset', payload);
             }} className="rounded-xl border border-slate-200 px-4 py-2 text-sm">{stringProp('reset_label', 'Reset')}</button>
           </div>
           {stringProp('summary_template', '').trim() && (

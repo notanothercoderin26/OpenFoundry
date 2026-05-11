@@ -3,6 +3,7 @@
 
 export { getWidget, listRegisteredWidgets, registerWidget, type WidgetRegistration, type WidgetRenderProps } from './registry';
 export { WorkshopDataContext, useWorkshopData, type WorkshopDataContextValue } from './workshop-context';
+export { WorkshopRuntimeContext, useRuntime, type ButtonGroupButton, type RuntimeApi, type WorkshopFilterRuntimeValue } from './workshop-runtime-context';
 export { WorkshopRuntimeProvider } from './WorkshopRuntimeProvider';
 
 import { registerWorkshopWidgets } from './adapters';

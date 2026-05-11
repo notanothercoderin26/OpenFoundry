@@ -88,8 +88,12 @@ func TestFunctionPackageRowFallbackCapabilities(t *testing.T) {
 // the TASK I additions.
 func TestActionOperationKindSnakeCase(t *testing.T) {
 	cases := []ActionOperationKind{
+		ActionOperationKindCreateObject,
 		ActionOperationKindUpdateObject,
+		ActionOperationKindModifyObject,
+		ActionOperationKindCreateOrModifyObject,
 		ActionOperationKindCreateLink,
+		ActionOperationKindDeleteLink,
 		ActionOperationKindDeleteObject,
 		ActionOperationKindInvokeFunction,
 		ActionOperationKindInvokeWebhook,
@@ -100,7 +104,8 @@ func TestActionOperationKindSnakeCase(t *testing.T) {
 		ActionOperationKindDeleteInterfaceLink,
 	}
 	wants := []string{
-		`"update_object"`, `"create_link"`, `"delete_object"`,
+		`"create_object"`, `"update_object"`, `"modify_object"`,
+		`"create_or_modify_object"`, `"create_link"`, `"delete_link"`, `"delete_object"`,
 		`"invoke_function"`, `"invoke_webhook"`,
 		`"create_interface"`, `"modify_interface"`,
 		`"delete_interface"`, `"create_interface_link"`, `"delete_interface_link"`,

@@ -94,8 +94,12 @@ const INTERFACE_MODES: Array<{ id: InterfaceMode; label: string; description: st
 ];
 
 const FAMILY_TO_OPERATION_KIND: Record<ActionFamily, (mode: string) => ActionOperationKind> = {
-  object: (mode) => (mode === 'delete' ? 'delete_object' : 'update_object'),
-  link: () => 'create_link',
+  object: (mode) => {
+    if (mode === 'create') return 'create_object';
+    if (mode === 'modify_or_create') return 'create_or_modify_object';
+    return mode === 'delete' ? 'delete_object' : 'update_object';
+  },
+  link: (mode) => (mode === 'delete_link' ? 'delete_link' : 'create_link'),
   function: () => 'invoke_function',
   webhook: () => 'invoke_webhook',
   interface: (mode) => {
@@ -117,9 +121,13 @@ const FAMILY_TO_OPERATION_KIND: Record<ActionFamily, (mode: string) => ActionOpe
 };
 
 const KIND_TO_FAMILY: Record<ActionOperationKind, { family: ActionFamily; mode: string }> = {
+  create_object: { family: 'object', mode: 'create' },
   update_object: { family: 'object', mode: 'modify' },
+  modify_object: { family: 'object', mode: 'modify' },
+  create_or_modify_object: { family: 'object', mode: 'modify_or_create' },
   delete_object: { family: 'object', mode: 'delete' },
   create_link: { family: 'link', mode: '' },
+  delete_link: { family: 'link', mode: 'delete_link' },
   invoke_function: { family: 'function', mode: '' },
   invoke_webhook: { family: 'webhook', mode: '' },
   create_interface: { family: 'interface', mode: 'create' },
@@ -130,8 +138,12 @@ const KIND_TO_FAMILY: Record<ActionOperationKind, { family: ActionFamily; mode: 
 };
 
 const OPERATION_KINDS: ActionOperationKind[] = [
+  'create_object',
   'update_object',
+  'modify_object',
+  'create_or_modify_object',
   'create_link',
+  'delete_link',
   'delete_object',
   'invoke_function',
   'invoke_webhook',

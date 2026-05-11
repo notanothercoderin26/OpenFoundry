@@ -14,29 +14,30 @@
 // editor chrome (header, "Edit" button, lineage shortcut) and accepts a
 // page list. The published runtime owns its own chrome via AppRenderer.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { AppDefinition } from '@/lib/api/apps';
+import type { AppDefinition, WidgetEvent } from '@/lib/api/apps';
 import { listObjectTypes, type ObjectInstance, type ObjectType } from '@/lib/api/ontology';
 import {
   ActionFormModal,
   readWorkshopVariables,
+  workshopActionSuccessMessage,
+  type WorkshopVariable,
+} from '@/routes/apps/WorkshopEditorPage';
+import {
   WorkshopRuntimeContext,
   type ButtonGroupButton,
   type RuntimeApi,
-  type WorkshopVariable,
-} from '@/routes/apps/WorkshopEditorPage';
+  type WorkshopFilterRuntimeValue,
+} from './workshop-runtime-context';
 import type { WorkshopMapFeatureCollection } from './workshopMap';
 import { createWorkshopVariableEngine, type WorkshopRuntimeFilterMetadata } from './workshopVariables';
+import { executeWorkshopObjectSet, type WorkshopObjectSetExecutionOptions } from './workshopObjectSets';
+import { downloadWorkshopEventPayload, runWorkshopEvents, type WorkshopEventHandlers } from './workshopEvents';
+import { buildFunctionInvocation, clearWorkshopFunctionResultCache, executeCachedFunctionVariable, getCachedFunctionVariableValue, type WorkshopFunctionRuntimeValue } from './workshopFunctions';
+import { scenarioPayloadToActionDefaults } from './workshopScenarios';
 
 import { WorkshopDataContext, type WorkshopDataContextValue } from './workshop-context';
-
-interface FilterRuntimeValue {
-  values?: string[];
-  search?: string;
-  range_min?: string;
-  range_max?: string;
-}
 
 export function WorkshopRuntimeProvider({
   app,
@@ -73,13 +74,15 @@ export function WorkshopRuntimeProvider({
   const [activeObjects, setActiveObjects] = useState<Record<string, ObjectInstance | null>>({});
   const [selectedObjectSets, setSelectedObjectSets] = useState<Record<string, ObjectInstance[]>>({});
   const [shapeOutputs, setShapeOutputs] = useState<Record<string, WorkshopMapFeatureCollection | null>>({});
-  const [filterValues, setFilterValues] = useState<Record<string, FilterRuntimeValue>>({});
+  const [filterValues, setFilterValues] = useState<Record<string, WorkshopFilterRuntimeValue>>({});
   const [filterMetadata, setFilterMetadata] = useState<Record<string, WorkshopRuntimeFilterMetadata>>({});
   const [primitiveValues, setPrimitiveValues] = useState<Record<string, unknown>>({});
+  const [functionValues, setFunctionValues] = useState<Record<string, WorkshopFunctionRuntimeValue>>({});
   const [runtimeParameters, setRuntimeParametersState] = useState<Record<string, string>>({});
   const [refreshKey, setRefreshKey] = useState(0);
   const [actionModal, setActionModal] = useState<{ button: ButtonGroupButton } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const eventHandlersRef = useRef<WorkshopEventHandlers>({});
 
   const setActiveObject = useCallback((variableId: string, object: ObjectInstance | null) => {
     setActiveObjects((current) => ({ ...current, [variableId]: object }));
@@ -97,7 +100,7 @@ export function WorkshopRuntimeProvider({
       return { ...current, [variableId]: shape };
     });
   }, []);
-  const setFilterValue = useCallback((filterId: string, value: FilterRuntimeValue, metadata?: WorkshopRuntimeFilterMetadata) => {
+  const setFilterValue = useCallback((filterId: string, value: WorkshopFilterRuntimeValue, metadata?: WorkshopRuntimeFilterMetadata) => {
     setFilterValues((current) => ({ ...current, [filterId]: value }));
     if (metadata) {
       setFilterMetadata((current) => ({ ...current, [filterId]: { ...(current[filterId] ?? {}), ...metadata } }));
@@ -114,6 +117,47 @@ export function WorkshopRuntimeProvider({
       setActionModal({ button });
     }
   }, []);
+  const setEventHandlers = useCallback((handlers: WorkshopEventHandlers) => {
+    eventHandlersRef.current = handlers;
+    return () => {
+      if (eventHandlersRef.current === handlers) eventHandlersRef.current = {};
+    };
+  }, []);
+  const defaultEventHandlers = useMemo<WorkshopEventHandlers>(() => ({
+    setVariable: (variableId, value) => setPrimitiveValue(variableId, value),
+    setRuntimeParameters,
+    openUrl: (url) => {
+      if (typeof window === 'undefined') return;
+      if (url.startsWith('/')) window.location.assign(url);
+      else window.open(url, '_blank', 'noopener,noreferrer');
+    },
+    refresh: () => {
+      clearWorkshopFunctionResultCache();
+      setFunctionValues({});
+      setRefreshKey((key) => key + 1);
+      setToast('Runtime refreshed.');
+    },
+    applyAction: (actionTypeId, payload, event) => {
+      setActionModal({
+        button: {
+          id: `event_${event.id}`,
+          label: event.label ?? 'Apply action',
+          on_click_kind: 'action',
+          action_type_id: actionTypeId,
+          parameter_defaults: scenarioPayloadToActionDefaults(payload),
+          default_layout: 'form',
+          switch_layout: false,
+          conditional_visibility: false,
+        },
+      });
+    },
+    exportData: (format, payload, event) => {
+      downloadWorkshopEventPayload(format, payload, event.label ?? event.id);
+      setToast(`Exported ${format}.`);
+    },
+    command: (command) => setToast(`Command: ${command}`),
+    notice: (message) => setToast(message),
+  }), [setPrimitiveValue, setRuntimeParameters]);
   const variableEngine = useMemo(() => createWorkshopVariableEngine(variables, {
     activeObjects,
     selectedObjectSets,
@@ -121,8 +165,77 @@ export function WorkshopRuntimeProvider({
     filterValues,
     filterMetadata,
     primitiveValues,
+    functionValues,
     runtimeParameters,
-  }), [activeObjects, filterMetadata, filterValues, primitiveValues, runtimeParameters, selectedObjectSets, shapeOutputs, variables]);
+  }), [activeObjects, filterMetadata, filterValues, functionValues, primitiveValues, runtimeParameters, selectedObjectSets, shapeOutputs, variables]);
+  useEffect(() => {
+    for (const variable of variables) {
+      if (variable.kind !== 'function_output') continue;
+      const invocation = buildFunctionInvocation(variable, variableEngine);
+      if (!invocation) continue;
+      const cached = getCachedFunctionVariableValue(invocation.cacheKey);
+      if (cached) {
+        if (functionValues[variable.id]?.cache_key !== invocation.cacheKey || functionValues[variable.id]?.status !== 'success') {
+          setFunctionValues((state) => ({ ...state, [variable.id]: cached }));
+        }
+        continue;
+      }
+      const current = functionValues[variable.id];
+      if (current?.cache_key === invocation.cacheKey && (current.status === 'loading' || current.status === 'success')) continue;
+      setFunctionValues((state) => ({
+        ...state,
+        [variable.id]: {
+          value: state[variable.id]?.value ?? null,
+          status: 'loading',
+          cache_key: invocation.cacheKey,
+        },
+      }));
+      void executeCachedFunctionVariable(invocation)
+        .then((next) => {
+          setFunctionValues((state) => {
+            if (state[variable.id]?.cache_key !== invocation.cacheKey) return state;
+            return { ...state, [variable.id]: next };
+          });
+        })
+        .catch((error: unknown) => {
+          setFunctionValues((state) => {
+            if (state[variable.id]?.cache_key !== invocation.cacheKey) return state;
+            return {
+              ...state,
+              [variable.id]: {
+                value: state[variable.id]?.value ?? null,
+                status: 'error',
+                error: error instanceof Error ? error.message : String(error),
+                cache_key: invocation.cacheKey,
+              },
+            };
+          });
+        });
+    }
+  }, [functionValues, variableEngine, variables]);
+  const executeObjectSet = useCallback((variableId: string, options: WorkshopObjectSetExecutionOptions = {}) => {
+    const variable = variables.find((entry) => entry.id === variableId) ?? null;
+    return executeWorkshopObjectSet({
+      variableId,
+      variable,
+      variables,
+      engine: variableEngine,
+      objectTypeId: options.objectTypeId,
+      limit: options.limit,
+      sort: options.sort,
+      aggregations: options.aggregations,
+      includeCount: options.includeCount,
+    });
+  }, [variableEngine, variables]);
+  const dispatchEvents = useCallback((widget: { events?: WidgetEvent[] }, trigger: string, payload: Record<string, unknown> = {}) => {
+    return runWorkshopEvents({
+      events: Array.isArray(widget.events) ? widget.events : [],
+      trigger,
+      payload,
+      state: { runtimeParameters },
+      handlers: { ...defaultEventHandlers, ...eventHandlersRef.current },
+    });
+  }, [defaultEventHandlers, runtimeParameters]);
 
   const runtime = useMemo<RuntimeApi>(() => ({
     preview: true,
@@ -141,8 +254,11 @@ export function WorkshopRuntimeProvider({
     setFilterValue,
     setPrimitiveValue,
     setRuntimeParameters,
+    executeObjectSet,
+    dispatchEvents,
+    setEventHandlers,
     onButtonClick,
-  }), [activeObjects, filterMetadata, filterValues, primitiveValues, refreshKey, runtimeParameters, selectedObjectSets, setActiveObject, setFilterValue, setPrimitiveValue, setRuntimeParameters, setSelectedObjectSet, setShapeOutput, shapeOutputs, variableEngine, onButtonClick]);
+  }), [activeObjects, dispatchEvents, executeObjectSet, filterMetadata, filterValues, primitiveValues, refreshKey, runtimeParameters, selectedObjectSets, setActiveObject, setEventHandlers, setFilterValue, setPrimitiveValue, setRuntimeParameters, setSelectedObjectSet, setShapeOutput, shapeOutputs, variableEngine, onButtonClick]);
 
   const data = useMemo<WorkshopDataContextValue>(
     () => ({ variables, objectTypes }),
@@ -160,10 +276,11 @@ export function WorkshopRuntimeProvider({
             activeObjects={activeObjects}
             selectedObjectSets={selectedObjectSets}
             objectTypes={objectTypes}
+            variableEngine={variableEngine}
             onClose={() => setActionModal(null)}
-            onSuccess={() => {
+            onSuccess={(result) => {
               setActionModal(null);
-              setToast('Edits successfully applied.');
+              setToast(workshopActionSuccessMessage(result));
               setRefreshKey((key) => key + 1);
               window.setTimeout(() => setToast(null), 4000);
             }}

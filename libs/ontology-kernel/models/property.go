@@ -19,20 +19,32 @@ type PropertyInlineEditConfig struct {
 
 // Property mirrors `struct Property`.
 type Property struct {
-	ID               uuid.UUID                 `json:"id"                 db:"id"`
-	ObjectTypeID     uuid.UUID                 `json:"object_type_id"     db:"object_type_id"`
-	Name             string                    `json:"name"               db:"name"`
-	DisplayName      string                    `json:"display_name"       db:"display_name"`
-	Description      string                    `json:"description"        db:"description"`
-	PropertyType     string                    `json:"property_type"      db:"property_type"`
-	Required         bool                      `json:"required"           db:"required"`
-	UniqueConstraint bool                      `json:"unique_constraint"  db:"unique_constraint"`
-	TimeDependent    bool                      `json:"time_dependent"     db:"time_dependent"`
-	DefaultValue     json.RawMessage           `json:"default_value"      db:"default_value"`
-	ValidationRules  json.RawMessage           `json:"validation_rules"   db:"validation_rules"`
-	InlineEditConfig *PropertyInlineEditConfig `json:"inline_edit_config" db:"inline_edit_config"`
-	CreatedAt        time.Time                 `json:"created_at"         db:"created_at"`
-	UpdatedAt        time.Time                 `json:"updated_at"         db:"updated_at"`
+	ID               uuid.UUID                 `json:"id"                       db:"id"`
+	ObjectTypeID     uuid.UUID                 `json:"object_type_id"           db:"object_type_id"`
+	Name             string                    `json:"name"                     db:"name"`
+	DisplayName      string                    `json:"display_name"             db:"display_name"`
+	Description      string                    `json:"description"              db:"description"`
+	PropertyType     string                    `json:"property_type"            db:"property_type"`
+	BaseType         string                    `json:"base_type,omitempty"      db:"-"`
+	TypeFamily       string                    `json:"type_family,omitempty"    db:"-"`
+	TypeDisplayName  string                    `json:"type_display_name,omitempty" db:"-"`
+	ValueShape       string                    `json:"value_shape,omitempty"    db:"-"`
+	IsArray          bool                      `json:"is_array"                 db:"-"`
+	ArrayItemType    *string                   `json:"array_item_type,omitempty" db:"-"`
+	ArrayAllowed     bool                      `json:"array_allowed"            db:"-"`
+	Searchable       bool                      `json:"searchable"               db:"-"`
+	Filterable       bool                      `json:"filterable"               db:"-"`
+	Sortable         bool                      `json:"sortable"                 db:"-"`
+	Aggregatable     bool                      `json:"aggregatable"             db:"-"`
+	SemanticHints    []string                  `json:"semantic_hints,omitempty" db:"-"`
+	Required         bool                      `json:"required"                 db:"required"`
+	UniqueConstraint bool                      `json:"unique_constraint"        db:"unique_constraint"`
+	TimeDependent    bool                      `json:"time_dependent"           db:"time_dependent"`
+	DefaultValue     json.RawMessage           `json:"default_value"            db:"default_value"`
+	ValidationRules  json.RawMessage           `json:"validation_rules"         db:"validation_rules"`
+	InlineEditConfig *PropertyInlineEditConfig `json:"inline_edit_config"       db:"inline_edit_config"`
+	CreatedAt        time.Time                 `json:"created_at"               db:"created_at"`
+	UpdatedAt        time.Time                 `json:"updated_at"               db:"updated_at"`
 }
 
 // CreatePropertyRequest mirrors `struct CreatePropertyRequest`.

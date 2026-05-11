@@ -46,11 +46,15 @@ const PROPERTY_TYPE_OPTIONS = [
   'float',
   'boolean',
   'date',
+  'timestamp',
   'json',
   'array',
   'reference',
   'geo_point',
+  'geoshape',
   'media_reference',
+  'time_series',
+  'attachment',
   'vector',
 ];
 

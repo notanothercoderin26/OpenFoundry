@@ -50,7 +50,9 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func errBody(msg string) map[string]string { return map[string]string{"error": msg} }
 
-func unauthorized(w http.ResponseWriter)        { writeJSON(w, http.StatusUnauthorized, errBody("missing claims")) }
+func unauthorized(w http.ResponseWriter) {
+	writeJSON(w, http.StatusUnauthorized, errBody("missing claims"))
+}
 func badRequest(w http.ResponseWriter, m string) { writeJSON(w, http.StatusBadRequest, errBody(m)) }
 func forbidden(w http.ResponseWriter, m string)  { writeJSON(w, http.StatusForbidden, errBody(m)) }
 func notFound(w http.ResponseWriter, m string)   { writeJSON(w, http.StatusNotFound, errBody(m)) }
@@ -578,8 +580,8 @@ func isEmptyArrayOrNull(raw json.RawMessage) bool {
 // buffer (pgx doesn't auto-map JSONB to struct pointers).
 func scanProperty(row interface{ Scan(...any) error }) (models.Property, error) {
 	var (
-		p          models.Property
-		inlineRaw  []byte
+		p         models.Property
+		inlineRaw []byte
 	)
 	if err := row.Scan(
 		&p.ID, &p.ObjectTypeID, &p.Name, &p.DisplayName, &p.Description, &p.PropertyType,
@@ -596,5 +598,6 @@ func scanProperty(row interface{ Scan(...any) error }) (models.Property, error) 
 			p.InlineEditConfig = &cfg
 		}
 	}
+	models.EnrichPropertyMetadata(&p)
 	return p, nil
 }

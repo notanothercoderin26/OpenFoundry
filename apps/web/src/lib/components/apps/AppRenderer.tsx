@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useContext, useEffect, useMemo, useState, type CSSProperties } from 'react';
 
 import type { AppDefinition, AppEmbedInfo, AppPage, AppWidget, WidgetEvent } from '@/lib/api/apps';
 import { AppWidgetRenderer } from '@/lib/components/apps/AppWidgetRenderer';
+import { downloadWorkshopEventPayload, runWorkshopEvents, type WorkshopEventHandlers } from '@/lib/components/apps/widgets/workshopEvents';
+import { WorkshopRuntimeContext } from '@/lib/components/apps/widgets/workshop-runtime-context';
+import { scenarioPayloadToActionDefaults } from '@/lib/components/apps/widgets/workshopScenarios';
 
 interface AppRendererProps {
   app: AppDefinition;
@@ -18,34 +21,6 @@ type RuntimeNotice = {
   tone: 'info' | 'success' | 'warning';
   message: string;
 } | null;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function stringifyRuntimeValue(value: unknown) {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return JSON.stringify(value);
-}
-
-function toRuntimeParameters(value: unknown) {
-  if (!isRecord(value)) return {} as Record<string, string>;
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([, entry]) => entry !== null && entry !== undefined)
-      .map(([key, entry]) => [key, stringifyRuntimeValue(entry)]),
-  );
-}
-
-function readString(config: Record<string, unknown>, keys: string[]) {
-  for (const key of keys) {
-    const value = config[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return '';
-}
 
 function interpolate(template: string, params: Record<string, string>) {
   return template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key: string) => params[key] ?? '');
@@ -114,6 +89,7 @@ export function AppRenderer({
   const [runtimeParameters, setRuntimeParameters] = useState<Record<string, string>>(initialRuntimeParameters);
   const [interactivePromptSeed, setInteractivePromptSeed] = useState('');
   const [renderPass, setRenderPass] = useState(0);
+  const workshopRuntime = useContext(WorkshopRuntimeContext);
 
   useEffect(() => {
     setActivePageId(defaultPage?.id ?? '');
@@ -165,72 +141,67 @@ export function AppRenderer({
     if (promptTemplate) setInteractivePromptSeed(interpolate(promptTemplate, next));
   }
 
-  async function handleAction(event: WidgetEvent, payload?: Record<string, unknown>) {
-    const config = event.config ?? {};
-    const payloadParameters = toRuntimeParameters(payload);
-
-    if (event.action === 'navigate') {
-      const target = readString(config, ['page_id', 'page_path', 'path', 'url']);
+  const eventHandlers = useMemo<WorkshopEventHandlers>(() => ({
+    setVariable: (variableId, value) => workshopRuntime.setPrimitiveValue(variableId, value),
+    setRuntimeParameters: (next, event) => applyRuntimeParameters(next, event.label ?? 'Parameters updated'),
+    navigate: (target, event) => {
       const nextPage = visiblePages.find((page) => matchesPage(page, target));
       if (nextPage) {
         setPage(nextPage, event.label ? `${event.label}: ${nextPage.name}` : `Opened ${nextPage.name}`);
         return;
       }
       if (mode === 'published' && target.startsWith('/')) window.location.assign(target);
-      return;
-    }
-
-    if (event.action === 'open_link') {
-      const url = readString(config, ['url', 'href']);
-      if (!url) return;
+    },
+    openUrl: (url) => {
       if (mode === 'builder') {
         setNotice({ tone: 'info', message: `Preview link: ${url}` });
         return;
       }
       if (url.startsWith('/')) window.location.assign(url);
       else window.open(url, '_blank', 'noopener,noreferrer');
-      return;
-    }
-
-    if (event.action === 'filter') {
-      const value =
-        payloadParameters.value ??
-        payloadParameters.filter ??
-        payloadParameters.query ??
-        readString(config, ['value', 'filter', 'query']);
-      setGlobalFilter(value ?? '');
+    },
+    setFilter: (value) => {
+      setGlobalFilter(value);
       setNotice({ tone: 'info', message: value ? `Filter applied: ${value}` : 'Filter cleared' });
-      return;
-    }
-
-    if (event.action === 'set_parameters') {
-      const configParameters = toRuntimeParameters(config.parameters);
-      const next = { ...runtimeParameters, ...configParameters, ...payloadParameters };
-      applyRuntimeParameters(next, event.label ?? 'Parameters updated');
-      return;
-    }
-
-    if (event.action === 'clear_parameters') {
-      const next = Object.keys(payloadParameters).length > 0 ? payloadParameters : initialRuntimeParameters;
-      applyRuntimeParameters(next, event.label ?? 'Parameters reset');
-      return;
-    }
-
-    if (event.action === 'seed_agent_prompt') {
-      const template = readString(config, ['prompt_template', 'prompt', 'message']);
-      const nextPrompt = template ? interpolate(template, runtimeParameters) : stringifyRuntimeValue(payload?.prompt ?? '');
-      setInteractivePromptSeed(nextPrompt);
+    },
+    seedPrompt: (prompt, event) => {
+      setInteractivePromptSeed(prompt);
       setNotice({ tone: 'info', message: event.label ?? 'Prompt applied' });
-      return;
-    }
-
-    if (event.action === 'refresh') {
+    },
+    refresh: (event) => {
       setRenderPass((pass) => pass + 1);
       setNotice({ tone: 'info', message: event.label ?? 'Runtime refreshed' });
-      return;
-    }
+    },
+    applyAction: (actionTypeId, payload, event) => {
+      workshopRuntime.onButtonClick({
+        id: `event_${event.id}`,
+        label: event.label ?? 'Apply action',
+        on_click_kind: 'action',
+        action_type_id: actionTypeId,
+        parameter_defaults: scenarioPayloadToActionDefaults(payload),
+        default_layout: 'form',
+        switch_layout: false,
+        conditional_visibility: false,
+      });
+    },
+    exportData: (format, payload, event) => {
+      downloadWorkshopEventPayload(format, payload, event.label ?? event.id);
+      setNotice({ tone: 'success', message: `Exported ${format}` });
+    },
+    command: (command) => setNotice({ tone: 'info', message: `Command: ${command}` }),
+    notice: (message, tone) => setNotice({ tone, message }),
+  }), [mode, runtimeParameters, visiblePages, workshopRuntime]);
 
-    setNotice({ tone: 'warning', message: `${event.label ?? event.action} is not wired to a runtime handler yet.` });
+  useEffect(() => workshopRuntime.setEventHandlers(eventHandlers), [eventHandlers, workshopRuntime]);
+
+  async function handleAction(event: WidgetEvent, payload?: Record<string, unknown>) {
+    await runWorkshopEvents({
+      events: [event],
+      trigger: event.trigger,
+      payload,
+      state: { runtimeParameters, initialRuntimeParameters },
+      handlers: eventHandlers,
+    });
   }
 
   const runtimeStyle = {

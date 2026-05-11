@@ -383,6 +383,124 @@ func TestExecutePlanInterfaceLinkCreateAndDeleteSuccess(t *testing.T) {
 	}
 }
 
+func TestObjectActionSurfaceCreateModifyUpsertDeleteLinkAndValidation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := newTestState(t)
+	claims := &authmw.Claims{Sub: uuid.New(), Roles: []string{"admin"}}
+	sourceTypeID := uuid.New()
+	targetTypeID := uuid.New()
+	objectID := uuid.New()
+	counterpartID := uuid.New()
+	linkTypeID := uuid.New()
+
+	seedObjectTypeDefinition(t, state, sourceTypeID)
+	seedObjectTypeDefinition(t, state, targetTypeID)
+	seedPropertyDefinition(t, state, sourceTypeID, "status", "string")
+	seedPropertyDefinition(t, state, targetTypeID, "label", "string")
+	seedLinkTypeDefinition(t, state, models.LinkType{ID: linkTypeID, SourceTypeID: sourceTypeID, TargetTypeID: targetTypeID})
+	_, _ = state.Stores.Objects.Put(ctx, storage.Object{Tenant: "default", ID: storage.ObjectId(counterpartID.String()), TypeID: storage.TypeId(targetTypeID.String()), Payload: json.RawMessage(`{"label":"coffee"}`), UpdatedAtMs: time.Now().UnixMilli()}, nil)
+
+	createAction := models.ActionType{
+		ID:            uuid.New(),
+		ObjectTypeID:  sourceTypeID,
+		OperationKind: "create_object",
+		InputSchema: []models.ActionInputField{
+			{Name: "__object_id", PropertyType: "object_reference", Required: true},
+		},
+		Config: json.RawMessage(`{"id_input_name":"__object_id","static_patch":{"status":"open"}}`),
+	}
+	_, errs := planAction(ctx, state, claims, createAction, &models.ValidateActionRequest{Parameters: json.RawMessage(`{}`)})
+	if len(errs) == 0 || !strings.Contains(errs[0], "__object_id is required") {
+		t.Fatalf("expected required parameter validation, got %v", errs)
+	}
+	plan, errs := planAction(ctx, state, claims, createAction, &models.ValidateActionRequest{
+		Parameters: json.RawMessage(`{"__object_id":"` + objectID.String() + `"}`),
+	})
+	if len(errs) > 0 {
+		t.Fatalf("create planAction: %v", errs)
+	}
+	if plan.kind != planCreateObject || plan.newObjectID != objectID {
+		t.Fatalf("create plan drift: %+v", plan)
+	}
+	executed, err := executePlan(ctx, state, claims, createAction, plan)
+	if err != nil {
+		t.Fatalf("create executePlan: %v", err)
+	}
+	if executed.targetObjectID == nil || *executed.targetObjectID != objectID {
+		t.Fatalf("created target drift: %+v", executed.targetObjectID)
+	}
+
+	upsertAction := models.ActionType{
+		ID:            uuid.New(),
+		ObjectTypeID:  sourceTypeID,
+		OperationKind: "create_or_modify_object",
+		InputSchema: []models.ActionInputField{
+			{Name: "status", PropertyType: "string", Required: true},
+		},
+		Config: json.RawMessage(`{"property_mappings":[{"property_name":"status","input_name":"status"}]}`),
+	}
+	plan, errs = planAction(ctx, state, claims, upsertAction, &models.ValidateActionRequest{
+		TargetObjectID: &objectID,
+		Parameters:     json.RawMessage(`{"status":"closed"}`),
+	})
+	if len(errs) > 0 {
+		t.Fatalf("upsert planAction: %v", errs)
+	}
+	if plan.kind != planCreateOrModifyObject || plan.target == nil {
+		t.Fatalf("upsert should plan modify existing object: %+v", plan)
+	}
+	executed, err = executePlan(ctx, state, claims, upsertAction, plan)
+	if err != nil {
+		t.Fatalf("upsert executePlan: %v", err)
+	}
+	var modified domain.ObjectInstance
+	if err := json.Unmarshal(executed.object, &modified); err != nil {
+		t.Fatalf("modified object json: %v", err)
+	}
+	if !strings.Contains(string(modified.Properties), `"closed"`) {
+		t.Fatalf("modify payload drift: %s", modified.Properties)
+	}
+
+	createLinkAction := models.ActionType{
+		ID:            uuid.New(),
+		ObjectTypeID:  sourceTypeID,
+		OperationKind: "create_link",
+		Config:        json.RawMessage(`{"link_type_id":"` + linkTypeID.String() + `","target_input_name":"counterpart"}`),
+	}
+	plan, errs = planAction(ctx, state, claims, createLinkAction, &models.ValidateActionRequest{
+		TargetObjectID: &objectID,
+		Parameters:     json.RawMessage(`{"counterpart":"` + counterpartID.String() + `"}`),
+	})
+	if len(errs) > 0 {
+		t.Fatalf("create link planAction: %v", errs)
+	}
+	if _, err := executePlan(ctx, state, claims, createLinkAction, plan); err != nil {
+		t.Fatalf("create link executePlan: %v", err)
+	}
+	deleteLinkAction := createLinkAction
+	deleteLinkAction.ID = uuid.New()
+	deleteLinkAction.OperationKind = "delete_link"
+	plan, errs = planAction(ctx, state, claims, deleteLinkAction, &models.ValidateActionRequest{
+		TargetObjectID: &objectID,
+		Parameters:     json.RawMessage(`{"counterpart":"` + counterpartID.String() + `"}`),
+	})
+	if len(errs) > 0 {
+		t.Fatalf("delete link planAction: %v", errs)
+	}
+	executed, err = executePlan(ctx, state, claims, deleteLinkAction, plan)
+	if err != nil {
+		t.Fatalf("delete link executePlan: %v", err)
+	}
+	if !executed.deleted {
+		t.Fatalf("delete link did not set deleted flag")
+	}
+	links, _ := state.Stores.Links.ListOutgoing(ctx, "default", storage.LinkTypeId(linkTypeID.String()), storage.ObjectId(objectID.String()), storage.Page{Size: 10}, storage.Strong())
+	if len(links.Items) != 0 {
+		t.Fatalf("link still present: %+v", links.Items)
+	}
+}
+
 func TestExecutePlanModifyInterfaceVersionConflict(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

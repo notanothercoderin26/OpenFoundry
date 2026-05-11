@@ -10,14 +10,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/application-composition-service/internal/catalog"
 	"github.com/openfoundry/openfoundry-go/services/application-composition-service/internal/models"
 )
 
 func (h *Handlers) ListAppTemplates(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	if _, ok := h.requireAppAccess(w, r, appAccessView, nil, "app.templates.list"); !ok {
 		return
 	}
 	rows, err := h.Repo.ListAppTemplates(r.Context())
@@ -29,9 +27,8 @@ func (h *Handlers) ListAppTemplates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) CreateAppFromTemplate(w http.ResponseWriter, r *http.Request) {
-	claims, ok := authmw.FromContext(r.Context())
+	claims, ok := h.requireAppAccess(w, r, appAccessEdit, nil, "app.create_from_template")
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	var body models.CreateAppRequest
@@ -49,15 +46,22 @@ func (h *Handlers) CreateAppFromTemplate(w http.ResponseWriter, r *http.Request)
 		writeAppMutationError(w, err)
 		return
 	}
+	h.auditAppEvent(r.Context(), r, claims, models.AppAuditEvent{
+		AppID:     &app.ID,
+		AppSlug:   app.Slug,
+		EventType: "app.create_from_template",
+		Status:    "success",
+		Details:   mustAuditDetails(map[string]any{"name": app.Name, "slug": app.Slug, "template_key": app.TemplateKey}),
+	})
 	writeJSON(w, http.StatusCreated, app)
 }
 
 func (h *Handlers) AddPage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	appID, ok := appIDFromRequest(w, r)
+	if !ok {
 		return
 	}
-	appID, ok := appIDFromRequest(w, r)
+	claims, ok := h.requireAppAccess(w, r, appAccessEdit, &appID, "app.page.add")
 	if !ok {
 		return
 	}
@@ -75,15 +79,22 @@ func (h *Handlers) AddPage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "app not found")
 		return
 	}
+	h.auditAppEvent(r.Context(), r, claims, models.AppAuditEvent{
+		AppID:     &app.ID,
+		AppSlug:   app.Slug,
+		EventType: "app.page.add",
+		Status:    "success",
+		Details:   mustAuditDetails(map[string]any{"page_id": page.ID}),
+	})
 	writeJSON(w, http.StatusOK, app)
 }
 
 func (h *Handlers) UpdatePage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	appID, ok := appIDFromRequest(w, r)
+	if !ok {
 		return
 	}
-	appID, ok := appIDFromRequest(w, r)
+	claims, ok := h.requireAppAccess(w, r, appAccessEdit, &appID, "app.page.update")
 	if !ok {
 		return
 	}
@@ -106,15 +117,22 @@ func (h *Handlers) UpdatePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "app or page not found")
 		return
 	}
+	h.auditAppEvent(r.Context(), r, claims, models.AppAuditEvent{
+		AppID:     &app.ID,
+		AppSlug:   app.Slug,
+		EventType: "app.page.update",
+		Status:    "success",
+		Details:   mustAuditDetails(map[string]any{"page_id": pageID}),
+	})
 	writeJSON(w, http.StatusOK, app)
 }
 
 func (h *Handlers) DeletePage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	appID, ok := appIDFromRequest(w, r)
+	if !ok {
 		return
 	}
-	appID, ok := appIDFromRequest(w, r)
+	claims, ok := h.requireAppAccess(w, r, appAccessEdit, &appID, "app.page.delete")
 	if !ok {
 		return
 	}
@@ -132,16 +150,22 @@ func (h *Handlers) DeletePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "app or page not found")
 		return
 	}
+	h.auditAppEvent(r.Context(), r, claims, models.AppAuditEvent{
+		AppID:     &app.ID,
+		AppSlug:   app.Slug,
+		EventType: "app.page.delete",
+		Status:    "success",
+		Details:   mustAuditDetails(map[string]any{"page_id": pageID}),
+	})
 	writeJSON(w, http.StatusOK, app)
 }
 
 func (h *Handlers) GetSlatePackage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
 	appID, ok := appIDFromRequest(w, r)
 	if !ok {
+		return
+	}
+	if _, ok := h.requireAppAccess(w, r, appAccessView, &appID, "app.slate.export"); !ok {
 		return
 	}
 	pkg, err := h.Repo.BuildSlatePackage(r.Context(), appID)
@@ -157,11 +181,11 @@ func (h *Handlers) GetSlatePackage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) ImportSlatePackage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	appID, ok := appIDFromRequest(w, r)
+	if !ok {
 		return
 	}
-	appID, ok := appIDFromRequest(w, r)
+	claims, ok := h.requireAppAccess(w, r, appAccessEdit, &appID, "app.slate.import")
 	if !ok {
 		return
 	}
@@ -179,12 +203,18 @@ func (h *Handlers) ImportSlatePackage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "app not found")
 		return
 	}
+	h.auditAppEvent(r.Context(), r, claims, models.AppAuditEvent{
+		AppID:     &response.App.ID,
+		AppSlug:   response.App.Slug,
+		EventType: "app.slate.import",
+		Status:    "success",
+		Details:   mustAuditDetails(map[string]any{"files": len(body.Files)}),
+	})
 	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handlers) ListWidgetCatalog(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	if _, ok := h.requireAppAccess(w, r, appAccessView, nil, "app.widget_catalog.list"); !ok {
 		return
 	}
 	doc, err := catalog.LoadWidgetCatalog()

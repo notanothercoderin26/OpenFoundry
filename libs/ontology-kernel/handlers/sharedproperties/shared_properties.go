@@ -64,7 +64,9 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func errBody(msg string) map[string]string { return map[string]string{"error": msg} }
 
-func unauthorized(w http.ResponseWriter)        { writeJSON(w, http.StatusUnauthorized, errBody("missing claims")) }
+func unauthorized(w http.ResponseWriter) {
+	writeJSON(w, http.StatusUnauthorized, errBody("missing claims"))
+}
 func badRequest(w http.ResponseWriter, m string) { writeJSON(w, http.StatusBadRequest, errBody(m)) }
 func notFound(w http.ResponseWriter, m string)   { writeJSON(w, http.StatusNotFound, errBody(m)) }
 func internalError(w http.ResponseWriter, m string) {
@@ -509,5 +511,6 @@ func scanSharedPropertyType(row interface{ Scan(...any) error }) (models.SharedP
 		&rec.DefaultValue, &rec.ValidationRules,
 		&rec.OwnerID, &rec.CreatedAt, &rec.UpdatedAt,
 	)
+	models.EnrichSharedPropertyTypeMetadata(&rec)
 	return rec, err
 }

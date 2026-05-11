@@ -1,5 +1,5 @@
 {
-  "catalog_version": "2026-05-11.ws.3",
+  "catalog_version": "2026-05-11.ws.22",
   "schema_version": "openfoundry.workshop.widget_catalog.v1",
   "items": [
     {
@@ -44,24 +44,55 @@
       "widget_type": "metric",
       "widget_kind": "visualization",
       "label": "Metric",
-      "description": "Single value with optional delta.",
+      "description": "Metric card with grouped variable-backed values, numeric formatting, and conditional formatting.",
       "category": "analytics",
       "config_schema": {
         "type": "object",
         "additionalProperties": true,
         "properties": {
-          "value": { "type": ["string", "number"] },
-          "delta": { "type": ["string", "number"] },
-          "format": { "type": "string" },
-          "source_variable_id": { "type": "string" }
+          "label": { "type": "string" },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "id": { "type": "string" },
+                "label": { "type": "string" },
+                "description": { "type": "string" },
+                "value_type": { "type": "string", "enum": ["number", "string"] },
+                "variable_id": { "type": "string" },
+                "value": {},
+                "format": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "kind": { "type": "string", "enum": ["default", "number", "integer", "compact", "percent", "currency", "unit"] },
+                    "precision": { "type": ["number", "string"] },
+                    "unit": { "type": "string" },
+                    "currency": { "type": "string" },
+                    "prefix": { "type": "string" },
+                    "suffix": { "type": "string" },
+                    "empty_value": { "type": "string" }
+                  }
+                },
+                "conditional_formatting": { "type": "array" },
+                "secondary_metric": { "type": ["object", "null"] }
+              }
+            }
+          },
+          "layout_style": { "type": "string", "enum": ["card", "tag", "list"] },
+          "direction": { "type": "string", "enum": ["horizontal", "vertical"] },
+          "template": { "type": "string", "enum": ["stacked", "side_by_side"] },
+          "metric_size": { "type": "string", "enum": ["compact", "regular", "large"] }
         }
       },
       "input_variables": [
         {
           "id": "value",
-          "kind": "primitive_or_table",
-          "label": "Metric value",
-          "description": "Primitive, query, dataset, or object-set aggregation used as the displayed value.",
+          "kind": "primitive",
+          "label": "Metric variables",
+          "description": "String, numeric, URL/runtime, aggregation, or function-backed variables displayed in the card.",
           "required": false
         }
       ],
@@ -75,7 +106,26 @@
         "sort_order": 20,
         "preferred_chrome": "card"
       },
-      "default_props": { "value": "128", "delta": "+4.2%" },
+      "default_props": {
+        "label": "Metric Card",
+        "metrics": [
+          {
+            "id": "metric-1",
+            "label": "Metric",
+            "description": "",
+            "value_type": "number",
+            "variable_id": "",
+            "value": "128",
+            "format": { "kind": "number", "precision": 1 },
+            "conditional_formatting": [],
+            "secondary_metric": null
+          }
+        ],
+        "layout_style": "card",
+        "direction": "horizontal",
+        "template": "stacked",
+        "metric_size": "regular"
+      },
       "default_size": { "width": 3, "height": 2 },
       "supported_bindings": ["query", "dataset", "object_set"],
       "supports_children": false
@@ -146,8 +196,17 @@
         "additionalProperties": true,
         "properties": {
           "source_variable_id": { "type": "string" },
+          "active_object_variable_id": { "type": "string" },
+          "selected_object_set_variable_id": { "type": "string" },
           "columns": { "type": "array" },
-          "multi_select": { "type": "boolean" }
+          "default_sort_property": { "type": "string" },
+          "default_sort_direction": { "type": "string", "enum": ["asc", "desc"] },
+          "row_height_lines": { "type": "number", "minimum": 1 },
+          "wrap_values": { "type": "boolean" },
+          "multi_select": { "type": "boolean" },
+          "disable_active_auto_selection": { "type": "boolean" },
+          "enable_inline_edit": { "type": "boolean" },
+          "row_actions": { "type": "array" }
         }
       },
       "input_variables": [
@@ -161,6 +220,13 @@
       ],
       "output_variables": [
         {
+          "id": "active_object",
+          "kind": "object_set_active_object",
+          "label": "Active object",
+          "description": "Highlighted row published as an active object variable.",
+          "required": false
+        },
+        {
           "id": "selected_objects",
           "kind": "object_set_selection",
           "label": "Selected objects",
@@ -170,11 +236,25 @@
       ],
       "events": [
         {
+          "name": "select",
+          "label": "Active object selection",
+          "description": "Runs after the active row changes.",
+          "action_kinds": ["set_variable", "navigate", "apply_action", "refresh"],
+          "payload_schema": { "type": "object", "properties": { "object_id": { "type": "string" }, "object_type_id": { "type": "string" } } }
+        },
+        {
           "name": "selection_change",
           "label": "Selection change",
           "description": "Runs after row selection changes.",
           "action_kinds": ["set_variable", "navigate", "apply_action", "refresh"],
           "payload_schema": { "type": "object", "properties": { "object_ids": { "type": "array", "items": { "type": "string" } } } }
+        },
+        {
+          "name": "row_action",
+          "label": "Row action",
+          "description": "Runs when a configured row action fires.",
+          "action_kinds": ["set_variable", "navigate", "apply_action", "refresh"],
+          "payload_schema": { "type": "object", "properties": { "row_action_id": { "type": "string" }, "object_id": { "type": "string" } } }
         }
       ],
       "permissions": ["app:read", "ontology:read"],
@@ -185,7 +265,20 @@
         "sort_order": 40,
         "preferred_chrome": "card"
       },
-      "default_props": { "source_variable_id": "", "columns": [] },
+      "default_props": {
+        "source_variable_id": "",
+        "columns": [],
+        "default_sort_property": "",
+        "default_sort_direction": "asc",
+        "row_height_lines": 1,
+        "wrap_values": false,
+        "multi_select": false,
+        "active_object_variable_id": "",
+        "selected_object_set_variable_id": "",
+        "disable_active_auto_selection": false,
+        "enable_inline_edit": false,
+        "row_actions": []
+      },
       "default_size": { "width": 7, "height": 4 },
       "supported_bindings": ["object_set"],
       "supports_children": false
@@ -201,8 +294,10 @@
         "additionalProperties": true,
         "properties": {
           "source_variable_id": { "type": "string" },
+          "output_variable_id": { "type": "string" },
           "filters": { "type": "array" },
-          "layout": { "type": "string", "enum": ["vertical", "pill"] }
+          "layout": { "type": "string", "enum": ["vertical", "pills"] },
+          "allow_add_remove": { "type": "boolean" }
         }
       },
       "input_variables": [
@@ -219,7 +314,7 @@
           "id": "filters",
           "kind": "object_set_filter",
           "label": "Object-set filters",
-          "description": "Filter variable emitted by the widget.",
+          "description": "Object-set filter variable emitted by the widget.",
           "required": false
         }
       ],
@@ -240,7 +335,7 @@
         "sort_order": 50,
         "preferred_chrome": "panel"
       },
-      "default_props": { "source_variable_id": "", "filters": [] },
+      "default_props": { "source_variable_id": "", "output_variable_id": "", "filters": [], "layout": "vertical", "allow_add_remove": false },
       "default_size": { "width": 4, "height": 4 },
       "supported_bindings": ["object_set"],
       "supports_children": false
@@ -256,16 +351,21 @@
         "additionalProperties": true,
         "properties": {
           "source_variable_id": { "type": "string" },
+          "items": { "type": "array" },
           "properties": { "type": "array" },
-          "hide_nulls": { "type": "boolean" }
+          "number_of_columns": { "type": "number", "minimum": 1, "maximum": 6 },
+          "enable_value_wrapping": { "type": "boolean" },
+          "hide_nulls": { "type": "boolean" },
+          "value_layout": { "type": "string", "enum": ["adjacent", "below"] },
+          "formats": { "type": "object" }
         }
       },
       "input_variables": [
         {
-          "id": "selected_object",
-          "kind": "object_set_selection",
-          "label": "Selected object",
-          "description": "One selected object or single-row object set.",
+          "id": "input_object_set",
+          "kind": "object_set",
+          "label": "Input object set",
+          "description": "Object set whose first object is displayed.",
           "required": true
         }
       ],
@@ -279,7 +379,7 @@
         "sort_order": 60,
         "preferred_chrome": "card"
       },
-      "default_props": { "source_variable_id": "", "properties": [] },
+      "default_props": { "source_variable_id": "", "items": [], "properties": [], "number_of_columns": 2, "enable_value_wrapping": false, "hide_nulls": false, "value_layout": "adjacent", "formats": {} },
       "default_size": { "width": 4, "height": 4 },
       "supported_bindings": ["object_set"],
       "supports_children": false
@@ -288,15 +388,20 @@
       "widget_type": "object_set_title",
       "widget_kind": "object_set",
       "label": "Object set title",
-      "description": "Count or title for an object set.",
+      "description": "Object set count or single-object title with object type icon and empty-state behavior.",
       "category": "core",
       "config_schema": {
         "type": "object",
         "additionalProperties": true,
         "properties": {
           "source_variable_id": { "type": "string" },
+          "contains_single_object": { "type": "boolean" },
+          "show_icon": { "type": "boolean" },
+          "title_override": { "type": "string" },
           "title_template": { "type": "string" },
-          "show_count": { "type": "boolean" }
+          "render_when_empty": { "type": "boolean" },
+          "empty_object_type_id": { "type": "string" },
+          "empty_title": { "type": "string" }
         }
       },
       "input_variables": [
@@ -312,13 +417,21 @@
       "events": [],
       "permissions": ["app:read", "ontology:read"],
       "display": {
-        "icon": "document",
+        "icon": "cube",
         "accent": "teal",
-        "tags": ["title", "count"],
+        "tags": ["title", "count", "object-set"],
         "sort_order": 70,
         "preferred_chrome": "plain"
       },
-      "default_props": { "source_variable_id": "" },
+      "default_props": {
+        "source_variable_id": "",
+        "contains_single_object": false,
+        "show_icon": true,
+        "title_override": "",
+        "render_when_empty": false,
+        "empty_object_type_id": "",
+        "empty_title": ""
+      },
       "default_size": { "width": 4, "height": 2 },
       "supported_bindings": ["object_set"],
       "supports_children": false
@@ -389,10 +502,35 @@
         "type": "object",
         "additionalProperties": true,
         "properties": {
-          "source_variable_id": { "type": "string" },
-          "x_property": { "type": "string" },
-          "y_property": { "type": "string" },
-          "series_kind": { "type": "string", "enum": ["bar", "line", "scatter"] }
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "data_input": { "type": "string", "enum": ["object_set", "function", "time_series"] },
+                "source_variable_id": { "type": "string" },
+                "object_type_id": { "type": "string" },
+                "layer_type": { "type": "string", "enum": ["bar", "line", "scatter"] },
+                "show_labels": { "type": "boolean" },
+                "x_property": { "type": "string" },
+                "x_bucketing": { "type": "string", "enum": ["exact", "range"] },
+                "x_limit": { "type": "string" },
+                "series_metric": { "type": "string", "enum": ["count", "sum", "avg", "min", "max", "approx_unique"] },
+                "series_property": { "type": "string" },
+                "cumulative_sum": { "type": "boolean" },
+                "segment_by": { "type": "string" }
+              }
+            }
+          },
+          "show_legend": { "type": "boolean" },
+          "show_tooltips": { "type": "boolean" },
+          "bar_orientation": { "type": "string", "enum": ["horizontal", "vertical"] },
+          "sort_by": { "type": "string", "enum": ["key_asc", "key_desc", "value_asc", "value_desc"] },
+          "output_filter_variable_id": { "type": "string" },
+          "selected_object_set_variable_id": { "type": "string" }
         }
       },
       "input_variables": [
@@ -405,6 +543,13 @@
         }
       ],
       "output_variables": [
+        {
+          "id": "selection_filter",
+          "kind": "filter_output",
+          "label": "Selection filter",
+          "description": "Object set filter variable produced by selected chart categories.",
+          "required": false
+        },
         {
           "id": "selected_objects",
           "kind": "object_set_selection",
@@ -419,7 +564,14 @@
           "label": "Mark select",
           "description": "Runs when a chart mark is selected.",
           "action_kinds": ["set_variable", "refresh"],
-          "payload_schema": { "type": "object", "properties": { "object_id": { "type": "string" } } }
+          "payload_schema": {
+            "type": "object",
+            "properties": {
+              "category": { "type": ["string", "null"] },
+              "property_name": { "type": "string" },
+              "object_ids": { "type": "array", "items": { "type": "string" } }
+            }
+          }
         }
       ],
       "permissions": ["app:read", "ontology:read"],
@@ -430,7 +582,32 @@
         "sort_order": 90,
         "preferred_chrome": "card"
       },
-      "default_props": { "source_variable_id": "", "x_property": "", "y_property": "", "series_kind": "bar" },
+      "default_props": {
+        "layers": [
+          {
+            "id": "layer-1",
+            "title": "Layer (bar)",
+            "data_input": "object_set",
+            "source_variable_id": "",
+            "object_type_id": "",
+            "layer_type": "bar",
+            "show_labels": true,
+            "x_property": "",
+            "x_bucketing": "exact",
+            "x_limit": "",
+            "series_metric": "count",
+            "series_property": "",
+            "cumulative_sum": false,
+            "segment_by": ""
+          }
+        ],
+        "show_legend": false,
+        "show_tooltips": true,
+        "bar_orientation": "horizontal",
+        "sort_by": "key_asc",
+        "output_filter_variable_id": "",
+        "selected_object_set_variable_id": ""
+      },
       "default_size": { "width": 6, "height": 4 },
       "supported_bindings": ["object_set"],
       "supports_children": false
@@ -491,19 +668,116 @@
       "supports_children": false
     },
     {
+      "widget_type": "free_form_analysis",
+      "widget_kind": "visualization",
+      "label": "Free-form Analysis",
+      "description": "Runtime analysis path for exploring a bounded input object set with filters, tables, metrics, charts, and notes.",
+      "category": "visualization",
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "source_variable_id": { "type": "string" },
+          "object_type_id": { "type": "string" },
+          "output_variable_id": { "type": "string" },
+          "empty_state_header": { "type": "string" },
+          "empty_state_description": { "type": "string" },
+          "enable_path_saving": { "type": "boolean" },
+          "max_rows": { "type": "number", "minimum": 1, "maximum": 10000 },
+          "cards": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "id": { "type": "string" },
+                "kind": { "type": "string", "enum": ["table", "metric", "filter", "bar_chart", "line_chart", "pie_chart", "text"] },
+                "title": { "type": "string" },
+                "property": { "type": "string" },
+                "metric": { "type": "string", "enum": ["count", "sum", "avg", "min", "max", "approx_unique"] },
+                "value": {},
+                "columns": { "type": "array", "items": { "type": "string" } },
+                "category_property": { "type": "string" },
+                "value_property": { "type": "string" },
+                "operator": { "type": "string", "enum": ["contains", "equals", "not_equals", "gte", "lte", "gt", "lt"] },
+                "content": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "input_variables": [
+        {
+          "id": "input_object_set",
+          "kind": "object_set",
+          "label": "Input object set",
+          "description": "The bounded object set users can explore in the runtime widget.",
+          "required": true
+        }
+      ],
+      "output_variables": [
+        {
+          "id": "output_object_set",
+          "kind": "object_set_selection",
+          "label": "Output object set",
+          "description": "The filtered object set emitted by the current analysis path.",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "output_change",
+          "label": "Output object set changed",
+          "description": "Runs when filters or search change the output object set.",
+          "action_kinds": ["set_variable", "refresh", "export"],
+          "payload_schema": {
+            "type": "object",
+            "properties": {
+              "object_type_id": { "type": "string" },
+              "object_ids": { "type": "array", "items": { "type": "string" } },
+              "row_count": { "type": "integer" }
+            }
+          }
+        }
+      ],
+      "permissions": ["app:read", "ontology:read"],
+      "display": {
+        "icon": "graph",
+        "accent": "purple",
+        "tags": ["analysis", "object-set", "exploration"],
+        "sort_order": 105,
+        "preferred_chrome": "card"
+      },
+      "default_props": {
+        "source_variable_id": "",
+        "object_type_id": "",
+        "output_variable_id": "",
+        "empty_state_header": "Start a free-form analysis",
+        "empty_state_description": "Add filters, metrics, tables, charts, and notes against this app-bounded object set.",
+        "enable_path_saving": false,
+        "max_rows": 5000,
+        "cards": []
+      },
+      "default_size": { "width": 8, "height": 5 },
+      "supported_bindings": ["object_set"],
+      "supports_children": false
+    },
+    {
       "widget_type": "scenario",
       "widget_kind": "control",
       "label": "Scenario controls",
-      "description": "What-if parameters that feed runtime bindings and agents.",
+      "description": "What-if parameters that feed runtime bindings, scenario variables, charts, tables, and action forms.",
       "category": "workshop",
       "config_schema": {
         "type": "object",
         "additionalProperties": true,
         "properties": {
           "headline": { "type": "string" },
+          "output_variable_id": { "type": "string" },
           "parameters": { "type": "array" },
           "apply_label": { "type": "string" },
-          "reset_label": { "type": "string" }
+          "reset_label": { "type": "string" },
+          "summary_template": { "type": "string" }
         }
       },
       "input_variables": [],
@@ -518,18 +792,26 @@
       ],
       "events": [
         {
-          "name": "apply",
-          "label": "Apply",
-          "description": "Runs when scenario values are applied.",
-          "action_kinds": ["set_variable", "refresh", "apply_action"],
-          "payload_schema": { "type": "object", "properties": { "parameters": { "type": "object" } } }
+          "name": "scenario_change",
+          "label": "Apply scenario",
+          "description": "Runs when scenario values are applied. Payload includes values, baseline, deltas, and changed parameter names.",
+          "action_kinds": ["set_parameters", "set_variable", "refresh", "apply_action"],
+          "payload_schema": {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string", "const": "scenario" },
+              "values": { "type": "object" },
+              "baseline": { "type": "object" },
+              "deltas": { "type": "object" }
+            }
+          }
         },
         {
-          "name": "reset",
-          "label": "Reset",
-          "description": "Runs when scenario values are reset.",
-          "action_kinds": ["set_variable", "refresh"],
-          "payload_schema": { "type": "object" }
+          "name": "scenario_reset",
+          "label": "Reset scenario",
+          "description": "Runs when scenario values are reset to baseline.",
+          "action_kinds": ["clear_parameters", "set_variable", "refresh"],
+          "payload_schema": { "type": "object", "properties": { "kind": { "type": "string", "const": "scenario" } } }
         }
       ],
       "permissions": ["app:read"],
@@ -542,11 +824,13 @@
       },
       "default_props": {
         "headline": "Scenario controls",
+        "output_variable_id": "",
         "parameters": [
           { "name": "demand_multiplier", "label": "Demand multiplier", "type": "number", "default_value": "1.0" }
         ],
         "apply_label": "Apply scenario",
-        "reset_label": "Reset"
+        "reset_label": "Reset",
+        "summary_template": "Demand multiplier: {{demand_multiplier}}"
       },
       "default_size": { "width": 5, "height": 4 },
       "supported_bindings": [],
@@ -717,17 +1001,82 @@
       "widget_type": "map",
       "widget_kind": "geospatial",
       "label": "Map",
-      "description": "MapLibre object layers with points, lines, polygons, selection, and tooltips.",
+      "description": "MapLibre object, overlay, and template layers with points, lines, polygons, selection, shape drawing, and tooltips.",
       "category": "spatial",
       "config_schema": {
         "type": "object",
         "additionalProperties": true,
         "properties": {
           "base_layer_kind": { "type": "string", "enum": ["blank", "raster"] },
-          "layers": { "type": "array" },
-          "overlay_layers": { "type": "array" },
+          "base_tile_url": { "type": "string" },
+          "center_lat": { "type": "number" },
+          "center_lon": { "type": "number" },
+          "zoom": { "type": "number", "minimum": 0, "maximum": 22 },
+          "show_legend": { "type": "boolean" },
+          "map_template_id": { "type": "string" },
+          "template_parameter_values": { "type": "object", "additionalProperties": true },
+          "template_parameter_mappings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "parameter_id": { "type": "string" },
+                "variable_id": { "type": "string" }
+              }
+            }
+          },
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "source": { "type": "string", "enum": ["binding", "object_set", "object_type", "geospatial_tile"] },
+                "source_variable_id": { "type": "string" },
+                "visibility_variable_id": { "type": "string" },
+                "object_type_id": { "type": "string" },
+                "loading_mode": { "type": "string", "enum": ["eager", "viewport_tiles"] },
+                "tile_layer_id": { "type": "string" },
+                "geometry_type": { "type": "string", "enum": ["auto", "point", "line", "polygon"] },
+                "latitude_field": { "type": "string" },
+                "longitude_field": { "type": "string" },
+                "geometry_field": { "type": "string" },
+                "label_field": { "type": "string" },
+                "color": { "type": "string" },
+                "visible": { "type": "boolean" },
+                "locked": { "type": "boolean" },
+                "cluster_enabled": { "type": "boolean" }
+              }
+            }
+          },
+          "overlay_layers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "source": { "type": "string", "enum": ["geojson_url", "mvt_url", "saved_map_layer", "raster_url"] },
+                "visibility_variable_id": { "type": "string" },
+                "url": { "type": "string" },
+                "resource_id": { "type": "string" },
+                "source_layer": { "type": "string" },
+                "geometry_type": { "type": "string", "enum": ["auto", "point", "line", "polygon"] },
+                "color": { "type": "string" },
+                "visible": { "type": "boolean" },
+                "opacity": { "type": "number" }
+              }
+            }
+          },
+          "output_variable_id": { "type": "string" },
           "output_object_set_variable_id": { "type": "string" },
-          "output_shape_variable_id": { "type": "string" }
+          "output_shape_variable_id": { "type": "string" },
+          "shape_search_output_variable_id": { "type": "string" },
+          "enable_shape_drawing": { "type": "boolean" }
         }
       },
       "input_variables": [
@@ -795,6 +1144,10 @@
       },
       "default_props": {
         "base_layer_kind": "blank",
+        "center_lat": 40.015,
+        "center_lon": -105.2705,
+        "zoom": 11,
+        "show_legend": true,
         "latitude_field": "lat",
         "longitude_field": "lon",
         "label_field": "label",
@@ -803,6 +1156,9 @@
             "id": "points",
             "title": "Objects",
             "source": "binding",
+            "loading_mode": "eager",
+            "source_variable_id": "",
+            "visibility_variable_id": "",
             "geometry_type": "point",
             "latitude_field": "lat",
             "longitude_field": "lon",

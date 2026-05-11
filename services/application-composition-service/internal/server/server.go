@@ -91,6 +91,7 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 		api.Get("/{id}/slate-package", h.GetSlatePackage)
 		api.Post("/{id}/slate-package", h.ImportSlatePackage)
 		api.Get("/{id}/versions", h.ListAppVersions)
+		api.Post("/{id}/versions/{versionID}/promote", h.PromoteAppVersion)
 		api.Post("/{id}/publish", h.PublishApp)
 	})
 

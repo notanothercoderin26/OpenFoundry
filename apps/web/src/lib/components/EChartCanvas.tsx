@@ -6,24 +6,39 @@ type EChartsLike = {
   setOption: (option: unknown, notMerge?: boolean) => void;
   resize: () => void;
   dispose: () => void;
-  on: (event: string, handler: (params: { name?: unknown }) => void) => void;
+  on: (event: string, handler: (params: EChartClickParams) => void) => void;
 };
+
+export interface EChartClickParams {
+  name?: unknown;
+  seriesName?: unknown;
+  dataIndex?: number;
+  seriesIndex?: number;
+  value?: unknown;
+  data?: unknown;
+}
 
 interface EChartCanvasProps {
   options: unknown;
   style?: React.CSSProperties;
   className?: string;
   onReady?: (chart: EChartsLike) => void;
+  onClick?: (params: EChartClickParams) => void;
 }
 
-export function EChartCanvas({ options, style, className, onReady }: EChartCanvasProps) {
+export function EChartCanvas({ options, style, className, onReady, onClick }: EChartCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<EChartsLike | null>(null);
   const onReadyRef = useRef(onReady);
+  const onClickRef = useRef(onClick);
 
   useEffect(() => {
     onReadyRef.current = onReady;
   }, [onReady]);
+
+  useEffect(() => {
+    onClickRef.current = onClick;
+  }, [onClick]);
 
   // Init + dispose lifecycle. Runs once per mount; the lazy import keeps echarts
   // out of the initial bundle and lets the chunk be cached across routes.
@@ -38,6 +53,7 @@ export function EChartCanvas({ options, style, className, onReady }: EChartCanva
       const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' });
       chartRef.current = chart as EChartsLike;
       chart.setOption(options as Parameters<typeof chart.setOption>[0], true);
+      chart.on('click', (params) => onClickRef.current?.(params));
       onReadyRef.current?.(chart as EChartsLike);
 
       resizeObserver = new ResizeObserver(() => chart.resize());

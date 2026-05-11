@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,6 +66,122 @@ func TestHealthAndHealthzCoexist(t *testing.T) {
 	var hz map[string]any
 	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&hz))
 	assert.Equal(t, "object-database-service", hz["service"])
+}
+
+func TestObjectQuerySupportsWorkshopObjectSetOperators(t *testing.T) {
+	srv := newTestServer(t)
+	t.Cleanup(srv.Close)
+
+	seed := func(body string) {
+		t.Helper()
+		resp, err := http.Post(
+			srv.URL+"/api/v1/ontology/types/Trail/objects",
+			"application/json",
+			strings.NewReader(body),
+		)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+	}
+	seed(`{"properties":{"name":"Mesa Trail","difficulty":"hard","gain_ft":800}}`)
+	seed(`{"properties":{"name":"Valley Trail","difficulty":"easy","gain_ft":200}}`)
+
+	resp, err := http.Post(
+		srv.URL+"/api/v1/ontology/types/Trail/objects/query",
+		"application/json",
+		strings.NewReader(`{
+			"filters": [
+				{"property_name":"name","operator":"contains","value":"trail"},
+				{"property_name":"gain_ft","operator":"gte","value":500},
+				{"property_name":"difficulty","operator":"in","value":["hard","moderate"]}
+			],
+			"per_page": 25
+		}`),
+	)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Data  []map[string]any `json:"data"`
+		Total int              `json:"total"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Equal(t, 1, body.Total)
+	require.Len(t, body.Data, 1)
+	props, ok := body.Data[0]["properties"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Mesa Trail", props["name"])
+}
+
+func TestObjectQuerySupportsWorkshopSortCountAggregationsAndSelectedIDs(t *testing.T) {
+	srv := newTestServer(t)
+	t.Cleanup(srv.Close)
+
+	seed := func(body string) string {
+		t.Helper()
+		resp, err := http.Post(
+			srv.URL+"/api/v1/ontology/types/Trail/objects",
+			"application/json",
+			strings.NewReader(body),
+		)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		var created map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+		id, _ := created["id"].(string)
+		require.NotEmpty(t, id)
+		return id
+	}
+	low := seed(`{"properties":{"name":"Valley Trail","difficulty":"easy","gain_ft":200}}`)
+	high := seed(`{"properties":{"name":"Mesa Trail","difficulty":"hard","gain_ft":800}}`)
+	seed(`{"properties":{"name":"Road Walk","difficulty":"easy","gain_ft":50}}`)
+
+	resp, err := http.Post(
+		srv.URL+"/api/v1/ontology/types/Trail/objects/query",
+		"application/json",
+		strings.NewReader(`{
+			"selected_object_ids": [`+strconv.Quote(low)+`, `+strconv.Quote(high)+`],
+			"sort": [{"property_name":"gain_ft","direction":"desc"}],
+			"aggregations": [
+				{"id":"trail_count","function":"count"},
+				{"id":"gain_sum","function":"sum","property_name":"gain_ft"},
+				{"id":"avg_gain","function":"avg","property_name":"gain_ft"}
+			],
+			"per_page": 10,
+			"include_count": true
+		}`),
+	)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Data []struct {
+			ID         string         `json:"id"`
+			Properties map[string]any `json:"properties"`
+		} `json:"data"`
+		Total        int `json:"total"`
+		Count        int `json:"count"`
+		Aggregations []struct {
+			ID    string `json:"id"`
+			Value any    `json:"value"`
+			Count int    `json:"count"`
+		} `json:"aggregations"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Equal(t, 2, body.Total)
+	require.Equal(t, 2, body.Count)
+	require.Len(t, body.Data, 2)
+	assert.Equal(t, "Mesa Trail", body.Data[0].Properties["name"])
+	require.Len(t, body.Aggregations, 3)
+	assert.Equal(t, "trail_count", body.Aggregations[0].ID)
+	assert.Equal(t, float64(2), body.Aggregations[0].Value)
+	assert.Equal(t, "gain_sum", body.Aggregations[1].ID)
+	assert.Equal(t, float64(1000), body.Aggregations[1].Value)
+	assert.Equal(t, "avg_gain", body.Aggregations[2].ID)
+	assert.Equal(t, float64(500), body.Aggregations[2].Value)
 }
 
 func TestPutGetDeleteRoundTrip(t *testing.T) {

@@ -77,7 +77,9 @@ function slugify(name: string): string {
   );
 }
 
-function variantToOperationKind(variant: ObjectActionVariant): 'update_object' | 'delete_object' {
+function variantToOperationKind(variant: ObjectActionVariant): 'create_object' | 'update_object' | 'create_or_modify_object' | 'delete_object' {
+  if (variant === 'create') return 'create_object';
+  if (variant === 'modify_or_create') return 'create_or_modify_object';
   return variant === 'delete' ? 'delete_object' : 'update_object';
 }
 

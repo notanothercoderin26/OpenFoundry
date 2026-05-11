@@ -3,15 +3,15 @@ import type { Map as MapLibreMap, MapGeoJSONFeature, MapLayerMouseEvent, MapMous
 
 import type { AppWidget } from '@/lib/api/apps';
 import { getLayer, getViewportTileFeatures, renderMapTemplate, type RenderMapTemplateResponse } from '@/lib/api/geospatial';
-import { listObjects, queryObjects, type ObjectInstance } from '@/lib/api/ontology';
+import { type ObjectInstance } from '@/lib/api/ontology';
 import type { QueryResult } from '@/lib/api/queries';
 import { MapLibreCanvas } from '@/lib/components/MapLibreCanvas';
 
 import {
-  variableFiltersForObjectSet,
   type WorkshopVariableEngineResult,
   type WorkshopVariableLike,
 } from './workshopVariables';
+import { executeWorkshopObjectSet } from './workshopObjectSets';
 import {
   buildFeaturesFromObjects,
   buildFeaturesFromGeospatialLayer,
@@ -20,6 +20,7 @@ import {
   buildMapTemplateRenderRequest,
   collectFeatureBounds,
   createWorkshopMapStyle,
+  isWorkshopMapLayerVisible,
   mapTemplateIDFromProps,
   mergeMapTemplateWidgetProps,
   normalizeSavedOverlayConfig,
@@ -118,12 +119,12 @@ export function WorkshopMapWidget({
   }, [visibilitySignature]);
 
   const visibleLayers = useMemo(
-    () => layers.filter((layer) => !hiddenLayerIds.has(objectLayerKey(layer.id))),
-    [hiddenLayerIds, layers],
+    () => layers.filter((layer) => isWorkshopMapLayerVisible(layer, variableEngine) && !hiddenLayerIds.has(objectLayerKey(layer.id))),
+    [hiddenLayerIds, layers, variableEngine],
   );
   const visibleOverlays = useMemo(
-    () => overlays.filter((overlay) => !hiddenLayerIds.has(overlayLayerKey(overlay.id))),
-    [hiddenLayerIds, overlays],
+    () => overlays.filter((overlay) => isWorkshopMapLayerVisible(overlay, variableEngine) && !hiddenLayerIds.has(overlayLayerKey(overlay.id))),
+    [hiddenLayerIds, overlays, variableEngine],
   );
   const viewportTileLayers = useMemo(
     () => visibleLayers.filter((layer) => layer.source === 'geospatial_tile' || layer.loading_mode === 'viewport_tiles'),
@@ -245,7 +246,7 @@ export function WorkshopMapWidget({
           const variable = layer.source_variable_id ? variables.find((entry) => entry.id === layer.source_variable_id) ?? null : null;
           const objectTypeId = variable?.object_type_id || layer.object_type_id;
           if (!objectTypeId) continue;
-          const objects = await loadObjectsForLayer(objectTypeId, variable, layer, variableEngine);
+          const objects = await loadObjectsForLayer(objectTypeId, variable, variables, layer, variableEngine);
           if (cancelled) return;
           objectLayerFeatures.push(...buildFeaturesFromObjects(objects, layer, variable));
         }
@@ -530,7 +531,7 @@ export function WorkshopMapWidget({
             <label key={layer.id} data-testid={`workshop-map-layer-toggle-${layer.id}`} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#334155', cursor: 'pointer' }}>
               <input
                 type="checkbox"
-                checked={!hiddenLayerIds.has(objectLayerKey(layer.id))}
+                checked={isWorkshopMapLayerVisible(layer, variableEngine) && !hiddenLayerIds.has(objectLayerKey(layer.id))}
                 onChange={() => toggleLayer(objectLayerKey(layer.id))}
                 style={{ margin: 0 }}
               />
@@ -542,7 +543,7 @@ export function WorkshopMapWidget({
             <label key={overlay.id} data-testid={`workshop-map-overlay-toggle-${overlay.id}`} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#334155', cursor: 'pointer' }}>
               <input
                 type="checkbox"
-                checked={!hiddenLayerIds.has(overlayLayerKey(overlay.id))}
+                checked={isWorkshopMapLayerVisible(overlay, variableEngine) && !hiddenLayerIds.has(overlayLayerKey(overlay.id))}
                 onChange={() => toggleLayer(overlayLayerKey(overlay.id))}
                 style={{ margin: 0 }}
               />
@@ -667,29 +668,35 @@ function clampNumber(value: number, min: number, max: number, fallback: number) 
 async function loadObjectsForLayer(
   objectTypeId: string,
   variable: WorkshopVariableLike | null,
+  variables: WorkshopVariableLike[],
   layer: WorkshopMapLayerConfig,
   variableEngine: WorkshopVariableEngineResult | null,
 ) {
-  const filters = variableFiltersForObjectSet(variable, variableEngine);
-  if (filters.length > 0) {
-    const response = await queryObjects(objectTypeId, {
-      filters: filters.map((filter) => ({
-        property_name: filter.property_name,
-        operator: filter.operator === 'contains' ? 'contains' : 'equals',
-        value: filter.value,
-      })),
-      per_page: 5000,
-    });
-    return response.data;
-  }
   if (layer.filter_field && layer.filter_value) {
-    const response = await queryObjects(objectTypeId, {
-      filters: [{ property_name: layer.filter_field, operator: 'equals', value: layer.filter_value }],
-      per_page: 5000,
+    const nextVariable: WorkshopVariableLike = {
+      id: `map-layer-${layer.id}`,
+      kind: 'object_set_definition',
+      name: layer.title,
+      object_type_id: objectTypeId,
+      source_variable_id: variable?.id,
+      static_filters: [{ property_name: layer.filter_field, operator: 'equals', value: layer.filter_value }],
+    };
+    const response = await executeWorkshopObjectSet({
+      variable: nextVariable,
+      variables: variable ? [...variables, nextVariable] : [nextVariable],
+      engine: variableEngine,
+      objectTypeId,
+      limit: 5000,
     });
     return response.data;
   }
-  const response = await listObjects(objectTypeId, { per_page: 5000 });
+  const response = await executeWorkshopObjectSet({
+    variable,
+    variables,
+    engine: variableEngine,
+    objectTypeId,
+    limit: 5000,
+  });
   return response.data;
 }
 

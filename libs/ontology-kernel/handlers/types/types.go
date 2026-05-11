@@ -20,6 +20,7 @@
 package types
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -58,7 +59,9 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func errBody(msg string) map[string]string { return map[string]string{"error": msg} }
 
-func unauthorized(w http.ResponseWriter)      { writeJSON(w, http.StatusUnauthorized, errBody("missing claims")) }
+func unauthorized(w http.ResponseWriter) {
+	writeJSON(w, http.StatusUnauthorized, errBody("missing claims"))
+}
 func forbidden(w http.ResponseWriter, m string) { writeJSON(w, http.StatusForbidden, errBody(m)) }
 func internalError(w http.ResponseWriter, m string) {
 	writeJSON(w, http.StatusInternalServerError, errBody(m))
@@ -215,6 +218,14 @@ func ListObjectTypes(state *ontologykernel.AppState) http.HandlerFunc {
 			}
 			visible = visible[offset:end]
 		}
+		for i := range visible {
+			properties, err := loadObjectTypeProperties(r.Context(), state, visible[i].ID)
+			if err != nil {
+				internalError(w, "list object type properties: "+err.Error())
+				return
+			}
+			models.EnrichObjectTypeMetadata(&visible[i], properties)
+		}
 		writeJSON(w, http.StatusOK, models.ListObjectTypesResponse{
 			Data:    visible,
 			Total:   total,
@@ -262,6 +273,12 @@ func GetObjectType(state *ontologykernel.AppState) http.HandlerFunc {
 			forbidden(w, err.Error())
 			return
 		}
+		properties, err := loadObjectTypeProperties(r.Context(), state, ot.ID)
+		if err != nil {
+			internalError(w, "get object type properties: "+err.Error())
+			return
+		}
+		models.EnrichObjectTypeMetadata(&ot, properties)
 		writeJSON(w, http.StatusOK, ot)
 	}
 }
@@ -396,5 +413,57 @@ func scanObjectType(row interface{ Scan(...any) error }) (models.ObjectType, err
 		&t.PrimaryKeyProperty, &t.Icon, &t.Color,
 		&t.OwnerID, &t.CreatedAt, &t.UpdatedAt,
 	)
+	models.EnrichObjectTypeMetadata(&t, nil)
 	return t, err
+}
+
+const objectTypePropertyColumns = `id, object_type_id, name, display_name, description, property_type, required,
+                  unique_constraint, time_dependent, default_value, validation_rules,
+                  inline_edit_config, created_at, updated_at`
+
+func loadObjectTypeProperties(ctx context.Context, state *ontologykernel.AppState, objectTypeID uuid.UUID) ([]models.Property, error) {
+	rows, err := state.DB.Query(ctx,
+		`SELECT `+objectTypePropertyColumns+`
+           FROM properties
+           WHERE object_type_id = $1
+           ORDER BY created_at ASC`,
+		objectTypeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	properties := []models.Property{}
+	for rows.Next() {
+		property, err := scanObjectTypeProperty(rows)
+		if err != nil {
+			return nil, err
+		}
+		properties = append(properties, property)
+	}
+	return properties, rows.Err()
+}
+
+func scanObjectTypeProperty(row interface{ Scan(...any) error }) (models.Property, error) {
+	var (
+		property  models.Property
+		inlineRaw []byte
+	)
+	err := row.Scan(
+		&property.ID, &property.ObjectTypeID, &property.Name, &property.DisplayName, &property.Description,
+		&property.PropertyType, &property.Required, &property.UniqueConstraint, &property.TimeDependent,
+		&property.DefaultValue, &property.ValidationRules, &inlineRaw,
+		&property.CreatedAt, &property.UpdatedAt,
+	)
+	if err != nil {
+		return property, err
+	}
+	if len(inlineRaw) > 0 && string(inlineRaw) != "null" {
+		var cfg models.PropertyInlineEditConfig
+		if err := json.Unmarshal(inlineRaw, &cfg); err == nil {
+			property.InlineEditConfig = &cfg
+		}
+	}
+	models.EnrichPropertyMetadata(&property)
+	return property, nil
 }

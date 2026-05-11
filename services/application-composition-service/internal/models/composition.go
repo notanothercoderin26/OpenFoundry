@@ -100,8 +100,29 @@ type AppVersion struct {
 	PublishedAt   *time.Time      `json:"published_at"`
 }
 
+type AppAuditEvent struct {
+	ID         uuid.UUID       `json:"id"`
+	AppID      *uuid.UUID      `json:"app_id,omitempty"`
+	AppSlug    string          `json:"app_slug,omitempty"`
+	VersionID  *uuid.UUID      `json:"version_id,omitempty"`
+	ActorID    *uuid.UUID      `json:"actor_id,omitempty"`
+	EventType  string          `json:"event_type"`
+	Status     string          `json:"status"`
+	Permission string          `json:"permission,omitempty"`
+	IPAddress  string          `json:"ip_address,omitempty"`
+	UserAgent  string          `json:"user_agent,omitempty"`
+	Details    json.RawMessage `json:"details,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
 type PublishAppRequest struct {
-	Notes string `json:"notes"`
+	Notes     string `json:"notes"`
+	Changelog string `json:"changelog,omitempty"`
+}
+
+type PromoteAppVersionRequest struct {
+	Notes     string `json:"notes"`
+	Changelog string `json:"changelog,omitempty"`
 }
 
 type AppTemplate struct {

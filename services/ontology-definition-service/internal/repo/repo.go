@@ -68,6 +68,9 @@ func (r *Repo) ListObjectTypes(ctx context.Context) ([]models.ObjectType, error)
 		if err != nil {
 			return nil, err
 		}
+		if err := r.enrichObjectTypeMetadata(ctx, v); err != nil {
+			return nil, err
+		}
 		out = append(out, *v)
 	}
 	return out, rows.Err()
@@ -79,7 +82,10 @@ func (r *Repo) GetObjectType(ctx context.Context, id uuid.UUID) (*models.ObjectT
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
-	return v, err
+	if err != nil {
+		return nil, err
+	}
+	return v, r.enrichObjectTypeMetadata(ctx, v)
 }
 
 func (r *Repo) CreateObjectType(ctx context.Context, body *models.CreateObjectTypeRequest, ownerID uuid.UUID) (*models.ObjectType, error) {
@@ -106,7 +112,12 @@ func (r *Repo) CreateObjectType(ctx context.Context, body *models.CreateObjectTy
 		body.PluralDisplayName, editable, body.BackingDatasetID,
 		body.BackingDatasetRID, body.PipelineRID, body.ManagedBy,
 	)
-	return scanObjectType(row)
+	v, err := scanObjectType(row)
+	if err != nil {
+		return nil, err
+	}
+	models.EnrichObjectTypeMetadata(v, nil)
+	return v, nil
 }
 
 func (r *Repo) UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.UpdateObjectTypeRequest) (*models.ObjectType, error) {
@@ -172,7 +183,11 @@ func (r *Repo) UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.
 		id, dn, desc, pk, icon, color, time.Now().UTC(),
 		plural, editable, backingDatasetID, backingDatasetRID, pipelineRID, managedBy,
 	)
-	return scanObjectType(row)
+	v, err := scanObjectType(row)
+	if err != nil {
+		return nil, err
+	}
+	return v, r.enrichObjectTypeMetadata(ctx, v)
 }
 
 func (r *Repo) DeleteObjectType(ctx context.Context, id uuid.UUID) (bool, error) {
@@ -194,7 +209,17 @@ func scanObjectType(r rowLikeT) (*models.ObjectType, error) {
 		&v.ManagedBy); err != nil {
 		return nil, err
 	}
+	models.EnrichObjectTypeMetadata(v, nil)
 	return v, nil
+}
+
+func (r *Repo) enrichObjectTypeMetadata(ctx context.Context, objectType *models.ObjectType) error {
+	properties, err := r.ListProperties(ctx, objectType.ID)
+	if err != nil {
+		return err
+	}
+	models.EnrichObjectTypeMetadata(objectType, properties)
+	return nil
 }
 
 // ── Properties ─────────────────────────────────────────────────────────
@@ -252,6 +277,7 @@ func scanProperty(r rowLikeT) (*models.Property, error) {
 		&p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
 	}
+	models.EnrichPropertyMetadata(p)
 	return p, nil
 }
 

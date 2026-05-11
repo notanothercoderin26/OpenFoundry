@@ -8,12 +8,29 @@ import api from './client';
 
 export interface ObjectType {
   id: string;
+  rid?: string;
   name: string;
+  api_name?: string;
   display_name: string;
+  plural_display_name?: string | null;
   description: string;
   primary_key_property: string | null;
+  primary_key?: string;
+  title_property?: string | null;
   icon: string | null;
   color: string | null;
+  status?: 'active' | 'experimental' | 'deprecated' | string;
+  visibility?: 'normal' | 'hidden' | string;
+  editable?: boolean;
+  backing_dataset_id?: string | null;
+  backing_dataset_rid?: string | null;
+  pipeline_rid?: string | null;
+  managed_by?: string | null;
+  properties?: Property[];
+  property_count?: number;
+  searchable_property_names?: string[];
+  geopoint_property_names?: string[];
+  geoshape_property_names?: string[];
   owner_id: string;
   created_at: string;
   updated_at: string;
@@ -33,6 +50,18 @@ export interface Property {
   display_name: string;
   description: string;
   property_type: string;
+  base_type?: string;
+  type_family?: string;
+  type_display_name?: string;
+  value_shape?: string;
+  is_array?: boolean;
+  array_item_type?: string | null;
+  array_allowed?: boolean;
+  searchable?: boolean;
+  filterable?: boolean;
+  sortable?: boolean;
+  aggregatable?: boolean;
+  semantic_hints?: string[];
   required: boolean;
   unique_constraint: boolean;
   time_dependent: boolean;
@@ -41,6 +70,241 @@ export interface Property {
   inline_edit_config?: PropertyInlineEditConfig | null;
   created_at: string;
   updated_at: string;
+}
+
+export function objectTypeRID(objectType: Pick<ObjectType, 'id'> & Partial<ObjectType>) {
+  return objectType.rid || `ri.ontology.main.object-type.${objectType.id}`;
+}
+
+export function objectTypeAPIName(objectType: Pick<ObjectType, 'name'> & Partial<ObjectType>) {
+  return objectType.api_name || objectType.name;
+}
+
+export function objectTypePluralDisplayName(objectType: Pick<ObjectType, 'display_name' | 'name'> & Partial<ObjectType>) {
+  if (objectType.plural_display_name?.trim()) return objectType.plural_display_name;
+  const base = objectType.display_name || objectType.name || 'Objects';
+  return base.toLowerCase().endsWith('s') ? base : `${base}s`;
+}
+
+export function objectTypePrimaryKey(objectType: Partial<ObjectType> | null | undefined) {
+  return objectType?.primary_key || objectType?.primary_key_property || 'id';
+}
+
+export function objectTypeTitleProperty(objectType: Partial<ObjectType> | null | undefined) {
+  return objectType?.title_property || objectTypePrimaryKey(objectType);
+}
+
+export function objectTypeProperties(objectType: Partial<ObjectType> | null | undefined) {
+  return Array.isArray(objectType?.properties) ? objectType.properties : [];
+}
+
+export function objectTypeSearchablePropertyNames(objectType: Partial<ObjectType> | null | undefined) {
+  if (Array.isArray(objectType?.searchable_property_names) && objectType.searchable_property_names.length > 0) {
+    return objectType.searchable_property_names;
+  }
+  const names = [objectTypeTitleProperty(objectType), objectTypePrimaryKey(objectType)];
+  for (const property of objectTypeProperties(objectType)) {
+    if (isStringLikePropertyType(property.property_type)) names.push(property.name);
+  }
+  return uniqueNonEmpty(names);
+}
+
+export function objectTypeGeoPointPropertyNames(objectType: Partial<ObjectType> | null | undefined) {
+  if (Array.isArray(objectType?.geopoint_property_names)) return objectType.geopoint_property_names;
+  return objectTypeProperties(objectType)
+    .filter((property) => isGeoPointPropertyType(property.property_type))
+    .map((property) => property.name);
+}
+
+export function objectTypeGeoShapePropertyNames(objectType: Partial<ObjectType> | null | undefined) {
+  if (Array.isArray(objectType?.geoshape_property_names)) return objectType.geoshape_property_names;
+  return objectTypeProperties(objectType)
+    .filter((property) => isGeoShapePropertyType(property.property_type))
+    .map((property) => property.name);
+}
+
+export interface PropertyTypeMetadata {
+  base_type: string;
+  type_family: string;
+  type_display_name: string;
+  value_shape: string;
+  is_array: boolean;
+  array_item_type: string | null;
+  array_allowed: boolean;
+  searchable: boolean;
+  filterable: boolean;
+  sortable: boolean;
+  aggregatable: boolean;
+  semantic_hints: string[];
+}
+
+export function propertyTypeMetadata(property: Pick<Property, 'property_type'> & Partial<Property>): PropertyTypeMetadata {
+  const derived = derivePropertyTypeMetadata(property.property_type);
+  return {
+    base_type: property.base_type || derived.base_type,
+    type_family: property.type_family || derived.type_family,
+    type_display_name: property.type_display_name || derived.type_display_name,
+    value_shape: property.value_shape || derived.value_shape,
+    is_array: property.is_array ?? derived.is_array,
+    array_item_type: property.array_item_type ?? derived.array_item_type,
+    array_allowed: property.array_allowed ?? derived.array_allowed,
+    searchable: property.searchable ?? derived.searchable,
+    filterable: property.filterable ?? derived.filterable,
+    sortable: property.sortable ?? derived.sortable,
+    aggregatable: property.aggregatable ?? derived.aggregatable,
+    semantic_hints: property.semantic_hints ?? derived.semantic_hints,
+  };
+}
+
+export function canonicalPropertyBaseType(propertyType: string) {
+  const parsedArray = parseArrayPropertyType(propertyType);
+  if (parsedArray.isArray && parsedArray.itemType) return canonicalPropertyBaseType(parsedArray.itemType);
+  const normalized = normalizedPropertyType(propertyType);
+  if (['string', 'str', 'text'].includes(normalized)) return 'string';
+  if (['integer', 'int', 'long', 'short', 'byte'].includes(normalized)) return 'integer';
+  if (['float', 'double', 'decimal', 'number', 'numeric'].includes(normalized)) return 'float';
+  if (['boolean', 'bool'].includes(normalized)) return 'boolean';
+  if (normalized === 'date') return 'date';
+  if (['timestamp', 'datetime'].includes(normalized)) return 'timestamp';
+  if (normalized === 'json') return 'json';
+  if (normalized === 'array') return 'array';
+  if (['vector', 'embedding'].includes(normalized)) return 'vector';
+  if (['reference', 'object_reference'].includes(normalized)) return 'reference';
+  if (isGeoPointPropertyType(normalized)) return 'geopoint';
+  if (isGeoShapePropertyType(normalized)) return 'geoshape';
+  if (['media_reference', 'media', 'mediaref'].includes(normalized)) return 'media_reference';
+  if (['attachment', 'file'].includes(normalized)) return 'attachment';
+  if (['time_series', 'timeseries', 'time_series_reference'].includes(normalized)) return 'time_series';
+  if (normalized === 'struct') return 'struct';
+  return normalized;
+}
+
+function derivePropertyTypeMetadata(propertyType: string): PropertyTypeMetadata {
+  const parsedArray = parseArrayPropertyType(propertyType);
+  const itemBaseType = parsedArray.itemType ? canonicalPropertyBaseType(parsedArray.itemType) : null;
+  const baseType = parsedArray.isArray ? (itemBaseType || 'array') : canonicalPropertyBaseType(propertyType);
+  const base = basePropertyTypeMetadata(baseType);
+  if (!parsedArray.isArray) return base;
+  return {
+    ...base,
+    base_type: 'array',
+    type_family: 'collection',
+    type_display_name: 'Array',
+    value_shape: 'array',
+    is_array: true,
+    array_item_type: itemBaseType,
+    searchable: base.searchable && baseType === 'string',
+    filterable: true,
+    sortable: false,
+    aggregatable: false,
+    semantic_hints: uniqueNonEmpty(['array', itemBaseType || '', ...base.semantic_hints]),
+  };
+}
+
+function basePropertyTypeMetadata(baseType: string): PropertyTypeMetadata {
+  switch (baseType) {
+    case 'string':
+      return metadata(baseType, 'primitive', 'String', 'string', true, true, true, false, true, ['string']);
+    case 'integer':
+      return metadata(baseType, 'numeric', 'Integer', 'integer', true, true, true, true, false, ['numeric']);
+    case 'float':
+      return metadata(baseType, 'numeric', 'Float', 'number', true, true, true, true, false, ['numeric']);
+    case 'boolean':
+      return metadata(baseType, 'primitive', 'Boolean', 'boolean', true, true, true, false, false, ['boolean']);
+    case 'date':
+      return metadata(baseType, 'temporal', 'Date', 'date-string', true, true, true, false, false, ['temporal']);
+    case 'timestamp':
+      return metadata(baseType, 'temporal', 'Timestamp', 'timestamp-string', true, true, true, false, false, ['temporal']);
+    case 'json':
+      return metadata(baseType, 'structured', 'JSON', 'json', true, false, false, false, false, ['json']);
+    case 'array':
+      return metadata(baseType, 'collection', 'Array', 'array', true, true, false, false, false, ['array']);
+    case 'vector':
+      return metadata(baseType, 'semantic', 'Vector', 'numeric-array', false, false, false, false, false, ['vector', 'embedding']);
+    case 'reference':
+      return metadata(baseType, 'reference', 'Object reference', 'string', true, true, true, false, true, ['reference']);
+    case 'geopoint':
+      return metadata(baseType, 'geospatial', 'Geopoint', 'lat-lon-object', true, true, false, false, false, ['geospatial', 'point']);
+    case 'geoshape':
+      return metadata(baseType, 'geospatial', 'Geoshape', 'geojson-object-or-string', true, true, false, false, false, ['geospatial', 'shape']);
+    case 'media_reference':
+      return metadata(baseType, 'media', 'Media reference', 'media-reference', true, true, false, false, false, ['media']);
+    case 'attachment':
+      return metadata(baseType, 'file', 'Attachment', 'attachment-reference', true, true, false, false, false, ['attachment']);
+    case 'time_series':
+      return metadata(baseType, 'timeseries', 'Time series', 'time-series', false, false, false, false, false, ['time_series', 'temporal']);
+    case 'struct':
+      return metadata(baseType, 'structured', 'Struct', 'object', true, false, false, false, false, ['struct']);
+    default:
+      return metadata(baseType, 'unknown', baseType || 'Unknown', 'unknown', true, false, false, false, false, []);
+  }
+}
+
+function metadata(baseType: string, family: string, displayName: string, valueShape: string, arrayAllowed: boolean, filterable: boolean, sortable: boolean, aggregatable: boolean, searchable: boolean, semanticHints: string[]): PropertyTypeMetadata {
+  return {
+    base_type: baseType,
+    type_family: family,
+    type_display_name: displayName,
+    value_shape: valueShape,
+    is_array: false,
+    array_item_type: null,
+    array_allowed: arrayAllowed,
+    searchable,
+    filterable,
+    sortable,
+    aggregatable,
+    semantic_hints: uniqueNonEmpty(semanticHints),
+  };
+}
+
+function parseArrayPropertyType(propertyType: string) {
+  const normalized = normalizedPropertyType(propertyType);
+  if (normalized === 'array') return { isArray: true, itemType: null as string | null };
+  if (normalized.endsWith('[]')) return { isArray: true, itemType: normalized.slice(0, -2) };
+  if (normalized.startsWith('array<')) return { isArray: true, itemType: normalized.replace(/^array</, '').replace(/>$/, '') || null };
+  if (normalized.startsWith('array_of_')) return { isArray: true, itemType: normalized.replace(/^array_of_/, '') || null };
+  return { isArray: false, itemType: null as string | null };
+}
+
+function normalizedPropertyType(kind: string) {
+  return kind.trim().toLowerCase().replace(/[-\s]+/g, '_');
+}
+
+function isStringLikePropertyType(kind: string) {
+  const normalized = normalizedPropertyType(kind);
+  return ['string', 'str', 'text', 'uuid', 'rid', 'object_id'].includes(normalized) ||
+    normalized.includes('string') ||
+    normalized.includes('text');
+}
+
+function isGeoPointPropertyType(kind: string) {
+  const normalized = normalizedPropertyType(kind);
+  return ['geopoint', 'geo_point', 'point', 'latlon', 'lat_lon', 'latitude_longitude'].includes(normalized) ||
+    normalized.includes('geopoint') ||
+    normalized.includes('geo_point');
+}
+
+function isGeoShapePropertyType(kind: string) {
+  const normalized = normalizedPropertyType(kind);
+  return ['geoshape', 'geo_shape', 'geometry', 'geojson', 'linestring', 'line_string', 'polygon', 'multipolygon'].includes(normalized) ||
+    normalized.includes('geoshape') ||
+    normalized.includes('geo_shape') ||
+    normalized.includes('geometry') ||
+    normalized.includes('geojson');
+}
+
+function uniqueNonEmpty(values: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 export function listObjectTypes(params?: { page?: number; per_page?: number; search?: string }) {
@@ -159,18 +423,72 @@ export function executeInlineEdit(
 
 export interface ObjectQueryFilter {
   property_name: string;
-  operator?: 'equals' | 'contains';
-  value: unknown;
+  operator?: 'equals' | 'not_equals' | 'contains' | 'gte' | 'lte' | 'gt' | 'lt' | 'in' | 'is_empty' | 'is_not_empty' | string;
+  value?: unknown;
 }
 
-export function queryObjects(typeId: string, body: {
+export interface ObjectQuerySort {
+  property_name: string;
+  direction?: 'asc' | 'desc' | string;
+}
+
+export type ObjectSetAggregationFunction =
+  | 'count'
+  | 'sum'
+  | 'avg'
+  | 'average'
+  | 'min'
+  | 'max'
+  | 'distinct_count'
+  | 'approx_distinct'
+  | string;
+
+export interface ObjectSetAggregationSpec {
+  id?: string;
+  alias?: string;
+  function: ObjectSetAggregationFunction;
+  property_name?: string;
+}
+
+export interface ObjectSetAggregationResult {
+  id: string;
+  alias?: string;
+  function: string;
+  property_name?: string;
+  value: number | null;
+  count: number;
+}
+
+export interface ObjectQueryBody {
   equals?: Record<string, unknown>;
   filters?: ObjectQueryFilter[];
   limit?: number;
   page?: number;
   per_page?: number;
-}) {
-  return api.post<{ data: ObjectInstance[]; total: number; page?: number; per_page?: number }>(
+  sort?: ObjectQuerySort[];
+  include_count?: boolean;
+  aggregations?: ObjectSetAggregationSpec[];
+  selected_object_ids?: string[];
+}
+
+export interface ObjectQueryResponse {
+  data: ObjectInstance[];
+  total: number;
+  count?: number;
+  page?: number;
+  per_page?: number;
+  aggregations?: ObjectSetAggregationResult[];
+  object_set?: {
+    object_type_id: string;
+    filters?: ObjectQueryFilter[];
+    sort?: ObjectQuerySort[];
+    limit?: number;
+    selected_object_ids?: string[];
+  };
+}
+
+export function queryObjects(typeId: string, body: ObjectQueryBody) {
+  return api.post<ObjectQueryResponse>(
     `/ontology/types/${typeId}/objects/query`,
     body,
   );
@@ -581,8 +899,12 @@ export interface OntologyProjectMembership {
 }
 
 export type ActionOperationKind =
+  | 'create_object'
   | 'update_object'
+  | 'modify_object'
+  | 'create_or_modify_object'
   | 'create_link'
+  | 'delete_link'
   | 'delete_object'
   | 'invoke_function'
   | 'invoke_webhook'

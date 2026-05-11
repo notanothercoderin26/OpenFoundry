@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -236,13 +237,34 @@ func (h *Handlers) DeleteObjectByOntologyType(w http.ResponseWriter, r *http.Req
 // JSON keys, so the SPA can forward filters verbatim.
 type queryFilter struct {
 	PropertyName string `json:"property_name"`
-	Operator     string `json:"operator,omitempty"` // equals | contains  (default: equals)
+	Operator     string `json:"operator,omitempty"` // equals | contains | gte | lte | gt | lt | in
 	Value        any    `json:"value"`
+}
+
+type querySort struct {
+	PropertyName string `json:"property_name"`
+	Direction    string `json:"direction,omitempty"`
+}
+
+type queryAggregation struct {
+	ID           string `json:"id,omitempty"`
+	Alias        string `json:"alias,omitempty"`
+	Function     string `json:"function"`
+	PropertyName string `json:"property_name,omitempty"`
+}
+
+type queryAggregationResult struct {
+	ID           string `json:"id"`
+	Alias        string `json:"alias,omitempty"`
+	Function     string `json:"function"`
+	PropertyName string `json:"property_name,omitempty"`
+	Value        any    `json:"value"`
+	Count        int    `json:"count"`
 }
 
 type queryRequest struct {
 	// Filters is the WorkshopVariable.static_filter[s] shape — the richer
-	// form with `operator` per filter (equals|contains).
+	// form with `operator` per filter.
 	Filters []queryFilter `json:"filters"`
 	// Equals is the existing SPA shape used by lib/api/ontology.ts:queryObjects
 	// — a flat map { property: expected }. Treated as "equals" filters.
@@ -251,7 +273,11 @@ type queryRequest struct {
 	PerPage uint32         `json:"per_page"`
 	// Limit mirrors the SPA's `queryObjects` body: cap on items when no
 	// per_page is set. We unify with per_page below.
-	Limit int `json:"limit"`
+	Limit             int                `json:"limit"`
+	Sort              []querySort        `json:"sort"`
+	IncludeCount      bool               `json:"include_count"`
+	Aggregations      []queryAggregation `json:"aggregations"`
+	SelectedObjectIDs []string           `json:"selected_object_ids"`
 }
 
 func matchesFilter(props map[string]any, f queryFilter) bool {
@@ -260,16 +286,110 @@ func matchesFilter(props map[string]any, f queryFilter) bool {
 		// "not present" matches "" target so the SPA's `equals ""` checks work.
 		actualStr := ""
 		expectedStr := strings.ToLower(strings.TrimSpace(toStringValue(f.Value)))
-		return strings.EqualFold(actualStr, expectedStr)
+		switch strings.ToLower(strings.TrimSpace(f.Operator)) {
+		case "is_empty":
+			return true
+		case "is_not_empty":
+			return false
+		case "not_equals", "neq", "!=":
+			return !strings.EqualFold(actualStr, expectedStr)
+		default:
+			return strings.EqualFold(actualStr, expectedStr)
+		}
 	}
 	actualStr := strings.ToLower(strings.TrimSpace(toStringValue(actual)))
 	expectedStr := strings.ToLower(strings.TrimSpace(toStringValue(f.Value)))
 	switch strings.ToLower(strings.TrimSpace(f.Operator)) {
 	case "contains":
 		return strings.Contains(actualStr, expectedStr)
+	case "not_equals", "neq", "!=":
+		return actualStr != expectedStr
+	case "gte", ">=":
+		return compareFilterValues(actual, f.Value) >= 0
+	case "lte", "<=":
+		return compareFilterValues(actual, f.Value) <= 0
+	case "gt", ">":
+		return compareFilterValues(actual, f.Value) > 0
+	case "lt", "<":
+		return compareFilterValues(actual, f.Value) < 0
+	case "in":
+		return filterValueContains(f.Value, actual)
+	case "is_empty":
+		return strings.TrimSpace(toStringValue(actual)) == ""
+	case "is_not_empty":
+		return strings.TrimSpace(toStringValue(actual)) != ""
 	default: // "equals" + unknown
 		return actualStr == expectedStr
 	}
+}
+
+func compareFilterValues(actual any, expected any) int {
+	actualNumber, actualOK := numericFilterValue(actual)
+	expectedNumber, expectedOK := numericFilterValue(expected)
+	if actualOK && expectedOK {
+		switch {
+		case actualNumber < expectedNumber:
+			return -1
+		case actualNumber > expectedNumber:
+			return 1
+		default:
+			return 0
+		}
+	}
+	return strings.Compare(
+		strings.ToLower(strings.TrimSpace(toStringValue(actual))),
+		strings.ToLower(strings.TrimSpace(toStringValue(expected))),
+	)
+}
+
+func numericFilterValue(v any) (float64, bool) {
+	switch t := v.(type) {
+	case json.Number:
+		n, err := t.Float64()
+		return n, err == nil
+	case float64:
+		return t, true
+	case float32:
+		return float64(t), true
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	case int32:
+		return float64(t), true
+	case uint:
+		return float64(t), true
+	case uint64:
+		return float64(t), true
+	case uint32:
+		return float64(t), true
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(t), 64)
+		return n, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func filterValueContains(container any, actual any) bool {
+	actualStr := strings.ToLower(strings.TrimSpace(toStringValue(actual)))
+	switch values := container.(type) {
+	case []any:
+		for _, value := range values {
+			if strings.ToLower(strings.TrimSpace(toStringValue(value))) == actualStr {
+				return true
+			}
+		}
+	case []string:
+		for _, value := range values {
+			if strings.ToLower(strings.TrimSpace(value)) == actualStr {
+				return true
+			}
+		}
+	default:
+		return strings.ToLower(strings.TrimSpace(toStringValue(container))) == actualStr
+	}
+	return false
 }
 
 func toStringValue(v any) string {
@@ -303,6 +423,171 @@ func toStringValue(v any) string {
 	}
 }
 
+func sortOntologyObjects(items []ontologyObject, sorts []querySort) {
+	sorts = compactQuerySorts(sorts)
+	if len(sorts) == 0 {
+		return
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		for _, item := range sorts {
+			cmp := compareFilterValues(items[i].Properties[item.PropertyName], items[j].Properties[item.PropertyName])
+			if cmp == 0 {
+				continue
+			}
+			if isQuerySortDescending(item.Direction) {
+				return cmp > 0
+			}
+			return cmp < 0
+		}
+		return strings.Compare(items[i].ID, items[j].ID) < 0
+	})
+}
+
+func compactQuerySorts(sorts []querySort) []querySort {
+	out := make([]querySort, 0, len(sorts))
+	for _, item := range sorts {
+		propertyName := strings.TrimSpace(item.PropertyName)
+		if propertyName == "" {
+			continue
+		}
+		direction := "asc"
+		if isQuerySortDescending(item.Direction) {
+			direction = "desc"
+		}
+		out = append(out, querySort{PropertyName: propertyName, Direction: direction})
+	}
+	return out
+}
+
+func isQuerySortDescending(direction string) bool {
+	switch strings.ToLower(strings.TrimSpace(direction)) {
+	case "desc", "descending", "-1":
+		return true
+	default:
+		return false
+	}
+}
+
+func computeObjectQueryAggregations(items []ontologyObject, specs []queryAggregation) []queryAggregationResult {
+	out := make([]queryAggregationResult, 0, len(specs))
+	for _, spec := range specs {
+		fn := normalizeQueryAggregationFunction(spec.Function)
+		if fn == "" {
+			continue
+		}
+		propertyName := strings.TrimSpace(spec.PropertyName)
+		id := strings.TrimSpace(spec.ID)
+		if id == "" {
+			id = strings.TrimSpace(spec.Alias)
+		}
+		if id == "" && propertyName != "" {
+			id = fn + ":" + propertyName
+		}
+		if id == "" {
+			id = fn
+		}
+
+		result := queryAggregationResult{
+			ID:           id,
+			Alias:        strings.TrimSpace(spec.Alias),
+			Function:     fn,
+			PropertyName: propertyName,
+		}
+		switch fn {
+		case "count":
+			count := len(items)
+			if propertyName != "" {
+				count = 0
+				for _, item := range items {
+					if !isQueryEmptyValue(item.Properties[propertyName]) {
+						count++
+					}
+				}
+			}
+			result.Value = count
+			result.Count = count
+		case "distinct_count", "approx_distinct":
+			seen := map[string]struct{}{}
+			for _, item := range items {
+				value := item.ID
+				if propertyName != "" {
+					value = toStringValue(item.Properties[propertyName])
+				}
+				value = strings.ToLower(strings.TrimSpace(value))
+				if value == "" {
+					continue
+				}
+				seen[value] = struct{}{}
+			}
+			result.Value = len(seen)
+			result.Count = len(seen)
+		default:
+			numbers := make([]float64, 0, len(items))
+			for _, item := range items {
+				if n, ok := numericFilterValue(item.Properties[propertyName]); ok {
+					numbers = append(numbers, n)
+				}
+			}
+			result.Count = len(numbers)
+			if len(numbers) == 0 {
+				result.Value = nil
+				break
+			}
+			total := 0.0
+			min := numbers[0]
+			max := numbers[0]
+			for _, n := range numbers {
+				total += n
+				if n < min {
+					min = n
+				}
+				if n > max {
+					max = n
+				}
+			}
+			switch fn {
+			case "sum":
+				result.Value = total
+			case "avg":
+				result.Value = total / float64(len(numbers))
+			case "min":
+				result.Value = min
+			case "max":
+				result.Value = max
+			default:
+				continue
+			}
+		}
+		out = append(out, result)
+	}
+	return out
+}
+
+func normalizeQueryAggregationFunction(fn string) string {
+	switch strings.ToLower(strings.TrimSpace(fn)) {
+	case "count":
+		return "count"
+	case "sum":
+		return "sum"
+	case "avg", "average", "mean":
+		return "avg"
+	case "min":
+		return "min"
+	case "max":
+		return "max"
+	case "distinct", "unique", "count_distinct", "distinct_count":
+		return "distinct_count"
+	case "approx_distinct":
+		return "approx_distinct"
+	default:
+		return strings.ToLower(strings.TrimSpace(fn))
+	}
+}
+
+func isQueryEmptyValue(value any) bool {
+	return strings.TrimSpace(toStringValue(value)) == ""
+}
+
 // QueryObjectsByOntologyType serves POST /api/v1/ontology/types/{type_id}/objects/query.
 // Server-side filter pushdown for the SPA's WorkshopVariable.static_filter / static_filters.
 // Today the InMemory store can't filter natively (no native CQL); we materialise
@@ -314,7 +599,9 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 	typeID := storage.TypeId(chi.URLParam(r, "type_id"))
 
 	var body queryRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber()
+	if err := dec.Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -364,10 +651,19 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 	for _, idx := range latestByID {
 		deduped = append(deduped, idx)
 	}
+	selectedIDs := map[string]bool{}
+	for _, id := range body.SelectedObjectIDs {
+		if trimmed := strings.TrimSpace(id); trimmed != "" {
+			selectedIDs[trimmed] = true
+		}
+	}
 
 	matched := make([]ontologyObject, 0)
 	for _, idx := range deduped {
 		obj := &full.Items[idx]
+		if len(selectedIDs) > 0 && !selectedIDs[string(obj.ID)] {
+			continue
+		}
 		props := map[string]any{}
 		if len(obj.Payload) > 0 {
 			_ = json.Unmarshal(obj.Payload, &props)
@@ -384,6 +680,8 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	sortOntologyObjects(matched, body.Sort)
+	aggregations := computeObjectQueryAggregations(matched, body.Aggregations)
 	total := len(matched)
 	start := (page - 1) * int(perPage)
 	end := start + int(perPage)
@@ -396,10 +694,21 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 	pageItems := matched[start:end]
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     pageItems,
-		"total":    total,
-		"page":     page,
-		"per_page": perPage,
+		"data":         pageItems,
+		"total":        total,
+		"count":        total,
+		"page":         page,
+		"per_page":     perPage,
+		"aggregations": aggregations,
+		"object_set": map[string]any{
+			"object_type_id":      string(typeID),
+			"filters":             body.Filters,
+			"sort":                compactQuerySorts(body.Sort),
+			"limit":               perPage,
+			"include_count":       body.IncludeCount,
+			"aggregations":        body.Aggregations,
+			"selected_object_ids": body.SelectedObjectIDs,
+		},
 	})
 }
 

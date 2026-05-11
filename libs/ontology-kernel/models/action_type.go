@@ -14,16 +14,20 @@ import (
 type ActionOperationKind string
 
 const (
-	ActionOperationKindUpdateObject        ActionOperationKind = "update_object"
-	ActionOperationKindCreateLink          ActionOperationKind = "create_link"
-	ActionOperationKindDeleteObject        ActionOperationKind = "delete_object"
-	ActionOperationKindInvokeFunction      ActionOperationKind = "invoke_function"
-	ActionOperationKindInvokeWebhook       ActionOperationKind = "invoke_webhook"
-	ActionOperationKindCreateInterface     ActionOperationKind = "create_interface"
-	ActionOperationKindModifyInterface     ActionOperationKind = "modify_interface"
-	ActionOperationKindDeleteInterface     ActionOperationKind = "delete_interface"
-	ActionOperationKindCreateInterfaceLink ActionOperationKind = "create_interface_link"
-	ActionOperationKindDeleteInterfaceLink ActionOperationKind = "delete_interface_link"
+	ActionOperationKindCreateObject         ActionOperationKind = "create_object"
+	ActionOperationKindUpdateObject         ActionOperationKind = "update_object"
+	ActionOperationKindModifyObject         ActionOperationKind = "modify_object"
+	ActionOperationKindCreateOrModifyObject ActionOperationKind = "create_or_modify_object"
+	ActionOperationKindCreateLink           ActionOperationKind = "create_link"
+	ActionOperationKindDeleteLink           ActionOperationKind = "delete_link"
+	ActionOperationKindDeleteObject         ActionOperationKind = "delete_object"
+	ActionOperationKindInvokeFunction       ActionOperationKind = "invoke_function"
+	ActionOperationKindInvokeWebhook        ActionOperationKind = "invoke_webhook"
+	ActionOperationKindCreateInterface      ActionOperationKind = "create_interface"
+	ActionOperationKindModifyInterface      ActionOperationKind = "modify_interface"
+	ActionOperationKindDeleteInterface      ActionOperationKind = "delete_interface"
+	ActionOperationKindCreateInterfaceLink  ActionOperationKind = "create_interface_link"
+	ActionOperationKindDeleteInterfaceLink  ActionOperationKind = "delete_interface_link"
 )
 
 // String mirrors `impl Display for ActionOperationKind`.
@@ -34,12 +38,12 @@ func (k ActionOperationKind) String() string { return string(k) }
 // `skip_serializing_if = "Option::is_none"` so absent / nil
 // pointers omit the key entirely.
 type ActionInputField struct {
-	Name         string             `json:"name"`
-	DisplayName  *string            `json:"display_name"`
-	Description  *string            `json:"description"`
-	PropertyType string             `json:"property_type"`
-	Required     bool               `json:"required"`
-	DefaultValue json.RawMessage    `json:"default_value"`
+	Name         string              `json:"name"`
+	DisplayName  *string             `json:"display_name"`
+	Description  *string             `json:"description"`
+	PropertyType string              `json:"property_type"`
+	Required     bool                `json:"required"`
+	DefaultValue json.RawMessage     `json:"default_value"`
 	StructFields *[]ActionInputField `json:"struct_fields,omitempty"`
 }
 
@@ -87,19 +91,19 @@ type ActionFormSchema struct {
 }
 
 // ActionFormSection mirrors `struct ActionFormSection`. Custom defaults:
-//   * `columns` defaults to 1 (`default_action_form_section_columns`).
-//   * `visible` defaults to true (`default_action_form_section_visible`).
-//   * `parameter_names`, `overrides` default to empty Vec.
-//   * Empty Vec fields skip on serialise.
+//   - `columns` defaults to 1 (`default_action_form_section_columns`).
+//   - `visible` defaults to true (`default_action_form_section_visible`).
+//   - `parameter_names`, `overrides` default to empty Vec.
+//   - Empty Vec fields skip on serialise.
 type ActionFormSection struct {
-	ID             string                       `json:"id"`
-	Title          *string                      `json:"title,omitempty"`
-	Description    *string                      `json:"description,omitempty"`
-	Columns        uint8                        `json:"columns"`
-	Collapsible    bool                         `json:"collapsible"`
-	Visible        bool                         `json:"visible"`
-	ParameterNames []string                     `json:"parameter_names,omitempty"`
-	Overrides      []ActionFormSectionOverride  `json:"overrides,omitempty"`
+	ID             string                      `json:"id"`
+	Title          *string                     `json:"title,omitempty"`
+	Description    *string                     `json:"description,omitempty"`
+	Columns        uint8                       `json:"columns"`
+	Collapsible    bool                        `json:"collapsible"`
+	Visible        bool                        `json:"visible"`
+	ParameterNames []string                    `json:"parameter_names,omitempty"`
+	Overrides      []ActionFormSectionOverride `json:"overrides,omitempty"`
 }
 
 // UnmarshalJSON applies `default_action_form_section_columns()` and
