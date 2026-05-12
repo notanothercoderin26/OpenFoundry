@@ -109,8 +109,8 @@ Argo CD reconciles in three waves to honour cross-release dependencies:
 | -100 | `argocd` (self-managed)                                                                |
 | -50  | `openfoundry-root` (app-of-apps)                                                        |
 |  0   | Operators: cert-manager, cnpg, k8ssandra-operator, strimzi, rook-ceph (prod), flink (prod), kube-prometheus-stack |
-|  1   | loki                                                                                    |
-|  2   | promtail                                                                                |
+|  1   | loki, tempo                                                                             |
+|  2   | promtail, otel-collector                                                                |
 |  5   | kite                                                                                    |
 | 10   | Infra: postgres-clusters, cassandra-cluster, kafka-cluster, ceph-cluster (prod), lakekeeper, debezium, vespa (≥staging), trino (prod), spark-operator (prod), mimir (prod), observability, local-registry (dev) |
 | 15   | flink-jobs (prod), spark-jobs (prod)                                                    |
@@ -133,6 +133,8 @@ Mirrors the existing helmfile gates:
 | kube-prometheus-stack | ✅ | ✅    | ✅   |
 | loki               | ✅  | ✅      | ✅   |
 | promtail           | ✅  | ✅      | ✅   |
+| tempo              | ✅  | ✅      | ✅   |
+| otel-collector     | ✅  | ✅      | ✅   |
 | kite               | ✅  | ✅      | ✅   |
 | postgres-clusters  | ✅  | ✅      | ✅   |
 | cassandra-cluster  | ✅  | ✅      | ✅   |

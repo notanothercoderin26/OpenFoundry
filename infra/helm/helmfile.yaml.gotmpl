@@ -100,6 +100,12 @@ environments:
        is a DaemonSet in every profile. */ -}}
 {{- $lokiInstalled             := true -}}
 {{- $promtailInstalled         := $lokiInstalled -}}
+{{- /* Tempo + OTel Collector — the third pillar (distributed tracing).
+       libs/observability/tracing.go already emits OTLP/gRPC; we just
+       needed somewhere to send the spans. The collector also derives
+       RED metrics from spans (spanmetrics connector). */ -}}
+{{- $tempoInstalled            := true -}}
+{{- $otelCollectorInstalled    := $tempoInstalled -}}
 {{- /* observability ships PrometheusRule + ServiceMonitor CRs — needs
        kube-prometheus-stack to be installed first. */ -}}
 {{- $observabilityInstalled    := $kubePromStackInstalled -}}
@@ -215,6 +221,39 @@ releases:
       - ./operators/promtail/values.yaml
       {{- if $isDev }}
       - ./operators/promtail/values-dev.yaml
+      {{- end }}
+
+  # Tempo — distributed-trace store. Receives OTLP from the OTel
+  # Collector and persists spans on S3 (filesystem in dev). The
+  # `metricsGenerator` enables RED metrics on the way in.
+  - name: tempo
+    namespace: observability
+    installed: {{ $tempoInstalled }}
+    chart: grafana/tempo
+    version: "1.24.4"
+    needs:
+      - observability/kube-prometheus-stack
+    values:
+      - ./operators/tempo/values.yaml
+      {{- if $isDev }}
+      - ./operators/tempo/values-dev.yaml
+      {{- end }}
+
+  # OpenTelemetry Collector — single OTLP ingress for the platform.
+  # Fans traces out to Tempo + spanmetrics, and exposes a Prometheus
+  # endpoint with the derived RED metrics. Eventually subsumes
+  # Promtail for the log pipeline.
+  - name: otel-collector
+    namespace: observability
+    installed: {{ $otelCollectorInstalled }}
+    chart: open-telemetry/opentelemetry-collector
+    version: "0.108.0"
+    needs:
+      - observability/tempo
+    values:
+      - ./operators/otel-collector/values.yaml
+      {{- if $isDev }}
+      - ./operators/otel-collector/values-dev.yaml
       {{- end }}
 
   # ───────────────────────────────────────────────────────────────────

@@ -250,6 +250,27 @@ spec:
             - name: KAFKA_TOPIC_PREFIX
               value: {{ $global.kafka.topicPrefix | default "" | quote }}
             {{- end }}
+            {{- /* Tracing: point every service at the in-cluster OTel
+                   Collector unless `global.otel.enabled=false` or the
+                   service explicitly sets `service.tracing.enabled=false`.
+                   `libs/observability/tracing.go` reads
+                   OTEL_EXPORTER_OTLP_ENDPOINT and silently no-ops if
+                   the variable is unset. */ -}}
+            {{- $otelGlobal := $global.otel | default dict -}}
+            {{- $otelEnabled := true -}}
+            {{- if hasKey $otelGlobal "enabled" -}}{{- $otelEnabled = $otelGlobal.enabled -}}{{- end -}}
+            {{- $svcTracing := ($service.tracing | default dict) -}}
+            {{- if hasKey $svcTracing "enabled" -}}{{- $otelEnabled = and $otelEnabled $svcTracing.enabled -}}{{- end }}
+            {{- if $otelEnabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ $otelGlobal.endpoint | default "otel-collector.observability.svc.cluster.local:4317" | quote }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: {{ $otelGlobal.protocol | default "grpc" | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .name | quote }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ printf "service.namespace=%s,deployment.environment=%s" ($otelGlobal.serviceNamespace | default "openfoundry") ($deploymentFabric.environment | default "shared") | quote }}
+            {{- end }}
             {{- if and (eq .name "identity-federation-service") $global.publicWebOrigin }}
             - name: PUBLIC_WEB_ORIGIN
               value: {{ $global.publicWebOrigin | quote }}

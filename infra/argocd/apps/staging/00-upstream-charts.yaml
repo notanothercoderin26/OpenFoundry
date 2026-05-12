@@ -76,6 +76,24 @@ spec:
             chartVersion: "6.16.6"
             valuesPath: infra/helm/operators/promtail/values.yaml
 
+          # Tempo + OTel Collector — distributed tracing pillar. See
+          # `infra/helm/operators/{tempo,otel-collector}/values.yaml`.
+          - name: tempo
+            namespace: observability
+            wave: "1"
+            chart: tempo
+            chartRepo: https://grafana.github.io/helm-charts
+            chartVersion: "1.24.4"
+            valuesPath: infra/helm/operators/tempo/values.yaml
+
+          - name: otel-collector
+            namespace: observability
+            wave: "2"
+            chart: opentelemetry-collector
+            chartRepo: https://open-telemetry.github.io/opentelemetry-helm-charts
+            chartVersion: "0.108.0"
+            valuesPath: infra/helm/operators/otel-collector/values.yaml
+
           - name: kite
             namespace: kite
             wave: "5"

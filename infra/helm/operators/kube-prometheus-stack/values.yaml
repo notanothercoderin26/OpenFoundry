@@ -236,6 +236,31 @@ grafana:
             matcherRegex: "\"trace_id\":\"(\\w+)\""
             url: "$${__value.raw}"
             datasourceUid: tempo
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.observability.svc.cluster.local:3100
+      isDefault: false
+      jsonData:
+        httpMethod: GET
+        # Trace → logs: jump from a span to the matching Loki lines
+        # using the same `trace_id` field that Promtail labels with.
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: -1m
+          spanEndTimeShift: 1m
+          tags: [{ key: service.name, value: service }]
+          filterByTraceID: true
+        # Trace → metrics: drill from a span to the spanmetrics RED
+        # series exported by the OTel Collector.
+        tracesToMetrics:
+          datasourceUid: prometheus
+          tags: [{ key: service.name, value: service }]
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:  { enabled: true }
+        spanBar:    { type: Duration }
 
   # Curated upstream dashboards from grafana.com — one less manual
   # import step. IDs come from

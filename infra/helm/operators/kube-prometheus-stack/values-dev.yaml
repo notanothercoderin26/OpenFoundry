@@ -55,6 +55,14 @@ grafana:
       access: proxy
       url: http://loki-gateway.observability.svc.cluster.local
       isDefault: false
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.observability.svc.cluster.local:3100
+      isDefault: false
+      jsonData:
+        nodeGraph: { enabled: true }
 
 # In dev the Mimir release is not installed; remove the chart-level
 # expectation by leaving Prometheus to run in self-contained mode.
