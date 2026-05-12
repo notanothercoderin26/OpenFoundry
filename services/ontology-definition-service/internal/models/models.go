@@ -519,3 +519,35 @@ type UpdateLinkTypeRequest struct {
 	Description *string `json:"description,omitempty"`
 	Cardinality *string `json:"cardinality,omitempty"`
 }
+
+// OntologyInterface mirrors `ontology_schema.ontology_interfaces` rows.
+// The Ontology Manager UI reads the catalog on first paint to populate
+// the "interfaces" tab; CRUD lives in a follow-up slice.
+type OntologyInterface struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	DisplayName string    `json:"display_name"`
+	Description string    `json:"description"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// SharedPropertyType mirrors `ontology_schema.shared_property_types`
+// rows. Same scope as `OntologyInterface`: read-only for the catalog
+// view, CRUD pending.
+type SharedPropertyType struct {
+	ID               uuid.UUID `json:"id"`
+	Name             string    `json:"name"`
+	DisplayName      string    `json:"display_name"`
+	Description      string    `json:"description"`
+	PropertyType     string    `json:"property_type"`
+	Required         bool      `json:"required"`
+	UniqueConstraint bool      `json:"unique_constraint"`
+	TimeDependent    bool      `json:"time_dependent"`
+	DefaultValue     any       `json:"default_value"`
+	ValidationRules  any       `json:"validation_rules"`
+	OwnerID          uuid.UUID `json:"owner_id"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}

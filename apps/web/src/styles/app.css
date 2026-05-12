@@ -1369,6 +1369,37 @@ button {
 .of-app-launcher__detail {
   min-height: 0;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.of-app-launcher__categories::-webkit-scrollbar,
+.of-app-launcher__catalog::-webkit-scrollbar,
+.of-app-launcher__detail::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.of-app-launcher__categories::-webkit-scrollbar-thumb,
+.of-app-launcher__catalog::-webkit-scrollbar-thumb,
+.of-app-launcher__detail::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.of-app-launcher__categories::-webkit-scrollbar-thumb:hover,
+.of-app-launcher__catalog::-webkit-scrollbar-thumb:hover,
+.of-app-launcher__detail::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+  background-clip: padding-box;
+}
+
+.of-app-launcher__categories::-webkit-scrollbar-track,
+.of-app-launcher__catalog::-webkit-scrollbar-track,
+.of-app-launcher__detail::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .of-app-launcher__categories {

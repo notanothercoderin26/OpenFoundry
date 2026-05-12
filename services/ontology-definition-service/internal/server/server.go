@@ -64,6 +64,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/links", h.CreateLinkType)
 		api.Get("/links/{id}", h.GetLinkType)
 		api.Patch("/links/{id}", h.UpdateLinkType)
+
+		// Catalog reads consumed by Ontology Manager on first paint.
+		// Both endpoints accept `page`, `per_page` and `search`; they
+		// return the `{ data, total, page, per_page }` envelope the
+		// frontend expects. CRUD on these resources lands in a
+		// follow-up slice once the Workshop UX needs it.
+		api.Get("/interfaces", h.ListInterfaces)
+		api.Get("/shared-property-types", h.ListSharedPropertyTypes)
 	}
 
 	// Mount on both the legacy `/api/v1/ontology-definition` prefix
