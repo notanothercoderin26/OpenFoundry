@@ -1,9 +1,8 @@
 <div align="center">
   <a href="https://github.com/openfoundry/openfoundry-go">
-    <img src="images/logo.png" alt="OpenFoundry" width="180" />
+    <img src="images/logo.png" alt="OpenFoundry" width="240" />
   </a>
 
-  # OpenFoundry
 
   **The Open-Source Data Operating System**
 
