@@ -62,7 +62,9 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func errBody(msg string) map[string]string { return map[string]string{"error": msg} }
 
-func unauthorized(w http.ResponseWriter)        { writeJSON(w, http.StatusUnauthorized, errBody("missing claims")) }
+func unauthorized(w http.ResponseWriter) {
+	writeJSON(w, http.StatusUnauthorized, errBody("missing claims"))
+}
 func badRequest(w http.ResponseWriter, m string) { writeJSON(w, http.StatusBadRequest, errBody(m)) }
 func forbidden(w http.ResponseWriter, m string)  { writeJSON(w, http.StatusForbidden, errBody(m)) }
 func notFound(w http.ResponseWriter, m string)   { writeJSON(w, http.StatusNotFound, errBody(m)) }
@@ -144,6 +146,26 @@ func validateMappingTargets(mapping []models.ObjectTypeBindingPropertyMapping) e
 	return nil
 }
 
+// validatePrimaryKeyConsistency rejects multi-datasource object mappings whose
+// bindings use different backing primary key columns. Foundry MDOs require every
+// backing datasource/restricted view for the object type to resolve the same
+// object identity; row-wise MDO overlays are intentionally unsupported here.
+func validatePrimaryKeyConsistency(ctx context.Context, state *ontologykernel.AppState, objectTypeID uuid.UUID, currentBindingID *uuid.UUID, nextPrimaryKey string) error {
+	existing, repoErr := domain.ListBindings(ctx, state.DB, objectTypeID)
+	if repoErr != nil {
+		return fmt.Errorf("failed to list existing bindings: %w", repoErr)
+	}
+	for _, binding := range existing {
+		if currentBindingID != nil && binding.ID == *currentBindingID {
+			continue
+		}
+		if binding.PrimaryKeyColumn != nextPrimaryKey {
+			return fmt.Errorf("primary_key_column must match existing datasource bindings for this object type: expected %q", binding.PrimaryKeyColumn)
+		}
+	}
+	return nil
+}
+
 // ── CRUD endpoints ───────────────────────────────────────────────────────
 
 // CreateObjectTypeBinding mirrors `pub async fn create_object_type_binding`.
@@ -208,6 +230,14 @@ func CreateObjectTypeBinding(state *ontologykernel.AppState) http.HandlerFunc {
 				badRequest(w, "property_mapping must project to the object type's primary key property '"+pk+"'")
 				return
 			}
+		}
+		if err := validatePrimaryKeyConsistency(r.Context(), state, typeID, nil, body.PrimaryKeyColumn); err != nil {
+			if strings.HasPrefix(err.Error(), "failed to") {
+				internalError(w, err.Error())
+				return
+			}
+			badRequest(w, err.Error())
+			return
 		}
 		previewLimit := int32(1000)
 		if body.PreviewLimit != nil {
@@ -387,6 +417,14 @@ func UpdateObjectTypeBinding(state *ontologykernel.AppState) http.HandlerFunc {
 			mapping = *body.PropertyMapping
 		}
 		if err := validateMappingTargets(mapping); err != nil {
+			badRequest(w, err.Error())
+			return
+		}
+		if err := validatePrimaryKeyConsistency(r.Context(), state, typeID, &bindingID, primaryKey); err != nil {
+			if strings.HasPrefix(err.Error(), "failed to") {
+				internalError(w, err.Error())
+				return
+			}
 			badRequest(w, err.Error())
 			return
 		}
@@ -783,7 +821,7 @@ func MaterializeObjectTypeBinding(state *ontologykernel.AppState) http.HandlerFu
 
 		var (
 			rowsRead, inserted, updated, skipped, errs int32
-			errorDetails                              []json.RawMessage
+			errorDetails                               []json.RawMessage
 		)
 		for index, row := range preview.Rows {
 			rowsRead++

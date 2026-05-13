@@ -1,4 +1,4 @@
-import type { ObjectInstance, ObjectType, Property } from '@/lib/api/ontology';
+import { formatPropertyValue, objectViewTitle, objectViewVisibleProperties, propertyConditionalStyle, type ObjectInstance, type ObjectType, type Property } from '@/lib/api/ontology';
 
 interface ObjectCardAction {
   label: string;
@@ -20,21 +20,10 @@ const MARKING_TONE: Record<string, { background: string; color: string }> = {
   pii: { background: '#831843', color: '#f9a8d4' },
 };
 
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return '—';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return JSON.stringify(value);
-}
-
 export function ObjectCard({ object, properties = [], objectType = null, actions = [], onClick }: ObjectCardProps) {
-  const visible = properties.slice(0, 4);
+  const visible = objectViewVisibleProperties(properties).slice(0, 4);
   const marking = object.marking ?? 'public';
-  const title = (() => {
-    const pkProp = objectType?.primary_key_property;
-    if (pkProp && object.properties?.[pkProp] !== undefined) return String(object.properties[pkProp]);
-    return object.id.slice(0, 8) + '…';
-  })();
+  const title = objectViewTitle(object, objectType);
   const tone = MARKING_TONE[marking] ?? { background: '#1e293b', color: '#cbd5e1' };
 
   return (
@@ -69,8 +58,8 @@ export function ObjectCard({ object, properties = [], objectType = null, actions
         {visible.map((p) => (
           <div key={p.id} style={{ display: 'flex', gap: 6 }}>
             <dt style={{ color: '#64748b', minWidth: 90 }}>{p.display_name || p.name}</dt>
-            <dd style={{ margin: 0, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {formatValue(object.properties?.[p.name])}
+            <dd style={{ margin: 0, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...propertyConditionalStyle(p, object.properties?.[p.name]) }}>
+              {formatPropertyValue(p, object.properties?.[p.name])}
             </dd>
           </div>
         ))}

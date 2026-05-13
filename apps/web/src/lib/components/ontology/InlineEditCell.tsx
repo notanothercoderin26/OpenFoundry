@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { executeInlineEdit, type Property } from '@/lib/api/ontology';
+import { executeInlineEdit, validatePropertyValueType, type Property } from '@/lib/api/ontology';
 
 interface InlineEditCellProps {
   typeId: string;
@@ -54,6 +54,11 @@ export function InlineEditCell({ typeId, objectId, property, value, onUpdated }:
     setSaving(true);
     try {
       const next = parseSubmissionValue(property, draft);
+      const valueTypeErrors = validatePropertyValueType(property, next);
+      if (valueTypeErrors.length > 0) {
+        setError(valueTypeErrors.join(' '));
+        return;
+      }
       if (formatDisplay(next) === formatDisplay(value)) {
         setEditing(false);
         return;

@@ -173,6 +173,42 @@ type ReplaceOntologyProjectWorkingStateRequest struct {
 	Changes json.RawMessage `json:"changes"`
 }
 
+// SaveOntologyProjectChangesRequest captures an atomic save request for
+// currently staged ontology working-state changes. Empty ChangeIDs saves every
+// staged change that passes validation.
+type SaveOntologyProjectChangesRequest struct {
+	ChangeIDs  []string   `json:"change_ids"`
+	BranchID   *uuid.UUID `json:"branch_id"`
+	ProposalID *uuid.UUID `json:"proposal_id"`
+	Note       string     `json:"note"`
+}
+
+// OntologyProjectSavedChangeRecord records a committed working-state save.
+type OntologyProjectSavedChangeRecord struct {
+	ID               uuid.UUID       `json:"id" db:"id"`
+	ProjectID        uuid.UUID       `json:"project_id" db:"project_id"`
+	ChangeIDs        json.RawMessage `json:"change_ids" db:"change_ids"`
+	Resources        json.RawMessage `json:"resources" db:"resources"`
+	Changes          json.RawMessage `json:"changes" db:"changes"`
+	BranchID         *uuid.UUID      `json:"branch_id" db:"branch_id"`
+	ProposalID       *uuid.UUID      `json:"proposal_id" db:"proposal_id"`
+	Status           string          `json:"status" db:"status"`
+	ValidationErrors json.RawMessage `json:"validation_errors" db:"validation_errors"`
+	ErrorDetails     json.RawMessage `json:"error_details" db:"error_details"`
+	Note             string          `json:"note" db:"note"`
+	SavedBy          uuid.UUID       `json:"saved_by" db:"saved_by"`
+	SavedAt          time.Time       `json:"saved_at" db:"saved_at"`
+}
+
+type ListOntologyProjectSavedChangeRecordsResponse struct {
+	Data []OntologyProjectSavedChangeRecord `json:"data"`
+}
+
+type SaveOntologyProjectChangesResponse struct {
+	Record       OntologyProjectSavedChangeRecord `json:"record"`
+	WorkingState OntologyProjectWorkingState      `json:"working_state"`
+}
+
 // OntologyProjectBranch mirrors `struct OntologyProjectBranch`.
 type OntologyProjectBranch struct {
 	ID                  uuid.UUID       `json:"id"                   db:"id"`
@@ -306,15 +342,15 @@ type ListOntologyProjectProposalsResponse struct {
 
 // OntologyProjectMigration mirrors `struct OntologyProjectMigration`.
 type OntologyProjectMigration struct {
-	ID                uuid.UUID       `json:"id"                 db:"id"`
-	ProjectID         uuid.UUID       `json:"project_id"         db:"project_id"`
-	SourceProjectID   uuid.UUID       `json:"source_project_id"  db:"source_project_id"`
-	TargetProjectID   uuid.UUID       `json:"target_project_id"  db:"target_project_id"`
-	Resources         json.RawMessage `json:"resources"          db:"resources"`
-	SubmittedAt       time.Time       `json:"submitted_at"       db:"submitted_at"`
-	Status            string          `json:"status"             db:"status"`
-	Note              string          `json:"note"               db:"note"`
-	SubmittedBy       uuid.UUID       `json:"submitted_by"       db:"submitted_by"`
+	ID              uuid.UUID       `json:"id"                 db:"id"`
+	ProjectID       uuid.UUID       `json:"project_id"         db:"project_id"`
+	SourceProjectID uuid.UUID       `json:"source_project_id"  db:"source_project_id"`
+	TargetProjectID uuid.UUID       `json:"target_project_id"  db:"target_project_id"`
+	Resources       json.RawMessage `json:"resources"          db:"resources"`
+	SubmittedAt     time.Time       `json:"submitted_at"       db:"submitted_at"`
+	Status          string          `json:"status"             db:"status"`
+	Note            string          `json:"note"               db:"note"`
+	SubmittedBy     uuid.UUID       `json:"submitted_by"       db:"submitted_by"`
 }
 
 // CreateOntologyProjectMigrationRequest mirrors the same struct.

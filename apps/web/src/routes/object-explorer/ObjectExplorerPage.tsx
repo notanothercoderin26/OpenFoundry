@@ -5,10 +5,16 @@ import {
   createObjectSet,
   evaluateObjectSet,
   getObjectView,
+  groupLinkedObjectsByLinkType,
+  listActionTypes,
   listObjectSets,
   listObjectTypes,
+  listTypeInterfaces,
   materializeObjectSet,
   searchOntology,
+  mergeApplicableInterfaceActions,
+  objectViewFullHref,
+  objectViewTitle,
   type ObjectSetDefinition,
   type ObjectSetEvaluationResponse,
   type ObjectType,
@@ -76,16 +82,6 @@ function formatValue(value: unknown) {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return JSON.stringify(value);
-}
-
-function displayObjectTitle(view: ObjectViewResponse | null, type: ObjectType | undefined) {
-  if (!view) return 'No object selected';
-  const primary = type?.primary_key_property;
-  if (primary && view.object.properties?.[primary] !== undefined) {
-    return String(view.object.properties[primary]);
-  }
-  const summaryName = view.summary.name ?? view.summary.title ?? view.summary.display_name;
-  return typeof summaryName === 'string' && summaryName ? summaryName : shortId(view.object.id, 12);
 }
 
 function uniqueRecentKey(item: RecentItem) {
@@ -164,6 +160,7 @@ export function ObjectExplorerPage() {
   const selectedAction = selectedObject?.applicable_actions.find((action) => action.id === selectedActionId) ?? null;
   const summaryEntries = selectedObject ? Object.entries(selectedObject.summary).slice(0, 8) : [];
   const propertyEntries = selectedObject ? Object.entries(selectedObject.object.properties ?? {}).slice(0, 12) : [];
+  const linkedObjectGroups = useMemo(() => groupLinkedObjectsByLinkType(selectedObject?.neighbors ?? []), [selectedObject?.neighbors]);
   const evaluationRows = evaluation?.rows.slice(0, 8) ?? [];
 
   async function refreshObjectSets() {
@@ -227,8 +224,14 @@ export function ObjectExplorerPage() {
     setPreviewLoading(true);
     try {
       const view = await getObjectView(result.object_type_id, result.id);
-      setSelectedObject(view);
-      setSelectedActionId(view.applicable_actions[0]?.id ?? '');
+      const [implementedInterfaces, allActions] = await Promise.all([
+        listTypeInterfaces(result.object_type_id).catch(() => []),
+        listActionTypes({ per_page: 200 }).then((response) => response.data).catch(() => []),
+      ]);
+      const applicableActions = mergeApplicableInterfaceActions(view.applicable_actions, allActions, implementedInterfaces);
+      const nextView = { ...view, applicable_actions: applicableActions };
+      setSelectedObject(nextView);
+      setSelectedActionId(applicableActions[0]?.id ?? '');
     } catch (cause) {
       setPreviewError(cause instanceof Error ? cause.message : 'Failed to load object view');
     } finally {
@@ -440,7 +443,7 @@ export function ObjectExplorerPage() {
 
           <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
             <PanelHeader
-              label="Object preview"
+              label="Panel Object View"
               value={selectedObject ? `${selectedObject.neighbors.length} links` : previewLoading ? 'Loading' : 'Idle'}
             />
 
@@ -459,7 +462,7 @@ export function ObjectExplorerPage() {
                     <div style={{ minWidth: 0 }}>
                       <p className="of-eyebrow">{selectedType?.display_name ?? selectedObject.object.object_type_id}</p>
                       <h2 className="of-heading-md" style={{ marginTop: 4 }}>
-                        {displayObjectTitle(selectedObject, selectedType)}
+                        {objectViewTitle(selectedObject.object, selectedType)}
                       </h2>
                       <p className="of-text-muted" style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                         {selectedObject.object.id}
@@ -467,6 +470,9 @@ export function ObjectExplorerPage() {
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       <span className="of-chip">{selectedObject.object.marking ?? 'unmarked'}</span>
+                      <Link to={objectViewFullHref(selectedObject.object)} className="of-button of-button--primary">
+                        Open full Object View
+                      </Link>
                       <Link to={`/ontology/${selectedObject.object.object_type_id}`} className="of-button">
                         Open type
                       </Link>
@@ -493,15 +499,18 @@ export function ObjectExplorerPage() {
                 <section className="of-panel-muted" style={{ padding: 12, display: 'grid', gap: 8 }}>
                   <PanelHeader label="Linked objects" value={`${selectedObject.neighbors.length}`} />
                   <div style={{ display: 'grid', gap: 6, maxHeight: 210, overflow: 'auto' }}>
-                    {selectedObject.neighbors.slice(0, 12).map((neighbor) => (
-                      <div key={neighbor.link_id} className="of-card" style={{ padding: 8 }}>
+                    {linkedObjectGroups.slice(0, 6).map((group) => (
+                      <div key={group.link_type_id} className="of-card" style={{ padding: 8, display: 'grid', gap: 6 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                          <strong>{neighbor.link_name}</strong>
-                          <span className="of-chip">{neighbor.direction}</span>
+                          <strong>{group.link_name}</strong>
+                          <span className="of-chip">{group.outbound.length} out · {group.inbound.length} in</span>
                         </div>
-                        <p className="of-text-muted" style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                          {shortId(neighbor.object.id, 14)}
-                        </p>
+                        {group.items.slice(0, 3).map((neighbor) => (
+                          <Link key={`${neighbor.link_id}-${neighbor.object.id}`} to={objectViewFullHref(neighbor.object)} className="of-link" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
+                            <span>{objectViewTitle(neighbor.object)}</span>
+                            <span className="of-text-muted">{neighbor.direction}</span>
+                          </Link>
+                        ))}
                       </div>
                     ))}
                     {selectedObject.neighbors.length === 0 && <EmptyState label="No linked objects." compact />}

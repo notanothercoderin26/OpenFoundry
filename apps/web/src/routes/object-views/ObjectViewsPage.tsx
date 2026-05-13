@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import {
+  buildCoreObjectViews,
   createObjectView,
   getObjectView,
   listActionTypes,
+  listTypeInterfaces,
+  mergeApplicableInterfaceActions,
+  listLinkTypes,
   listObjectViews,
   listObjects,
   listObjectTypes,
   listProperties,
   type ActionType,
   type CreateObjectViewBody,
+  type LinkType,
   type ObjectInstance,
   type ObjectType,
   type ObjectViewConfig,
@@ -469,6 +474,7 @@ export function ObjectViewsPage() {
   const [actions, setActions] = useState<ActionType[]>([]);
   const [objects, setObjects] = useState<ObjectInstance[]>([]);
   const [objectViews, setObjectViews] = useState<ObjectViewDefinition[]>([]);
+  const [linkTypes, setLinkTypes] = useState<LinkType[]>([]);
   const [objectViewsTotal, setObjectViewsTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -537,6 +543,7 @@ export function ObjectViewsPage() {
       setProperties([]);
       setObjects([]);
       setActions([]);
+      setLinkTypes([]);
       setObjectViews([]);
       setObjectViewsTotal(0);
       setSelectedObjectId('');
@@ -546,14 +553,25 @@ export function ObjectViewsPage() {
     async function loadType() {
       setCatalogError('');
       try {
-        const [propRes, objRes, actionRes, viewRes] = await Promise.all([
+        const [propRes, objRes, actionRes, allActionRes, interfaceRes, linkRes, viewRes] = await Promise.all([
           listProperties(selectedTypeId),
           listObjects(selectedTypeId, { page: 1, per_page: 50 }),
           listActionTypes({ object_type_id: selectedTypeId, page: 1, per_page: 50 }).catch(() => ({
-            data: [],
+            data: [] as ActionType[],
             total: 0,
             page: 1,
             per_page: 50,
+          })),
+          listActionTypes({ page: 1, per_page: 200 }).catch(() => ({
+            data: [] as ActionType[],
+            total: 0,
+            page: 1,
+            per_page: 200,
+          })),
+          listTypeInterfaces(selectedTypeId).catch(() => []),
+          listLinkTypes({ object_type_id: selectedTypeId, page: 1, per_page: 100 }).catch(() => ({
+            data: [],
+            total: 0,
           })),
           listObjectViews({ object_type_id: selectedTypeId, page: 1, per_page: 200 }).catch((cause) => {
             if (!cancelled) setCatalogError(cause instanceof Error ? cause.message : 'Failed to load object views');
@@ -563,7 +581,8 @@ export function ObjectViewsPage() {
         if (cancelled) return;
         setProperties(propRes);
         setObjects(objRes.data);
-        setActions(actionRes.data);
+        setActions(mergeApplicableInterfaceActions(actionRes.data, allActionRes.data, interfaceRes));
+        setLinkTypes(linkRes.data);
         setObjectViews(viewRes.data);
         setObjectViewsTotal(viewRes.total ?? viewRes.data.length);
         setSelectedObjectId((current) =>
@@ -602,9 +621,21 @@ export function ObjectViewsPage() {
     };
   }, [selectedTypeId, selectedObjectId]);
 
+  const coreObjectViews = useMemo(
+    () =>
+      selectedType
+        ? buildCoreObjectViews({
+            objectTypes: [selectedType],
+            propertiesByObjectType: { [selectedType.id]: properties },
+            linkTypes,
+          })
+        : [],
+    [selectedType, properties, linkTypes],
+  );
+
   const availableViews = useMemo(
-    () => objectViews.filter((view) => view.form_factor === activeFormFactor),
-    [activeFormFactor, objectViews],
+    () => [...coreObjectViews, ...objectViews].filter((view) => view.form_factor === activeFormFactor),
+    [activeFormFactor, coreObjectViews, objectViews],
   );
   const publishedVersion = availableViews.find(isPublished) ?? null;
 
@@ -751,7 +782,7 @@ export function ObjectViewsPage() {
 
       <section className="of-panel" style={{ display: 'grid', gap: 12, padding: 16 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <span className="of-chip">Object views {objectViewsTotal}</span>
+          <span className="of-chip">Object views {objectViewsTotal + coreObjectViews.length}</span>
           <span className="of-chip">Object types {objectTypes.length}</span>
           <span className="of-chip">Properties {properties.length}</span>
           <span className="of-chip">Actions {actions.length}</span>
@@ -1059,7 +1090,7 @@ export function ObjectViewsPage() {
             <div>
               <p className="of-eyebrow">Saved object views ({activeFormFactor})</p>
               <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
-                Backed by GET /object-views for {selectedType?.display_name ?? 'the selected type'}.
+                Core Object Views are generated from the current object type config and remain available alongside saved custom views.
               </p>
             </div>
             <button type="button" onClick={() => setCreateModalOpen(true)} className="of-button" disabled={busy}>
@@ -1090,7 +1121,8 @@ export function ObjectViewsPage() {
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
                       <span className="of-chip">{view.form_factor}</span>
-                      {isPublished(view) ? <span className="of-chip of-status-success">Published</span> : null}
+                      {view.status === 'core' ? <span className="of-chip of-status-success">Core</span> : null}
+                      {isPublished(view) && view.status !== 'core' ? <span className="of-chip of-status-success">Published</span> : null}
                       <button type="button" onClick={() => loadObjectView(view)} className="of-button" style={{ fontSize: 12 }}>
                         Load
                       </button>

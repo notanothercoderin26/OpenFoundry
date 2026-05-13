@@ -143,6 +143,28 @@ func TestCreateObjectTypeBindingPropertyMappingDefault(t *testing.T) {
 	assert.Equal(t, []ObjectTypeBindingPropertyMapping{}, r.PropertyMapping)
 }
 
+func TestObjectTypeBindingPropertyMappingDatasourceProvenance(t *testing.T) {
+	body := `{
+	  "source_field": "risk_score",
+	  "target_property": "risk",
+	  "transform": "to_number",
+	  "datasource_id": "22222222-2222-2222-2222-222222222222",
+	  "restricted_view_id": "33333333-3333-3333-3333-333333333333",
+	  "null_when_inaccessible": true
+	}`
+	var mapping ObjectTypeBindingPropertyMapping
+	require.NoError(t, json.Unmarshal([]byte(body), &mapping))
+	assert.Equal(t, "risk_score", mapping.SourceField)
+	assert.Equal(t, "risk", mapping.TargetProperty)
+	if assert.NotNil(t, mapping.DatasourceID) {
+		assert.Equal(t, "22222222-2222-2222-2222-222222222222", mapping.DatasourceID.String())
+	}
+	if assert.NotNil(t, mapping.RestrictedViewID) {
+		assert.Equal(t, "33333333-3333-3333-3333-333333333333", mapping.RestrictedViewID.String())
+	}
+	assert.True(t, mapping.NullWhenInaccessible)
+}
+
 // libs/ontology-kernel/src/models/object_type_binding.rs
 // `MaterializeBindingResponse.error_details` is
 // `#[serde(skip_serializing_if = "Vec::is_empty")]` — empty omits.

@@ -54,6 +54,8 @@ func TestEndpointsRequireClaims(t *testing.T) {
 		{http.MethodDelete, "/ontology/projects/" + pid + "/resources/object_type/" + rid, ``, UnbindProjectResource(state)},
 		{http.MethodGet, "/ontology/projects/" + pid + "/working-state", ``, GetProjectWorkingState(state)},
 		{http.MethodPut, "/ontology/projects/" + pid + "/working-state", `{}`, ReplaceProjectWorkingState(state)},
+		{http.MethodGet, "/ontology/projects/" + pid + "/saved-changes", ``, ListProjectSavedChangeRecords(state)},
+		{http.MethodPost, "/ontology/projects/" + pid + "/save-changes", `{}`, SaveProjectOntologyChanges(state)},
 		{http.MethodGet, "/ontology/projects/" + pid + "/branches", ``, ListProjectBranches(state)},
 		{http.MethodPost, "/ontology/projects/" + pid + "/branches", `{}`, CreateProjectBranch(state)},
 		{http.MethodPatch, "/ontology/projects/" + pid + "/branches/" + bid, `{}`, UpdateProjectBranch(state)},
@@ -96,6 +98,8 @@ func TestMountRegistersEveryRoute(t *testing.T) {
 		"DELETE /ontology/projects/{id}/resources/{resource_kind}/{resource_id}",
 		"GET /ontology/projects/{id}/working-state",
 		"PUT /ontology/projects/{id}/working-state",
+		"GET /ontology/projects/{id}/saved-changes",
+		"POST /ontology/projects/{id}/save-changes",
 		"GET /ontology/projects/{id}/branches",
 		"POST /ontology/projects/{id}/branches",
 		"PATCH /ontology/projects/{id}/branches/{branch_id}",
@@ -108,6 +112,29 @@ func TestMountRegistersEveryRoute(t *testing.T) {
 	for _, key := range want {
 		assert.True(t, got[key], "missing route: %s", key)
 	}
+}
+
+func TestValidateStagedChangesForSave(t *testing.T) {
+	issues := validateStagedChangesForSave([]stagedChangeForSave{
+		{ID: "change-1", Kind: "object_type", Action: "create", Payload: map[string]any{"name": "bad-name"}},
+		{ID: "change-2", Kind: "link_type", Action: "create", Payload: map[string]any{"source_object_type_id": "source"}},
+		{ID: "change-3", Kind: "object_type_binding", Action: "update", Payload: map[string]any{"primary_key_column": "  "}},
+	})
+	codes := []string{}
+	for _, issue := range issues {
+		codes = append(codes, issue.Code)
+	}
+	assert.Contains(t, codes, "invalid_api_name")
+	assert.Contains(t, codes, "missing_link_target")
+	assert.Contains(t, codes, "missing_primary_key")
+	assert.Contains(t, codes, "object_view_impact")
+}
+
+func TestSelectStagedChangesForSave(t *testing.T) {
+	changes := []stagedChangeForSave{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	selected, remaining := selectStagedChangesForSave(changes, []string{"b"})
+	assert.Equal(t, []stagedChangeForSave{{ID: "b"}}, selected)
+	assert.Equal(t, []stagedChangeForSave{{ID: "a"}, {ID: "c"}}, remaining)
 }
 
 // libs/ontology-kernel/src/handlers/projects.rs `normalize_slug`.

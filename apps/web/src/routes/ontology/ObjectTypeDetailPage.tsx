@@ -1,19 +1,36 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import {
+  attachSharedPropertyType,
   createObject,
+  detachSharedPropertyType,
+  getObject,
   getObjectType,
+  listObjectTypeBindings,
   listActionTypes,
+  linkTypeCardinalityLabel,
+  linkTypeEndpointLabels,
   listLinkTypes,
+  listObjectTypes,
   listProperties,
   listRules,
+  listSharedPropertyTypes,
+  listTypeInterfaces,
   listTypeSharedPropertyTypes,
+  listValueTypes,
+  mergeApplicableInterfaceActions,
+  validateInterfaceActionRestrictions,
+  validateMultiDatasourcePrimaryKeys,
+  bindingDatasourceProvenance,
   type ActionType,
   type LinkType,
   type ObjectInstance,
+  type ObjectTypeBinding,
   type ObjectType,
+  type OntologyInterface,
   type OntologyRule,
+  type OntologyValueType,
   type Property,
   type SharedPropertyType,
 } from '@/lib/api/ontology';
@@ -95,9 +112,122 @@ function propertyCountLabel(count: number) {
   return `${count} propert${count === 1 ? 'y' : 'ies'}`;
 }
 
+function typeName(typeById: Map<string, ObjectType>, id: string) {
+  const type = typeById.get(id);
+  return type?.display_name || type?.name || id;
+}
+
+function ObjectTypeGraph({
+  currentTypeId,
+  links,
+  typeById,
+  selectedLinkId,
+  onSelectLink,
+}: {
+  currentTypeId: string;
+  links: LinkType[];
+  typeById: Map<string, ObjectType>;
+  selectedLinkId: string | null;
+  onSelectLink: (link: LinkType) => void;
+}) {
+  const connectedTypeIds = Array.from(new Set(links.flatMap((link) => [link.source_type_id, link.target_type_id])));
+  return (
+    <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <p className="of-eyebrow" style={{ margin: 0 }}>Object type graph</p>
+        <span className="of-chip">{links.length} links</span>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        {connectedTypeIds.map((typeId) => (
+          <span
+            key={typeId}
+            style={{
+              padding: '8px 10px',
+              borderRadius: 999,
+              border: typeId === currentTypeId ? '2px solid var(--status-info)' : '1px solid var(--border-subtle)',
+              background: typeId === currentTypeId ? 'rgba(45, 114, 210, 0.08)' : '#fff',
+              fontSize: 12,
+              fontWeight: typeId === currentTypeId ? 700 : 500,
+            }}
+          >
+            {typeName(typeById, typeId)}
+          </span>
+        ))}
+        {connectedTypeIds.length === 0 && <span className="of-text-muted" style={{ fontSize: 12 }}>No linked object types yet.</span>}
+      </div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {links.map((link) => {
+          const labels = linkTypeEndpointLabels(link);
+          const selected = selectedLinkId === link.id;
+          return (
+            <button
+              key={link.id}
+              type="button"
+              onClick={() => onSelectLink(link)}
+              style={{
+                padding: 10,
+                border: selected ? '2px solid var(--status-info)' : '1px solid var(--border-subtle)',
+                borderRadius: 8,
+                background: selected ? 'rgba(45, 114, 210, 0.06)' : '#fff',
+                textAlign: 'left',
+                cursor: 'pointer',
+              }}
+            >
+              <strong>{typeName(typeById, link.source_type_id)} → {typeName(typeById, link.target_type_id)}</strong>
+              <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+                {link.display_name} · {linkTypeCardinalityLabel(link.cardinality)} · {labels.forward} / {labels.reverse}
+                {link.source_type_id === link.target_type_id ? ' · self-link' : ''}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function LinkTypeDetail({ link, typeById, activeTab, onTabChange }: { link: LinkType | null; typeById: Map<string, ObjectType>; activeTab: 'overview' | 'datasource'; onTabChange: (tab: 'overview' | 'datasource') => void }) {
+  if (!link) {
+    return <section className="of-panel" style={{ padding: 16 }}><p className="of-text-muted">Select a link type to inspect.</p></section>;
+  }
+  const labels = linkTypeEndpointLabels(link);
+  return (
+    <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
+      <div>
+        <p className="of-eyebrow" style={{ margin: 0 }}>Link type detail</p>
+        <h3 style={{ margin: '4px 0 0' }}>{link.display_name}</h3>
+        <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>{link.name}</p>
+      </div>
+      <Tabs
+        tabs={[{ id: 'overview', label: 'Overview' }, { id: 'datasource', label: 'Datasource' }] as const}
+        active={activeTab}
+        onChange={onTabChange}
+      />
+      {activeTab === 'overview' ? (
+        <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, margin: 0, fontSize: 12 }}>
+          <div><dt className="of-text-muted">Source</dt><dd style={{ margin: 0 }}>{typeName(typeById, link.source_type_id)}</dd></div>
+          <div><dt className="of-text-muted">Target</dt><dd style={{ margin: 0 }}>{typeName(typeById, link.target_type_id)}</dd></div>
+          <div><dt className="of-text-muted">Cardinality</dt><dd style={{ margin: 0 }}>{linkTypeCardinalityLabel(link.cardinality)}</dd></div>
+          <div><dt className="of-text-muted">Visibility</dt><dd style={{ margin: 0 }}>{link.visibility || 'normal'}</dd></div>
+          <div><dt className="of-text-muted">Forward label</dt><dd style={{ margin: 0 }}>{labels.forward}</dd></div>
+          <div><dt className="of-text-muted">Reverse label</dt><dd style={{ margin: 0 }}>{labels.reverse}</dd></div>
+        </dl>
+      ) : (
+        <dl style={{ display: 'grid', gap: 8, margin: 0, fontSize: 12 }}>
+          <div><dt className="of-text-muted">Datasource</dt><dd style={{ margin: 0, fontFamily: 'var(--font-mono)' }}>{link.link_datasource_mapping?.datasource_id || 'Not mapped'}</dd></div>
+          <div><dt className="of-text-muted">Source key</dt><dd style={{ margin: 0 }}>{link.link_datasource_mapping?.source_key || '—'}</dd></div>
+          <div><dt className="of-text-muted">Target key</dt><dd style={{ margin: 0 }}>{link.link_datasource_mapping?.target_key || '—'}</dd></div>
+          <pre style={{ margin: 0, padding: 10, background: 'var(--bg-subtle)', borderRadius: 8, overflow: 'auto' }}>{JSON.stringify(link.link_datasource_mapping || {}, null, 2)}</pre>
+        </dl>
+      )}
+    </section>
+  );
+}
+
 export function ObjectTypeDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>('overview');
   const [dependentKind, setDependentKind] = useState<DependentKind>('workshop');
   const [saveAsOpen, setSaveAsOpen] = useState(false);
@@ -105,9 +235,17 @@ export function ObjectTypeDetailPage() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [objectsReload, setObjectsReload] = useState(0);
   const [actions, setActions] = useState<ActionType[]>([]);
+  const [implementedInterfaces, setImplementedInterfaces] = useState<OntologyInterface[]>([]);
+  const [objectTypeBindings, setObjectTypeBindings] = useState<ObjectTypeBinding[]>([]);
   const [links, setLinks] = useState<LinkType[]>([]);
+  const [allTypes, setAllTypes] = useState<ObjectType[]>([]);
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
+  const [linkDetailTab, setLinkDetailTab] = useState<'overview' | 'datasource'>('overview');
   const [rules, setRules] = useState<OntologyRule[]>([]);
   const [shared, setShared] = useState<SharedPropertyType[]>([]);
+  const [allShared, setAllShared] = useState<SharedPropertyType[]>([]);
+  const [valueTypes, setValueTypes] = useState<OntologyValueType[]>([]);
+  const [sharedToAttach, setSharedToAttach] = useState("");
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [datasourceSettings, setDatasourceSettings] = useState<DatasourceSettings>({ ...DEFAULT_DATASOURCE_SETTINGS });
   const [datasourceDirty, setDatasourceDirty] = useState(false);
@@ -125,7 +263,14 @@ export function ObjectTypeDetailPage() {
     setLoading(true);
     setError('');
     try {
-      setType(await getObjectType(id));
+      const [loadedType, linkedTypes, typeCatalog] = await Promise.all([
+        getObjectType(id),
+        listLinkTypes({ object_type_id: id, per_page: 100 }),
+        listObjectTypes({ per_page: 500 }),
+      ]);
+      setType(loadedType);
+      setLinks(linkedTypes.data);
+      setAllTypes(typeCatalog.data);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to load type');
     } finally {
@@ -140,7 +285,13 @@ export function ObjectTypeDetailPage() {
 
   async function ensureActions() {
     if (!id || actions.length > 0) return;
-    setActions((await listActionTypes({ object_type_id: id, per_page: 100 })).data);
+    const [objectActionRes, allActionRes, interfaces] = await Promise.all([
+      listActionTypes({ object_type_id: id, per_page: 100 }),
+      listActionTypes({ per_page: 200 }),
+      listTypeInterfaces(id).catch(() => []),
+    ]);
+    setImplementedInterfaces(interfaces);
+    setActions(mergeApplicableInterfaceActions(objectActionRes.data, allActionRes.data, interfaces));
   }
 
   async function loadTab(next: Tab) {
@@ -148,12 +299,23 @@ export function ObjectTypeDetailPage() {
     if (!id) return;
     setError('');
     try {
-      if (next === 'properties' || next === 'objects') await ensureProperties();
+      if (next === 'properties' || next === 'objects') {
+        await ensureProperties();
+        if (valueTypes.length === 0) setValueTypes((await listValueTypes()).data);
+      }
       if (next === 'objects' || next === 'actions') await ensureActions();
       if (next === 'links' && links.length === 0) setLinks((await listLinkTypes({ object_type_id: id, per_page: 100 })).data);
       if (next === 'rules' && rules.length === 0) setRules((await listRules({ object_type_id: id })).data);
-      if (next === 'shared' && shared.length === 0) setShared(await listTypeSharedPropertyTypes(id));
+      if (next === 'shared') {
+        if (shared.length === 0) setShared(await listTypeSharedPropertyTypes(id));
+        if (allShared.length === 0) {
+          const response = await listSharedPropertyTypes({ per_page: 200 });
+          setAllShared(response.data);
+          setSharedToAttach((current) => current || response.data[0]?.id || '');
+        }
+      }
       if (next === 'datasources') {
+        setObjectTypeBindings((await listObjectTypeBindings(id).catch(() => ({ data: [] }))).data);
         if (datasets.length === 0) {
           try {
             const response = await listDatasets({ per_page: 100 });
@@ -174,12 +336,49 @@ export function ObjectTypeDetailPage() {
   useEffect(() => {
     setProperties([]);
     setActions([]);
+    setImplementedInterfaces([]);
+    setObjectTypeBindings([]);
     setLinks([]);
+    setAllTypes([]);
+    setSelectedLinkId(null);
     setRules([]);
     setShared([]);
+    setAllShared([]);
+    setValueTypes([]);
+    setSharedToAttach('');
     setSelectedObject(null);
     void loadOverview();
   }, [id]);
+
+  useEffect(() => {
+    const objectId = searchParams.get('object');
+    if (!id || !objectId || selectedObject?.id === objectId) return;
+    const activeObjectId = objectId;
+
+    let cancelled = false;
+    async function loadDeepLinkedObject() {
+      try {
+        const loaded = await getObject(id, activeObjectId);
+        if (!cancelled) setSelectedObject(loaded);
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Failed to open object view');
+      }
+    }
+
+    void loadDeepLinkedObject();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, searchParams, selectedObject?.id]);
+
+  function closeObjectView() {
+    setSelectedObject(null);
+    if (searchParams.has('object')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('object');
+      setSearchParams(next, { replace: true });
+    }
+  }
 
   async function createObj() {
     if (!type) return;
@@ -202,6 +401,21 @@ export function ObjectTypeDetailPage() {
     setSelectedObject(next);
     setObjectsReload((value) => value + 1);
   }
+
+  async function attachSharedToType() {
+    if (!id || !sharedToAttach) return;
+    await attachSharedPropertyType(id, sharedToAttach);
+    setShared(await listTypeSharedPropertyTypes(id));
+  }
+
+  async function detachSharedFromType(sharedPropertyId: string) {
+    if (!id) return;
+    await detachSharedPropertyType(id, sharedPropertyId);
+    setShared((current) => current.filter((property) => property.id !== sharedPropertyId));
+  }
+
+  const typeById = useMemo(() => new Map(allTypes.map((entry) => [entry.id, entry])), [allTypes]);
+  const selectedLink = useMemo(() => links.find((link) => link.id === selectedLinkId) ?? links[0] ?? null, [links, selectedLinkId]);
 
   if (loading) {
     return (
@@ -298,6 +512,13 @@ export function ObjectTypeDetailPage() {
               <p style={{ margin: '4px 0 0', fontSize: 12 }}>{formatDate(type.updated_at)}</p>
             </div>
           </div>
+          <ObjectTypeGraph
+            currentTypeId={type.id}
+            links={links}
+            typeById={typeById}
+            selectedLinkId={selectedLink?.id ?? null}
+            onSelectLink={(link) => { setSelectedLinkId(link.id); setLinkDetailTab('overview'); void loadTab('links'); }}
+          />
           <pre style={{ padding: 12, background: 'var(--bg-subtle)', fontSize: 11, fontFamily: 'var(--font-mono)', borderRadius: 8, overflow: 'auto' }}>
             {JSON.stringify(type, null, 2)}
           </pre>
@@ -403,6 +624,7 @@ export function ObjectTypeDetailPage() {
               property={property}
               typeId={type.id}
               isPrimaryKey={type.primary_key_property === property.name}
+              valueTypes={valueTypes}
               onUpdated={(updated) => setProperties((current) => current.map((item) => (item.id === updated.id ? updated : item)))}
             />
           ))}
@@ -431,7 +653,14 @@ export function ObjectTypeDetailPage() {
             properties={properties}
             editable
             reloadSignal={objectsReload}
-            onSelect={setSelectedObject}
+            onSelect={(object) => {
+              setSelectedObject(object);
+              setSearchParams((current) => {
+                const next = new URLSearchParams(current);
+                next.set('object', object.id);
+                return next;
+              }, { replace: true });
+            }}
             onObjectUpdated={handleObjectUpdated}
           />
         </div>
@@ -446,18 +675,25 @@ export function ObjectTypeDetailPage() {
             </button>
           </div>
           <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
-            {actions.map((action) => (
-              <li key={action.id}>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/action-types/${action.id}`)}
-                  style={{ width: '100%', padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 8, background: '#fff', cursor: 'pointer', textAlign: 'left' }}
-                >
-                  <strong>{action.display_name}</strong> <span className="of-text-muted">/ {action.name} / {action.operation_kind}</span>
-                  {action.description && <p className="of-text-muted" style={{ fontSize: 12, margin: '4px 0 0' }}>{action.description}</p>}
-                </button>
-              </li>
-            ))}
+            {actions.map((action) => {
+              const restriction = validateInterfaceActionRestrictions(action, { objectType: type });
+              const inherited = implementedInterfaces.some((iface) => action.object_type_id === iface.id || action.interface_id === iface.id);
+              return (
+                <li key={action.id}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/action-types/${action.id}`)}
+                    style={{ width: '100%', padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 8, background: '#fff', cursor: 'pointer', textAlign: 'left' }}
+                  >
+                    <strong>{action.display_name}</strong> <span className="of-text-muted">/ {action.name} / {action.operation_kind}</span>
+                    {inherited ? <span className="of-chip" style={{ marginLeft: 6 }}>interface action</span> : null}
+                    {action.description && <p className="of-text-muted" style={{ fontSize: 12, margin: '4px 0 0' }}>{action.description}</p>}
+                    {!restriction.valid ? <p style={{ color: '#b91c1c', fontSize: 12, margin: '4px 0 0' }}>{restriction.errors.join(' ')}</p> : null}
+                    {restriction.warnings.length > 0 ? <p style={{ color: '#b45309', fontSize: 12, margin: '4px 0 0' }}>{restriction.warnings.join(' ')}</p> : null}
+                  </button>
+                </li>
+              );
+            })}
             {actions.length === 0 && <li className="of-text-muted">No actions for this type.</li>}
           </ul>
         </section>
@@ -521,6 +757,53 @@ export function ObjectTypeDetailPage() {
                 <button type="button" className="of-button" onClick={() => setDatasetPickerOpen(true)} style={{ alignSelf: 'flex-start' }}>
                   <Glyph name="plus" size={12} /> Add new backing datasource
                 </button>
+              </div>
+            </div>
+
+            <div className="of-panel" style={{ padding: 0, overflow: 'hidden' }}>
+              <header style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Glyph name="database" size={14} tone="#5c7080" />
+                <strong style={{ fontSize: 14 }}>Multi-datasource mappings</strong>
+              </header>
+              <div style={{ padding: 16, display: 'grid', gap: 12 }}>
+                {(() => {
+                  const validation = validateMultiDatasourcePrimaryKeys(objectTypeBindings);
+                  const provenance = bindingDatasourceProvenance(objectTypeBindings);
+                  return (
+                    <>
+                      <p className="of-text-muted" style={{ fontSize: 12, margin: 0 }}>
+                        Multiple bindings can materialize or read through datasets/restricted views into one object type. Property provenance is tracked per mapping; inaccessible sources can be nulled when configured. Row-wise MDO patterns remain unsupported.
+                      </p>
+                      {validation.errors.map((issue) => (
+                        <div key={issue} className="of-status-danger" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>{issue}</div>
+                      ))}
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {objectTypeBindings.map((binding) => (
+                          <article key={binding.id} style={{ padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 8, background: '#fff' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <strong style={{ fontSize: 13 }}>{datasets.find((dataset) => dataset.id === binding.dataset_id)?.name || binding.dataset_id}</strong>
+                              <span className="of-chip">pk: {binding.primary_key_column}</span>
+                            </div>
+                            <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 11 }}>{binding.property_mapping.length} mapped properties · {binding.sync_mode}</p>
+                          </article>
+                        ))}
+                        {objectTypeBindings.length === 0 ? <p className="of-text-muted" style={{ fontSize: 12 }}>No object type bindings configured yet.</p> : null}
+                      </div>
+                      <details>
+                        <summary style={{ cursor: 'pointer', fontSize: 12 }}>Property provenance ({provenance.size})</summary>
+                        <dl style={{ display: 'grid', gap: 6, marginTop: 8, fontSize: 12 }}>
+                          {Array.from(provenance.entries()).map(([propertyName, sources]) => (
+                            <div key={propertyName} style={{ display: 'grid', gridTemplateColumns: '160px minmax(0, 1fr)', gap: 8 }}>
+                              <dt style={{ fontFamily: 'var(--font-mono)' }}>{propertyName}</dt>
+                              <dd style={{ margin: 0 }}>{sources.map((source) => `${source.dataset_id}.${source.source_field}${source.null_when_inaccessible ? ' (null if inaccessible)' : ''}`).join(', ')}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </details>
+                      <a href="/ontology-manager/bindings" className="of-button" style={{ justifySelf: 'start' }}>Open binding wizard</a>
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -659,20 +942,16 @@ export function ObjectTypeDetailPage() {
       })()}
 
       {tab === 'links' && (
-        <section className="of-panel" style={{ padding: 16 }}>
-          <p className="of-eyebrow">Link types ({links.length})</p>
-          <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
-            {links.map((link) => (
-              <li key={link.id} style={{ padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
-                <strong>{link.display_name}</strong> <span className="of-text-muted">/ {link.name}</span>
-                <p className="of-text-muted" style={{ fontSize: 12, margin: '4px 0 0' }}>
-                  {link.source_type_id} to {link.target_type_id} / {link.cardinality}
-                </p>
-              </li>
-            ))}
-            {links.length === 0 && <li className="of-text-muted">No links.</li>}
-          </ul>
-        </section>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(320px, 420px)', gap: 12 }}>
+          <ObjectTypeGraph
+            currentTypeId={type.id}
+            links={links}
+            typeById={typeById}
+            selectedLinkId={selectedLink?.id ?? null}
+            onSelectLink={(link) => { setSelectedLinkId(link.id); setLinkDetailTab('overview'); }}
+          />
+          <LinkTypeDetail link={selectedLink} typeById={typeById} activeTab={linkDetailTab} onTabChange={setLinkDetailTab} />
+        </div>
       )}
 
       {tab === 'rules' && (
@@ -690,12 +969,25 @@ export function ObjectTypeDetailPage() {
       )}
 
       {tab === 'shared' && (
-        <section className="of-panel" style={{ padding: 16 }}>
-          <p className="of-eyebrow">Shared property types ({shared.length})</p>
-          <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
+        <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
+          <div>
+            <p className="of-eyebrow">Shared property types ({shared.length})</p>
+            <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>Attach reusable property metadata to this object type.</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <select className="of-input" value={sharedToAttach} onChange={(event) => setSharedToAttach(event.target.value)} style={{ minWidth: 240 }}>
+              <option value="">Select shared property</option>
+              {allShared.filter((property) => !shared.some((attached) => attached.id === property.id)).map((property) => (
+                <option key={property.id} value={property.id}>{property.display_name} · {property.property_type}</option>
+              ))}
+            </select>
+            <button type="button" className="of-button of-button--primary" onClick={() => void attachSharedToType()} disabled={!sharedToAttach}>Attach</button>
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 8, fontSize: 12 }}>
             {shared.map((property) => (
-              <li key={property.id}>
-                <strong>{property.display_name}</strong> / {property.name} / {property.property_type}
+              <li key={property.id} style={{ padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span><strong>{property.display_name}</strong> / {property.name} / {property.property_type}</span>
+                <button type="button" className="of-button" onClick={() => void detachSharedFromType(property.id)}>Detach</button>
               </li>
             ))}
             {shared.length === 0 && <li className="of-text-muted">None attached.</li>}
@@ -711,7 +1003,8 @@ export function ObjectTypeDetailPage() {
         initialObject={selectedObject}
         properties={properties}
         actions={actions}
-        onClose={() => setSelectedObject(null)}
+        linkTypes={links}
+        onClose={closeObjectView}
         onObjectUpdated={handleObjectUpdated}
       />
 

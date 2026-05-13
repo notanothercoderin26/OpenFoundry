@@ -49,29 +49,33 @@ func ParseObjectTypeBindingSyncMode(s string) (ObjectTypeBindingSyncMode, error)
 // ObjectTypeBindingPropertyMapping mirrors `struct
 // ObjectTypeBindingPropertyMapping`.
 type ObjectTypeBindingPropertyMapping struct {
-	SourceField    string `json:"source_field"`
-	TargetProperty string `json:"target_property"`
+	SourceField          string     `json:"source_field"`
+	TargetProperty       string     `json:"target_property"`
+	Transform            *string    `json:"transform,omitempty"`
+	DatasourceID         *uuid.UUID `json:"datasource_id,omitempty"`
+	RestrictedViewID     *uuid.UUID `json:"restricted_view_id,omitempty"`
+	NullWhenInaccessible bool       `json:"null_when_inaccessible,omitempty"`
 }
 
 // ObjectTypeBindingRow mirrors `struct ObjectTypeBindingRow` —
 // persisted shape with raw JSONB columns kept as `json.RawMessage`.
 type ObjectTypeBindingRow struct {
-	ID                  uuid.UUID       `db:"id"`
-	ObjectTypeID        uuid.UUID       `db:"object_type_id"`
-	DatasetID           uuid.UUID       `db:"dataset_id"`
-	DatasetBranch       *string         `db:"dataset_branch"`
-	DatasetVersion      *int32          `db:"dataset_version"`
-	PrimaryKeyColumn    string          `db:"primary_key_column"`
-	PropertyMapping     json.RawMessage `db:"property_mapping"`
-	SyncMode            string          `db:"sync_mode"`
-	DefaultMarking      string          `db:"default_marking"`
-	PreviewLimit        int32           `db:"preview_limit"`
-	OwnerID             uuid.UUID       `db:"owner_id"`
-	LastMaterializedAt  *time.Time      `db:"last_materialized_at"`
-	LastRunStatus       *string         `db:"last_run_status"`
-	LastRunSummary      json.RawMessage `db:"last_run_summary"`
-	CreatedAt           time.Time       `db:"created_at"`
-	UpdatedAt           time.Time       `db:"updated_at"`
+	ID                 uuid.UUID       `db:"id"`
+	ObjectTypeID       uuid.UUID       `db:"object_type_id"`
+	DatasetID          uuid.UUID       `db:"dataset_id"`
+	DatasetBranch      *string         `db:"dataset_branch"`
+	DatasetVersion     *int32          `db:"dataset_version"`
+	PrimaryKeyColumn   string          `db:"primary_key_column"`
+	PropertyMapping    json.RawMessage `db:"property_mapping"`
+	SyncMode           string          `db:"sync_mode"`
+	DefaultMarking     string          `db:"default_marking"`
+	PreviewLimit       int32           `db:"preview_limit"`
+	OwnerID            uuid.UUID       `db:"owner_id"`
+	LastMaterializedAt *time.Time      `db:"last_materialized_at"`
+	LastRunStatus      *string         `db:"last_run_status"`
+	LastRunSummary     json.RawMessage `db:"last_run_summary"`
+	CreatedAt          time.Time       `db:"created_at"`
+	UpdatedAt          time.Time       `db:"updated_at"`
 }
 
 // ObjectTypeBinding mirrors `struct ObjectTypeBinding` (public API
@@ -157,13 +161,13 @@ func (r *CreateObjectTypeBindingRequest) UnmarshalJSON(b []byte) error {
 
 // UpdateObjectTypeBindingRequest mirrors `struct UpdateObjectTypeBindingRequest`.
 type UpdateObjectTypeBindingRequest struct {
-	DatasetBranch    *string                              `json:"dataset_branch,omitempty"`
-	DatasetVersion   *int32                               `json:"dataset_version,omitempty"`
-	PrimaryKeyColumn *string                              `json:"primary_key_column,omitempty"`
-	PropertyMapping  *[]ObjectTypeBindingPropertyMapping  `json:"property_mapping,omitempty"`
-	SyncMode         *ObjectTypeBindingSyncMode           `json:"sync_mode,omitempty"`
-	DefaultMarking   *string                              `json:"default_marking,omitempty"`
-	PreviewLimit     *int32                               `json:"preview_limit,omitempty"`
+	DatasetBranch    *string                             `json:"dataset_branch,omitempty"`
+	DatasetVersion   *int32                              `json:"dataset_version,omitempty"`
+	PrimaryKeyColumn *string                             `json:"primary_key_column,omitempty"`
+	PropertyMapping  *[]ObjectTypeBindingPropertyMapping `json:"property_mapping,omitempty"`
+	SyncMode         *ObjectTypeBindingSyncMode          `json:"sync_mode,omitempty"`
+	DefaultMarking   *string                             `json:"default_marking,omitempty"`
+	PreviewLimit     *int32                              `json:"preview_limit,omitempty"`
 }
 
 // MaterializeBindingRequest mirrors `struct MaterializeBindingRequest`.

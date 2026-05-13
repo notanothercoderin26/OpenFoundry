@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,8 @@ func Mount(r chi.Router, state *ontologykernel.AppState) {
 
 	r.Get("/ontology/projects/{id}/working-state", GetProjectWorkingState(state))
 	r.Put("/ontology/projects/{id}/working-state", ReplaceProjectWorkingState(state))
+	r.Get("/ontology/projects/{id}/saved-changes", ListProjectSavedChangeRecords(state))
+	r.Post("/ontology/projects/{id}/save-changes", SaveProjectOntologyChanges(state))
 
 	r.Get("/ontology/projects/{id}/branches", ListProjectBranches(state))
 	r.Post("/ontology/projects/{id}/branches", CreateProjectBranch(state))
@@ -71,13 +74,17 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func errBody(msg string) map[string]string { return map[string]string{"error": msg} }
 
-func unauthorized(w http.ResponseWriter)        { writeJSON(w, http.StatusUnauthorized, errBody("missing claims")) }
+func unauthorized(w http.ResponseWriter) {
+	writeJSON(w, http.StatusUnauthorized, errBody("missing claims"))
+}
 func badRequest(w http.ResponseWriter, m string) { writeJSON(w, http.StatusBadRequest, errBody(m)) }
 func forbidden(w http.ResponseWriter, m string)  { writeJSON(w, http.StatusForbidden, errBody(m)) }
 func notFound(w http.ResponseWriter, m string)   { writeJSON(w, http.StatusNotFound, errBody(m)) }
 func internalError(w http.ResponseWriter, m string) {
 	writeJSON(w, http.StatusInternalServerError, errBody(m))
 }
+
+var apiNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 func pathUUID(r *http.Request, key string) (uuid.UUID, error) {
 	raw := chi.URLParam(r, key)
@@ -913,6 +920,337 @@ func ReplaceProjectWorkingState(state *ontologykernel.AppState) http.HandlerFunc
 			return
 		}
 		writeJSON(w, http.StatusOK, ws)
+	}
+}
+
+type stagedChangeForSave struct {
+	ID        string         `json:"id"`
+	Kind      string         `json:"kind"`
+	Action    string         `json:"action"`
+	Label     string         `json:"label"`
+	TargetID  string         `json:"targetId"`
+	Payload   map[string]any `json:"payload"`
+	Warnings  []string       `json:"warnings"`
+	Errors    []string       `json:"errors"`
+	CreatedAt string         `json:"createdAt"`
+}
+
+type saveValidationIssue struct {
+	Severity string `json:"severity"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	ChangeID string `json:"change_id,omitempty"`
+}
+
+func decodeStagedChanges(raw json.RawMessage) ([]stagedChangeForSave, error) {
+	if len(raw) == 0 {
+		return []stagedChangeForSave{}, nil
+	}
+	changes := []stagedChangeForSave{}
+	if err := json.Unmarshal(raw, &changes); err != nil {
+		return nil, err
+	}
+	for i := range changes {
+		if changes[i].Payload == nil {
+			changes[i].Payload = map[string]any{}
+		}
+	}
+	return changes, nil
+}
+
+func selectStagedChangesForSave(changes []stagedChangeForSave, ids []string) ([]stagedChangeForSave, []stagedChangeForSave) {
+	if len(ids) == 0 {
+		return changes, []stagedChangeForSave{}
+	}
+	want := stagedChangeIDSet(ids)
+	selected := []stagedChangeForSave{}
+	remaining := []stagedChangeForSave{}
+	for _, change := range changes {
+		if want[change.ID] {
+			selected = append(selected, change)
+		} else {
+			remaining = append(remaining, change)
+		}
+	}
+	return selected, remaining
+}
+
+func validateStagedChangesForSave(changes []stagedChangeForSave) []saveValidationIssue {
+	issues := []saveValidationIssue{}
+	for _, change := range changes {
+		for _, message := range change.Warnings {
+			issues = append(issues, saveValidationIssue{Severity: "warning", Code: "existing_warning", Message: message, ChangeID: change.ID})
+		}
+		for _, message := range change.Errors {
+			issues = append(issues, saveValidationIssue{Severity: "error", Code: "existing_error", Message: message, ChangeID: change.ID})
+		}
+		name, _ := change.Payload["name"].(string)
+		if name == "" {
+			name, _ = change.Payload["api_name"].(string)
+		}
+		if name != "" && !apiNamePattern.MatchString(name) {
+			issues = append(issues, saveValidationIssue{Severity: "error", Code: "invalid_api_name", Message: "API names must start with a letter and contain only letters, numbers, and underscores", ChangeID: change.ID})
+		}
+		if change.Kind == "link_type" && change.Action != "delete" {
+			if change.Payload["source_object_type_id"] == nil && change.Payload["source_type_id"] == nil {
+				issues = append(issues, saveValidationIssue{Severity: "error", Code: "missing_link_source", Message: "link change is missing source object type", ChangeID: change.ID})
+			}
+			if change.Payload["target_object_type_id"] == nil && change.Payload["target_type_id"] == nil {
+				issues = append(issues, saveValidationIssue{Severity: "error", Code: "missing_link_target", Message: "link change is missing target object type", ChangeID: change.ID})
+			}
+		}
+		if change.Kind == "object_type_binding" && change.Action != "delete" {
+			if pk, _ := change.Payload["primary_key_column"].(string); strings.TrimSpace(pk) == "" {
+				issues = append(issues, saveValidationIssue{Severity: "error", Code: "missing_primary_key", Message: "datasource mapping change is missing primary_key_column", ChangeID: change.ID})
+			}
+		}
+		if mappings, ok := change.Payload["property_mapping"].([]any); ok {
+			seen := map[string]bool{}
+			for _, raw := range mappings {
+				mapping, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				source, _ := mapping["source_field"].(string)
+				target, _ := mapping["target_property"].(string)
+				if strings.TrimSpace(source) == "" {
+					issues = append(issues, saveValidationIssue{Severity: "error", Code: "missing_mapping_source", Message: "datasource mapping entry is missing source_field", ChangeID: change.ID})
+				}
+				if strings.TrimSpace(target) == "" {
+					issues = append(issues, saveValidationIssue{Severity: "error", Code: "missing_mapping_target", Message: "datasource mapping entry is missing target_property", ChangeID: change.ID})
+				}
+				if target != "" && seen[target] {
+					issues = append(issues, saveValidationIssue{Severity: "error", Code: "duplicate_mapping_target", Message: "datasource mapping targets the same property more than once", ChangeID: change.ID})
+				}
+				seen[target] = true
+			}
+		}
+		if change.Kind == "interface_implementation" {
+			if missing, ok := change.Payload["missing_properties"].([]any); ok && len(missing) > 0 {
+				issues = append(issues, saveValidationIssue{Severity: "error", Code: "missing_interface_properties", Message: "interface implementation is missing property mappings", ChangeID: change.ID})
+			}
+			if missing, ok := change.Payload["missing_link_constraints"].([]any); ok && len(missing) > 0 {
+				issues = append(issues, saveValidationIssue{Severity: "error", Code: "missing_interface_links", Message: "interface implementation is missing link mappings", ChangeID: change.ID})
+			}
+		}
+		if change.Kind == "object_view" {
+			if actionIDs, ok := change.Payload["action_ids"].([]any); ok {
+				for _, id := range actionIDs {
+					if id == nil || id == "" {
+						issues = append(issues, saveValidationIssue{Severity: "error", Code: "invalid_action_reference", Message: "object view action reference is empty", ChangeID: change.ID})
+					}
+				}
+			}
+		}
+		if change.Kind == "action_type" || change.Payload["operation_kind"] != nil {
+			if change.Payload["permission_key"] == nil && change.Payload["authorization_policy"] == nil {
+				issues = append(issues, saveValidationIssue{Severity: "warning", Code: "missing_permission_requirement", Message: "action change should declare permission requirements", ChangeID: change.ID})
+			}
+		}
+		if change.Kind == "object_type" || change.Kind == "property" || change.Kind == "link_type" {
+			issues = append(issues, saveValidationIssue{Severity: "warning", Code: "object_view_impact", Message: "review downstream Object View impacts before save", ChangeID: change.ID})
+		}
+	}
+	return issues
+}
+
+func hasSaveValidationErrors(issues []saveValidationIssue) bool {
+	for _, issue := range issues {
+		if issue.Severity == "error" {
+			return true
+		}
+	}
+	return false
+}
+
+func scanSavedChangeRecord(row pgx.Row) (models.OntologyProjectSavedChangeRecord, error) {
+	var record models.OntologyProjectSavedChangeRecord
+	err := row.Scan(
+		&record.ID, &record.ProjectID, &record.ChangeIDs, &record.Resources, &record.Changes,
+		&record.BranchID, &record.ProposalID, &record.Status, &record.ValidationErrors,
+		&record.ErrorDetails, &record.Note, &record.SavedBy, &record.SavedAt,
+	)
+	return record, err
+}
+
+const savedChangeRecordColumns = `id, project_id, change_ids, resources, changes, branch_id, proposal_id,
+                  status, validation_errors, error_details, note, saved_by, saved_at`
+
+func changeResourcesJSON(changes []stagedChangeForSave) json.RawMessage {
+	resources := []map[string]string{}
+	for _, change := range changes {
+		id := change.TargetID
+		if id == "" {
+			if payloadID, ok := change.Payload["id"].(string); ok {
+				id = payloadID
+			}
+		}
+		resources = append(resources, map[string]string{"kind": change.Kind, "id": id, "label": change.Label})
+	}
+	out, _ := json.Marshal(resources)
+	return out
+}
+
+func changeIDsJSON(changes []stagedChangeForSave) json.RawMessage {
+	ids := []string{}
+	for _, change := range changes {
+		ids = append(ids, change.ID)
+	}
+	out, _ := json.Marshal(ids)
+	return out
+}
+
+func stagedChangeIDSet(ids []string) map[string]bool {
+	out := map[string]bool{}
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
+}
+
+// ListProjectSavedChangeRecords returns saved ontology change history for review/restore flows.
+func ListProjectSavedChangeRecords(state *ontologykernel.AppState) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := authmw.FromContext(r.Context())
+		if !ok {
+			unauthorized(w)
+			return
+		}
+		projectID, err := pathUUID(r, "id")
+		if err != nil {
+			badRequest(w, "invalid path id")
+			return
+		}
+		if _, err := domain.EnsureProjectViewAccess(r.Context(), state.DB, claims, projectID); err != nil {
+			forbidden(w, err.Error())
+			return
+		}
+		rows, err := state.DB.Query(r.Context(), `SELECT `+savedChangeRecordColumns+`
+               FROM ontology_project_saved_change_records
+               WHERE project_id = $1
+               ORDER BY saved_at DESC`, projectID)
+		if err != nil {
+			internalError(w, "failed to list ontology saved change records: "+err.Error())
+			return
+		}
+		defer rows.Close()
+		data := []models.OntologyProjectSavedChangeRecord{}
+		for rows.Next() {
+			record, err := scanSavedChangeRecord(rows)
+			if err == nil {
+				data = append(data, record)
+			}
+		}
+		writeJSON(w, http.StatusOK, models.ListOntologyProjectSavedChangeRecordsResponse{Data: data})
+	}
+}
+
+// SaveProjectOntologyChanges atomically validates, records, and clears selected working-state changes.
+func SaveProjectOntologyChanges(state *ontologykernel.AppState) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := authmw.FromContext(r.Context())
+		if !ok {
+			unauthorized(w)
+			return
+		}
+		projectID, err := pathUUID(r, "id")
+		if err != nil {
+			badRequest(w, "invalid path id")
+			return
+		}
+		project, err := loadProject(r.Context(), state, projectID)
+		if err != nil {
+			internalError(w, err.Error())
+			return
+		}
+		if project == nil {
+			notFound(w, "ontology project not found")
+			return
+		}
+		if _, err := domain.EnsureProjectEditAccess(r.Context(), state.DB, claims, projectID); err != nil {
+			forbidden(w, err.Error())
+			return
+		}
+		var body models.SaveOntologyProjectChangesRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			badRequest(w, "invalid request body")
+			return
+		}
+		tx, err := state.DB.Begin(r.Context())
+		if err != nil {
+			internalError(w, "failed to start ontology save transaction: "+err.Error())
+			return
+		}
+		defer tx.Rollback(r.Context())
+
+		var ws models.OntologyProjectWorkingState
+		err = tx.QueryRow(r.Context(), `SELECT project_id, changes, updated_by, updated_at
+               FROM ontology_project_working_states
+               WHERE project_id = $1
+               FOR UPDATE`, projectID).Scan(&ws.ProjectID, &ws.Changes, &ws.UpdatedBy, &ws.UpdatedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			ws = models.OntologyProjectWorkingState{ProjectID: projectID, Changes: json.RawMessage(`[]`), UpdatedBy: claims.Sub, UpdatedAt: time.Now().UTC()}
+		} else if err != nil {
+			internalError(w, "failed to load ontology working state: "+err.Error())
+			return
+		}
+		changes, err := decodeStagedChanges(ws.Changes)
+		if err != nil {
+			internalError(w, "failed to decode ontology working state: "+err.Error())
+			return
+		}
+		selected, remaining := selectStagedChangesForSave(changes, body.ChangeIDs)
+		if len(selected) == 0 {
+			badRequest(w, "no working-state changes selected for save")
+			return
+		}
+		issues := validateStagedChangesForSave(selected)
+		issuesJSON, _ := json.Marshal(issues)
+		selectedJSON, _ := json.Marshal(selected)
+		remainingJSON, _ := json.Marshal(remaining)
+		recordID, err := uuid.NewV7()
+		if err != nil {
+			internalError(w, err.Error())
+			return
+		}
+		hasErrors := hasSaveValidationErrors(issues)
+		status := "saved"
+		if hasErrors {
+			status = "failed"
+		}
+		record, err := scanSavedChangeRecord(tx.QueryRow(r.Context(), `INSERT INTO ontology_project_saved_change_records
+               (id, project_id, change_ids, resources, changes, branch_id, proposal_id, status, validation_errors, error_details, note, saved_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'null'::jsonb, $10, $11)
+               RETURNING `+savedChangeRecordColumns,
+			recordID, projectID, changeIDsJSON(selected), changeResourcesJSON(selected), json.RawMessage(selectedJSON),
+			body.BranchID, body.ProposalID, status, json.RawMessage(issuesJSON), body.Note, claims.Sub))
+		if err != nil {
+			internalError(w, "failed to persist ontology save record: "+err.Error())
+			return
+		}
+		if hasErrors {
+			if err := tx.Commit(r.Context()); err != nil {
+				internalError(w, "failed to persist ontology validation record: "+err.Error())
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ontology changes failed validation", "record": record, "validation_errors": issues})
+			return
+		}
+		err = tx.QueryRow(r.Context(), `INSERT INTO ontology_project_working_states (project_id, changes, updated_by)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (project_id)
+               DO UPDATE SET changes = EXCLUDED.changes, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+               RETURNING project_id, changes, updated_by, updated_at`,
+			projectID, json.RawMessage(remainingJSON), claims.Sub).Scan(&ws.ProjectID, &ws.Changes, &ws.UpdatedBy, &ws.UpdatedAt)
+		if err != nil {
+			internalError(w, "failed to clear saved working-state changes: "+err.Error())
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			internalError(w, "failed to commit ontology save transaction: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, models.SaveOntologyProjectChangesResponse{Record: record, WorkingState: ws})
 	}
 }
 

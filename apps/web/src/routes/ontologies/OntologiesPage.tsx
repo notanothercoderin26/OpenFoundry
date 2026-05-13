@@ -20,10 +20,15 @@ import {
   listProjectMigrations,
   listProjectProposals,
   listProjectResources,
+  listProjectSavedChanges,
   listProjects,
   listRules,
   listSharedPropertyTypes,
   replaceProjectWorkingState,
+  reviewUnsavedOntologyChanges,
+  saveProjectOntologyChanges,
+  discardOntologyChange,
+  discardOntologyChangesOwnedBy,
   unbindProjectResource,
   updateProjectBranch,
   updateProjectProposal,
@@ -41,6 +46,7 @@ import {
   type OntologyProjectResourceBinding,
   type OntologyProjectRole,
   type OntologyProjectWorkingState,
+  type OntologySavedChangeRecord,
   type OntologyProposal,
   type OntologyRule,
   type SharedPropertyType,
@@ -65,6 +71,7 @@ interface ProjectContext {
   branches: OntologyBranch[];
   proposals: OntologyProposal[];
   migrations: OntologyProjectMigration[];
+  savedChanges: OntologySavedChangeRecord[];
 }
 
 interface ResourceOption {
@@ -81,6 +88,7 @@ const EMPTY_CONTEXT: ProjectContext = {
   branches: [],
   proposals: [],
   migrations: [],
+  savedChanges: [],
 };
 
 const RESOURCE_KIND_LABELS: Record<ResourceKind, string> = {
@@ -261,6 +269,11 @@ export function OntologiesPage() {
   );
 
   const workingChanges = context.workingState?.changes ?? [];
+  const currentUserId = context.workingState?.updated_by ?? '';
+  const changeReview = useMemo(
+    () => reviewUnsavedOntologyChanges(workingChanges, currentUserId),
+    [workingChanges, currentUserId],
+  );
   const activeBranches = context.branches.filter((branch) => !['merged', 'closed'].includes(branch.status));
   const openProposals = context.proposals.filter((proposal) => !['merged', 'closed'].includes(proposal.status));
 
@@ -311,15 +324,16 @@ export function OntologiesPage() {
     setContext(EMPTY_CONTEXT);
     setError('');
     try {
-      const [ws, memberships, resources, branches, proposals, migrations] = await Promise.all([
+      const [ws, memberships, resources, branches, proposals, migrations, savedChanges] = await Promise.all([
         getProjectWorkingState(projectId).catch(() => null),
         listProjectMemberships(projectId).catch(() => []),
         listProjectResources(projectId).catch(() => []),
         listProjectBranches(projectId).catch(() => []),
         listProjectProposals(projectId).catch(() => []),
         listProjectMigrations(projectId).catch(() => []),
+        listProjectSavedChanges(projectId).catch(() => []),
       ]);
-      setContext({ workingState: ws, memberships, resources, branches, proposals, migrations });
+      setContext({ workingState: ws, memberships, resources, branches, proposals, migrations, savedChanges });
       setProposalBranchId((current) => (current && branches.some((branch) => branch.id === current) ? current : branches[0]?.id ?? ''));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to load ontology project context');
@@ -532,6 +546,45 @@ export function OntologiesPage() {
       finishAction('Working state cleared');
     } catch (cause) {
       failAction(cause, 'Failed to clear working state');
+    }
+  }
+
+  async function discardChange(changeId: string) {
+    if (!selectedProjectId) return;
+    startAction(`discard-${changeId}`);
+    try {
+      await replaceProjectWorkingState(selectedProjectId, discardOntologyChange(workingChanges, changeId));
+      await loadProjectContext(selectedProjectId);
+      finishAction('Unsaved change discarded');
+    } catch (cause) {
+      failAction(cause, 'Failed to discard unsaved change');
+    }
+  }
+
+  async function discardMyChanges() {
+    if (!selectedProjectId || !currentUserId) return;
+    startAction('discard-my-working-state');
+    try {
+      await replaceProjectWorkingState(selectedProjectId, discardOntologyChangesOwnedBy(workingChanges, currentUserId));
+      await loadProjectContext(selectedProjectId);
+      finishAction('Your unsaved changes were discarded');
+    } catch (cause) {
+      failAction(cause, 'Failed to discard your unsaved changes');
+    }
+  }
+
+  async function saveWorkingChanges() {
+    if (!selectedProjectId || !changeReview.save_ready) return;
+    startAction('save-working-state');
+    try {
+      await saveProjectOntologyChanges(selectedProjectId, {
+        change_ids: changeReview.reviews.filter((review) => review.save_ready).map((review) => review.change.id),
+        note: `Saved ${changeReview.total} ontology changes from the project working state`,
+      });
+      await loadProjectContext(selectedProjectId);
+      finishAction('Ontology changes saved atomically');
+    } catch (cause) {
+      failAction(cause, 'Failed to save ontology changes');
     }
   }
 
@@ -1170,57 +1223,132 @@ export function OntologiesPage() {
             <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <div>
-                  <p className="of-eyebrow">Working state</p>
+                  <p className="of-eyebrow">Unsaved ontology changes</p>
                   <p className="of-text-muted" style={{ marginTop: 4 }}>
-                    Updated by {shortId(context.workingState?.updated_by)} at {formatDate(context.workingState?.updated_at)}
+                    Updated by {shortId(context.workingState?.updated_by)} at {formatDate(context.workingState?.updated_at)} · {changeReview.errors} errors · {changeReview.warnings} warnings
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void clearWorkingState()}
-                  disabled={workingChanges.length === 0 || busyAction === 'clear-working-state'}
-                  className="of-button"
-                >
-                  Clear changes
-                </button>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => void discardMyChanges()}
+                    disabled={changeReview.current_user_owned === 0 || busyAction === 'discard-my-working-state'}
+                    className="of-button"
+                  >
+                    Discard my changes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void clearWorkingState()}
+                    disabled={workingChanges.length === 0 || busyAction === 'clear-working-state'}
+                    className="of-button"
+                  >
+                    Clear all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveWorkingChanges()}
+                    disabled={!changeReview.save_ready || busyAction === 'save-working-state'}
+                    className="of-button of-button--primary"
+                  >
+                    Save changes
+                  </button>
+                </div>
               </div>
               {workingChanges.length === 0 ? (
-                <EmptyState title="No staged changes" detail="Working-state changes created by ontology design flows will appear here." />
+                <EmptyState title="No unsaved changes" detail="Working-state changes created by ontology design flows will appear here for review before saving." />
               ) : (
                 <div style={{ overflow: 'auto' }}>
-                  <table className="of-table" style={{ minWidth: 760 }}>
+                  <table className="of-table" style={{ minWidth: 1060 }}>
                     <thead>
                       <tr>
-                        <th>Change</th>
-                        <th>Kind</th>
-                        <th>Action</th>
-                        <th>Warnings</th>
-                        <th>Errors</th>
-                        <th>Created</th>
+                        <th>Changed resource</th>
+                        <th>Author</th>
+                        <th>Timestamp</th>
+                        <th>Diff summary</th>
+                        <th>Validation</th>
+                        <th>Save readiness</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {workingChanges.map((change) => (
-                        <tr key={change.id}>
+                      {changeReview.reviews.map((review) => (
+                        <tr key={review.change.id}>
                           <td>
-                            <p style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{change.label}</p>
+                            <p style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{review.change.label}</p>
                             <p className="of-text-muted" style={{ marginTop: 2, fontSize: 12 }}>
-                              {change.description || change.id}
+                              {review.resource_kind} · {review.resource_id || review.change.id}
                             </p>
                           </td>
-                          <td>{change.kind}</td>
-                          <td>{change.action}</td>
-                          <td>{change.warnings.length}</td>
-                          <td>{change.errors.length}</td>
-                          <td>{formatDate(change.createdAt)}</td>
+                          <td>{shortId(review.author)}</td>
+                          <td>{formatDate(review.timestamp)}</td>
+                          <td>{review.diff_summary}</td>
+                          <td>
+                            <span className={`of-chip ${review.validation_status === 'error' ? 'of-status-danger' : review.validation_status === 'warning' ? 'of-status-warning' : 'of-status-success'}`}>
+                              {review.validation_status}
+                            </span>
+                            {review.validation_issues.length > 0 ? (
+                              <ul style={{ margin: '6px 0 0', paddingLeft: 16, fontSize: 12 }}>
+                                {review.validation_issues.slice(0, 3).map((issue) => (
+                                  <li key={`${review.change.id}-${issue.code}-${issue.message}`}>{issue.message}</li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </td>
+                          <td>{review.save_ready ? 'Ready' : 'Blocked'}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="of-button"
+                              onClick={() => void discardChange(review.change.id)}
+                              disabled={busyAction === `discard-${review.change.id}`}
+                            >
+                              Discard
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               )}
+
+              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
+                <p className="of-eyebrow">Saved change records</p>
+                {context.savedChanges.length === 0 ? (
+                  <p className="of-text-muted" style={{ marginTop: 6 }}>No saved change records for this ontology project yet.</p>
+                ) : (
+                  <div style={{ overflow: 'auto', marginTop: 8 }}>
+                    <table className="of-table" style={{ minWidth: 820 }}>
+                      <thead>
+                        <tr>
+                          <th>Saved at</th>
+                          <th>Author</th>
+                          <th>Resources</th>
+                          <th>Branch / proposal</th>
+                          <th>Status</th>
+                          <th>Errors</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {context.savedChanges.map((record) => (
+                          <tr key={record.id}>
+                            <td>{formatDate(record.saved_at)}</td>
+                            <td>{shortId(record.saved_by)}</td>
+                            <td>{record.resources.map((resource) => resource.label || `${resource.kind}:${shortId(resource.id)}`).join(', ') || `${record.change_ids.length} changes`}</td>
+                            <td>{shortId(record.branch_id)} / {shortId(record.proposal_id)}</td>
+                            <td><span className={`of-chip ${statusClass(record.status)}`}>{record.status}</span></td>
+                            <td>{record.validation_errors.length}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </section>
           )}
+
         </main>
       </section>
     </section>

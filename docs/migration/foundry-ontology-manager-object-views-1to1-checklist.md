@@ -165,25 +165,25 @@ OpenFoundry canonical IDs.
 
 ### Ontology shell and resource discovery
 
-- [ ] `OMOV.1` Ontology and space relationship (`P0`, `todo`)
+- [x] `OMOV.1` Ontology and space relationship (`P0`, `done`)
   - Model an ontology as a space-scoped artifact with organization visibility and project/folder placement.
   - Support private and shared ontology access semantics in OpenFoundry-native terms.
   - Display ontology metadata, owning space, organizations, and linked resources from the Ontology Manager home page.
   - Docs: [Ontologies overview](https://www.palantir.com/docs/foundry/ontologies/ontologies-overview), [Ontology Manager overview](https://www.palantir.com/docs/foundry/ontology-manager/overview/index.html).
 
-- [ ] `OMOV.2` Ontology Manager application shell (`P0`, `todo`)
+- [x] `OMOV.2` Ontology Manager application shell (`P0`, `done`)
   - Provide navigation for object types, link types, action types, interfaces, shared properties, object type groups, Object Views, usage, unsaved changes, history, import/export, and cleanup.
   - Include global search, resource filters, recently edited resources, warning/error banners, and project/security context.
   - Docs: [Ontology Manager overview](https://www.palantir.com/docs/foundry/ontology-manager/overview/index.html), [Ontology Manager navigation](https://www.palantir.com/docs/foundry/ontology-manager/navigation).
 
-- [ ] `OMOV.3` Ontology resource registry (`P0`, `todo`)
+- [x] `OMOV.3` Ontology resource registry (`P0`, `done`)
   - Store object types, link types, action types, interfaces, shared properties, object type groups, Object Views, and backing datasource registrations as first-class resources.
   - Track API name, display name, plural display name where applicable, description, project/folder, visibility, status, branch state, usage count, and last edited metadata.
   - Docs: [Types reference](https://www.palantir.com/docs/foundry/object-link-types/type-reference), [Viewing usage](https://www.palantir.com/docs/foundry/ontology-manager/viewing-usage).
 
 ### Object types and properties
 
-- [ ] `OMOV.4` Object type creation helper (`P0`, `todo`)
+- [x] `OMOV.4` Object type creation helper (`P0`, `done`)
   - Implement guided object type creation with datasource selection, metadata, property generation, primary key, title key, group selection, save location, and optional generated actions handoff.
   - Support creating an object type without an existing datasource by selecting a location for a generated permissions dataset or OpenFoundry-native placeholder.
   - Warn when unsupported datasource column types cannot back object properties.
@@ -194,18 +194,18 @@ OpenFoundry canonical IDs.
   - Preserve API-name stability warnings once user applications or functions reference the object type.
   - Docs: [Create an object type](https://www.palantir.com/docs/foundry/object-link-types/create-object-type/), [Object type metadata reference](https://www.palantir.com/docs/foundry/object-link-types/object-type-metadata), [Object type groups](https://www.palantir.com/docs/foundry/object-link-types/type-groups/).
 
-- [ ] `OMOV.6` Property editor and datasource mapping (`P0`, `todo`)
+- [x] `OMOV.6` Property editor and datasource mapping (`P0`, `done`)
   - Add, edit, hide, delete, and map properties to backing datasource columns.
   - Support “add all unmapped columns,” map a column to a new property, primary key selection, title key selection, and type inference from datasource columns.
   - Validate API names, reserved words, duplicate property IDs, unsupported primary/title key types, and unmapped required keys.
   - Docs: [Create an object type](https://www.palantir.com/docs/foundry/object-link-types/create-object-type/), [Edit object type properties](https://www.palantir.com/docs/foundry/object-link-types/edit-object-type-properties), [Properties overview](https://www.palantir.com/docs/foundry/object-link-types/properties-overview/).
 
-- [ ] `OMOV.7` Property base types and metadata (`P0`, `todo`)
+- [x] `OMOV.7` Property base types and metadata (`P0`, `done`)
   - Support common primitive base types, decimal/numeric types, Boolean, date/time/timestamp, arrays where locally supported, geospatial/geohash/geoshape, media reference, time series reference, binary/file references, and object reference patterns.
   - Store whether each type is eligible for primary key, title key, filtering, sorting, aggregation, formatting, object security, and Object View prominent display.
   - Docs: [Properties overview](https://www.palantir.com/docs/foundry/object-link-types/properties-overview/), [Types reference](https://www.palantir.com/docs/foundry/object-link-types/type-reference).
 
-- [ ] `OMOV.8` Property formatting and visibility (`P0`, `todo`)
+- [x] `OMOV.8` Property formatting and visibility (`P0`, `done`)
   - Configure hidden, normal, and prominent property display modes.
   - Support value formatting, numeric/date/time formatting, conditional formatting, and property reducer metadata where OpenFoundry has rendering support.
   - Ensure Object Views react to hidden/prominent settings.
@@ -213,19 +213,19 @@ OpenFoundry canonical IDs.
 
 ### Link types, groups, and basic navigation
 
-- [ ] `OMOV.9` Link type creation and overview (`P0`, `todo`)
+- [x] `OMOV.9` Link type creation and overview (`P0`, `done`)
   - Create link types between object types, including self-links and links with one-to-one, one-to-many, many-to-one, and many-to-many cardinalities.
   - Configure source/target object types, display names, API names, descriptions, labels, reverse labels, visibility, and cardinality.
   - For many-to-many links, support link-datasource mapping and key mapping.
   - Docs: [Link types overview](https://www.palantir.com/docs/foundry/object-link-types/link-types-overview), [Create a link type](https://www.palantir.com/docs/foundry/object-link-types/create-link-type/).
 
-- [ ] `OMOV.10` Object type groups (`P0`, `todo`)
+- [x] `OMOV.10` Object type groups (`P0`, `done`)
   - Create, edit, delete, search, and permission object type groups.
   - Add/remove groups from object type metadata.
   - Show groups in Ontology Manager search/filtering and Object Explorer home pages.
   - Docs: [Object type groups](https://www.palantir.com/docs/foundry/object-link-types/type-groups/), [Configure Object Explorer](https://www.palantir.com/docs/foundry/object-explorer/configure).
 
-- [ ] `OMOV.11` Object detail drawer and object type graph (`P0`, `todo`)
+- [x] `OMOV.11` Object detail drawer and object type graph (`P0`, `done`)
   - From object type pages, show a graph of linked object types and link types.
   - Selecting a link from the graph should open the link type detail with overview and datasource tabs.
   - Object instance detail drawers should show title, primary key, prominent properties, normal properties, linked objects, and available actions.
@@ -233,83 +233,92 @@ OpenFoundry canonical IDs.
 
 ### Core Object Views
 
-- [ ] `OMOV.12` Automatic core Object View generation (`P0`, `todo`)
+- [x] `OMOV.12` Automatic core Object View generation (`P0`, `done`)
   - Generate full and panel core Object Views for every object type.
   - Render title, primary key, prominent properties, normal properties, non-hidden linked objects, and metadata from the current object type configuration.
   - Keep core Object Views available even when a custom Object View exists.
   - Docs: [Object Views overview](https://www.palantir.com/docs/foundry/object-views/overview), [Core Object Views](https://www.palantir.com/docs/foundry/object-views/core-object-views/).
 
-- [ ] `OMOV.13` Core prominent property display (`P0`, `todo`)
+- [x] `OMOV.13` Core prominent property display (`P0`, `done`)
   - Render media reference properties with a media viewer, time series properties as charts, geospatial/geotemporal properties on maps, and other prominent properties as elevated cards.
   - Render normal properties in a table and hide hidden properties.
   - Degrade gracefully when media, time series, or map subsystems are not installed.
   - Docs: [Core Object Views](https://www.palantir.com/docs/foundry/object-views/core-object-views/).
 
-- [ ] `OMOV.14` Core linked objects component (`P0`, `todo`)
+- [x] `OMOV.14` Core linked objects component (`P0`, `done`)
   - Group linked objects by link type.
   - Preview linked object properties inline.
   - Open a subset of linked objects in a new tab or exploration.
   - Preview a selected linked object in the side panel.
   - Docs: [Core Object Views](https://www.palantir.com/docs/foundry/object-views/core-object-views/), [Pivot to explore linked objects](https://www.palantir.com/docs/foundry/object-explorer/pivot-linked/).
 
-- [ ] `OMOV.15` Object View form factors (`P0`, `todo`)
+- [x] `OMOV.15` Object View form factors (`P0`, `done`)
   - Support full Object Views for comprehensive object detail.
   - Support panel Object Views for compact display inside maps, graphs, Workshop, Object Explorer, and other applications.
   - Provide consistent object title behavior and a way to open a full Object View from panel contexts.
+  - Implementation note: OpenFoundry now uses shared Object View title/full-link helpers, URL-addressable full Object Views, compact panel tabs, and Object Explorer panel previews with an explicit "Open full Object View" action.
   - Docs: [Object Views overview](https://www.palantir.com/docs/foundry/object-views/overview), [Use full Object Views](https://www.palantir.com/docs/foundry/object-views/use-full-views-in-platform), [Use panel Object Views](https://www.palantir.com/docs/foundry/object-views/use-panel-views-in-platform).
 
 ## Milestone B: credible Foundry-style Ontology Manager and Object Views parity
 
 ### Advanced ontology modeling
 
-- [ ] `OMOV.16` Shared properties (`P1`, `todo`)
+- [x] `OMOV.16` Shared properties (`P1`, `done`)
   - Create and manage shared property types that can be reused by multiple object types and interfaces.
   - Centralize display name, API name, description, base type, value type, formatting, and usage discovery.
   - Warn when edits to a shared property affect multiple object types.
+  - Implementation note: Ontology Manager now provides shared property create/edit/delete, object-type attach/detach, value-type linkage, usage summaries, and multi-binding edit warnings.
   - Docs: [Types reference](https://www.palantir.com/docs/foundry/object-link-types/type-reference), [Properties overview](https://www.palantir.com/docs/foundry/object-link-types/properties-overview/).
 
-- [ ] `OMOV.17` Value types (`P1`, `todo`)
+- [x] `OMOV.17` Value types (`P1`, `done`)
   - Create, version, permission, search, and apply value types within a space.
   - Support semantic metadata, validation constraints, formatting, non-breaking edits, breaking edits, and usage discovery.
   - Enforce value type constraints in property mappings, Pipeline Builder validation, ontology indexing, Object Views, and user edits where applicable.
+  - Implementation note: Value types are modeled as space-scoped semantic resources with local create/edit/delete/search, version metadata for breaking edits, permission fields, usage discovery, formatting fallback in Object Views, and inline-edit constraint validation for properties carrying value type metadata.
   - Docs: [Value types overview](https://www.palantir.com/docs/foundry/object-link-types/value-types-overview/).
 
-- [ ] `OMOV.18` Interfaces (`P1`, `todo`)
+- [x] `OMOV.18` Interfaces (`P1`, `done`)
   - Create interface types with interface properties, display metadata, implementation requirements, and implementing object type lists.
   - Implement interfaces on object types with explicit property mappings.
   - Support interface extension/inheritance where documented and locally modeled.
+  - Implementation note: Interfaces now expose local extension bindings, implementation detail mappings, required-mapping validation, and implementing object-type coverage in the Interfaces workbench.
   - Docs: [Interfaces overview](https://www.palantir.com/docs/foundry/interfaces/interface-overview/), [Create an interface](https://www.palantir.com/docs/foundry/interfaces/create-interface), [Implement an interface](https://www.palantir.com/docs/foundry/interfaces/implement-interface), [Extend an interface](https://www.palantir.com/docs/foundry/interfaces/extend-interface).
 
-- [ ] `OMOV.19` Interface link type constraints (`P1`, `todo`)
+- [x] `OMOV.19` Interface link type constraints (`P1`, `done`)
   - Define interface link constraints with link target type, target object/interface, cardinality, required flag, description, and API name.
   - Validate that implementing object types provide concrete link types satisfying required constraints.
   - Expose interface link APIs in object search and Object Views when backed by a concrete implementation.
+  - Implementation note: Interface link constraints are modeled with target kind/target/cardinality/required metadata, editable in the Interfaces workbench, and validated against concrete implementation link mappings.
   - Docs: [Interface link type constraints](https://www.palantir.com/docs/foundry/interfaces/interface-link-types-overview), [Edit interface implementation](https://www.palantir.com/docs/foundry/interfaces/edit-interface-implementation).
 
-- [ ] `OMOV.20` Actions on interfaces and Object Views (`P1`, `todo`)
+- [x] `OMOV.20` Actions on interfaces and Object Views (`P1`, `done`)
   - Display actions defined on interfaces in Object Explorer and Object Views when the selected object implements the relevant interface.
   - Validate action rule restrictions for interface-backed edits and avoid modifying likely primary-key properties through broad interface actions.
   - Delegate execution semantics to the Ontology Actions checklist.
+  - Implementation note: Object Explorer and Object Views merge interface actions inherited from implemented interfaces, while helpers flag broad interface actions that would modify likely primary keys or undeclared interface fields.
   - Docs: [Actions on interfaces](https://www.palantir.com/docs/foundry/action-types/actions-on-interfaces/), [Apply Actions in Object Explorer](https://www.palantir.com/docs/foundry/object-explorer/apply-actions/).
 
-- [ ] `OMOV.21` Multi-datasource object type mapping (`P1`, `todo`)
+- [x] `OMOV.21` Multi-datasource object type mapping (`P1`, `done`)
   - Map multiple datasets or restricted views to one object type.
   - Support property-level datasource provenance and nulling properties when the viewer lacks access to a specific backing datasource.
   - Validate primary-key consistency across datasources and document unsupported row-wise MDO patterns.
+  - Implementation note: Object-type bindings now expose property-level provenance/null-on-inaccessible metadata, helper validation for primary-key consistency, masking helpers for datasource access, and an object-type datasource panel that summarizes multi-datasource mappings and unsupported row-wise MDO constraints.
   - Docs: [Managing object security](https://www.palantir.com/docs/foundry/object-permissioning/managing-object-security/), [Multi-datasource object types](https://www.palantir.com/docs/foundry/object-permissioning/multi-datasource-objects/).
 
 ### Change management and history
 
-- [ ] `OMOV.22` Unsaved changes review (`P1`, `todo`)
+- [x] `OMOV.22` Unsaved changes review (`P1`, `done`)
   - Track unsaved ontology changes globally and per ontology resource.
   - Show changed resource, author, timestamp, diff summary, validation status, and save readiness.
   - Allow discarding individual changes and all unsaved changes owned by the current user.
+  - Implementation note: Project working-state changes now have shared review helpers and an Ontologies changes table showing resource, author, timestamp, diff summary, validation status, save readiness, per-change discard, and current-user bulk discard.
   - Docs: [Save changes to the Ontology](https://www.palantir.com/docs/foundry/ontology-manager/save-changes), [Review and restore changes](https://www.palantir.com/docs/foundry/ontology-manager/restore-changes).
 
-- [ ] `OMOV.23` Save changes to ontology (`P1`, `todo`)
+- [x] `OMOV.23` Save changes to ontology (`P1`, `done`)
   - Save a coherent set of ontology changes atomically.
   - Validate API names, links, keys, datasource mappings, interface implementations, action references, permission requirements, and downstream Object View impacts before save.
   - Persist saved change records with author, timestamp, resource list, branch/proposal context, and error details.
+  - Implementation note: The projects API exposes atomic save and saved-record history endpoints; saves validate staged changes, persist success/failure records with resource lists and context, and clear only saved working-state changes in the same transaction.
   - Docs: [Save changes to the Ontology](https://www.palantir.com/docs/foundry/ontology-manager/save-changes), [Review and restore changes](https://www.palantir.com/docs/foundry/ontology-manager/restore-changes).
 
 - [ ] `OMOV.24` Ontology history and restore (`P1`, `todo`)

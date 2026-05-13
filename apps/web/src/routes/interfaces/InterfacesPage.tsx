@@ -1,25 +1,39 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import {
+  addInterfaceExtension,
   createInterface,
+  createInterfaceLinkConstraint,
   createInterfaceProperty,
   deleteInterface,
+  deleteInterfaceLinkConstraint,
   deleteInterfaceProperty,
   detachInterfaceFromType,
   implementInterface,
+  listInterfaceExtensions,
+  listInterfaceImplementationDetails,
+  listInterfaceLinkConstraints,
   listInterfaceProperties,
   listInterfaces,
+  listLinkTypes,
   listObjectTypes,
   listTypeInterfaces,
   updateInterface,
+  removeInterfaceExtension,
   updateInterfaceProperty,
+  upsertInterfaceImplementationDetail,
+  validateInterfaceImplementation,
+  type InterfaceExtensionBinding,
+  type InterfaceImplementationDetail,
+  type InterfaceLinkConstraint,
   type InterfaceProperty,
+  type LinkType,
   type ObjectType,
   type OntologyInterface,
 } from '@/lib/api/ontology';
 import { ImplementInterfaceModal } from '@/lib/components/ontology/ImplementInterfaceModal';
 
-type WorkbenchTab = 'library' | 'definition' | 'implementation' | 'reference';
+type WorkbenchTab = 'library' | 'definition' | 'extensions' | 'implementation' | 'links' | 'reference';
 
 interface TypeInterfaceBindingRow {
   objectType: ObjectType;
@@ -36,7 +50,9 @@ interface InterfaceStats {
 const WORKBENCH_TABS: Array<{ id: WorkbenchTab; label: string }> = [
   { id: 'library', label: 'Library' },
   { id: 'definition', label: 'Definition' },
+  { id: 'extensions', label: 'Extensions' },
   { id: 'implementation', label: 'Implementation' },
+  { id: 'links', label: 'Link constraints' },
   { id: 'reference', label: 'Reference' },
 ];
 
@@ -71,6 +87,10 @@ export function InterfacesPage() {
   const [properties, setProperties] = useState<InterfaceProperty[]>([]);
   const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
   const [typeBindings, setTypeBindings] = useState<TypeInterfaceBindingRow[]>([]);
+  const [linkTypes, setLinkTypes] = useState<LinkType[]>([]);
+  const [extensions, setExtensions] = useState<InterfaceExtensionBinding[]>([]);
+  const [linkConstraints, setLinkConstraints] = useState<InterfaceLinkConstraint[]>([]);
+  const [implementationDetails, setImplementationDetails] = useState<InterfaceImplementationDetail[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [contextLoading, setContextLoading] = useState(false);
@@ -105,6 +125,14 @@ export function InterfacesPage() {
   const [propertyTimeDependent, setPropertyTimeDependent] = useState(false);
   const [propertyDefaultValueText, setPropertyDefaultValueText] = useState('null');
   const [propertyValidationRulesText, setPropertyValidationRulesText] = useState('{}');
+  const [extensionInterfaceId, setExtensionInterfaceId] = useState('');
+  const [linkApiName, setLinkApiName] = useState('');
+  const [linkDisplayName, setLinkDisplayName] = useState('');
+  const [linkDescription, setLinkDescription] = useState('');
+  const [linkTargetKind, setLinkTargetKind] = useState<'object_type' | 'interface'>('object_type');
+  const [linkTargetId, setLinkTargetId] = useState('');
+  const [linkCardinality, setLinkCardinality] = useState<'one' | 'many'>('many');
+  const [linkRequired, setLinkRequired] = useState(false);
 
   const selectedInterface = useMemo(
     () => interfaces.find((item) => item.id === selectedInterfaceId) ?? null,
@@ -134,6 +162,28 @@ export function InterfacesPage() {
     [availableTypes],
   );
 
+
+  const extensionOptions = useMemo(
+    () => interfaces.filter((iface) => iface.id !== selectedInterfaceId && !extensions.some((entry) => entry.extends_interface_id === iface.id)),
+    [interfaces, selectedInterfaceId, extensions],
+  );
+
+  const implementationDetailByTypeId = useMemo(
+    () => new Map(implementationDetails.map((detail) => [detail.object_type_id, detail])),
+    [implementationDetails],
+  );
+
+  const linkTargets = linkTargetKind === 'object_type' ? objectTypes : interfaces;
+
+  const interfaceLinkTypeOptions = useMemo(
+    () => linkTypes.filter((link) => {
+      if (!selectedInterfaceId) return false;
+      const targetIds = new Set(linkConstraints.map((constraint) => constraint.target_id));
+      return targetIds.has(link.source_type_id) || targetIds.has(link.target_type_id);
+    }),
+    [linkTypes, linkConstraints, selectedInterfaceId],
+  );
+
   const interfaceStats = useMemo<InterfaceStats>(
     () => ({
       propertyCount: properties.length,
@@ -150,6 +200,9 @@ export function InterfacesPage() {
     setInterfaceDescription('');
     setSelectedInterfaceId('');
     setProperties([]);
+    setExtensions([]);
+    setLinkConstraints([]);
+    setImplementationDetails([]);
     setSaveError('');
     setSaveSuccess('');
     setPropertyError('');
@@ -206,8 +259,17 @@ export function InterfacesPage() {
     setContextLoading(true);
     setPageError('');
     try {
-      const propertyResponse = await listInterfaceProperties(interfaceId);
+      const [propertyResponse, extensionResponse, constraintResponse, implementationResponse] = await Promise.all([
+        listInterfaceProperties(interfaceId),
+        listInterfaceExtensions(interfaceId),
+        listInterfaceLinkConstraints(interfaceId),
+        listInterfaceImplementationDetails(interfaceId),
+      ]);
       setProperties(propertyResponse);
+      setExtensions(extensionResponse);
+      setLinkConstraints(constraintResponse);
+      setImplementationDetails(implementationResponse);
+      setExtensionInterfaceId(source.find((item) => item.id !== interfaceId)?.id || '');
       syncInterfaceDraft(source.find((item) => item.id === interfaceId) ?? null);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'Failed to load interface definition');
@@ -221,12 +283,14 @@ export function InterfacesPage() {
     setLoading(true);
     setPageError('');
     try {
-      const [interfaceResponse, typeResponse] = await Promise.all([
+      const [interfaceResponse, typeResponse, linkResponse] = await Promise.all([
         listInterfaces({ page: 1, per_page: 200 }),
         listObjectTypes({ per_page: 200 }),
+        listLinkTypes({ per_page: 200 }),
       ]);
       setInterfaces(interfaceResponse.data);
       setObjectTypes(typeResponse.data);
+      setLinkTypes(linkResponse.data);
       const nextId = selectedInterfaceId || interfaceResponse.data[0]?.id || '';
       setSelectedInterfaceId(nextId);
       await Promise.all([loadInterfaceContext(nextId, interfaceResponse.data), loadBindingMatrix(typeResponse.data)]);
@@ -362,6 +426,85 @@ export function InterfacesPage() {
     } catch (error) {
       setPropertyError(error instanceof Error ? error.message : 'Failed to delete interface property');
     }
+  }
+
+
+  async function addExtensionRecord() {
+    if (!selectedInterfaceId || !extensionInterfaceId) return;
+    setPropertyError('');
+    try {
+      await addInterfaceExtension(selectedInterfaceId, extensionInterfaceId);
+      setExtensions(await listInterfaceExtensions(selectedInterfaceId));
+      setPropertySuccess('Interface extension added.');
+    } catch (error) {
+      setPropertyError(error instanceof Error ? error.message : 'Failed to add interface extension');
+    }
+  }
+
+  async function removeExtensionRecord(extendsInterfaceId: string) {
+    if (!selectedInterfaceId) return;
+    await removeInterfaceExtension(selectedInterfaceId, extendsInterfaceId);
+    setExtensions(await listInterfaceExtensions(selectedInterfaceId));
+  }
+
+  async function createLinkConstraintRecord() {
+    if (!selectedInterfaceId) return;
+    setPropertyError('');
+    try {
+      if (!linkApiName.trim()) throw new Error('Link constraint API name is required.');
+      if (!linkTargetId) throw new Error('Select a target object type or interface.');
+      await createInterfaceLinkConstraint(selectedInterfaceId, {
+        api_name: linkApiName.trim(),
+        display_name: linkDisplayName.trim() || linkApiName.trim(),
+        description: linkDescription.trim(),
+        target_kind: linkTargetKind,
+        target_id: linkTargetId,
+        cardinality: linkCardinality,
+        required: linkRequired,
+      });
+      setLinkConstraints(await listInterfaceLinkConstraints(selectedInterfaceId));
+      setLinkApiName('');
+      setLinkDisplayName('');
+      setLinkDescription('');
+      setLinkRequired(false);
+      setPropertySuccess('Interface link constraint created.');
+    } catch (error) {
+      setPropertyError(error instanceof Error ? error.message : 'Failed to create link constraint');
+    }
+  }
+
+  async function removeLinkConstraintRecord(constraintId: string) {
+    if (!selectedInterfaceId) return;
+    await deleteInterfaceLinkConstraint(selectedInterfaceId, constraintId);
+    setLinkConstraints(await listInterfaceLinkConstraints(selectedInterfaceId));
+  }
+
+  async function saveImplementationMappings(objectType: ObjectType, detail: InterfaceImplementationDetail | undefined) {
+    if (!selectedInterfaceId) return;
+    const propertyMappings = properties.map((property) => {
+      const input = document.getElementById(`mapping-${objectType.id}-${property.id}`) as HTMLInputElement | null;
+      return {
+        interface_property_id: property.id,
+        interface_property_name: property.name,
+        object_property_name: input?.value || detail?.property_mappings.find((mapping) => mapping.interface_property_id === property.id)?.object_property_name || property.name,
+      };
+    });
+    const linkMappings = linkConstraints.map((constraint) => {
+      const input = document.getElementById(`link-mapping-${objectType.id}-${constraint.id}`) as HTMLSelectElement | null;
+      return {
+        constraint_id: constraint.id,
+        link_type_id: input?.value || detail?.link_mappings.find((mapping) => mapping.constraint_id === constraint.id)?.link_type_id || '',
+      };
+    });
+    const saved = await upsertInterfaceImplementationDetail({
+      interface_id: selectedInterfaceId,
+      object_type_id: objectType.id,
+      property_mappings: propertyMappings,
+      link_mappings: linkMappings,
+      updated_at: new Date().toISOString(),
+    });
+    setImplementationDetails((current) => [saved, ...current.filter((entry) => entry.object_type_id !== objectType.id)]);
+    setPropertySuccess('Interface implementation mappings saved.');
   }
 
   function openImplementModal(typeId = '') {
@@ -840,6 +983,39 @@ export function InterfacesPage() {
               </div>
             )}
 
+            {activeTab === 'extensions' && (
+              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(0, 1fr) 360px' }}>
+                <section className="of-panel" style={{ padding: 20 }}>
+                  <p style={{ fontWeight: 600, color: 'var(--text-strong)' }}>Interface extensions</p>
+                  <p className="of-text-muted" style={{ marginTop: 4, fontSize: 13 }}>Compose interfaces by inheriting shared properties and link constraints from other interfaces.</p>
+                  <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+                    {extensions.map((extension) => {
+                      const parent = interfaces.find((iface) => iface.id === extension.extends_interface_id);
+                      return (
+                        <div key={extension.extends_interface_id} className="of-panel-muted" style={{ padding: 14, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                          <div>
+                            <strong>{parent?.display_name || extension.extends_interface_id}</strong>
+                            <p className="of-text-muted" style={{ margin: '3px 0 0', fontSize: 12 }}>{parent?.name || 'Unknown interface'}</p>
+                          </div>
+                          <button type="button" className="of-button" onClick={() => void removeExtensionRecord(extension.extends_interface_id)}>Remove</button>
+                        </div>
+                      );
+                    })}
+                    {extensions.length === 0 && <p className="of-text-muted">This interface does not extend another interface yet.</p>}
+                  </div>
+                </section>
+                <section className="of-panel" style={{ padding: 20 }}>
+                  <p style={{ fontWeight: 600, color: 'var(--text-strong)' }}>Add extension</p>
+                  <select className="of-input" value={extensionInterfaceId} onChange={(event) => setExtensionInterfaceId(event.target.value)} style={{ marginTop: 12 }}>
+                    <option value="">Select parent interface</option>
+                    {extensionOptions.map((iface) => <option key={iface.id} value={iface.id}>{iface.display_name}</option>)}
+                  </select>
+                  <button type="button" className="of-button of-button--primary" disabled={!selectedInterfaceId || !extensionInterfaceId} onClick={() => void addExtensionRecord()} style={{ marginTop: 10, background: '#059669' }}>Add extension</button>
+                </section>
+              </div>
+            )}
+
+
             {activeTab === 'implementation' && (
               <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(0, 1fr) 380px' }}>
                 <section className="of-panel" style={{ padding: 20 }}>
@@ -892,28 +1068,53 @@ export function InterfacesPage() {
                         No object types implement this interface yet.
                       </div>
                     ) : (
-                      implementationRows.map((row) => (
-                        <div key={row.objectType.id} className="of-panel-muted" style={{ padding: 14 }}>
-                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                            <div>
-                              <p style={{ fontWeight: 600, color: 'var(--text-strong)' }}>{row.objectType.display_name}</p>
-                              <p style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{row.objectType.name}</p>
+                      implementationRows.map((row) => {
+                        const detail = implementationDetailByTypeId.get(row.objectType.id);
+                        const validation = validateInterfaceImplementation({ properties, linkConstraints, implementation: detail });
+                        return (
+                          <div key={row.objectType.id} className="of-panel-muted" style={{ padding: 14 }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                              <div>
+                                <p style={{ fontWeight: 600, color: 'var(--text-strong)' }}>{row.objectType.display_name}</p>
+                                <p style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{row.objectType.name}</p>
+                              </div>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <span className="of-chip">{validation.valid ? 'valid' : `${validation.missing_properties.length + validation.missing_link_constraints.length} missing`}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => void detachFromType(row.objectType.id)}
+                                  disabled={bindingTypeId === row.objectType.id}
+                                  className="of-button"
+                                  style={{ fontSize: 12, color: '#b91c1c', borderColor: '#fecaca' }}
+                                >
+                                  {bindingTypeId === row.objectType.id ? 'Updating…' : 'Detach'}
+                                </button>
+                              </div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => void detachFromType(row.objectType.id)}
-                              disabled={bindingTypeId === row.objectType.id}
-                              className="of-button"
-                              style={{ fontSize: 12, color: '#b91c1c', borderColor: '#fecaca' }}
-                            >
-                              {bindingTypeId === row.objectType.id ? 'Updating…' : 'Detach'}
-                            </button>
+                            <p className="of-text-muted" style={{ marginTop: 10, fontSize: 13 }}>
+                              {row.objectType.description || 'No object type description provided.'}
+                            </p>
+                            <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                              {properties.map((property) => (
+                                <label key={property.id} style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                                  {property.display_name} mapping
+                                  <input id={`mapping-${row.objectType.id}-${property.id}`} className="of-input" defaultValue={detail?.property_mappings.find((mapping) => mapping.interface_property_id === property.id)?.object_property_name || property.name} />
+                                </label>
+                              ))}
+                              {linkConstraints.map((constraint) => (
+                                <label key={constraint.id} style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                                  {constraint.display_name} concrete link
+                                  <select id={`link-mapping-${row.objectType.id}-${constraint.id}`} className="of-input" defaultValue={detail?.link_mappings.find((mapping) => mapping.constraint_id === constraint.id)?.link_type_id || ''}>
+                                    <option value="">No concrete link</option>
+                                    {interfaceLinkTypeOptions.map((link) => <option key={link.id} value={link.id}>{link.display_name}</option>)}
+                                  </select>
+                                </label>
+                              ))}
+                              <button type="button" className="of-button" onClick={() => void saveImplementationMappings(row.objectType, detail)}>Save mappings</button>
+                            </div>
                           </div>
-                          <p className="of-text-muted" style={{ marginTop: 10, fontSize: 13 }}>
-                            {row.objectType.description || 'No object type description provided.'}
-                          </p>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </section>
@@ -962,6 +1163,56 @@ export function InterfacesPage() {
                 </section>
               </div>
             )}
+
+            {activeTab === 'links' && (
+              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(0, 1fr) 380px' }}>
+                <section className="of-panel" style={{ padding: 20 }}>
+                  <p style={{ fontWeight: 600, color: 'var(--text-strong)' }}>Interface link constraints</p>
+                  <p className="of-text-muted" style={{ marginTop: 4, fontSize: 13 }}>Required constraints must be backed by concrete link type mappings on every implementing object type.</p>
+                  <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+                    {linkConstraints.map((constraint) => {
+                      const target = [...objectTypes, ...interfaces].find((entry) => entry.id === constraint.target_id);
+                      return (
+                        <div key={constraint.id} className="of-panel-muted" style={{ padding: 14 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                            <div>
+                              <strong>{constraint.display_name}</strong>
+                              <p style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{constraint.api_name}</p>
+                            </div>
+                            <span className="of-chip">{constraint.required ? 'required' : 'optional'} · {constraint.cardinality}</span>
+                          </div>
+                          <p className="of-text-muted" style={{ marginTop: 8, fontSize: 12 }}>{constraint.target_kind}: {target?.display_name || constraint.target_id}</p>
+                          {constraint.description && <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>{constraint.description}</p>}
+                          <button type="button" className="of-button" onClick={() => void removeLinkConstraintRecord(constraint.id)} style={{ marginTop: 8 }}>Delete</button>
+                        </div>
+                      );
+                    })}
+                    {linkConstraints.length === 0 && <p className="of-text-muted">No interface link constraints yet.</p>}
+                  </div>
+                </section>
+                <section className="of-panel" style={{ padding: 20, display: 'grid', gap: 10 }}>
+                  <p style={{ fontWeight: 600, color: 'var(--text-strong)' }}>Create link constraint</p>
+                  <input className="of-input" placeholder="API name" value={linkApiName} onChange={(event) => setLinkApiName(event.target.value)} />
+                  <input className="of-input" placeholder="Display name" value={linkDisplayName} onChange={(event) => setLinkDisplayName(event.target.value)} />
+                  <textarea className="of-input" placeholder="Description" rows={2} value={linkDescription} onChange={(event) => setLinkDescription(event.target.value)} />
+                  <select className="of-input" value={linkTargetKind} onChange={(event) => { setLinkTargetKind(event.target.value as 'object_type' | 'interface'); setLinkTargetId(''); }}>
+                    <option value="object_type">Object type target</option>
+                    <option value="interface">Interface target</option>
+                  </select>
+                  <select className="of-input" value={linkTargetId} onChange={(event) => setLinkTargetId(event.target.value)}>
+                    <option value="">Select target</option>
+                    {linkTargets.map((target) => <option key={target.id} value={target.id}>{target.display_name}</option>)}
+                  </select>
+                  <select className="of-input" value={linkCardinality} onChange={(event) => setLinkCardinality(event.target.value as 'one' | 'many')}>
+                    <option value="one">ONE</option>
+                    <option value="many">MANY</option>
+                  </select>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}><input type="checkbox" checked={linkRequired} onChange={(event) => setLinkRequired(event.target.checked)} /> Required</label>
+                  <button type="button" className="of-button of-button--primary" onClick={() => void createLinkConstraintRecord()} disabled={!selectedInterfaceId} style={{ background: '#059669' }}>Create constraint</button>
+                </section>
+              </div>
+            )}
+
 
             {activeTab === 'reference' && (
               <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(0, 1fr) 360px' }}>
