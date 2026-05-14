@@ -1,15 +1,12 @@
 // Shared per-handler view types used across multiple kernel domains.
 //
-// `ObjectInstance` and `LinkInstance` originate in the Rust source's
-// `handlers::{objects, links}` modules. They live in `domain` here
-// because several domain helpers (indexer, read_models, access,
-// link instance collection) need them and a Go cycle through the
-// handlers package would otherwise force a split that the Rust
-// crate sidesteps with module visibility.
+// `ObjectInstance` and `LinkInstance` live in `domain` because several
+// domain helpers (indexer, read_models, access, link instance
+// collection) need them; placing them in handlers/* would force a Go
+// import cycle.
 //
-// JSON tag set is byte-identical to the Rust derive — same field
-// names, same `Option<T>` → `*T` mapping with `omitempty`, same
-// `chrono::DateTime<Utc>` → `time.Time` mapping.
+// JSON tag set is wire-stable: snake_case field names, optional
+// fields rendered as `omitempty`, timestamps as RFC3339.
 package domain
 
 import (

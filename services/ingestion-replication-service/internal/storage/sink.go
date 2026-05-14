@@ -1,7 +1,6 @@
-// Package storage ports the event-streaming dataset writer stack from
-// services/ingestion-replication-service/src/event_streaming/storage in Rust.
+// Package storage hosts the event-streaming dataset writer stack.
 //
-// Two writer backends are provided here, mirroring the Rust crate:
+// Two writer backends are provided:
 //
 //   - LegacyDatasetWriter persists each snapshot as a single blob through the
 //     configured StorageBackend. It is preserved so operators can roll back at
@@ -162,10 +161,9 @@ type DatasetWriter interface {
 	Append(ctx context.Context, snapshot DatasetSnapshot) (WriteOutcome, error)
 }
 
-// StorageBackend is the minimal slice of libs/storage-abstraction that the
-// Iceberg / Legacy writers actually use. It mirrors the Rust
-// `storage_abstraction::StorageBackend` surface needed by these writers
-// without forcing the rest of the abstraction crate to be ported.
+// StorageBackend is the minimal slice of libs/storage-abstraction
+// that the Iceberg / Legacy writers actually use — Put + Exists are
+// enough.
 type StorageBackend interface {
 	// Put writes data at path, overwriting any prior contents.
 	Put(ctx context.Context, path string, data []byte) error

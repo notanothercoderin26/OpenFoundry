@@ -5,8 +5,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Metric names — pinned constants matching the Rust crate. Renaming
-// breaks the dashboards + alerts in `infra/observability/`.
+// Metric names — pinned constants. Renaming breaks the dashboards +
+// alerts in `infra/observability/`.
 const (
 	MetricLagSeconds    = "audit_sink_lag_seconds"
 	MetricRecordsTotal  = "audit_sink_records_total"
@@ -24,7 +24,7 @@ type Metrics struct {
 }
 
 // NewMetrics builds a fresh Registry + the four sink metrics. Bucket
-// boundaries match the Rust crate so PromQL queries port unchanged.
+// boundaries are pinned so PromQL queries stay stable.
 func NewMetrics() *Metrics {
 	reg := prometheus.NewRegistry()
 

@@ -12,8 +12,8 @@ import (
 // `provider.ProviderType` without caring about the storage layer.
 //
 // A future slice can swap this for a Postgres-backed store
-// (mirroring the Rust crate's `sso_providers` table) without
-// changing handler code — the lookup signature is the same.
+// (over an `sso_providers` table) without changing handler code —
+// the lookup signature is the same.
 type Registry struct {
 	mu        sync.RWMutex
 	bySlug    map[string]*Entry

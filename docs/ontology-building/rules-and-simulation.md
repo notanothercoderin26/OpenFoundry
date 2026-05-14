@@ -4,7 +4,7 @@ Rules and simulation are where the ontology starts behaving like an operational 
 
 ## Repository signals
 
-The current `ontology-service` already exposes a surprisingly rich surface here:
+The current `ontology-definition-service` (rules are schema-level) already exposes a surprisingly rich surface here:
 
 - `/api/v1/ontology/rules`
 - `/api/v1/ontology/rules/{id}/simulate`
@@ -13,10 +13,10 @@ The current `ontology-service` already exposes a surprisingly rich surface here:
 - `/api/v1/ontology/objects/{obj_id}/rule-runs`
 - machinery queue and insights endpoints
 
-The route wiring lives in `services/ontology-service/src/main.rs`, and the domain/handler split is visible in:
+The route wiring lives in `services/ontology-definition-service/cmd/ontology-definition-service/main.go` (wired in `services/ontology-definition-service/internal/server/`), and the domain/handler split is visible in:
 
-- `services/ontology-service/src/domain/rules.rs`
-- `services/ontology-service/src/handlers/rules.rs`
+- `services/ontology-definition-service/internal/domain/rules.go`
+- `services/ontology-definition-service/internal/handlers/rules.go`
 
 ## Why this matters
 

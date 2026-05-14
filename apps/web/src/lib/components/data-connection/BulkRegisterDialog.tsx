@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { virtualTables, type DiscoveredEntry, type RegisterVirtualTableRequest, type TableType, type VirtualTableProvider } from '@/lib/api/virtual-tables';
+import { defaultCapabilities, virtualTables, type DiscoveredEntry, type RegisterVirtualTableRequest, type TableType, type VirtualTableProvider } from '@/lib/api/virtual-tables';
 
 import { RemoteCatalogBrowser } from './RemoteCatalogBrowser';
 
@@ -71,6 +71,8 @@ export function BulkRegisterDialog({ open, sourceRid, provider, onClose, onCompl
           name: s.name.trim() || undefined,
           locator: deriveLocator(s.entry),
           table_type: s.tableType,
+          capabilities: defaultCapabilities(provider, s.tableType),
+          properties: { registration: { mode: 'bulk', discovered_path: s.entry.path } },
         })),
       });
       setProgress({ done: staged.length, total: staged.length });

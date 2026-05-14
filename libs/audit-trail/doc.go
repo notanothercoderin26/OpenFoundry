@@ -1,4 +1,5 @@
-// Package audittrail is the Go counterpart of Rust's `audit-trail` crate.
+// Package audittrail emits structured audit events for the
+// audit-compliance collector.
 //
 // What this package owns
 //
@@ -12,8 +13,8 @@
 //
 // Wire-format invariants
 //
-// JSON byte-identical to the Rust crate so audit-sink does not care
-// which language emitted the event:
+// JSON is byte-stable so audit-sink processes events emitted by any
+// producer the same way:
 //
 //   - Top-level: `event_id`, `at` (epoch microseconds), `kind`,
 //     `categories`, `resource_rid`, `project_rid`, `markings_at_event`,
@@ -30,10 +31,10 @@
 //
 // HTTP middleware
 //
-// Middleware (and MiddlewareWithLogger) is the chi-compatible port
-// of the Rust `AuditLayer` tower::Layer: emits one structured
-// `request handled` slog record per request, tagged with
-// `category=audit`, carrying http_method / http_path / http_status /
-// duration_ms. Mount once per Router; the audit-compliance
-// collector subscribes to records carrying that category.
+// Middleware (and MiddlewareWithLogger) is a chi-compatible HTTP
+// middleware that emits one structured `request handled` slog record
+// per request, tagged with `category=audit`, carrying http_method /
+// http_path / http_status / duration_ms. Mount once per Router; the
+// audit-compliance collector subscribes to records carrying that
+// category.
 package audittrail

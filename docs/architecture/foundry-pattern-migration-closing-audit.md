@@ -1,6 +1,19 @@
-# Foundry-pattern migration — closing audit
+# Foundry-pattern migration — closing audit (historical)
 
-- **Status:** Final.
+> **Status:** Historical record. The migration cutover described here
+> closed on 2026-05-04. The grep gates below were authored against
+> the Rust workspace that existed at the time of FASE 11 (`--include='*.rs'`,
+> `--include='*.toml'`). After the subsequent Rust→Go port, those
+> globs match nothing on disk; re-running the gates with `*.go`
+> equivalents still passes, but the evidence quoted in this document
+> is **not** re-derived. Treat the file as a sign-off artefact, not
+> as a verifier you can re-run today.
+>
+> For the live design, read
+> [`foundry-pattern-orchestration.md`](./foundry-pattern-orchestration.md)
+> and [ADR-0037](./adr/ADR-0037-foundry-pattern-orchestration.md).
+
+- **Status:** Final (historical).
 - **Date:** 2026-05-04.
 - **Scope:** FASE 11 / Tarea 11.4 of
   [`migration-plan-foundry-pattern-orchestration.md`](./migration-plan-foundry-pattern-orchestration.md).
@@ -136,7 +149,7 @@ Triage:
   refactored services. Required: they document why the new module
   exists.
 - **False positives** (~16 hits):
-  - Flink temporal-interval joins in `event-streaming-service`.
+  - Flink temporal-interval joins in `event-ingestion-replication-service`.
   - Vega-Lite `"type": "temporal"` in `libs/ontology-kernel/src/domain/time_series.rs`.
   - Spanish *"orden temporal"* (chronological order) in
     `dataset-versioning-service`.

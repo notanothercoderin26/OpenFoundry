@@ -482,12 +482,23 @@ OpenFoundry canonical IDs.
 
 ## Suggested service boundaries
 
+> **Reader note (2026-05-14)** — The services in the table below are
+> *target* decomposition proposals, not a current inventory of
+> binaries. Some have been built under consolidated names after S8
+> (`marketplace-service` → `federation-product-exchange-service`;
+> `approvals-service` → `workflow-automation-service/internal/approvals`;
+> `ontology-security-service` → `authorization-policy-service`;
+> `ai-service` → `agent-runtime-service` + `llm-catalog-service`).
+> Others are not yet implemented. For the canonical list of binaries
+> on disk today, see
+> [`docs/architecture/services-and-ports.md`](../architecture/services-and-ports.md).
+
 | Surface | Responsibilities |
 | --- | --- |
 | `workflow-automation-service` | Automation CRUD, conditions, evaluation scheduling, live monitoring, effect orchestration, run history, activity timeline, muting/pausing/expiry, ownership. |
 | `automation-effects service` | Action/Logic/function/notification/fallback effect adapters, parameter mapping, execution ordering, retries, effect result storage. |
 | `ontology-query-service` | Object set definition, saved object set loading, object search, object set changes, metrics, aggregations, threshold evaluation. |
-| `streaming-service` | Stream-backed object conditions, stream offsets/checkpoints, high-volume detection, lag metrics, dropped-object handling. |
+| `ingestion-replication-service` | Stream-backed object conditions, stream offsets/checkpoints, high-volume detection, lag metrics, dropped-object handling. |
 | `ontology-actions-service` | Action effect execution, action logs, function-backed actions, action notification/webhook handoffs, object edit validation. |
 | `functions service` | Function effects, function-backed threshold checks, object set functions, version resolution, auto-upgrade compatibility, run history. |
 | `logic service` | AIP Logic effect execution, staged/apply-edits behavior, proposal review handoff, integration-created automations. |

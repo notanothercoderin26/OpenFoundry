@@ -121,7 +121,7 @@ func GenerateRecoveryCodes(count int) ([]string, error) {
 
 // ─── Internals ──────────────────────────────────────────────────────────
 
-// b32 alphabet with no padding — matches the Rust crate's `base32::Alphabet::RFC4648 {padding: false}`.
+// b32 alphabet: RFC 4648 base32, no padding.
 var b32 = base32.StdEncoding.WithPadding(base32.NoPadding)
 
 func randomBase32Secret(byteLen int) (string, error) {

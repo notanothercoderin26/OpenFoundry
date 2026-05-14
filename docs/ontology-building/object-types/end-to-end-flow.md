@@ -19,12 +19,12 @@ The scenario in `smoke/scenarios/p3-semantic-governance-critical-path.json` curr
 ```text
 operator
   -> gateway
-  -> ontology-service: create interface
-  -> ontology-service: create object type
-  -> ontology-service: attach interface to type
-  -> ontology-service: add properties
-  -> ontology-service: create objects
-  -> downstream search/rules/apps consume the resulting semantic model
+  -> ontology-definition-service: create interface
+  -> ontology-definition-service: create object type
+  -> ontology-definition-service: attach interface to type
+  -> ontology-definition-service: add properties
+  -> object-database-service: create objects (mutations orchestrated via ontology-actions-service)
+  -> downstream search/rules/apps consume the resulting semantic model (via ontology-query-service)
 ```
 
 ## Why this is important

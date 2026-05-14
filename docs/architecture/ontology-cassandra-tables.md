@@ -1,5 +1,33 @@
 # Ontology Cassandra access-pattern tables (S1.1.b)
 
+> **Reader note (2026-05-14)** — This document was authored against the
+> Rust workspace and quotes call sites as `<file>.rs:<line>`. After
+> the Rust→Go port those filenames no longer exist (e.g. `objects.rs`
+> is now Go code under
+> [`libs/ontology-kernel/handlers/objects/`](../../libs/ontology-kernel/handlers/objects/)
+> and [`libs/ontology-kernel/domain/`](../../libs/ontology-kernel/domain/)).
+> The line numbers are historical and **must not be relied on**. Treat
+> the `<entity>.rs:NNN` markers as semantic anchors ("which CRUD
+> operation does this row map to"), not as runnable file references.
+> The Cassandra schema below is current and is the active design
+> contract; the Rust-era anchors are kept to preserve traceability
+> with the original audit but should be re-derived if the table set is
+> revised.
+>
+> **Rust → Go directory map** (for re-deriving call sites):
+>
+> | Historical `.rs` reference | Today's Go location |
+> | --- | --- |
+> | `handlers/objects.rs`     | `libs/ontology-kernel/handlers/objects/` |
+> | `handlers/links.rs`       | `libs/ontology-kernel/handlers/links/` |
+> | `handlers/actions.rs`     | `libs/ontology-kernel/handlers/actions/` |
+> | `handlers/bindings.rs`    | `libs/ontology-kernel/handlers/bindings/` |
+> | `handlers/funnel.rs`      | `libs/ontology-kernel/handlers/funnel/` |
+> | `handlers/object_sets.rs` | `libs/ontology-kernel/handlers/objectsets/` |
+> | `domain/indexer.rs`       | `libs/ontology-kernel/domain/indexer.go` |
+> | `domain/traversal.rs`     | `libs/ontology-kernel/domain/traversal.go` |
+> | `domain/graph.rs`         | `libs/ontology-kernel/domain/graph.go` |
+
 > **Scope** — 7 Cassandra tables that absorb the hot path of the
 > ontology services, derived from the access patterns inventoried in
 > [`ontology-queries-inventory.md`](ontology-queries-inventory.md)

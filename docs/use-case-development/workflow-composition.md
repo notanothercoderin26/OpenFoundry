@@ -4,11 +4,11 @@ Workflow composition is where platform capabilities become repeatable operationa
 
 ## Repository signals
 
-- `services/workflow-automation-service`
-- `services/notification-alerting-service`
-- `services/ontology-service`
-- `apps/web/src/routes/workflows`
-- `proto/workflow/*`
+- `services/workflow-automation-service` — workflow definitions, sagas, automation conditions, approval steps
+- `services/notification-alerting-service` — notifications + delivery + WebSocket fan-out
+- `services/ontology-definition-service`, `services/ontology-query-service`, `services/ontology-actions-service` — the ontology plane that workflows read from and write to (older docs referenced a single `ontology-service` — that binary does not exist; the ontology plane is intentionally split, see [Ontology building](/ontology-building/))
+- `apps/web/src/routes/workflows`, `/automate`, `/workflow-lineage` — workflow authoring + tracing
+- `proto/workflow/*` — wire contracts
 
 ## Why this matters
 

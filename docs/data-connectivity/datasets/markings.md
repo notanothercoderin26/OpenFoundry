@@ -9,7 +9,7 @@ A row in `dataset_markings` carries one of two `source` values:
 * **`direct`** — explicitly attached to the dataset.
 * **`inherited`** — projected from an upstream dataset (the resolver re-derives these on the fly; they are not authoritative in the table).
 
-The cached resolver — [`MarkingResolver`](../../../services/data-asset-catalog-service/src/domain/markings.rs) — composes the effective list as:
+The cached resolver — [`MarkingResolver`](../../../services/dataset-versioning-service/internal/handlers/catalog_parity.go) — composes the effective list as:
 
 ```
 effective(rid) = direct(rid)
@@ -22,24 +22,24 @@ Cycles in the lineage graph are detected (`MarkingResolveError::Cycle`) and drop
 
 * TTL: **60 s** by default (`MarkingResolver::new`).
 * Capacity: 10 000 RIDs.
-* Invalidation: per-RID via `invalidate(rid)`; bulk via `invalidate_all`. The data-asset-catalog wires the per-RID invalidator to the lineage event bus so an upstream change ripples within a single TTL window worst-case.
+* Invalidation: per-RID via `Invalidate(rid)`; bulk via `InvalidateAll`. `dataset-versioning-service` wires the per-RID invalidator to the lineage event bus (see `libs/event-bus-data`) so an upstream change ripples within a single TTL window worst-case.
 
 ## Reading effective markings
 
 Internal callers ask the resolver:
 
-```rust
-let effective: Arc<Vec<EffectiveMarking>> = state
-    .marking_resolver
-    .compute(dataset_rid)
-    .await?;
+```go
+effective, err := state.MarkingResolver.Compute(ctx, datasetRID)
+if err != nil {
+    return err
+}
 ```
 
 External read endpoints (`GET /v1/datasets/{id}` and `GET /internal/datasets/{id}`) return the **direct** marking IDs only; the inherited set is computed at the access-decision boundary, not surfaced as a stable list to clients.
 
 ## Attaching / detaching
 
-A future `POST/DELETE /v1/datasets/{rid}/markings/{marking_id}` pair will mutate `dataset_markings` directly. The endpoints will require the `dataset.admin` scope (gated by `crate::security::require_dataset_admin`), separate from `dataset.write`, so an operator with bulk-upload rights cannot silently elevate a dataset's classification.
+A future `POST/DELETE /v1/datasets/{rid}/markings/{marking_id}` pair will mutate `dataset_markings` directly. The endpoints will require the `dataset.admin` scope (gated by `internal/security.RequireDatasetAdmin`), separate from `dataset.write`, so an operator with bulk-upload rights cannot silently elevate a dataset's classification.
 
 ## History
 

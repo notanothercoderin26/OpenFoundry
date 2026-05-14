@@ -15,9 +15,10 @@ Ontology manager is the control-plane area for maintaining and evolving semantic
 
 This capability would likely sit across:
 
-- `services/ontology-service`
-- `services/auth-service`
-- `services/audit-service`
+- the ontology service split (`ontology-definition-service`, `ontology-query-service`, `ontology-actions-service`, `object-database-service`)
+- `services/identity-federation-service`
+- `services/authorization-policy-service`
+- `services/audit-compliance-service`
 - `apps/web/src/routes/ontology`
 
 ## Why it matters

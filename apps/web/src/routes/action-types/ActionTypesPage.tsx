@@ -7,7 +7,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import {
   createActionType,
@@ -22,10 +22,12 @@ import {
   listObjectTypes,
   updateActionType,
   validateAction,
+  type ActionExecutionContext,
   type ActionMetricsResponse,
   type ActionOperationKind,
   type ActionType,
   type ActionWhatIfBranch,
+  type CreateActionTypeBody,
   type ObjectType,
 } from '@/lib/api/ontology';
 import { JsonEditor } from '@/lib/components/JsonEditor';
@@ -210,6 +212,40 @@ function draftFromAction(a: ActionType): Draft {
   };
 }
 
+function resolveObjectTypeId(value: unknown, objectTypes: ObjectType[]) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const trimmed = value.trim();
+  return objectTypes.find((type) =>
+    type.id === trimmed ||
+    type.name === trimmed ||
+    type.display_name === trimmed,
+  )?.id ?? trimmed;
+}
+
+function draftFromLogicPreset(params: URLSearchParams, objectTypes: ObjectType[]): Draft | null {
+  if (params.get('source') !== 'logic') return null;
+  const raw = params.get('draft');
+  if (!raw) return null;
+  try {
+    const body = JSON.parse(raw) as Partial<CreateActionTypeBody>;
+    return {
+      name: body.name || 'logic_function_action',
+      display_name: body.display_name || `Run ${params.get('functionRid') ?? 'Logic function'}`,
+      description: body.description || '',
+      object_type_id: resolveObjectTypeId(body.object_type_id, objectTypes),
+      operation_kind: body.operation_kind ?? 'invoke_function',
+      confirmation_required: Boolean(body.confirmation_required),
+      permission_key: body.permission_key ?? 'logic.actions.execute',
+      input_schema_json: JSON.stringify(body.input_schema ?? [], null, 2),
+      form_schema_json: JSON.stringify(body.form_schema ?? { sections: [] }, null, 2),
+      config_json: JSON.stringify(body.config ?? {}, null, 2),
+      authorization_policy_json: JSON.stringify(body.authorization_policy ?? {}, null, 2),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function familyLabelFromKind(kind: ActionOperationKind): ActionFamily {
   return KIND_TO_FAMILY[kind].family;
 }
@@ -237,6 +273,7 @@ function familyChipLabel(family: ActionFamily) {
 }
 
 export function ActionTypesPage() {
+  const [searchParams] = useSearchParams();
   const [actions, setActions] = useState<ActionType[]>([]);
   const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
   const [search, setSearch] = useState('');
@@ -258,6 +295,9 @@ export function ActionTypesPage() {
   const [validateResult, setValidateResult] = useState<unknown>(null);
   const [batchTargetsText, setBatchTargetsText] = useState('');
   const [batchResult, setBatchResult] = useState<unknown>(null);
+  const [executeSurface, setExecuteSurface] = useState<'workshop_action_execution' | 'branch_preview'>('workshop_action_execution');
+  const [executeBranchName, setExecuteBranchName] = useState('main');
+  const [consumedLogicPreset, setConsumedLogicPreset] = useState('');
 
   // what-if
   const [whatIfBranches, setWhatIfBranches] = useState<ActionWhatIfBranch[]>([]);
@@ -286,6 +326,19 @@ export function ActionTypesPage() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  useEffect(() => {
+    const key = searchParams.toString();
+    if (!key || key === consumedLogicPreset) return;
+    const preset = draftFromLogicPreset(searchParams, objectTypes);
+    if (!preset) return;
+    setDraft(preset);
+    setSelectedId(null);
+    setEditorOpen(true);
+    setWizardOpen(false);
+    setFamilyFilter('function');
+    setConsumedLogicPreset(key);
+  }, [consumedLogicPreset, objectTypes, searchParams]);
 
   const objectTypeMap = useMemo(() => {
     const map = new Map<string, ObjectType>();
@@ -419,6 +472,23 @@ export function ActionTypesPage() {
     }
   }
 
+  function currentExecutionContext(): ActionExecutionContext {
+    if (executeSurface === 'branch_preview') {
+      return {
+        surface: 'branch_preview',
+        branch_name: executeBranchName || 'main',
+        action_execution_id: selectedAction?.id,
+        preview: true,
+        source: 'action_types_operate',
+      };
+    }
+    return {
+      surface: 'workshop_action_execution',
+      action_execution_id: selectedAction?.id,
+      source: 'action_types_operate',
+    };
+  }
+
   async function runValidate() {
     if (!selectedAction) return;
     setBusy(true);
@@ -428,6 +498,7 @@ export function ActionTypesPage() {
         await validateAction(selectedAction.id, {
           target_object_id: executeTargetId || undefined,
           parameters: JSON.parse(executeParamsJson || '{}'),
+          execution_context: currentExecutionContext(),
         }),
       );
     } catch (cause) {
@@ -447,6 +518,7 @@ export function ActionTypesPage() {
           target_object_id: executeTargetId || undefined,
           parameters: JSON.parse(executeParamsJson || '{}'),
           justification: executeJustification || undefined,
+          execution_context: currentExecutionContext(),
         }),
       );
     } catch (cause) {
@@ -470,6 +542,7 @@ export function ActionTypesPage() {
           target_object_ids,
           parameters: JSON.parse(executeParamsJson || '{}'),
           justification: executeJustification || undefined,
+          execution_context: currentExecutionContext(),
         }),
       );
     } catch (cause) {
@@ -549,6 +622,10 @@ export function ActionTypesPage() {
           setExecuteJustification={setExecuteJustification}
           executeResult={executeResult}
           validateResult={validateResult}
+          executeSurface={executeSurface}
+          setExecuteSurface={setExecuteSurface}
+          executeBranchName={executeBranchName}
+          setExecuteBranchName={setExecuteBranchName}
           batchTargetsText={batchTargetsText}
           setBatchTargetsText={setBatchTargetsText}
           batchResult={batchResult}
@@ -837,6 +914,10 @@ interface DetailViewProps {
   setExecuteJustification: (v: string) => void;
   executeResult: unknown;
   validateResult: unknown;
+  executeSurface: 'workshop_action_execution' | 'branch_preview';
+  setExecuteSurface: (v: 'workshop_action_execution' | 'branch_preview') => void;
+  executeBranchName: string;
+  setExecuteBranchName: (v: string) => void;
   batchTargetsText: string;
   setBatchTargetsText: (v: string) => void;
   batchResult: unknown;
@@ -1323,6 +1404,10 @@ function OperatePane({
   setExecuteJustification,
   executeResult,
   validateResult,
+  executeSurface,
+  setExecuteSurface,
+  executeBranchName,
+  setExecuteBranchName,
   batchTargetsText,
   setBatchTargetsText,
   batchResult,
@@ -1356,6 +1441,28 @@ function OperatePane({
           onChange={setExecuteParamsJson}
           minHeight={100}
         />
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.8fr) minmax(220px, 1fr)', gap: 8 }}>
+          <label style={{ fontSize: 13, display: 'grid', gap: 4 }}>
+            Execution surface
+            <select
+              value={executeSurface}
+              onChange={(event) => setExecuteSurface(event.target.value as 'workshop_action_execution' | 'branch_preview')}
+              className="of-select"
+            >
+              <option value="workshop_action_execution">Workshop action execution</option>
+              <option value="branch_preview">Branch-aware preview</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 13, display: 'grid', gap: 4 }}>
+            Branch
+            <input
+              value={executeBranchName}
+              onChange={(event) => setExecuteBranchName(event.target.value)}
+              disabled={executeSurface !== 'branch_preview'}
+              className="of-input"
+            />
+          </label>
+        </div>
         <label style={{ fontSize: 13 }}>
           Justification
           <input

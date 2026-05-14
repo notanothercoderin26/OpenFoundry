@@ -9,8 +9,7 @@
 // from claims, attaches `x-openfoundry-*` headers downstream, and
 // rate-limits with a Redis or in-memory token bucket.
 //
-// 1:1 functional parity with services/edge-gateway-service in Rust —
-// see docs/architecture/migration-rust-to-go.md.
+// Tenant-aware reverse proxy fronting every service in the cluster.
 package main
 
 import (

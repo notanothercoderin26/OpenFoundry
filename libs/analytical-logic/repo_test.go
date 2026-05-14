@@ -13,7 +13,7 @@ import (
 // Smoke-checks the error types and small surface that doesn't need a
 // live Postgres. The real round-trip exercise happens in the consumer
 // service's integration tests where a Postgres testcontainer is
-// available — same boundary the Rust crate's mod tests draw.
+// available.
 func TestErrNotFoundCarriesID(t *testing.T) {
 	t.Parallel()
 	id, err := uuid.NewV7()

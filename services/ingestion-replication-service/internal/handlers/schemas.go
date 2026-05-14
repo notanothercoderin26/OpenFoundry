@@ -5,12 +5,11 @@ package handlers
 //  POST /api/v1/streaming/streams/{id}/schema:validate
 //   GET  /api/v1/streaming/streams/{id}/schema/history
 //
-//The Rust implementation delegates fingerprinting and compatibility
-// checks to the event_bus_control::schema_registry crate. We expose
-// the same behaviour through a SchemaRegistry interface so production
-// wiring injects the real registry (BusControlSchemaRegistry, backed
-// by libs/event-bus-control) and tests use NoopSchemaRegistry without
-// pulling in the avro/protobuf dependencies.
+// Fingerprinting and compatibility checks are delegated through a
+// SchemaRegistry interface so production wiring injects the real
+// registry (BusControlSchemaRegistry, backed by libs/event-bus-control)
+// while tests use NoopSchemaRegistry without pulling in the
+// avro/protobuf dependencies.
 
 import (
 	"context"
@@ -192,13 +191,12 @@ func parseStreamID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 // ─── BusControlSchemaRegistry ──────────────────────────────────────────
 
 // BusControlSchemaRegistry is the production SchemaRegistry that
-// delegates to libs/event-bus-control (which already ports the Rust
-// event_bus_control::schema_registry crate verbatim).
+// delegates to libs/event-bus-control.
 //
 // The wire surface for the streams endpoints is Avro, so the adapter
 // hard-codes SchemaTypeAvro. If/when the streaming control plane
 // admits JSON or Protobuf streams we can promote SchemaType to a
-// per-call argument; until then this matches the Rust handler that
+// per-call argument; until then this matches the handler that
 // also passes SchemaType::Avro for every call.
 type BusControlSchemaRegistry struct{}
 

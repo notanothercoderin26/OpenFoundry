@@ -1,10 +1,6 @@
-// Command sdk-generation-service is the SDK + OpenAPI contract publisher.
-//
-// 1:1 functional parity with services/sdk-generation-service/ in the
-// Rust workspace. The Rust crate currently has an empty `fn main() {}`
-// (substrate-first style); this Go port wires the actual server +
-// auth + metrics so the endpoints documented by the Rust handlers can
-// be exercised end-to-end.
+// Command sdk-generation-service is the SDK + OpenAPI contract
+// publisher. Wires the server + auth + metrics so the documented
+// handler surface can be exercised end-to-end.
 package main
 
 import (

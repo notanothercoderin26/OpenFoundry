@@ -28,7 +28,7 @@ Every action should start from a clear intent:
 - invoke code-backed logic
 - call an external system
 
-OpenFoundry already models these operation families in `services/ontology-service/src/models/action_type.rs` through:
+OpenFoundry already models these operation families in `services/ontology-actions-service/internal/models/action_type.go` through:
 
 - `update_object`
 - `create_link`
@@ -51,7 +51,7 @@ In OpenFoundry, each action input field can already define:
 - whether the field is required
 - an optional default value
 
-This shape is exposed by `ActionInputField` and enforced during validation in `services/ontology-service/src/handlers/actions.rs`.
+This shape is exposed by `ActionInputField` and enforced during validation in `services/ontology-actions-service/internal/handlers/actions.go`.
 
 The practical value of this is simple: different applications can invoke the same action contract without inventing their own private payload conventions.
 
@@ -79,9 +79,9 @@ At the moment, the model supports:
 
 The important part is that this is not only cosmetic metadata.
 
-The backend in `services/ontology-service/src/handlers/actions.rs` now applies parameter overrides during parameter materialization, so conditional requiredness and conditional defaults affect validation and execution, not only rendering.
+The backend in `services/ontology-actions-service/internal/handlers/actions.go` now applies parameter overrides during parameter materialization, so conditional requiredness and conditional defaults affect validation and execution, not only rendering.
 
-On the web side, `apps/web/src/lib/components/ontology/ActionExecutor.svelte` renders those sections and overrides as a structured form, and the ontology manager page exposes `form_schema` during action authoring with a generator for base layouts.
+On the web side, `apps/web/src/lib/components/ontology/ActionExecutor.tsx` renders those sections and overrides as a structured form, and the ontology manager page exposes `form_schema` during action authoring with a generator for base layouts.
 
 This already moves the platform beyond a raw JSON payload editor and into a reusable action-form contract.
 
@@ -94,7 +94,7 @@ At the schema level, direct properties can carry an `inline_edit_config` with:
 - `action_type_id`
 - optional `input_name`
 
-That configuration lives on the property definition in `services/ontology-service/src/models/property.rs`.
+That configuration lives on the property definition in `services/ontology-definition-service/internal/models/property.go`.
 
 The current behavior is intentionally narrow and governed:
 
@@ -128,7 +128,7 @@ The current codebase already supports several useful patterns:
 - inline function execution
 - HTTP webhook invocation with method, URL, and headers
 
-This logic lives mostly in `services/ontology-service/src/handlers/actions.rs`.
+This logic lives mostly in `services/ontology-actions-service/internal/handlers/actions.go`.
 
 The action config is now also able to carry native notification side effects through a backward-compatible envelope:
 
@@ -179,7 +179,7 @@ Action systems become safer when they support a progression from intent to effec
 4. execute in batch
 5. branch into what-if exploration
 
-OpenFoundry already exposes these capabilities through routes in `services/ontology-service/src/main.rs`:
+OpenFoundry already exposes these capabilities through routes in `services/ontology-actions-service/cmd/ontology-actions-service/main.go` (wired in `services/ontology-actions-service/internal/server/`):
 
 - `POST /api/v1/ontology/actions/{id}/validate`
 - `POST /api/v1/ontology/actions/{id}/execute`
@@ -192,7 +192,7 @@ The what-if branch concept is especially important. It is the point where ontolo
 
 OpenFoundry now supports notification side effects as part of the action definition itself.
 
-At the implementation level, this is handled in `services/ontology-actions-service/src/handlers/actions.rs` by validating and dispatching `notification_side_effects` against `notification-alerting-service`.
+At the implementation level, this is handled in `services/ontology-actions-service/internal/handlers/actions.go` by validating and dispatching `notification_side_effects` against `notification-alerting-service`.
 
 Each notification side effect can currently define:
 
@@ -241,12 +241,12 @@ When defining action types for OpenFoundry, the safest sequence is:
 
 The strongest repository signals for this area are:
 
-- `services/ontology-service/src/models/action_type.rs`
-- `services/ontology-service/src/handlers/actions.rs`
-- `services/ontology-service/src/handlers/objects.rs`
-- `services/ontology-service/src/domain/function_runtime.rs`
-- `services/auth-service`
-- `services/audit-service`
+- `services/ontology-actions-service/internal/models/action_type.go`
+- `services/ontology-actions-service/internal/handlers/actions.go`
+- `services/ontology-actions-service/internal/handlers/objects.go` (action-driven mutations) and `services/object-database-service/internal/handlers/objects.go` (storage)
+- `services/ontology-actions-service/internal/domain/function_runtime.go`
+- `services/identity-federation-service`
+- `services/audit-compliance-service`
 
 Together, these files suggest an action model that already understands:
 

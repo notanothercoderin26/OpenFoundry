@@ -1,4 +1,4 @@
-# ADR-0010: CloudNativePG (CNPG) como operador único de PostgreSQL
+# ADR-0010: CloudNativePG (CNPG) as the sole PostgreSQL operator
 
 - **Status:** Accepted
 - **Date:** 2026-04-29
@@ -6,214 +6,217 @@
 - **Related work:**
   - `docs/architecture/runtime-topology.md` — "Postgres for service-owned
     relational state" (database-per-service).
-  - `services/*/migrations/` — cada servicio mantiene su propio esquema
-    (p. ej. `services/cipher-service/migrations`,
-    `services/data-asset-catalog-service/migrations`,
-    `services/marketplace-service/migrations`,
-    `services/sql-warehousing-service/migrations`,
-    `services/identity-federation-service/migrations`, etc.).
-  - `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`
-    — plantilla de referencia del CRD `postgresql.cnpg.io/v1 Cluster`
-    usada por los servicios de plataforma.
-  - `infra/k8s/platform/manifests/rook/` (`cluster.yaml`, `objectstore.yaml`, `bucket.yaml`) —
-    Ceph + RGW como proveedor S3 cluster-local.
+  - `services/*/internal/repo/migrations/` — each service maintains its own schema
+    (e.g. `services/sql-bi-gateway-service/internal/repo/migrations`,
+    `services/identity-federation-service/internal/repo/migrations`, etc.).
+    The original example list (`cipher-service`, `data-asset-catalog-service`,
+    `marketplace-service`) reflected the pre-consolidation service taxonomy;
+    after [ADR-0030](./ADR-0030-service-consolidation-30-targets.md) those
+    migrations live in the consolidated owners
+    (`audit-compliance-service`, `iceberg-catalog-service` + `dataset-versioning-service`,
+    `federation-product-exchange-service` respectively). The CNPG decision
+    itself is not affected by which services exist — it scopes the operator
+    used for every Postgres cluster on the platform.
+  - `infra/helm/infra/manifests/cnpg/templates/cluster.yaml`
+    — reference template for the `postgresql.cnpg.io/v1 Cluster` CRD
+    used by platform services.
+  - `infra/helm/infra/manifests/rook/` (`cluster.yaml`, `objectstore.yaml`, `bucket.yaml`) —
+    Ceph + RGW as the cluster-local S3 provider.
   - ADR-0007 (`docs/architecture/adr/ADR-0007-search-engine-choice.md`) —
-    precedente de "un único operador / un único stack stateful por capacidad".
+    precedent for "a single operator / a single stateful stack per capability".
 
 ## Context
 
-OpenFoundry sigue el patrón **base de datos por servicio**: cada bounded
-context posee su propio Postgres lógico, con migraciones versionadas dentro
-de `services/<svc>/migrations/`. Esto se confirma en
+OpenFoundry follows the **database-per-service** pattern: every bounded
+context owns its own logical Postgres, with versioned migrations under
+`services/<svc>/migrations/`. This is confirmed in
 `docs/architecture/runtime-topology.md`:
 
 > "Postgres for service-owned relational state […] The CI smoke job creates
 > multiple service-specific databases, which strongly suggests
 > database-per-service isolation rather than a shared operational schema."
 
-Hoy conviven dos realidades:
+Today two realities coexist:
 
-1. **Un uso aislado de CloudNativePG** ya introducido como plantilla de
-   referencia para clústeres Postgres de plataforma (ver
-   `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`),
-   donde el operador reconcilia un clúster con replicación en streaming y
-   expone los servicios `<name>-rw` / `<name>-ro`.
-2. **El resto de servicios** no tiene un operador estandarizado. Las
-   alternativas históricamente consideradas (Patroni externo + HAProxy/VIP,
-   StatefulSets "a mano", Postgres gestionado por proveedor) introducen:
-   - VIPs y balanceadores adicionales (SPOFs operativos),
-   - rutas de failover divergentes por servicio,
-   - backup/restore artesanal por equipo,
-   - dificultad para auditar RPO/RTO de forma homogénea,
-   - duplicidad de runbooks.
+1. **Isolated use of CloudNativePG** already introduced as a reference
+   template for platform Postgres clusters (see
+   `infra/helm/infra/manifests/cnpg/templates/cluster.yaml`),
+   where the operator reconciles a cluster with streaming replication and
+   exposes the `<name>-rw` / `<name>-ro` services.
+2. **The remaining services** have no standardised operator. The
+   historically considered alternatives (external Patroni + HAProxy/VIP,
+   hand-rolled StatefulSets, vendor-managed Postgres) introduce:
+   - additional VIPs and load balancers (operational SPOFs),
+   - divergent failover paths per service,
+   - bespoke backup/restore per team,
+   - difficulty auditing RPO/RTO uniformly,
+   - duplicated runbooks.
 
-Sin un operador único:
+Without a single operator:
 
-- Cada equipo reinventa HA, backups, WAL archive, rotación de credenciales y
-  upgrades menores/mayores.
-- No hay una forma estándar de declarar topología (primary + réplicas),
-  ventanas de mantenimiento, o políticas de retención.
-- El plano de almacenamiento S3 disponible en cluster
-  (`infra/k8s/platform/manifests/rook/objectstore.yaml`) está infrautilizado para WAL/base
-  backups.
+- Each team reinvents HA, backups, WAL archive, credential rotation, and
+  minor/major upgrades.
+- There is no standard way to declare topology (primary + replicas),
+  maintenance windows, or retention policies.
+- The cluster-local S3 storage plane available
+  (`infra/helm/infra/manifests/rook/objectstore.yaml`) is under-used for
+  WAL/base backups.
 
-El proyecto mantiene una postura **100% OSS** (Apache-2.0 / MIT / BSD); el
-operador elegido debe encajar en esa restricción y alinearse con el
-precedente de ADR-0007 ("un solo stack stateful por capacidad").
+The project maintains a **100% OSS** stance (Apache-2.0 / MIT / BSD); the
+chosen operator must fit that constraint and align with the precedent
+set by ADR-0007 ("a single stateful stack per capability").
 
 ## Options considered
 
-### Opción A — CloudNativePG (CNPG) como operador único (elegida)
+### Option A — CloudNativePG (CNPG) as the sole operator (chosen)
 
-- Operador Apache-2.0, nativo Kubernetes, sin dependencia de etcd externo
-  ni de Patroni.
-- CRD `Cluster` que declara topología (instancias, sync replicas), bootstrap,
-  storage, recursos, scheduled backups, y `barmanObjectStore` para
-  WAL/base backups a S3.
-- Failover gestionado por el operador vía la API de Kubernetes (sin VIP).
-- Servicios `<name>-rw`, `<name>-ro`, `<name>-r` generados automáticamente
-  → los servicios de aplicación se conectan por DNS estable.
-- Ya en uso como plantilla de referencia bajo `infra/k8s/platform/manifests/cnpg/` (precedente
-  vivo en el repo).
+- Apache-2.0 operator, Kubernetes-native, with no dependency on external
+  etcd or Patroni.
+- `Cluster` CRD that declares topology (instances, sync replicas),
+  bootstrap, storage, resources, scheduled backups, and
+  `barmanObjectStore` for WAL/base backups to S3.
+- Failover managed by the operator via the Kubernetes API (no VIP).
+- `<name>-rw`, `<name>-ro`, `<name>-r` services generated automatically
+  → application services connect via stable DNS.
+- Already in use as a reference template under
+  `infra/helm/infra/manifests/cnpg/` (live precedent in the repo).
 
-### Opción B — Patroni + HAProxy / keepalived (VIP)
+### Option B — Patroni + HAProxy / keepalived (VIP)
 
-- Requiere etcd/Consul externo, HAProxy y VIP por clúster.
-- Añade SPOFs operativos (VIP, balanceador), runbooks de failover manuales
-  y un plano de control fuera de Kubernetes.
-- Backups y WAL archive resueltos con scripts ad-hoc (pgBackRest/barman
-  invocados a mano).
+- Requires external etcd/Consul, HAProxy, and a per-cluster VIP.
+- Adds operational SPOFs (VIP, balancer), manual failover runbooks, and
+  a control plane outside of Kubernetes.
+- Backups and WAL archive resolved with ad-hoc scripts (pgBackRest/barman
+  invoked manually).
 
-### Opción C — Zalando postgres-operator
+### Option C — Zalando postgres-operator
 
-- OSS (MIT), maduro, basado en Patroni interno.
-- Modelo de configuración (Spilo/Patroni) más opaco que CNPG y con
-  superficie de ajuste mayor.
-- Integración de backups vía WAL-G; correcta pero menos declarativa que
-  `barmanObjectStore` de CNPG.
+- OSS (MIT), mature, based on Patroni internally.
+- Configuration model (Spilo/Patroni) more opaque than CNPG and with a
+  larger tuning surface.
+- Backup integration via WAL-G; correct but less declarative than CNPG's
+  `barmanObjectStore`.
 
-### Opción D — StackGres
+### Option D — StackGres
 
-- OSS (AGPL-3.0 para componentes core en algunas distribuciones).
-- **Rechazada** por incompatibilidad con la postura OSS del proyecto
-  (Apache-2.0 / MIT / BSD), análoga a la lógica aplicada en ADR-0007.
+- OSS (AGPL-3.0 for core components in some distributions).
+- **Rejected** due to incompatibility with the project's OSS stance
+  (Apache-2.0 / MIT / BSD), analogous to the reasoning applied in
+  ADR-0007.
 
-### Opción E — Status quo (StatefulSets sin operador)
+### Option E — Status quo (StatefulSets without an operator)
 
-- Mantener Postgres por servicio sin operador, con HA y backups gestionados
-  por cada equipo.
-- Maximiza la deuda operativa y dispersa los runbooks; no resuelve el
-  problema planteado.
+- Keep Postgres per service without an operator, with HA and backups
+  managed by each team.
+- Maximises operational debt and disperses runbooks; does not solve the
+  problem at hand.
 
 ## Decision
 
-Adoptamos la **Opción A — CloudNativePG (CNPG) como operador único de
-PostgreSQL** para todos los clústeres Postgres del plano de producción de
-OpenFoundry.
+We adopt **Option A — CloudNativePG (CNPG) as the sole PostgreSQL
+operator** for every Postgres cluster in OpenFoundry's production plane.
 
-- **Operador único.** CNPG (Apache-2.0) es el único operador soportado para
-  Postgres en `infra/k8s/**`. No se introducirán Patroni externos, VIPs,
-  HAProxy de Postgres, ni operadores alternativos (Zalando, StackGres,
-  etc.) mientras este ADR esté vigente.
-- **Topología por bounded context.** Cada servicio que requiera Postgres
-  declara su propio CR `postgresql.cnpg.io/v1 Cluster` con la topología
-  base **1 primary + 2 réplicas (al menos 1 síncrona)**
+- **Sole operator.** CNPG (Apache-2.0) is the only operator supported
+  for Postgres in `infra/helm/**`. No external Patroni, VIPs, Postgres
+  HAProxy, or alternative operators (Zalando, StackGres, etc.) will be
+  introduced while this ADR is in force.
+- **Topology per bounded context.** Every service that requires Postgres
+  declares its own `postgresql.cnpg.io/v1 Cluster` CR with the base
+  topology **1 primary + 2 replicas (at least 1 synchronous)**
   (`spec.instances: 3`, `spec.minSyncReplicas: 1`,
-  `spec.maxSyncReplicas: 1`). Esto preserva el aislamiento
-  database-per-service descrito en `docs/architecture/runtime-topology.md`.
-- **Backups y WAL archive a Ceph RGW.** Todos los clústeres configuran
-  `spec.backup.barmanObjectStore` apuntando a
-  `s3://openfoundry-pg-backups/<service>/<cluster>/`, sirviendo Ceph RGW
-  declarado en `infra/k8s/platform/manifests/rook/objectstore.yaml` y
-  `infra/k8s/platform/manifests/rook/bucket.yaml`. Esto incluye:
-  - **WAL archiving** continuo (`wal: { compression: gzip }`).
-  - **Base backups programados** (`ScheduledBackup`) con cadencia diaria.
-  - **Retención** mínima de 14 días, máxima de 30 días por defecto;
-    overridable por servicio.
-  - **Cifrado en reposo** delegado al bucket de Ceph RGW.
-- **Conexiones desde servicios.** Los servicios consumen los endpoints
-  generados por CNPG: `<cluster>-rw` para escrituras, `<cluster>-ro` para
-  lecturas escalables. No se permiten conexiones directas a pods ni VIPs
-  externos.
-- **Credenciales.** Se gestionan mediante `Secret` de tipo
-  `kubernetes.io/basic-auth`, siguiendo el patrón establecido en
-  `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`.
-- **Upgrades.** Las versiones mayores de Postgres se planifican vía el
-  flujo de upgrade in-place del operador o mediante `Cluster` de réplica
-  lógica + cutover, según se documente en el runbook.
-- **Desarrollo local.** `infra/docker-compose.yml` y
-  `infra/docker-compose.dev.yml` siguen usando contenedores Postgres
-  estándar para DX. CNPG aplica solo al plano Kubernetes.
+  `spec.maxSyncReplicas: 1`). This preserves the database-per-service
+  isolation described in `docs/architecture/runtime-topology.md`.
+- **Backups and WAL archive to Ceph RGW.** All clusters configure
+  `spec.backup.barmanObjectStore` pointing to
+  `s3://openfoundry-pg-backups/<service>/<cluster>/`, served by the
+  Ceph RGW declared in
+  `infra/helm/infra/manifests/rook/objectstore.yaml` and
+  `infra/helm/infra/manifests/rook/bucket.yaml`. This includes:
+  - Continuous **WAL archiving** (`wal: { compression: gzip }`).
+  - **Scheduled base backups** (`ScheduledBackup`) on a daily cadence.
+  - Minimum **retention** of 14 days, maximum of 30 days by default;
+    overridable per service.
+  - **Encryption at rest** delegated to the Ceph RGW bucket.
+- **Service connections.** Services consume the endpoints generated by
+  CNPG: `<cluster>-rw` for writes, `<cluster>-ro` for scalable reads.
+  Direct connections to pods or external VIPs are not allowed.
+- **Credentials.** Managed via a `Secret` of type
+  `kubernetes.io/basic-auth`, following the pattern established in
+  `infra/helm/infra/manifests/cnpg/templates/cluster.yaml`.
+- **Upgrades.** Major Postgres versions are planned via the operator's
+  in-place upgrade flow or via a logical-replica `Cluster` + cutover,
+  as documented in the runbook.
+- **Local development.** `infra/compose/docker-compose.yml` and
+  `infra/docker-compose.dev.yml` continue to use standard Postgres
+  containers for DX. CNPG applies only to the Kubernetes plane.
 
 ## Consequences
 
-### Positivas
+### Positive
 
-- **Una sola superficie operativa** para todos los Postgres del plano de
-  producción: un operador, un CRD, un runbook, un dashboard.
-- **HA declarativa** (1 primary + 2 réplicas con al menos 1 síncrona) y
-  failover automático sin VIPs ni SPOFs externos.
-- **Backups y PITR uniformes** sobre Ceph RGW, reutilizando el almacenamiento
-  S3 ya provisto por `infra/k8s/platform/manifests/rook/`.
-- **Aislamiento por bounded context** preservado: cada servicio mantiene su
-  propio `Cluster` y sus propias migraciones bajo
-  `services/<svc>/migrations/`.
-- **Coherencia con ADR-0007**: una sola tecnología por capacidad stateful,
-  reduciendo carga cognitiva y dependencias.
+- **A single operational surface** for every Postgres in the production
+  plane: one operator, one CRD, one runbook, one dashboard.
+- **Declarative HA** (1 primary + 2 replicas with at least 1 synchronous)
+  and automatic failover with no VIPs or external SPOFs.
+- **Uniform backups and PITR** on top of Ceph RGW, reusing the S3 storage
+  already provided by `infra/helm/infra/manifests/rook/`.
+- **Bounded-context isolation** preserved: each service keeps its own
+  `Cluster` and its own migrations under `services/<svc>/migrations/`.
+- **Consistency with ADR-0007**: a single technology per stateful
+  capability, reducing cognitive load and dependencies.
 - **100% OSS** (Apache-2.0).
 
-### Negativas / trade-offs
+### Negative / trade-offs
 
-- Acoplamiento del plano de datos a Kubernetes y a la API de CNPG.
-- Coste base de 3 instancias por servicio que requiera HA estricta; los
-  servicios no críticos pueden declarar `instances: 1` con backups (sin
-  HA), pero deben justificarlo en su ADR de servicio.
-- Dependencia operativa adicional sobre Ceph RGW para la cadena de
-  backup/restore: una indisponibilidad del object store degrada el WAL
-  archive (no el plano de escritura, gracias al buffer local).
-- Curva de aprendizaje del CRD `Cluster` para equipos que solo conocen
-  Postgres "plano".
+- The data plane is coupled to Kubernetes and to the CNPG API.
+- Baseline cost of 3 instances per service that requires strict HA;
+  non-critical services may declare `instances: 1` with backups (no HA),
+  but must justify it in their service-level ADR.
+- Additional operational dependency on Ceph RGW for the backup/restore
+  chain: an object-store outage degrades the WAL archive (not the write
+  plane, thanks to local buffering).
+- Learning curve for the `Cluster` CRD for teams that only know "plain"
+  Postgres.
 
-### Migración / cleanup
+### Migration / cleanup
 
-- La plantilla CNPG bajo
-  `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`
-  se considera el patrón de referencia. Nuevos charts de servicio deben
-  reutilizar la misma forma (CR `Cluster` + `Secret` basic-auth).
-- No existen Patroni externos ni VIPs de Postgres en `infra/k8s/**` al
-  momento de este ADR; no hay nada que retirar.
-- Cualquier roadmap, prompt o documento que mencione "Patroni",
-  "HAProxy para Postgres" o "Postgres administrado externamente" debe
-  enlazar a este ADR y reformularse en términos de CNPG.
+- The CNPG template under
+  `infra/helm/infra/manifests/cnpg/templates/cluster.yaml`
+  is the reference pattern. New service charts must reuse the same
+  shape (`Cluster` CR + basic-auth `Secret`).
+- There are no external Patroni instances or Postgres VIPs in
+  `infra/helm/**` as of this ADR; there is nothing to retire.
+- Any roadmap, prompt, or document mentioning "Patroni", "HAProxy for
+  Postgres", or "externally managed Postgres" must link to this ADR
+  and be rephrased in terms of CNPG.
 
 ## Conditions under which this decision would be reopened
 
-Este ADR debe reabrirse si **cualquiera** de las siguientes condiciones se
-cumple:
+This ADR must be reopened if **any** of the following conditions holds:
 
-1. CNPG cambia su licencia, gobierno o cadencia de releases de forma que
-   deje de ser compatible con la postura OSS del proyecto (precedente
-   Qdrant / OpenSearch en ADR-0007).
-2. Un destino regulado obliga al uso de un Postgres gestionado por un
-   proveedor concreto o de un operador certificado distinto.
-3. Un workload concreto demuestra, con benchmarks reproducibles bajo
-   `benchmarks/`, que CNPG no puede sostener el RPO/RTO o el throughput
-   requerido para un bounded context dado.
-4. Se decide consolidar Postgres en un clúster compartido multi-tenant,
-   lo que rompería el principio "database-per-service" y requeriría
-   reabrir tanto este ADR como
+1. CNPG changes its licence, governance, or release cadence in a way
+   that makes it incompatible with the project's OSS stance (Qdrant /
+   OpenSearch precedent in ADR-0007).
+2. A regulated deployment target mandates the use of a Postgres managed
+   by a specific provider or a different certified operator.
+3. A specific workload demonstrates, with reproducible benchmarks under
+   `benchmarks/`, that CNPG cannot sustain the required RPO/RTO or
+   throughput for a given bounded context.
+4. We decide to consolidate Postgres into a shared multi-tenant cluster,
+   which would break the "database-per-service" principle and would
+   require reopening both this ADR and
    `docs/architecture/runtime-topology.md`.
 
 ## References
 
-- `docs/architecture/runtime-topology.md` — modelo "Postgres por servicio".
-- `docs/architecture/adr/ADR-0007-search-engine-choice.md` — precedente de
-  "un solo stack stateful por capacidad" y de filtrado por licencia OSS.
-- `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`
-  — patrón de CR `Cluster` + `Secret` basic-auth de referencia.
-- `infra/k8s/platform/manifests/rook/objectstore.yaml`, `infra/k8s/platform/manifests/rook/bucket.yaml` —
-  proveedor S3 para `s3://openfoundry-pg-backups/`.
-- `services/*/migrations/` — esquemas por servicio (p. ej.
+- `docs/architecture/runtime-topology.md` — "Postgres per service" model.
+- `docs/architecture/adr/ADR-0007-search-engine-choice.md` — precedent
+  for "a single stateful stack per capability" and OSS-licence filtering.
+- `infra/helm/infra/manifests/cnpg/templates/cluster.yaml`
+  — reference `Cluster` CR + basic-auth `Secret` pattern.
+- `infra/helm/infra/manifests/rook/objectstore.yaml`, `infra/helm/infra/manifests/rook/bucket.yaml` —
+  S3 provider for `s3://openfoundry-pg-backups/`.
+- `services/*/migrations/` — per-service schemas (e.g.
   `services/cipher-service/migrations`,
   `services/data-asset-catalog-service/migrations`).
 - CloudNativePG: <https://cloudnative-pg.io/> (Apache-2.0).

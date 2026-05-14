@@ -112,7 +112,7 @@ func (r *Repo) CreateUserAndAssignRole(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Advisory lock: matches the Rust crate's bootstrap election.
+	// Advisory lock: serialises first-user bootstrap across replicas.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(8_514_200_001)); err != nil {
 		return nil, "", fmt.Errorf("advisory lock: %w", err)
 	}
@@ -201,11 +201,9 @@ func (r *Repo) FindRefreshToken(ctx context.Context, tokenHash string) (*models.
 }
 
 // RevokeRefreshFamily marks every token in a family as revoked.
-//
-// The Rust crate's `hardening/refresh_family.rs` calls this on replay
-// detection: if a token from a family is presented after a sibling has
-// already been used, the whole family is killed to defend against
-// stolen-token reuse.
+// Called on replay detection: if a token from a family is presented
+// after a sibling has already been used, the whole family is killed
+// to defend against stolen-token reuse.
 func (r *Repo) RevokeRefreshFamily(ctx context.Context, familyID uuid.UUID, at time.Time) error {
 	_, err := r.Pool.Exec(ctx,
 		`UPDATE refresh_tokens SET revoked_at = $2

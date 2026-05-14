@@ -6,8 +6,8 @@
 - **Related work:**
   - `docs/architecture/adr/ADR-0007-search-engine-choice.md` (Vespa as the
     sole production search engine).
-  - `infra/k8s/platform/charts/vespa/`, `infra/k8s/platform/manifests/strimzi/`,
-    `infra/k8s/platform/manifests/flink/` — the Kubernetes packaging of the
+  - `infra/helm/infra/charts/vespa/`, `infra/helm/infra/manifests/strimzi/`,
+    `infra/helm/infra/manifests/flink/` — the Kubernetes packaging of the
     data-plane components covered by this ADR.
   - `infra/docker-compose.monitoring.yml` — Prometheus / Grafana / Loki /
     Tempo stack used to compute the SLIs below.
@@ -18,7 +18,7 @@ The OpenFoundry data plane spans several stateful systems (Flight SQL caches,
 Iceberg + DataFusion, Kafka via Strimzi, Vespa, NATS for control
 events). Each of them already exposes Prometheus metrics through the
 monitoring stack defined in `infra/docker-compose.monitoring.yml` and the
-Helm charts under `infra/k8s/**`, but there is no single document that:
+Helm charts under `infra/helm/**`, but there is no single document that:
 
 - states the **target latencies** per layer and per percentile (p50, p99,
   p99.9),
@@ -36,8 +36,8 @@ alert thresholds and makes regression detection unreliable.
 
 We adopt the following SLOs, SLIs, error budgets and dashboard inventory for
 the data plane. They apply to all production deployments packaged from
-`infra/k8s/**`. Local Compose stacks
-(`infra/docker-compose.yml`, `infra/docker-compose.dev.yml`) are
+`infra/helm/**`. Local Compose stacks
+(`infra/compose/docker-compose.yml`, `infra/docker-compose.dev.yml`) are
 **explicitly out of scope** — they are sized for DX, not for SLO compliance.
 
 ### 1. Latency SLOs per data-plane layer
@@ -200,7 +200,7 @@ component.
 
 The following dashboards must exist and be provisioned alongside the
 existing monitoring stack in `infra/docker-compose.monitoring.yml` and the
-Helm releases under `infra/k8s/**`. Each dashboard renders the p50 / p99 /
+Helm releases under `infra/helm/**`. Each dashboard renders the p50 / p99 /
 p99.9 panels and the error-budget burn-down for its SLI.
 
 | Dashboard | UID (proposed) | Backing component / chart |
@@ -208,8 +208,8 @@ p99.9 panels and the error-budget burn-down for its SLI.
 | Data Plane SLO Overview | `dp-slo-overview` | aggregates the five SLIs above |
 | Flight SQL — point query SLO | `dp-slo-flightsql` | Flight SQL service metrics |
 | DataFusion / Iceberg scan SLO | `dp-slo-datafusion` | DataFusion + Iceberg scan metrics |
-| Kafka producer ack SLO | `dp-slo-kafka` | `infra/k8s/platform/manifests/strimzi/` |
-| Vespa hybrid query SLO | `dp-slo-vespa` | `infra/k8s/platform/charts/vespa/` |
+| Kafka producer ack SLO | `dp-slo-kafka` | `infra/helm/infra/manifests/strimzi/` |
+| Vespa hybrid query SLO | `dp-slo-vespa` | `infra/helm/infra/charts/vespa/` |
 | NATS control event SLO | `dp-slo-nats` | NATS control plane |
 
 The "Data Plane SLO Overview" dashboard is the single pane used by on-call
@@ -263,8 +263,8 @@ This ADR should be revisited if **any** of the following becomes true:
 
 ## References
 
-- `infra/k8s/platform/charts/vespa/`, `infra/k8s/platform/manifests/strimzi/`,
-  `infra/k8s/platform/manifests/flink/` — data-plane component packaging.
+- `infra/helm/infra/charts/vespa/`, `infra/helm/infra/manifests/strimzi/`,
+  `infra/helm/infra/manifests/flink/` — data-plane component packaging.
 - `infra/docker-compose.monitoring.yml` — Prometheus / Grafana / Loki /
   Tempo stack used to host the dashboards above.
 - `docs/operations/index.md` — operations entry point, links to this ADR.
@@ -346,7 +346,7 @@ histogram_quantile(
 
 In addition to the application-level SLIs, Cassandra-side health is
 tracked via the JMX exporter shipped by the k8ssandra-operator
-sidecar (see `infra/k8s/platform/manifests/cassandra/cluster-prod.yaml`):
+sidecar (see `infra/helm/infra/manifests/cassandra/cluster-prod.yaml`):
 
 | SLI | Metric | Threshold |
 |---|---|---|

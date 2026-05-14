@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { listDatasets, type Dataset } from '@/lib/api/datasets';
+import {
+  tableTypeLabel,
+  virtualTables,
+  virtualTableExternalReference,
+  virtualTablePipelineInputSupport,
+  type VirtualTable,
+} from '@/lib/api/virtual-tables';
 import { Glyph } from '@/lib/components/ui/Glyph';
+
+export type AddFoundryDataItem =
+  | { kind: 'dataset'; id: string; name: string; description: string; dataset: Dataset }
+  | { kind: 'virtual_table'; id: string; name: string; description: string; virtualTable: VirtualTable };
 
 interface AddFoundryDataDialogProps {
   open: boolean;
   onClose: () => void;
-  onAdd: (datasets: Dataset[]) => void;
+  onAdd: (items: AddFoundryDataItem[]) => void;
 }
 
 function formatRowCount(count: number) {
@@ -22,10 +33,31 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+function itemKey(item: AddFoundryDataItem) {
+  return `${item.kind}:${item.id}`;
+}
+
+function virtualTableDescription(row: VirtualTable) {
+  const ref = virtualTableExternalReference(row);
+  return ref === row.name ? `${tableTypeLabel(row.table_type)} virtual table` : ref;
+}
+
+function itemSupport(item: AddFoundryDataItem) {
+  if (item.kind === 'dataset') return { supported: true, reasons: [] as string[], warnings: [] as string[] };
+  return virtualTablePipelineInputSupport(item.virtualTable);
+}
+
+function itemGlyph(item: AddFoundryDataItem) {
+  return item.kind === 'dataset'
+    ? { name: 'database' as const, tone: '#2d72d2' }
+    : { name: 'cube' as const, tone: '#7c5dd6' };
+}
+
 export function AddFoundryDataDialog({ open, onClose, onAdd }: AddFoundryDataDialogProps) {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [virtualTableRows, setVirtualTableRows] = useState<VirtualTable[]>([]);
   const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState<Map<string, Dataset>>(new Map());
+  const [selected, setSelected] = useState<Map<string, AddFoundryDataItem>>(new Map());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -35,14 +67,22 @@ export function AddFoundryDataDialog({ open, onClose, onAdd }: AddFoundryDataDia
     let cancelled = false;
     setLoading(true);
     setError('');
-    listDatasets({ per_page: 200 })
-      .then((response) => {
+    Promise.allSettled([
+      listDatasets({ per_page: 200 }),
+      virtualTables.listVirtualTables({ limit: 200 }),
+    ])
+      .then(([datasetResult, virtualTableResult]) => {
         if (cancelled) return;
-        setDatasets(response.data);
-      })
-      .catch((cause) => {
-        if (cancelled) return;
-        setError(cause instanceof Error ? cause.message : 'Failed to load datasets');
+        if (datasetResult.status === 'fulfilled') setDatasets(datasetResult.value.data);
+        else setDatasets([]);
+        if (virtualTableResult.status === 'fulfilled') setVirtualTableRows(virtualTableResult.value.items);
+        else setVirtualTableRows([]);
+        if (datasetResult.status === 'rejected' && virtualTableResult.status === 'rejected') {
+          const cause = datasetResult.reason;
+          setError(cause instanceof Error ? cause.message : 'Failed to load data');
+        } else if (virtualTableResult.status === 'rejected') {
+          setError('Virtual tables are unavailable; datasets can still be added.');
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -60,21 +100,42 @@ export function AddFoundryDataDialog({ open, onClose, onAdd }: AddFoundryDataDia
     }
   }, [open]);
 
+  const items = useMemo<AddFoundryDataItem[]>(() => {
+    const datasetItems = datasets.map((dataset) => ({
+      kind: 'dataset' as const,
+      id: dataset.id,
+      name: dataset.name,
+      description: dataset.description,
+      dataset,
+    }));
+    const virtualTableItems = virtualTableRows.map((virtualTable) => ({
+      kind: 'virtual_table' as const,
+      id: virtualTable.rid,
+      name: virtualTable.name,
+      description: virtualTableDescription(virtualTable),
+      virtualTable,
+    }));
+    return [...datasetItems, ...virtualTableItems];
+  }, [datasets, virtualTableRows]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return datasets;
-    return datasets.filter((entry) => `${entry.name} ${entry.description}`.toLowerCase().includes(q));
-  }, [datasets, search]);
+    if (!q) return items;
+    return items.filter((entry) => `${entry.name} ${entry.description}`.toLowerCase().includes(q));
+  }, [items, search]);
 
-  const active = useMemo(() => datasets.find((entry) => entry.id === activeId) ?? null, [datasets, activeId]);
+  const active = useMemo(() => items.find((entry) => itemKey(entry) === activeId) ?? null, [items, activeId]);
 
   if (!open) return null;
 
-  function toggleDataset(dataset: Dataset) {
+  function toggleItem(item: AddFoundryDataItem) {
+    const support = itemSupport(item);
+    if (!support.supported) return;
+    const key = itemKey(item);
     setSelected((current) => {
       const next = new Map(current);
-      if (next.has(dataset.id)) next.delete(dataset.id);
-      else next.set(dataset.id, dataset);
+      if (next.has(key)) next.delete(key);
+      else next.set(key, item);
       return next;
     });
   }
@@ -82,7 +143,9 @@ export function AddFoundryDataDialog({ open, onClose, onAdd }: AddFoundryDataDia
   function addAllVisible() {
     setSelected((current) => {
       const next = new Map(current);
-      for (const dataset of filtered) next.set(dataset.id, dataset);
+      for (const item of filtered) {
+        if (itemSupport(item).supported) next.set(itemKey(item), item);
+      }
       return next;
     });
   }
@@ -91,6 +154,8 @@ export function AddFoundryDataDialog({ open, onClose, onAdd }: AddFoundryDataDia
     onAdd([...selected.values()]);
     onClose();
   }
+
+  const selectableCount = filtered.filter((item) => itemSupport(item).supported).length;
 
   return (
     <div
@@ -156,29 +221,32 @@ export function AddFoundryDataDialog({ open, onClose, onAdd }: AddFoundryDataDia
                   type="search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search all files"
+                  placeholder="Search data"
                   style={{ flex: 1, background: 'transparent', border: 0, outline: 'none', fontSize: 13 }}
                 />
               </div>
             </div>
             <div style={{ overflowY: 'auto', padding: 6 }}>
               {error ? (
-                <div className="of-status-danger" style={{ margin: 8, padding: '8px 12px', fontSize: 12 }}>
+                <div className="of-status-warning" style={{ margin: 8, padding: '8px 12px', fontSize: 12 }}>
                   {error}
                 </div>
               ) : null}
               {loading ? (
                 <p className="of-text-muted" style={{ padding: 16, textAlign: 'center', margin: 0 }}>Loading...</p>
               ) : filtered.length === 0 ? (
-                <p className="of-text-muted" style={{ padding: 16, textAlign: 'center', margin: 0 }}>No datasets found.</p>
+                <p className="of-text-muted" style={{ padding: 16, textAlign: 'center', margin: 0 }}>No data found.</p>
               ) : (
-                filtered.map((dataset) => {
-                  const isSelected = selected.has(dataset.id);
-                  const isActive = activeId === dataset.id;
+                filtered.map((item) => {
+                  const key = itemKey(item);
+                  const isSelected = selected.has(key);
+                  const isActive = activeId === key;
+                  const support = itemSupport(item);
+                  const glyph = itemGlyph(item);
                   return (
                     <div
-                      key={dataset.id}
-                      onClick={() => setActiveId(dataset.id)}
+                      key={key}
+                      onClick={() => setActiveId(key)}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -187,27 +255,36 @@ export function AddFoundryDataDialog({ open, onClose, onAdd }: AddFoundryDataDia
                         cursor: 'pointer',
                         borderRadius: 4,
                         background: isActive ? 'rgba(45, 114, 210, 0.06)' : 'transparent',
+                        opacity: support.supported ? 1 : 0.68,
                       }}
                     >
                       <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                        <Glyph name="database" size={14} tone="#2d72d2" />
-                        <span style={{ fontSize: 13, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {dataset.name}
+                        <Glyph name={glyph.name} size={14} tone={glyph.tone} />
+                        <span style={{ display: 'grid', minWidth: 0 }}>
+                          <span style={{ fontSize: 13, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.name}
+                          </span>
+                          <span className="of-text-muted" style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.kind === 'virtual_table' ? 'Virtual table' : 'Dataset'}
+                          </span>
                         </span>
                       </span>
                       <button
                         type="button"
                         aria-label={isSelected ? 'Remove from selection' : 'Add to selection'}
+                        title={support.supported ? undefined : support.reasons.join('; ')}
+                        disabled={!support.supported}
                         onClick={(event) => {
                           event.stopPropagation();
-                          toggleDataset(dataset);
+                          toggleItem(item);
                         }}
                         style={{
                           border: 0,
                           background: 'transparent',
                           padding: 4,
-                          cursor: 'pointer',
+                          cursor: support.supported ? 'pointer' : 'not-allowed',
                           color: isSelected ? 'var(--status-danger)' : 'var(--status-info)',
+                          opacity: support.supported ? 1 : 0.45,
                         }}
                       >
                         <Glyph name={isSelected ? 'circle-x' : 'plus'} size={16} />
@@ -221,7 +298,7 @@ export function AddFoundryDataDialog({ open, onClose, onAdd }: AddFoundryDataDia
               <button
                 type="button"
                 onClick={addAllVisible}
-                disabled={filtered.length === 0}
+                disabled={selectableCount === 0}
                 className="of-button"
                 style={{ width: '100%', justifyContent: 'center' }}
               >
@@ -232,62 +309,52 @@ export function AddFoundryDataDialog({ open, onClose, onAdd }: AddFoundryDataDia
           </aside>
 
           <main style={{ overflowY: 'auto', padding: 24, display: 'grid', placeContent: 'center' }}>
-            {active ? (
-              <div style={{ display: 'grid', gap: 14, justifyItems: 'start' }}>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{active.name}</h3>
-                {active.description ? (
-                  <p className="of-text-muted" style={{ margin: 0, fontSize: 13 }}>{active.description}</p>
-                ) : null}
-                <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 14px', margin: 0, fontSize: 13 }}>
-                  <dt className="of-text-muted">Format</dt><dd style={{ margin: 0 }}>{active.format}</dd>
-                  <dt className="of-text-muted">Rows</dt><dd style={{ margin: 0 }}>{formatRowCount(active.row_count)}</dd>
-                  <dt className="of-text-muted">Size</dt><dd style={{ margin: 0 }}>{formatBytes(active.size_bytes)}</dd>
-                  <dt className="of-text-muted">Branch</dt><dd style={{ margin: 0, fontFamily: 'var(--font-mono)' }}>{active.active_branch}</dd>
-                </dl>
-              </div>
-            ) : (
+            {active ? <DataDetails item={active} /> : (
               <div style={{ display: 'grid', justifyItems: 'center', gap: 8, color: 'var(--text-muted)', textAlign: 'center' }}>
                 <Glyph name="database" size={32} tone="#aab4c0" />
-                <p style={{ margin: 0 }}>Select a dataset to view details</p>
+                <p style={{ margin: 0 }}>Select data to view details</p>
               </div>
             )}
           </main>
 
           <aside style={{ borderLeft: '1px solid var(--border-subtle)', display: 'grid', gridTemplateRows: 'auto 1fr auto', minHeight: 0 }}>
             <div style={{ padding: 12, borderBottom: '1px solid var(--border-subtle)' }}>
-              <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Datasets to add ({selected.size})</p>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Data to add ({selected.size})</p>
             </div>
             <div style={{ overflowY: 'auto', padding: 8 }}>
               {selected.size === 0 ? (
-                <p className="of-text-muted" style={{ padding: 16, textAlign: 'center', margin: 0 }}>No datasets selected</p>
+                <p className="of-text-muted" style={{ padding: 16, textAlign: 'center', margin: 0 }}>No data selected</p>
               ) : (
-                [...selected.values()].map((dataset) => (
-                  <div
-                    key={dataset.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '6px 10px',
-                      borderRadius: 4,
-                    }}
-                  >
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                      <Glyph name="database" size={13} tone="#2d72d2" />
-                      <span style={{ fontSize: 12, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {dataset.name}
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Remove"
-                      onClick={() => toggleDataset(dataset)}
-                      style={{ border: 0, background: 'transparent', padding: 4, cursor: 'pointer', color: 'var(--status-danger)' }}
+                [...selected.values()].map((item) => {
+                  const glyph = itemGlyph(item);
+                  return (
+                    <div
+                      key={itemKey(item)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '6px 10px',
+                        borderRadius: 4,
+                      }}
                     >
-                      <Glyph name="circle-x" size={14} />
-                    </button>
-                  </div>
-                ))
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <Glyph name={glyph.name} size={13} tone={glyph.tone} />
+                        <span style={{ fontSize: 12, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.name}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="Remove"
+                        onClick={() => toggleItem(item)}
+                        style={{ border: 0, background: 'transparent', padding: 4, cursor: 'pointer', color: 'var(--status-danger)' }}
+                      >
+                        <Glyph name="circle-x" size={14} />
+                      </button>
+                    </div>
+                  );
+                })
               )}
             </div>
             <div style={{ padding: 12, borderTop: '1px solid var(--border-subtle)' }}>
@@ -319,6 +386,48 @@ export function AddFoundryDataDialog({ open, onClose, onAdd }: AddFoundryDataDia
           </aside>
         </div>
       </section>
+    </div>
+  );
+}
+
+function DataDetails({ item }: { item: AddFoundryDataItem }) {
+  if (item.kind === 'dataset') {
+    const active = item.dataset;
+    return (
+      <div style={{ display: 'grid', gap: 14, justifyItems: 'start' }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{active.name}</h3>
+        {active.description ? (
+          <p className="of-text-muted" style={{ margin: 0, fontSize: 13 }}>{active.description}</p>
+        ) : null}
+        <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 14px', margin: 0, fontSize: 13 }}>
+          <dt className="of-text-muted">Format</dt><dd style={{ margin: 0 }}>{active.format}</dd>
+          <dt className="of-text-muted">Rows</dt><dd style={{ margin: 0 }}>{formatRowCount(active.row_count)}</dd>
+          <dt className="of-text-muted">Size</dt><dd style={{ margin: 0 }}>{formatBytes(active.size_bytes)}</dd>
+          <dt className="of-text-muted">Branch</dt><dd style={{ margin: 0, fontFamily: 'var(--font-mono)' }}>{active.active_branch}</dd>
+        </dl>
+      </div>
+    );
+  }
+  const table = item.virtualTable;
+  const support = virtualTablePipelineInputSupport(table);
+  return (
+    <div style={{ display: 'grid', gap: 14, justifyItems: 'start' }}>
+      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{table.name}</h3>
+      <p className="of-text-muted" style={{ margin: 0, fontSize: 13 }}>{virtualTableExternalReference(table)}</p>
+      <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 14px', margin: 0, fontSize: 13 }}>
+        <dt className="of-text-muted">Type</dt><dd style={{ margin: 0 }}>{tableTypeLabel(table.table_type)}</dd>
+        <dt className="of-text-muted">Source</dt><dd style={{ margin: 0, fontFamily: 'var(--font-mono)' }}>{table.source_rid}</dd>
+        <dt className="of-text-muted">Schema</dt><dd style={{ margin: 0 }}>{table.schema_inferred.length} column{table.schema_inferred.length === 1 ? '' : 's'}</dd>
+        <dt className="of-text-muted">Input mode</dt><dd style={{ margin: 0 }}>{support.mode.replaceAll('_', ' ')}</dd>
+      </dl>
+      {support.reasons.length > 0 ? (
+        <div className="of-status-warning" style={{ padding: '8px 10px', fontSize: 12 }}>
+          {support.reasons.join(' ')}
+        </div>
+      ) : null}
+      {support.warnings.length > 0 ? (
+        <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>{support.warnings.join(' ')}</p>
+      ) : null}
     </div>
   );
 }

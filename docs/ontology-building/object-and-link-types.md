@@ -20,8 +20,10 @@ The nearest current building blocks are:
 
 - `proto/ontology/object.proto`
 - `proto/ontology/ontology.proto`
-- `services/ontology-service`
-- `services/geospatial-service`
+- `services/ontology-definition-service` (schema: object types, properties, link types)
+- `services/object-database-service` (object/link instances)
+- `services/ontology-query-service` (read plane)
+- `services/ontology-exploratory-analysis-service`
 
 ## Design direction
 

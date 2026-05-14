@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from
 import { Link } from 'react-router-dom';
 
 import {
+  connectorAgentCapabilitySummary,
+  connectorAgentFailuresForSource,
+  connectorAgentHealthLabel,
+  connectorAgentsForSource,
   dataConnection,
   type ConnectorAgent,
   type Source,
@@ -15,6 +19,8 @@ const DEFAULT_CAPABILITIES = `{
 
 const DEFAULT_METADATA = `{
   "region": "private-network",
+  "environment": "prod",
+  "host": "agent.internal",
   "runtime": "container"
 }`;
 
@@ -45,16 +51,13 @@ function isStaleHeartbeat(value: string | null | undefined) {
 }
 
 function summarizeCapabilities(agent: ConnectorAgent) {
-  const entries = Object.entries(agent.capabilities ?? {});
-  if (entries.length === 0) return 'No capabilities';
-  return entries
-    .slice(0, 3)
-    .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`)
-    .join(' | ');
+  return connectorAgentCapabilitySummary(agent).slice(0, 4).join(' | ') || 'No connector capabilities';
 }
 
 function statusStyle(status: string, stale: boolean): CSSProperties {
   if (stale) return { background: 'var(--status-warning-bg)', color: 'var(--status-warning)' };
+  if (status === 'error') return { background: '#fee2e2', color: '#b91c1c' };
+  if (status === 'warning') return { background: 'var(--status-warning-bg)', color: 'var(--status-warning)' };
   if (status === 'online') return { background: 'var(--status-success-bg)', color: 'var(--status-success)' };
   if (status === 'offline') return { background: '#eef2f7', color: 'var(--text-muted)' };
   return { background: 'var(--status-info-bg)', color: 'var(--status-info)' };
@@ -70,6 +73,9 @@ export function AgentsPage() {
 
   const [name, setName] = useState('');
   const [agentUrl, setAgentUrl] = useState('');
+  const [version, setVersion] = useState('0.1.0');
+  const [environment, setEnvironment] = useState('prod');
+  const [host, setHost] = useState('');
   const [capabilitiesRaw, setCapabilitiesRaw] = useState(DEFAULT_CAPABILITIES);
   const [metadataRaw, setMetadataRaw] = useState(DEFAULT_METADATA);
 
@@ -82,6 +88,14 @@ export function AgentsPage() {
 
   const onlineAgents = useMemo(
     () => agents.filter((agent) => agent.status === 'online' && !isStaleHeartbeat(agent.last_heartbeat_at)).length,
+    [agents],
+  );
+  const failingAgents = useMemo(
+    () => agents.filter((agent) => agent.health?.state === 'error' || (agent.connection_failures ?? []).length > 0).length,
+    [agents],
+  );
+  const proxyPolicyCount = useMemo(
+    () => agents.reduce((total, agent) => total + (agent.assigned_proxy_policies ?? []).length, 0),
     [agents],
   );
 
@@ -124,11 +138,17 @@ export function AgentsPage() {
       await dataConnection.registerConnectorAgent({
         name: name.trim(),
         agent_url: agentUrl.trim(),
+        version: version.trim(),
+        environment: environment.trim(),
+        host: host.trim(),
         capabilities: parseJSONObject(capabilitiesRaw, 'Capabilities'),
         metadata: parseJSONObject(metadataRaw, 'Metadata'),
       });
       setName('');
       setAgentUrl('');
+      setVersion('0.1.0');
+      setEnvironment('prod');
+      setHost('');
       setCapabilitiesRaw(DEFAULT_CAPABILITIES);
       setMetadataRaw(DEFAULT_METADATA);
       await load();
@@ -144,8 +164,15 @@ export function AgentsPage() {
     setError('');
     try {
       await dataConnection.heartbeatConnectorAgent(agent.id, {
+        version: agent.version,
+        environment: agent.environment,
+        host: agent.host,
         capabilities: agent.capabilities,
         metadata: agent.metadata,
+        connected_sources: agent.connected_sources,
+        supported_connector_capabilities: agent.supported_connector_capabilities,
+        assigned_proxy_policies: agent.assigned_proxy_policies,
+        connection_failures: agent.connection_failures,
       });
       await load();
     } catch (cause) {
@@ -195,6 +222,8 @@ export function AgentsPage() {
           ['Registered agents', agents.length],
           ['Online', onlineAgents],
           ['Agent worker sources', agentSources.length],
+          ['Proxy policies', proxyPolicyCount],
+          ['With failures', failingAgents],
         ].map(([label, value]) => (
           <div key={label} className="of-panel" style={{ padding: 12 }}>
             <p className="of-eyebrow">{label}</p>
@@ -217,7 +246,7 @@ export function AgentsPage() {
             The URL must point at the connector agent endpoint reachable from the control plane.
           </p>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(260px, 2fr)', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
           <label style={{ fontSize: 13 }}>
             Name
             <input value={name} onChange={(event) => setName(event.target.value)} className="of-input" style={{ marginTop: 4 }} />
@@ -225,6 +254,18 @@ export function AgentsPage() {
           <label style={{ fontSize: 13 }}>
             Agent URL
             <input value={agentUrl} onChange={(event) => setAgentUrl(event.target.value)} placeholder="https://agent.internal:8443" className="of-input" style={{ marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Version
+            <input value={version} onChange={(event) => setVersion(event.target.value)} className="of-input" style={{ marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Environment
+            <input value={environment} onChange={(event) => setEnvironment(event.target.value)} className="of-input" style={{ marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Host
+            <input value={host} onChange={(event) => setHost(event.target.value)} placeholder="agent.internal" className="of-input" style={{ marginTop: 4 }} />
           </label>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8 }}>
@@ -249,10 +290,10 @@ export function AgentsPage() {
       ) : (
         <section className="of-panel" style={{ padding: 16, overflow: 'auto' }}>
           <p className="of-eyebrow">Agent registry</p>
-          <table className="of-table" style={{ marginTop: 8, minWidth: 760 }}>
+          <table className="of-table" style={{ marginTop: 8, minWidth: 1080 }}>
             <thead>
               <tr>
-                {['Agent', 'Endpoint', 'Status', 'Capabilities', 'Last heartbeat', ''].map((heading) => (
+                {['Agent', 'Runtime', 'Endpoint', 'Health', 'Sources / policies', 'Capabilities', 'Failures', 'Last heartbeat', ''].map((heading) => (
                   <th key={heading}>{heading}</th>
                 ))}
               </tr>
@@ -262,14 +303,33 @@ export function AgentsPage() {
                 const stale = isStaleHeartbeat(agent.last_heartbeat_at);
                 return (
                   <tr key={agent.id}>
-                    <td style={{ fontWeight: 600 }}>{agent.name}</td>
+                    <td>
+                      <strong>{agent.name}</strong>
+                      <span className="of-text-muted" style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{agent.id}</span>
+                    </td>
+                    <td>
+                      {agent.version || 'unknown'}
+                      <span className="of-text-muted" style={{ display: 'block', fontSize: 11 }}>{agent.environment || 'no environment'} · {agent.host || 'no host'}</span>
+                    </td>
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{agent.agent_url}</td>
                     <td>
-                      <span style={{ ...statusStyle(agent.status, stale), borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>
-                        {stale ? 'stale' : agent.status}
+                      <span style={{ ...statusStyle(agent.health?.state ?? agent.status, stale), borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>
+                        {agent.health?.state ?? (stale ? 'stale' : agent.status)}
                       </span>
+                      <span className="of-text-muted" style={{ display: 'block', marginTop: 4, fontSize: 11 }}>{connectorAgentHealthLabel(agent)}</span>
                     </td>
-                    <td style={{ maxWidth: 320 }}>{summarizeCapabilities(agent)}</td>
+                    <td style={{ fontSize: 11 }}>
+                      {(agent.connected_sources ?? []).length} sources · {(agent.assigned_proxy_policies ?? []).length} proxy policies
+                      {(agent.connected_sources ?? []).slice(0, 2).map((source) => (
+                        <span key={`${agent.id}-${source.source_id}`} className="of-text-muted" style={{ display: 'block' }}>{source.source_name || source.source_id} · {source.status}</span>
+                      ))}
+                    </td>
+                    <td style={{ maxWidth: 320, fontSize: 11 }}>{summarizeCapabilities(agent)}</td>
+                    <td style={{ fontSize: 11 }}>
+                      {(agent.connection_failures ?? []).length === 0 ? 'None' : (agent.connection_failures ?? []).slice(0, 2).map((failure) => (
+                        <span key={`${agent.id}-${failure.code}-${failure.source_id ?? failure.policy_id ?? ''}`} style={{ display: 'block', color: '#b91c1c' }}>{failure.code}: {failure.message}</span>
+                      ))}
+                    </td>
                     <td>{formatDate(agent.last_heartbeat_at)}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <button type="button" onClick={() => void heartbeat(agent)} disabled={busy} className="of-button" style={{ fontSize: 11, marginRight: 6 }}>
@@ -284,7 +344,7 @@ export function AgentsPage() {
               })}
               {agents.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="of-text-muted" style={{ padding: 18, textAlign: 'center' }}>
+                  <td colSpan={9} className="of-text-muted" style={{ padding: 18, textAlign: 'center' }}>
                     No connector agents registered.
                   </td>
                 </tr>
@@ -299,25 +359,35 @@ export function AgentsPage() {
         <table className="of-table" style={{ marginTop: 8, minWidth: 680 }}>
           <thead>
             <tr>
-              {['Source', 'Connector', 'Status', 'Last sync'].map((heading) => (
+              {['Source', 'Connector', 'Status', 'Agent health', 'Last sync'].map((heading) => (
                 <th key={heading}>{heading}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {agentSources.map((source) => (
-              <tr key={source.id}>
-                <td style={{ fontWeight: 600 }}>
-                  <Link to={`/data-connection/sources/${source.id}`}>{source.name}</Link>
-                </td>
-                <td>{source.connector_type}</td>
-                <td>{source.status}</td>
-                <td>{formatDate(source.last_sync_at)}</td>
-              </tr>
-            ))}
+            {agentSources.map((source) => {
+              const matches = connectorAgentsForSource(agents, source.id);
+              const failures = matches.flatMap((agent) => connectorAgentFailuresForSource(agent, source.id));
+              return (
+                <tr key={source.id}>
+                  <td style={{ fontWeight: 600 }}>
+                    <Link to={`/data-connection/sources/${source.id}`}>{source.name}</Link>
+                  </td>
+                  <td>{source.connector_type}</td>
+                  <td>{source.status}</td>
+                  <td style={{ fontSize: 11 }}>
+                    {matches.length ? matches.map((agent) => (
+                      <span key={`${source.id}-${agent.id}`} style={{ display: 'block' }}>{agent.name}: {connectorAgentHealthLabel(agent)}</span>
+                    )) : 'No reporting agent'}
+                    {failures.length ? <span style={{ display: 'block', color: '#b91c1c' }}>{failures.length} agent connection failure{failures.length === 1 ? '' : 's'}</span> : null}
+                  </td>
+                  <td>{formatDate(source.last_sync_at)}</td>
+                </tr>
+              );
+            })}
             {agentSources.length === 0 && (
               <tr>
-                <td colSpan={4} className="of-text-muted" style={{ padding: 18, textAlign: 'center' }}>
+                <td colSpan={5} className="of-text-muted" style={{ padding: 18, textAlign: 'center' }}>
                   No sources are using the legacy agent worker.
                 </td>
               </tr>

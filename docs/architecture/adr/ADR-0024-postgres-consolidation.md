@@ -5,7 +5,7 @@
 - **Deciders:** OpenFoundry platform architecture group
 - **Supersedes / supplements:**
   - The 71-cluster topology currently described under
-    [infra/k8s/platform/manifests/cnpg/clusters/](../../../infra/k8s/platform/manifests/cnpg/clusters/) and
+    [infra/helm/infra/manifests/cnpg/clusters/](../../../infra/helm/infra/manifests/cnpg/clusters/) and
     in
     [docs/architecture/audit-and-reference-no-spof.md](../audit-and-reference-no-spof.md).
 - **Related ADRs:**
@@ -25,7 +25,7 @@
 ## Context
 
 Today the platform deploys **71 CNPG `Cluster` CRs**, one per service,
-under [infra/k8s/platform/manifests/cnpg/clusters/](../../../infra/k8s/platform/manifests/cnpg/clusters/).
+under [infra/helm/infra/manifests/cnpg/clusters/](../../../infra/helm/infra/manifests/cnpg/clusters/).
 Each cluster is HA (3 instances), each one runs continuous backups to
 object storage, each one is monitored, each one is alerted on, and
 each one runs a connection pooler. The pattern was inherited from the
@@ -126,7 +126,7 @@ read by many services.
 | `ontology_schema`  | `ontology-management-service`          | Object types, link types, action definitions, branch definitions, marking definitions.                            |
 | `dataset_schema`   | `dataset-platform-service`             | Dataset metadata, dataset versions (declarative), schema evolutions.                                              |
 | `auth_schema`      | `identity-federation-service`          | OIDC clients, JWKS keys (encrypted at rest, key custody in Vault), SCIM mappings, role definitions.               |
-| `app_schema`       | `app-builder-service`, `nexus-service` | App templates, page definitions, widget definitions, navigation trees.                                            |
+| `app_schema`       | `application-composition-service`, `nexus-service` | App templates, page definitions, widget definitions, navigation trees.                                            |
 | `pipeline_schema`  | `pipeline-orchestrator-service`        | Pipeline definitions, transformation graphs, schedule definitions (Temporal owns the runtime; this is the spec).  |
 
 **Sizing:** 3 instances, modest CPU/RAM, modest storage. Hot path is
@@ -192,7 +192,7 @@ console — declarative-ish content that evolves more frequently than
 | Schema                   | Owner / writers                  | Contents                                                                                       |
 | ------------------------ | -------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `marketplace`            | `marketplace-service`            | Public listings, versions, install configurations.                                             |
-| `app_builder`            | `app-builder-service`            | User-authored app metadata, drafts, publication state.                                         |
+| `app_builder`            | `application-composition-service`            | User-authored app metadata, drafts, publication state.                                         |
 | `connector_definitions`  | `connector-registry-service`     | Source / sink connector definitions, parameters, capability flags.                             |
 | `model_registry`         | `model-registry-service`         | Model cards, model versions, lineage pointers, evaluation metadata.                            |
 | `developer_console`      | `developer-console-service`      | Console preferences, saved queries, layout state.                                               |
@@ -277,7 +277,7 @@ cluster, valid until step 3 of the same cluster).
 ## Operational consequences
 
 - 71 `Cluster` CRs in
-  [infra/k8s/platform/manifests/cnpg/clusters/](../../../infra/k8s/platform/manifests/cnpg/clusters/) →
+  [infra/helm/infra/manifests/cnpg/clusters/](../../../infra/helm/infra/manifests/cnpg/clusters/) →
   4 (`pg-schemas`, `pg-policy`, `pg-lakekeeper`, `pg-runtime-config`).
 - Backup chains: 71 → 4. Each retains the same RPO/RTO posture as
   before; the **operational surface** drops by ~94%.
@@ -288,7 +288,7 @@ cluster, valid until step 3 of the same cluster).
   `DATABASE_URL`.
 - New runbook `infra/runbooks/postgres-consolidation.md`.
 - New CI checks:
-  - Every `Cluster` CR under `infra/k8s/platform/manifests/cnpg/clusters/` matches one
+  - Every `Cluster` CR under `infra/helm/infra/manifests/cnpg/clusters/` matches one
     of the four allowed names.
   - Every service's `DATABASE_URL` Helm value points at one of those
     four clusters.
@@ -339,14 +339,14 @@ cluster, valid until step 3 of the same cluster).
 - Implement migration plan tasks in **S0.6** (consolidated CNPG
   manifests) and the per-cluster migration steps in **S1.x**, **S3.x**,
   **S4.x** that repoint each service.
-- Author `infra/k8s/platform/manifests/cnpg/clusters/pg-schemas.yaml`,
+- Author `infra/helm/infra/manifests/cnpg/clusters/pg-schemas.yaml`,
   `pg-policy.yaml`, `pg-lakekeeper.yaml`, `pg-runtime-config.yaml`.
 - Author the per-cluster `pg-*-roles.sql` migration that creates the
   owner / app / reader roles and grants.
 - Author `infra/runbooks/postgres-consolidation.md`.
 - Add the CI checks listed under "Operational consequences".
 - Once migration is complete, delete every legacy `Cluster` CR under
-  `infra/k8s/platform/manifests/cnpg/clusters/` that is not one of the four allowed
+  `infra/helm/infra/manifests/cnpg/clusters/` that is not one of the four allowed
   names.
 - Do **not** mark the plan milestone "Postgres residual" as closed
   until the final gates `G-S1`, `G-S3`, `G-S5` and `G-S6` in

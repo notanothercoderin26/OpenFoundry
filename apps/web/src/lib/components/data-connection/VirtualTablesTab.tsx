@@ -52,6 +52,8 @@ export function VirtualTablesTab({ sourceRid, provider }: Props) {
           auto_register_enabled: false,
           auto_register_interval_seconds: null,
           auto_register_tag_filters: [],
+          auto_register_folder_mirror_kind: 'NESTED',
+          auto_register_table_tag_filters: [],
           iceberg_catalog_kind: null,
           iceberg_catalog_config: null,
           created_at: '',

@@ -75,6 +75,9 @@ func Materialize(runID uuid.UUID, job *models.SyncJob, conn *models.Connection) 
 	if job == nil || conn == nil {
 		return IngestionRequest{}, fmt.Errorf("sync job and connection are required")
 	}
+	if job.OutputDatasetID == nil || *job.OutputDatasetID == uuid.Nil {
+		return IngestionRequest{}, fmt.Errorf("output dataset is required for materialized batch syncs")
+	}
 	namespace := strings.TrimSpace(conn.Name)
 	if namespace == "" {
 		namespace = conn.ID.String()
@@ -84,7 +87,7 @@ func Materialize(runID uuid.UUID, job *models.SyncJob, conn *models.Connection) 
 		"run_id":            runID,
 		"sync_def_id":       job.ID,
 		"source_id":         conn.ID,
-		"output_dataset_id": job.OutputDatasetID,
+		"output_dataset_id": *job.OutputDatasetID,
 		"connector_type":    conn.ConnectorType,
 		"connection_config": json.RawMessage(conn.Config),
 	}
@@ -105,7 +108,7 @@ func Materialize(runID uuid.UUID, job *models.SyncJob, conn *models.Connection) 
 		return IngestionRequest{}, err
 	}
 	digest := sha256.Sum256(materialized)
-	return IngestionRequest{RunID: runID, SyncDefID: job.ID, SourceID: conn.ID, OutputDatasetID: job.OutputDatasetID, Name: name, Namespace: namespace, ConnectorType: conn.ConnectorType, Connection: conn.Config, FileGlob: job.FileGlob, Spec: spec, Materialized: materialized, ContentHash: fmt.Sprintf("%x", digest[:])}, nil
+	return IngestionRequest{RunID: runID, SyncDefID: job.ID, SourceID: conn.ID, OutputDatasetID: *job.OutputDatasetID, Name: name, Namespace: namespace, ConnectorType: conn.ConnectorType, Connection: conn.Config, FileGlob: job.FileGlob, Spec: spec, Materialized: materialized, ContentHash: fmt.Sprintf("%x", digest[:])}, nil
 }
 
 // HTTPIngestionClient is the production adapter for ingestion-replication's REST control plane.

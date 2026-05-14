@@ -1,77 +1,76 @@
 # Upgrade Playbook
 
-Fecha: 25 de abril de 2026
+Date: April 25, 2026
 
-## Objetivo
+## Objective
 
-Ejecutar upgrades repetibles de OpenFoundry con validación previa, ventana de mantenimiento y rollback explícito.
+Run repeatable OpenFoundry upgrades with prior validation, a maintenance window, and an explicit rollback.
 
 ## Preflight
 
-- Validar Terraform/Helm del entorno
-- Confirmar compatibilidad de migraciones
-- Generar backup lógico de PostgreSQL
-- Generar backup de buckets críticos
-- Revisar gates de promotion en fleets sensibles
+- Validate the environment's Terraform/Helm
+- Confirm migration compatibility
+- Generate a logical PostgreSQL backup
+- Generate a backup of critical buckets
+- Review promotion gates on sensitive fleets
 
-## Estrategia recomendada
+## Recommended strategy
 
-1. `canary` en una deployment cell
-2. Validación de métricas y smoke checks
-3. Promoción a `stable`
-4. Rollout al resto de cells dentro de maintenance window
+1. `canary` in one deployment cell
+2. Metrics validation and smoke checks
+3. Promotion to `stable`
+4. Rollout to the remaining cells within the maintenance window
 
 ## Rollback
 
-- Revertir imagen o chart version
-- Restaurar DB solo si hubo cambio destructivo o corrupción de datos
-- Rehabilitar reconciliadores una vez establecida la versión anterior
+- Revert image or chart version
+- Restore the DB only if there was a destructive change or data corruption
+- Re-enable reconcilers once the previous version is in place
 
-## Evidencias mínimas
+## Minimum evidence
 
-- Commit o tag desplegado
-- Hora de inicio y fin
-- Resultado de smoke checks
-- Estado de gates
-- Versiones previas y nuevas
+- Deployed commit or tag
+- Start and end time
+- Smoke check results
+- Gate status
+- Previous and new versions
 
 ## KRaft upgrade preflight
 
-Para upgrades del cluster Kafka (operador Strimzi, `spec.kafka.version`,
-`spec.kafka.metadataVersion`, o cambios estructurales del `KafkaNodePool`)
-aplica además la **política específica de KRaft** documentada en
-[ADR-0013](../../docs/architecture/adr/ADR-0013-kafka-kraft-no-spof-policy.md).
-Resumen operacional:
+For Kafka cluster upgrades (Strimzi operator, `spec.kafka.version`,
+`spec.kafka.metadataVersion`, or structural changes to the `KafkaNodePool`),
+the **KRaft-specific policy** documented in
+[ADR-0013](../../docs/architecture/adr/ADR-0013-kafka-kraft-no-spof-policy.md)
+also applies. Operational summary:
 
-1. **Gates obligatorios antes de fusionar el PR de upgrade:**
-   - `python3 tools/kafka-lint/check_kraft.py` clean contra el manifest
-     resultante (Layer A).
-   - Última hora sin disparos de `KafkaUnderMinIsrPartitions` ni
-     `KafkaActiveControllerCountAbnormal` en producción (Layer B —
+1. **Mandatory gates before merging the upgrade PR:**
+   - `python3 tools/kafka-lint/check_kraft.py` clean against the
+     resulting manifest (Layer A).
+   - Last hour without firings of `KafkaUnderMinIsrPartitions` or
+     `KafkaActiveControllerCountAbnormal` in production (Layer B —
      `infra/k8s/platform/observability/prometheus-rules/kafka.yaml`).
-   - `kafka-topics.sh ... --under-replicated-partitions` vacío.
-   - Última ejecución verde del workflow *Chaos Smoke (Data Plane no-SPOF)*
-     hace ≤ 7 días (Layer C — incluye `kill-active-kafka-controller.sh`).
-2. **Orden de aplicación** (no acumular cambios en un solo PR):
-   1. **Operador Strimzi** primero (CRDs + controller). Sin tocar
-      `spec.kafka.version` en el mismo PR.
-   2. **`spec.kafka.version`**, una versión minor a la vez, siguiendo la
-      matriz de upgrade de Strimzi.
-   3. **`spec.kafka.metadataVersion`** sólo cuando el cluster lleve
-      estable al menos un ciclo completo de chaos-smoke en la nueva
-      `kafka.version`. Este bump **no es reversible**: bloquea el
-      formato en disco del quorum.
-3. **Criterios de aborto / rollback inmediato:**
-   - Cualquiera de las dos alertas KRaft anteriores se dispara durante
-     el rollout.
-   - El CR `Kafka/openfoundry` no llega a `Ready` en 30 minutos tras
-     `kubectl apply`.
-   - Pérdida de quorum: `sum(ActiveControllerCount)` se queda en `0`
-     más de 5 minutos.
-4. **Prohibido en el mismo PR de upgrade:** mover
+   - `kafka-topics.sh ... --under-replicated-partitions` empty.
+   - Last green run of the *Chaos Smoke (Data Plane no-SPOF)* workflow
+     ≤ 7 days ago (Layer C — includes `kill-active-kafka-controller.sh`).
+2. **Order of application** (do not bundle changes into a single PR):
+   1. **Strimzi operator** first (CRDs + controller). Do not touch
+      `spec.kafka.version` in the same PR.
+   2. **`spec.kafka.version`**, one minor at a time, following the
+      Strimzi upgrade matrix.
+   3. **`spec.kafka.metadataVersion`** only once the cluster has been
+      stable for at least one full chaos-smoke cycle on the new
+      `kafka.version`. This bump is **not reversible**: it locks the
+      on-disk format of the quorum.
+3. **Immediate abort / rollback criteria:**
+   - Either of the two KRaft alerts above fires during the rollout.
+   - The `Kafka/openfoundry` CR does not reach `Ready` within 30 minutes
+     after `kubectl apply`.
+   - Quorum loss: `sum(ActiveControllerCount)` stays at `0` for more
+     than 5 minutes.
+4. **Forbidden in the same upgrade PR:** moving
    `min.insync.replicas`, `default.replication.factor`,
-   `unclean.leader.election.enable`, o `KafkaNodePool.roles` junto con
-   un cambio de versión. Cada uno es su propio PR (gated por Layer A).
+   `unclean.leader.election.enable`, or `KafkaNodePool.roles` alongside
+   a version change. Each is its own PR (gated by Layer A).
 
-El paso a paso operativo y los comandos están en `infra/runbooks/kafka.md`
+The operational step-by-step and commands live in `infra/runbooks/kafka.md`
 §2.1.

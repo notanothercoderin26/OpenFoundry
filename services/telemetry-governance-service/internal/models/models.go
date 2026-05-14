@@ -1,11 +1,10 @@
 // Package models holds wire types for telemetry-governance-service.
 //
-// The four sub-features (telemetry_exports, health_checks, execution_runs,
-// monitoring_rules) share a uniform schema: one parent table with
-// (id, payload, created_at) + one child table with
-// (id, parent_id, payload, created_at). The Rust crate models them as
-// separate but structurally identical PrimaryItem/SecondaryItem pairs;
-// this Go port reuses a single pair via the generic repo + handlers.
+// The four sub-features (telemetry_exports, health_checks,
+// execution_runs, monitoring_rules) share a uniform schema: one
+// parent table (id, payload, created_at) plus one child table (id,
+// parent_id, payload, created_at). A single PrimaryItem/SecondaryItem
+// pair is reused across all four features via the generic repo + handlers.
 package models
 
 import (
@@ -42,7 +41,7 @@ type CreateSecondaryRequest struct {
 
 // FeatureTables names the parent + child tables for one sub-feature.
 //
-// The four feature triplets the Rust crate consolidates:
+// The four feature triplets:
 //
 //	{Feature: "telemetry-exports",   Primary: "telemetry_exports",  Secondary: "telemetry_policies"}
 //	{Feature: "health-checks",       Primary: "health_checks",      Secondary: "health_check_results"}

@@ -931,7 +931,7 @@ services:
   # notebook-runtime-service. Source was a scaffold placeholder
   # (`fn main() {}`); schema preserved on `notebook-pg`. ──
   # ── S8 / ADR-0030 — analytical-logic-service retired: reusable
-  # expressions are now an internal crate (`libs/analytical-logic`)
+  # expressions are now an internal library (`libs/analytical-logic`)
   # consumed in-process by sql-bi-gateway-service. No HTTP surface. ──
 
   workflow-automation-service:
@@ -1627,7 +1627,7 @@ services:
       # S8 / ADR-0030: spreadsheet-computation-service merged → notebook-runtime-service.
       SPREADSHEET_COMPUTATION_SERVICE_URL: http://notebook-runtime-service:50134
       # S8 / ADR-0030: ANALYTICAL_LOGIC_SERVICE_URL retired — reusable
-      # expressions are now an internal library crate; no HTTP surface.
+      # expressions are now an internal library package; no HTTP surface.
       WORKFLOW_AUTOMATION_SERVICE_URL: http://workflow-automation-service:50137
       # S8 / ADR-0030: automation-operations-service merged →
       # workflow-automation-service. Routes /api/v1/automations/* now
@@ -1743,7 +1743,7 @@ services:
         condition: service_started
       # S8 / ADR-0030 (B20): ontology-timeseries-analytics-service merged → ontology-exploratory-analysis-service.
       # S8 / ADR-0030: spreadsheet-computation-service merged → notebook-runtime-service.
-      # S8 / ADR-0030: analytical-logic-service retired (now an internal crate).
+      # S8 / ADR-0030: analytical-logic-service retired (now an internal library).
       # S8 / ADR-0030: automation-operations-service merged → workflow-automation-service.
       application-composition-service:
         condition: service_started

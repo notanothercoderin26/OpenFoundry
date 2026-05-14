@@ -23,5 +23,5 @@ Modeling patterns help teams decide what should become an object type and what s
 | Topic | Current signals | Target maturity |
 | --- | --- | --- |
 | object types | route and model support exists | richer design-time governance |
-| interfaces | already first-class in `ontology-service` | broader reuse across many apps |
+| interfaces | already first-class in `ontology-definition-service` | broader reuse across many apps |
 | shared semantics | shared property types already exist | catalogued ontology design patterns |

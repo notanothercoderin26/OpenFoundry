@@ -18,9 +18,9 @@ import (
 // cmd/iceberg-catalog-service/main.go and threaded through the server
 // Deps so handlers and middleware share the same registered families.
 type Metrics struct {
-	// RESTRequestsTotal counts every request handled by the chi router,
-	// labelled by method, route pattern and HTTP status. Mirrors
-	// `iceberg_rest_catalog_requests_total` from the Rust crate.
+	// RESTRequestsTotal (`iceberg_rest_catalog_requests_total`) counts
+	// every request handled by the chi router, labelled by method,
+	// route pattern and HTTP status.
 	RESTRequestsTotal *prometheus.CounterVec
 	// RESTRequestLatencySeconds is the per-route latency histogram.
 	// Buckets follow the platform default (5ms…10s, geometric).

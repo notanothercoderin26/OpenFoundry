@@ -98,7 +98,8 @@ type Config struct {
 	Compression      kafka.Compression
 }
 
-// NewConfig builds a Config with the Rust crate's defaults.
+// NewConfig builds a Config with the standard defaults
+// (30s request timeout, zstd compression).
 func NewConfig(bootstrap []string, principal ServicePrincipal) Config {
 	return Config{
 		BootstrapServers: bootstrap,

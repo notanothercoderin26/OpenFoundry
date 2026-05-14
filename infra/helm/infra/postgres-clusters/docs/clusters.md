@@ -57,7 +57,7 @@ resulting Pooler service through the `<bc>-db-dsn` Secret contract
 documented at
 [`../../helm/open-foundry/DATABASE_URL.md`](../../helm/open-foundry/DATABASE_URL.md),
 and split writer/reader traffic via the
-[`libs/db-pool`](../../../../libs/db-pool/) helper crate (S6.4).
+[`libs/db-pool`](../../../../libs/db-pool/) helper package (S6.4).
 
 ## Helm template
 

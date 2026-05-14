@@ -2,8 +2,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import {
+  buildOntologyAuditEventLog,
+  buildOntologyCleanupAssistant,
+  buildOntologyHealthReport,
+  buildOntologyUsageImpactAnalysis,
   buildCoreObjectViews,
+  buildOntologyBundle,
+  buildOntologyBranchProposalIntegration,
+  buildOntologyHistory,
+  buildOntologyPermissionAnalysis,
+  buildOntologyResourceHistory,
   buildOntologyResourceRegistry,
+  buildOntologyResourceSearchIndex,
+  createOntologyCleanupStagedChanges,
+  createOntologyRestoreChange,
   createSharedPropertyType,
   createValueType,
   createObjectTypeGroup,
@@ -11,6 +23,7 @@ import {
   deleteSharedPropertyType,
   deleteValueType,
   deriveOntologyArtifact,
+  getProjectWorkingState,
   linkTypeCardinalityLabel,
   linkTypeEndpointLabels,
   linkTypeHasDatasourceMapping,
@@ -19,33 +32,76 @@ import {
   listLinkTypes,
   listObjectTypes,
   listObjectTypeGroups,
+  listObjectSets,
   listObjectViews,
+  listProjectMemberships,
+  listProjectSavedChanges,
   listProjectResources,
   listProjects,
   listSharedPropertyTypes,
   listValueTypes,
+  ontologyResourceKey,
+  parseOntologyBundleJSON,
+  replaceProjectWorkingState,
+  searchOntologyResourceIndex,
   sharedPropertyImpactWarning,
   sharedPropertyUsageSummary,
   updateObjectTypeGroup,
   updateSharedPropertyType,
   updateValueType,
+  validateOntologyBundle,
   valueTypeUsageSummary,
   type ActionType,
   type LinkType,
+  type OntologyBundleValidationResult,
+  type OntologyUsageExternalSource,
+  type OntologyUsageImpactAnalysis,
+  type OntologyUsageProduct,
   type OntologyArtifact,
+  type OntologyAuditEventCategory,
+  type OntologyAuditEventLog,
+  type OntologyAuditEventStatus,
+  type OntologyCleanupAssistant,
+  type OntologyCleanupCandidate,
+  type OntologyCleanupCandidateKind,
+  type OntologyHealthCategory,
+  type OntologyHealthIssue,
+  type OntologyHealthReport,
+  type OntologyHealthSeverity,
+  type OntologyHistoryDetailsFilter,
+  type OntologyHistoryEntry,
+  type OntologyHistoryResourceSummary,
+  type OntologyHistoryVisibilityFilter,
+  type OntologyGlobalBranchProposalIntegration,
   type OntologyInterface,
   type OntologyObjectTypeGroup,
+  type OntologyPermissionAnalysis,
+  type OntologyPermissionLevel,
+  type OntologyResourceSearchIndex,
+  type OntologyResourceSearchIndexKind,
+  type OntologyResourceSearchPermissionFilter,
+  type OntologyResourceSearchResultItem,
   type ObjectType,
+  type ObjectSetDefinition,
   type ObjectViewDefinition,
   type OntologyValueType,
   type OntologyProject,
+  type OntologyProjectMembership,
+  type OntologyProjectWorkingState,
   type OntologyProjectResourceBinding,
   type OntologyResourceRegistryEntry,
+  type OntologySavedChangeRecord,
   type SharedPropertyType,
+  usageProductLabel,
 } from "@/lib/api/ontology";
+import { getApp, listApps, type AppDefinition } from "@/lib/api/apps";
+import { listGlobalBranches, listGlobalBranchResources } from "@/lib/api/global-branches";
+import { listListings, listVersions, type ListingDefinition, type PackageVersion } from "@/lib/api/marketplace";
+import { listPipelines, type Pipeline } from "@/lib/api/pipelines";
 import { Glyph } from "@/lib/components/ui/Glyph";
 import { CreateObjectTypeWizard } from "@/lib/components/ontology/CreateObjectTypeWizard";
 import { LinkEditor } from "@/lib/components/ontology/LinkEditor";
+import { calculateLogicMetrics, type LogicRunHistoryRecord } from "@/lib/logic/blocks";
 import { useAuth } from "@/lib/stores/auth";
 
 type Section =
@@ -60,10 +116,12 @@ type Section =
   | "groups"
   | "views"
   | "usage"
+  | "permissions"
   | "changes"
   | "history"
   | "importExport"
   | "cleanup"
+  | "auditHealth"
   | "projects";
 
 type ResourceFilter = "all" | "visible" | "hidden" | "experimental" | "issues";
@@ -140,6 +198,11 @@ const SHELL_NAV_BASE: Array<Omit<ShellNavItem, "count">> = [
     description: "Dependents, object storage, query, and action usage.",
   },
   {
+    id: "permissions",
+    label: "Permissions",
+    description: "Project/folder access, ownership, and edit requirements.",
+  },
+  {
     id: "changes",
     label: "Unsaved changes",
     description: "Branch-local changes awaiting save or proposal.",
@@ -158,6 +221,11 @@ const SHELL_NAV_BASE: Array<Omit<ShellNavItem, "count">> = [
     id: "cleanup",
     label: "Cleanup",
     description: "Detect stale resources and issue remediation tasks.",
+  },
+  {
+    id: "auditHealth",
+    label: "Audit & health",
+    description: "Audit timeline and operational health signals for the ontology.",
   },
   {
     id: "projects",
@@ -204,6 +272,7 @@ export function OntologyManagerPage() {
   const [editingValueTypeId, setEditingValueTypeId] = useState<string | null>(null);
   const [linkTypes, setLinkTypes] = useState<LinkType[]>([]);
   const [objectViews, setObjectViews] = useState<ObjectViewDefinition[]>([]);
+  const [objectSets, setObjectSets] = useState<ObjectSetDefinition[]>([]);
   const [objectTypeGroups, setObjectTypeGroups] = useState<OntologyObjectTypeGroup[]>([]);
   const [groupSearch, setGroupSearch] = useState("");
   const [groupDraft, setGroupDraft] = useState({
@@ -221,6 +290,26 @@ export function OntologyManagerPage() {
   const [projectResources, setProjectResources] = useState<
     OntologyProjectResourceBinding[]
   >([]);
+  const [projectMemberships, setProjectMemberships] = useState<OntologyProjectMembership[]>([]);
+  const [workingState, setWorkingState] = useState<OntologyProjectWorkingState | null>(null);
+  const [savedChanges, setSavedChanges] = useState<OntologySavedChangeRecord[]>([]);
+  const [historyResourceKind, setHistoryResourceKind] = useState("all");
+  const [historyAuthor, setHistoryAuthor] = useState("");
+  const [historyFrom, setHistoryFrom] = useState("");
+  const [historyTo, setHistoryTo] = useState("");
+  const [historyVisibility, setHistoryVisibility] = useState<OntologyHistoryVisibilityFilter>("all");
+  const [historyDetails, setHistoryDetails] = useState<OntologyHistoryDetailsFilter>("all");
+  const [historyHideRestricted, setHistoryHideRestricted] = useState(false);
+  const [selectedHistoryResource, setSelectedHistoryResource] = useState("");
+  const [historyNotice, setHistoryNotice] = useState("");
+  const [historyBusy, setHistoryBusy] = useState("");
+  const [bundleSelection, setBundleSelection] = useState<string[]>([]);
+  const [bundleText, setBundleText] = useState("");
+  const [bundleValidation, setBundleValidation] = useState<OntologyBundleValidationResult | null>(null);
+  const [bundleNotice, setBundleNotice] = useState("");
+  const [bundleBusy, setBundleBusy] = useState("");
+  const [usageExternalSources, setUsageExternalSources] = useState<OntologyUsageExternalSource[]>([]);
+  const [usageNotice, setUsageNotice] = useState("");
   const [ontology, setOntology] = useState<OntologyArtifact>(() =>
     deriveOntologyArtifact({ projects: [] }),
   );
@@ -230,11 +319,23 @@ export function OntologyManagerPage() {
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   const [branchName, setBranchName] = useState("Main");
+  const [proposalExcludedResourceIds, setProposalExcludedResourceIds] = useState<string[]>([]);
+  const [proposalExcludedIndexingChangeIds, setProposalExcludedIndexingChangeIds] = useState<string[]>([]);
   const [branchDialogOpen, setBranchDialogOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [cleanupSelection, setCleanupSelection] = useState<string[]>([]);
+  const [cleanupConfirmed, setCleanupConfirmed] = useState(false);
+  const [cleanupNotice, setCleanupNotice] = useState("");
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [auditCategoryFilter, setAuditCategoryFilter] = useState<OntologyAuditEventCategory | "all">("all");
+  const [auditStatusFilter, setAuditStatusFilter] = useState<OntologyAuditEventStatus | "all">("all");
+  const [auditActorFilter, setAuditActorFilter] = useState("");
+  const [healthCategoryFilter, setHealthCategoryFilter] = useState<OntologyHealthCategory | "all">("all");
+  const [healthSeverityFilter, setHealthSeverityFilter] = useState<OntologyHealthSeverity | "all">("all");
   const newMenuRef = useRef<HTMLDivElement>(null);
   const branchMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const resourceSearchIndexRef = useRef<OntologyResourceSearchIndex | null>(null);
 
   useEffect(() => {
     if (!newMenuOpen && !branchMenuOpen) return;
@@ -259,7 +360,7 @@ export function OntologyManagerPage() {
   async function refresh() {
     setError("");
     try {
-      const [types, actions, ifs, sh, valueTypeRes, links, groups, views, prs] = await Promise.all([
+      const [types, actions, ifs, sh, valueTypeRes, links, groups, views, sets, prs] = await Promise.all([
         listObjectTypes({ per_page: 200, search: search || undefined }),
         listActionTypes({ per_page: 200, search: search || undefined }),
         listInterfaces({ per_page: 200, search: search || undefined }),
@@ -268,6 +369,7 @@ export function OntologyManagerPage() {
         listLinkTypes({ per_page: 200 }),
         listObjectTypeGroups({ per_page: 200, search: groupSearch || undefined }),
         listObjectViews({ per_page: 200 }),
+        listObjectSets({ size: 200 }).catch(() => ({ data: [] as ObjectSetDefinition[] })),
         listProjects({ per_page: 200 }),
       ]);
       setObjectTypes(types.data);
@@ -279,12 +381,27 @@ export function OntologyManagerPage() {
       setLinkTypes(links.data);
       setObjectTypeGroups(groups.data);
       setObjectViews([...coreViews, ...views.data]);
+      setObjectSets(sets.data);
       setProjects(prs.data);
+      const membershipLists = await Promise.all(
+        prs.data.map((project) => listProjectMemberships(project.id).catch(() => [] as OntologyProjectMembership[])),
+      );
+      setProjectMemberships(membershipLists.flat());
       const primaryProject = prs.data[0];
-      const resources = primaryProject
-        ? await listProjectResources(primaryProject.id)
-        : [];
+      const [resources, nextWorkingState, nextSavedChanges]: [
+        OntologyProjectResourceBinding[],
+        OntologyProjectWorkingState | null,
+        OntologySavedChangeRecord[],
+      ] = primaryProject
+        ? await Promise.all([
+            listProjectResources(primaryProject.id),
+            getProjectWorkingState(primaryProject.id).catch(() => null),
+            listProjectSavedChanges(primaryProject.id).catch(() => []),
+          ])
+        : [[], null, [] as OntologySavedChangeRecord[]];
       setProjectResources(resources);
+      setWorkingState(nextWorkingState);
+      setSavedChanges(nextSavedChanges);
       setOntology(
         deriveOntologyArtifact({
           projects: prs.data,
@@ -313,6 +430,24 @@ export function OntologyManagerPage() {
 
   useEffect(() => {
     void refresh();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadUsageSources() {
+      const { sources, failures } = await loadOntologyUsageSources();
+      if (cancelled) return;
+      setUsageExternalSources(sources);
+      setUsageNotice(
+        failures.length
+          ? `Loaded ${sources.length} downstream usage sources; ${failures.join(", ")} unavailable.`
+          : `Loaded ${sources.length} downstream usage sources.`,
+      );
+    }
+    void loadUsageSources();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function refreshLinkType(link: LinkType) {
@@ -549,6 +684,148 @@ export function OntologyManagerPage() {
     }
   }
 
+  async function restoreHistoryResource(
+    entry: { id: string; saved_at: string },
+    resource: OntologyHistoryResourceSummary,
+  ) {
+    const primaryProject = projects[0];
+    if (!primaryProject) {
+      setError("Create or select an ontology project before restoring history.");
+      return;
+    }
+    setHistoryBusy(`${entry.id}:${resource.kind}:${resource.id || ""}`);
+    setHistoryNotice("");
+    setError("");
+    try {
+      const fullEntry = historyEntries.find((candidate) => candidate.id === entry.id)
+        || selectedResourceHistory.find((candidate) => candidate.id === entry.id);
+      if (!fullEntry) throw new Error("History record is no longer loaded.");
+      const restoreChange = createOntologyRestoreChange(fullEntry, resource, {
+        current_user_id: currentUserId,
+      });
+      const nextWorkingState = await replaceProjectWorkingState(primaryProject.id, [
+        ...workingChanges,
+        restoreChange,
+      ]);
+      setWorkingState(nextWorkingState);
+      setHistoryNotice(
+        `${resource.label} was restored into unsaved changes. Save ontology changes for the restore to take effect.`,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to stage restore change");
+    } finally {
+      setHistoryBusy("");
+    }
+  }
+
+  function buildSelectedBundle() {
+    return buildOntologyBundle({
+      ontology,
+      registry: ontologyRegistry,
+      selectedResourceKeys: bundleSelection,
+      objectTypes,
+      linkTypes,
+      actionTypes,
+      interfaces,
+      sharedPropertyTypes: shared,
+      valueTypes,
+      objectTypeGroups,
+      objectViews,
+      workingState,
+      exportedBy: currentUserId,
+    });
+  }
+
+  function exportBundle() {
+    setBundleNotice("");
+    setError("");
+    if (bundleSelection.length === 0) {
+      setError("Select at least one ontology resource to export.");
+      return;
+    }
+    const bundle = buildSelectedBundle();
+    const text = JSON.stringify(bundle, null, 2);
+    setBundleText(text);
+    setBundleValidation(validateOntologyBundle(bundle, {
+      ontology,
+      registry: ontologyRegistry,
+      valueTypes,
+      workingState,
+      currentUserId,
+    }));
+    downloadTextFile(`openfoundry-ontology-bundle-${Date.now()}.json`, text);
+    setBundleNotice(`Exported ${bundle.resources.length} resources into an OpenFoundry ontology bundle.`);
+  }
+
+  function validateBundleText() {
+    setBundleNotice("");
+    setError("");
+    try {
+      const bundle = parseOntologyBundleJSON(bundleText);
+      const result = validateOntologyBundle(bundle, {
+        ontology,
+        registry: ontologyRegistry,
+        valueTypes,
+        workingState,
+        currentUserId,
+      });
+      setBundleValidation(result);
+      setBundleNotice(result.valid ? "Bundle validation passed." : "Bundle validation found blocking errors.");
+      return { bundle, result };
+    } catch (cause) {
+      setBundleValidation(null);
+      setError(cause instanceof Error ? cause.message : "Invalid ontology bundle JSON.");
+      return null;
+    }
+  }
+
+  async function importBundleAsWorkingState() {
+    const primaryProject = projects[0];
+    if (!primaryProject) {
+      setError("Create or select an ontology project before importing a bundle.");
+      return;
+    }
+    const parsed = validateBundleText();
+    if (!parsed || !parsed.result.valid) return;
+    setBundleBusy("import");
+    try {
+      const nextWorkingState = await replaceProjectWorkingState(primaryProject.id, [
+        ...workingChanges,
+        ...parsed.result.staged_changes,
+      ]);
+      setWorkingState(nextWorkingState);
+      setBundleNotice(`Imported ${parsed.result.staged_changes.length} staged changes. Review and save them to apply the bundle.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to import ontology bundle");
+    } finally {
+      setBundleBusy("");
+    }
+  }
+
+  async function loadBundleFile(file: File | null) {
+    if (!file) return;
+    setBundleBusy("file");
+    setBundleNotice("");
+    setError("");
+    try {
+      const text = await file.text();
+      setBundleText(text);
+      const bundle = parseOntologyBundleJSON(text);
+      setBundleValidation(validateOntologyBundle(bundle, {
+        ontology,
+        registry: ontologyRegistry,
+        valueTypes,
+        workingState,
+        currentUserId,
+      }));
+    } catch (cause) {
+      setBundleValidation(null);
+      setError(cause instanceof Error ? cause.message : "Failed to read ontology bundle");
+    } finally {
+      setBundleBusy("");
+    }
+  }
+
   const ontologyRegistry = useMemo(
     () =>
       buildOntologyResourceRegistry({
@@ -577,6 +854,353 @@ export function OntologyManagerPage() {
     ],
   );
 
+  const currentUserId = user?.id || user?.email || null;
+  const canViewHiddenHistoryDetails = Boolean(
+    user?.roles?.some((role) => ["admin", "owner", "ontology-admin"].includes(role)),
+  );
+  const workingChanges = workingState?.changes ?? [];
+  const historyFilters = useMemo(
+    () => ({
+      resource_kind: historyResourceKind === "all" ? undefined : historyResourceKind,
+      author: historyAuthor || undefined,
+      from: historyFrom || undefined,
+      to: historyTo || undefined,
+      visibility: historyVisibility,
+      details: historyDetails,
+      hide_restricted_details: historyHideRestricted,
+    }),
+    [
+      historyResourceKind,
+      historyAuthor,
+      historyFrom,
+      historyTo,
+      historyVisibility,
+      historyDetails,
+      historyHideRestricted,
+    ],
+  );
+  const historyEntries = useMemo(
+    () =>
+      buildOntologyHistory(savedChanges, ontologyRegistry, historyFilters, {
+        current_user_id: currentUserId,
+        can_view_hidden_details: canViewHiddenHistoryDetails,
+      }),
+    [savedChanges, ontologyRegistry, historyFilters, currentUserId, canViewHiddenHistoryDetails],
+  );
+  const selectedHistoryResourceRef = parseHistoryResourceKey(selectedHistoryResource);
+  const selectedResourceHistory = useMemo(
+    () =>
+      selectedHistoryResourceRef
+        ? buildOntologyResourceHistory(
+            savedChanges,
+            ontologyRegistry,
+            selectedHistoryResourceRef,
+            historyFilters,
+            {
+              current_user_id: currentUserId,
+              can_view_hidden_details: canViewHiddenHistoryDetails,
+            },
+          )
+        : [],
+    [
+      savedChanges,
+      ontologyRegistry,
+      selectedHistoryResourceRef,
+      historyFilters,
+      currentUserId,
+      canViewHiddenHistoryDetails,
+    ],
+  );
+  const bundleResourceOptions = useMemo(
+    () => buildBundleResourceOptions(ontologyRegistry, valueTypes),
+    [ontologyRegistry, valueTypes],
+  );
+  const usageAnalysis = useMemo(
+    () =>
+      buildOntologyUsageImpactAnalysis({
+        objectTypes,
+        linkTypes,
+        actionTypes,
+        interfaces,
+        sharedPropertyTypes: shared,
+        valueTypes,
+        objectViews,
+        workingChanges,
+        externalSources: usageExternalSources,
+      }),
+    [
+      objectTypes,
+      linkTypes,
+      actionTypes,
+      interfaces,
+      shared,
+      valueTypes,
+      objectViews,
+      workingChanges,
+      usageExternalSources,
+    ],
+  );
+  const permissionAnalysis = useMemo(
+    () =>
+      buildOntologyPermissionAnalysis({
+        registry: ontologyRegistry,
+        projects,
+        projectMemberships,
+        objectTypes,
+        linkTypes,
+        actionTypes,
+        interfaces,
+        sharedPropertyTypes: shared,
+        valueTypes,
+        objectViews,
+        workingChanges,
+        principal: {
+          user_id: user?.id,
+          email: user?.email,
+          groups: user?.groups || [],
+          roles: user?.roles || [],
+          permissions: user?.permissions || [],
+        },
+      }),
+    [
+      ontologyRegistry,
+      projects,
+      projectMemberships,
+      objectTypes,
+      linkTypes,
+      actionTypes,
+      interfaces,
+      shared,
+      valueTypes,
+      objectViews,
+      workingChanges,
+      user?.id,
+      user?.email,
+      user?.groups,
+      user?.roles,
+      user?.permissions,
+    ],
+  );
+  const resourceSearchIndex = useMemo(
+    () => {
+      const nextIndex = buildOntologyResourceSearchIndex({
+        registry: ontologyRegistry,
+        objectTypes,
+        linkTypes,
+        interfaces,
+        sharedPropertyTypes: shared,
+        objectTypeGroups,
+        objectViews,
+        savedExplorations: objectSets,
+        usageReferences: usageAnalysis.references,
+        permissionAnalysis,
+        principal: {
+          user_id: user?.id,
+          email: user?.email,
+          groups: user?.groups || [],
+          roles: user?.roles || [],
+          permissions: user?.permissions || [],
+        },
+        previousIndex: resourceSearchIndexRef.current,
+      });
+      resourceSearchIndexRef.current = nextIndex;
+      return nextIndex;
+    },
+    [
+      ontologyRegistry,
+      objectTypes,
+      linkTypes,
+      interfaces,
+      shared,
+      objectTypeGroups,
+      objectViews,
+      objectSets,
+      usageAnalysis.references,
+      permissionAnalysis,
+      user?.id,
+      user?.email,
+      user?.groups,
+      user?.roles,
+      user?.permissions,
+    ],
+  );
+  const branchProposalIntegration = useMemo(
+    () =>
+      buildOntologyBranchProposalIntegration({
+        branchLabel: branchName,
+        changes: workingChanges,
+        objectTypes,
+        linkTypes,
+        actionTypes,
+        interfaces,
+        sharedPropertyTypes: shared,
+        objectViews,
+        mainObjectViews: objectViews.filter((view) => {
+          const label = String(view.branch_label ?? view.config?.branch_label ?? "main").toLowerCase();
+          return label === "main" || label === "default";
+        }),
+        propertiesByObjectType: Object.fromEntries(objectTypes.map((type) => [type.id, type.properties || []])),
+        principal: {
+          user_id: user?.id,
+          email: user?.email,
+          groups: user?.groups || [],
+          roles: user?.roles || [],
+          permissions: user?.permissions || [],
+        },
+        excludedResourceIds: proposalExcludedResourceIds,
+        excludedIndexingChangeIds: proposalExcludedIndexingChangeIds,
+      }),
+    [
+      branchName,
+      workingChanges,
+      objectTypes,
+      linkTypes,
+      actionTypes,
+      interfaces,
+      shared,
+      objectViews,
+      user?.id,
+      user?.email,
+      user?.groups,
+      user?.roles,
+      user?.permissions,
+      proposalExcludedResourceIds,
+      proposalExcludedIndexingChangeIds,
+    ],
+  );
+
+  const cleanupAssistant = useMemo<OntologyCleanupAssistant>(
+    () =>
+      buildOntologyCleanupAssistant({
+        objectTypes,
+        linkTypes,
+        actionTypes,
+        interfaces,
+        sharedPropertyTypes: shared,
+        valueTypes,
+        objectViews,
+        objectTypeGroups,
+        registry: ontologyRegistry,
+        usageAnalysis,
+        workingChanges,
+      }),
+    [
+      objectTypes,
+      linkTypes,
+      actionTypes,
+      interfaces,
+      shared,
+      valueTypes,
+      objectViews,
+      objectTypeGroups,
+      ontologyRegistry,
+      usageAnalysis,
+      workingChanges,
+    ],
+  );
+  const cleanupCandidatesById = useMemo(
+    () => new Map(cleanupAssistant.candidates.map((candidate) => [candidate.id, candidate])),
+    [cleanupAssistant],
+  );
+  useEffect(() => {
+    setCleanupSelection((current) => current.filter((id) => cleanupCandidatesById.has(id)));
+  }, [cleanupCandidatesById]);
+  const cleanupCandidatesByKind = useMemo(() => {
+    const map = new Map<OntologyCleanupCandidateKind, OntologyCleanupCandidate[]>();
+    for (const candidate of cleanupAssistant.candidates) {
+      const existing = map.get(candidate.kind) ?? [];
+      existing.push(candidate);
+      map.set(candidate.kind, existing);
+    }
+    return map;
+  }, [cleanupAssistant]);
+
+  const auditEventLog = useMemo<OntologyAuditEventLog>(
+    () =>
+      buildOntologyAuditEventLog({
+        savedChanges,
+        workingChanges,
+        objectViews,
+        filters: {
+          category: auditCategoryFilter === "all" ? undefined : auditCategoryFilter,
+          status: auditStatusFilter === "all" ? undefined : auditStatusFilter,
+          actor: auditActorFilter || undefined,
+        },
+      }),
+    [savedChanges, workingChanges, objectViews, auditCategoryFilter, auditStatusFilter, auditActorFilter],
+  );
+  const healthReport = useMemo<OntologyHealthReport>(
+    () =>
+      buildOntologyHealthReport({
+        objectTypes,
+        linkTypes,
+        objectViews,
+        valueTypes,
+        permissionAnalysis,
+      }),
+    [objectTypes, linkTypes, objectViews, valueTypes, permissionAnalysis],
+  );
+  const filteredHealthIssues = useMemo(
+    () =>
+      healthReport.issues.filter((issue) => {
+        if (healthCategoryFilter !== "all" && issue.category !== healthCategoryFilter) return false;
+        if (healthSeverityFilter !== "all" && issue.severity !== healthSeverityFilter) return false;
+        return true;
+      }),
+    [healthReport.issues, healthCategoryFilter, healthSeverityFilter],
+  );
+
+  async function stageCleanupSelection() {
+    setCleanupNotice("");
+    setError("");
+    const primaryProject = projects[0];
+    if (!primaryProject) {
+      setError("Create or select an ontology project before staging cleanup changes.");
+      return;
+    }
+    if (cleanupSelection.length === 0) {
+      setError("Select at least one cleanup candidate before staging.");
+      return;
+    }
+    if (!cleanupConfirmed) {
+      setError("Confirm the cleanup impact review before staging changes.");
+      return;
+    }
+    setCleanupBusy(true);
+    try {
+      const result = createOntologyCleanupStagedChanges({
+        candidates: cleanupAssistant.candidates,
+        selectedCandidateIds: cleanupSelection,
+        confirmed: cleanupConfirmed,
+        currentUserId,
+      });
+      if (result.errors.length > 0) {
+        setError(result.errors.join(" "));
+        return;
+      }
+      if (result.changes.length === 0) {
+        setCleanupNotice("No supported cleanup actions were staged. Resolve manual candidates in their editors.");
+        return;
+      }
+      const nextWorkingState = await replaceProjectWorkingState(primaryProject.id, [
+        ...workingChanges,
+        ...result.changes,
+      ]);
+      setWorkingState(nextWorkingState);
+      const skipped = result.skipped.length;
+      const skippedNote = skipped > 0 ? ` ${skipped} candidate${skipped === 1 ? '' : 's'} require manual resolution.` : "";
+      setCleanupNotice(
+        `Staged ${result.changes.length} cleanup deletion${result.changes.length === 1 ? '' : 's'} as unsaved changes. Review them in the Unsaved changes tab before saving.${skippedNote}`,
+      );
+      setCleanupSelection([]);
+      setCleanupConfirmed(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to stage cleanup actions");
+    } finally {
+      setCleanupBusy(false);
+    }
+  }
+
   const shellNavItems = useMemo(
     () =>
       SHELL_NAV_BASE.map((item) => ({
@@ -593,6 +1217,13 @@ export function OntologyManagerPage() {
           projects,
           projectResources,
           ontologyRegistry,
+          workingChanges,
+          savedChanges,
+          usageReferences: usageAnalysis.references,
+          permissionResources: permissionAnalysis.resources,
+          cleanupCandidates: cleanupAssistant.totals.candidates,
+          auditEvents: auditEventLog.totals.events,
+          healthIssues: healthReport.totals.issues,
         }),
       })),
     [
@@ -607,6 +1238,13 @@ export function OntologyManagerPage() {
       projects,
       projectResources,
       ontologyRegistry,
+      workingChanges,
+      savedChanges,
+      usageAnalysis.references,
+      permissionAnalysis.resources,
+      cleanupAssistant.totals.candidates,
+      auditEventLog.totals.events,
+      healthReport.totals.issues,
     ],
   );
 
@@ -643,31 +1281,21 @@ export function OntologyManagerPage() {
     [objectTypes, actionTypes, interfaces, shared, linkTypes, objectTypeGroups, objectViews],
   );
 
-  const searchResults = useMemo(
+  const indexedSearchResults = useMemo(
     () =>
-      buildSearchResults(search, {
-        objectTypes,
-        actionTypes,
-        interfaces,
-        shared,
-        valueTypes,
-        linkTypes,
-        objectTypeGroups,
-        objectViews,
-        projects,
-      }),
-    [
-      search,
-      objectTypes,
-      actionTypes,
-      interfaces,
-      shared,
-      valueTypes,
-      linkTypes,
-      objectTypeGroups,
-      objectViews,
-      projects,
-    ],
+      search.trim()
+        ? searchOntologyResourceIndex(resourceSearchIndex, {
+            query: search,
+            page: 1,
+            per_page: 8,
+            permission_filter: "viewable",
+          })
+        : null,
+    [resourceSearchIndex, search],
+  );
+  const searchResults = useMemo(
+    () => indexedSearchResults?.data.map(searchDocumentToShellResult) ?? [],
+    [indexedSearchResults],
   );
 
   const shellWarnings = useMemo(
@@ -949,8 +1577,13 @@ export function OntologyManagerPage() {
             }}
           >
             <p className="of-eyebrow" style={{ marginBottom: 8 }}>
-              Global search results ({searchResults.length})
+              Global search results ({indexedSearchResults?.total ?? 0})
             </p>
+            {indexedSearchResults?.hidden_results ? (
+              <p className="of-text-muted" style={{ margin: "-4px 0 8px", fontSize: 12 }}>
+                {indexedSearchResults.hidden_results} result{indexedSearchResults.hidden_results === 1 ? "" : "s"} hidden by resource permissions or visibility.
+              </p>
+            ) : null}
             <div style={{ display: "grid", gap: 6 }}>
               {searchResults.slice(0, 8).map((result) => (
                 <button
@@ -1205,6 +1838,8 @@ export function OntologyManagerPage() {
                   <li>{linkTypes.length} link types</li>
                   <li>{actionTypes.length} action types</li>
                   <li>{objectViews.length} Object Views</li>
+                  <li>{objectSets.length} saved explorations / lists</li>
+                  <li>{resourceSearchIndex.documents.length} indexed search documents</li>
                   <li>{projects.length} projects</li>
                   <li>{projectResources.length} project-bound resources</li>
                 </ul>
@@ -1271,7 +1906,11 @@ export function OntologyManagerPage() {
           )}
 
           {section === "registry" && (
-            <OntologyRegistryPanel registry={ontologyRegistry} />
+            <OntologyRegistryPanel
+              registry={ontologyRegistry}
+              searchIndex={resourceSearchIndex}
+              initialQuery={search}
+            />
           )}
 
           {section === "types" && (
@@ -1692,61 +2331,178 @@ export function OntologyManagerPage() {
           )}
 
           {section === "usage" && (
-            <ShellPlaceholder
-              title="Usage"
-              description="Usage aggregates dependents, object storage health, query usage, action usage, and application references from the Ontology Manager shell."
-              bullets={[
-                `${ontologyRegistry.length} first-class ontology registry entries available for usage impact review.`,
-                `${objectTypes.length} object types and ${linkTypes.length} link types can display 30-day read/write usage once metrics are connected.`,
-                `${actionTypes.length} action types available for observability handoff.`,
-              ]}
+            <OntologyUsagePanel
+              analysis={usageAnalysis}
+              notice={usageNotice}
+            />
+          )}
+
+          {section === "permissions" && (
+            <OntologyPermissionsPanel
+              analysis={permissionAnalysis}
+              userLabel={user?.email || user?.name || currentUserId || "Anonymous"}
             />
           )}
 
           {section === "changes" && (
-            <ShellPlaceholder
-              title="Unsaved changes"
-              description="Branch-local ontology changes will be summarized here before save, proposal, or discard."
-              bullets={[
-                "No unsaved changes are currently loaded for this branch.",
-                "The shell tracks branch context and project placement for future change records.",
-                "Save/review workflows are reserved for OMOV.22–OMOV.24.",
-              ]}
-            />
+            <section className="of-panel" style={{ padding: 16 }}>
+              <p className="of-eyebrow">Unsaved changes ({workingChanges.length})</p>
+              <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>
+                Restore actions from history appear here as staged ontology changes. They do not take effect until saved from the project working state.
+              </p>
+              {usageAnalysis.warnings.length > 0 ? (
+                <div className={usageAnalysis.totals.errors > 0 ? "of-status-danger" : "of-status-warning"} style={{ marginTop: 10, padding: 10, borderRadius: 6, fontSize: 12 }}>
+                  {usageAnalysis.warnings.length} downstream usage warning{usageAnalysis.warnings.length === 1 ? "" : "s"} detected. Review the Usage tab before saving these changes.
+                </div>
+              ) : null}
+              {permissionAnalysis.blocked_changes > 0 ? (
+                <div className="of-status-danger" style={{ marginTop: 10, padding: 10, borderRadius: 6, fontSize: 12 }}>
+                  {permissionAnalysis.blocked_changes} staged change{permissionAnalysis.blocked_changes === 1 ? "" : "s"} require additional ontology resource edit permissions. Review the Permissions tab before saving.
+                </div>
+              ) : null}
+              <OntologyBranchProposalPreviewPanel
+                integration={branchProposalIntegration}
+                onToggleResource={(resourceId, included) =>
+                  setProposalExcludedResourceIds((current) =>
+                    included ? current.filter((id) => id !== resourceId) : [...new Set([...current, resourceId])],
+                  )
+                }
+                onToggleIndexing={(changeId, included) =>
+                  setProposalExcludedIndexingChangeIds((current) =>
+                    included ? current.filter((id) => id !== changeId) : [...new Set([...current, changeId])],
+                  )
+                }
+              />
+              {workingChanges.length === 0 ? (
+                <p className="of-text-muted" style={{ marginTop: 10, fontSize: 12 }}>
+                  No unsaved changes are currently loaded for this project.
+                </p>
+              ) : (
+                <div style={{ overflowX: "auto", marginTop: 12 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ textAlign: "left", borderBottom: "1px solid var(--border-default)" }}>
+                        <th style={registryCellStyle()}>Change</th>
+                        <th style={registryCellStyle()}>Resource</th>
+                        <th style={registryCellStyle()}>Author</th>
+                        <th style={registryCellStyle()}>Created</th>
+                        <th style={registryCellStyle()}>Warnings</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {workingChanges.map((change) => (
+                        <tr key={change.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                          <td style={registryCellStyle()}>
+                            <strong>{change.label}</strong>
+                            <div className="of-text-muted">{change.action} · {change.source}</div>
+                          </td>
+                          <td style={registryCellStyle()}>{change.kind} · {change.targetId || "—"}</td>
+                          <td style={registryCellStyle()}>{change.author || change.createdBy || change.updatedBy || "unknown"}</td>
+                          <td style={registryCellStyle()}>{formatDateTime(change.createdAt)}</td>
+                          <td style={registryCellStyle()}>{change.warnings?.join("; ") || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
           )}
 
           {section === "history" && (
-            <ShellPlaceholder
-              title="History"
-              description="Saved ontology changes, restore points, and per-resource history will appear here."
-              bullets={[
-                "History navigation is present in the shell.",
-                "Resource-specific restore actions will be wired after change records are first-class.",
-              ]}
+            <OntologyHistoryPanel
+              registry={ontologyRegistry}
+              entries={historyEntries}
+              resourceEntries={selectedResourceHistory}
+              selectedResource={selectedHistoryResource}
+              onSelectedResourceChange={setSelectedHistoryResource}
+              resourceKind={historyResourceKind}
+              onResourceKindChange={setHistoryResourceKind}
+              author={historyAuthor}
+              onAuthorChange={setHistoryAuthor}
+              from={historyFrom}
+              onFromChange={setHistoryFrom}
+              to={historyTo}
+              onToChange={setHistoryTo}
+              visibility={historyVisibility}
+              onVisibilityChange={setHistoryVisibility}
+              details={historyDetails}
+              onDetailsChange={setHistoryDetails}
+              hideRestricted={historyHideRestricted}
+              onHideRestrictedChange={setHistoryHideRestricted}
+              notice={historyNotice}
+              busyKey={historyBusy}
+              onRestore={(entry, resource) => void restoreHistoryResource(entry, resource)}
             />
           )}
 
           {section === "importExport" && (
-            <ShellPlaceholder
-              title="Import / export"
-              description="Ontology bundle export, validation, review, and import workflows will use this shell surface."
-              bullets={[
-                "Export selected object types, links, actions, interfaces, shared properties, groups, and Object Views.",
-                "Validate imported bundles before applying them as unsaved changes.",
-                "Project/folder placement and organization visibility are retained in bundle metadata.",
-              ]}
+            <OntologyBundlePanel
+              resources={bundleResourceOptions}
+              selected={bundleSelection}
+              onSelectedChange={setBundleSelection}
+              bundleText={bundleText}
+              onBundleTextChange={(text) => {
+                setBundleText(text);
+                setBundleValidation(null);
+              }}
+              validation={bundleValidation}
+              notice={bundleNotice}
+              busy={bundleBusy}
+              onExport={exportBundle}
+              onValidate={validateBundleText}
+              onImport={() => void importBundleAsWorkingState()}
+              onFile={(file) => void loadBundleFile(file)}
             />
           )}
 
           {section === "cleanup" && (
-            <ShellPlaceholder
-              title="Cleanup"
-              description="Cleanup will identify stale, unused, deprecated, or broken ontology resources and propose safe remediation."
-              bullets={
-                shellWarnings.length
-                  ? shellWarnings
-                  : ["No cleanup warnings are currently detected by the shell."]
+            <CleanupAssistantPanel
+              assistant={cleanupAssistant}
+              candidatesByKind={cleanupCandidatesByKind}
+              selectedIds={cleanupSelection}
+              onToggle={(id) =>
+                setCleanupSelection((current) =>
+                  current.includes(id)
+                    ? current.filter((entry) => entry !== id)
+                    : [...current, id],
+                )
               }
+              onSelectAll={() =>
+                setCleanupSelection(
+                  cleanupAssistant.candidates
+                    .filter((candidate) => candidate.delete_supported)
+                    .map((candidate) => candidate.id),
+                )
+              }
+              onClear={() => {
+                setCleanupSelection([]);
+                setCleanupConfirmed(false);
+              }}
+              confirmed={cleanupConfirmed}
+              onConfirmChange={setCleanupConfirmed}
+              busy={cleanupBusy}
+              notice={cleanupNotice}
+              proposalIntegration={branchProposalIntegration}
+              onStage={() => void stageCleanupSelection()}
+            />
+          )}
+
+          {section === "auditHealth" && (
+            <AuditHealthPanel
+              auditLog={auditEventLog}
+              healthReport={healthReport}
+              healthIssues={filteredHealthIssues}
+              auditCategoryFilter={auditCategoryFilter}
+              auditStatusFilter={auditStatusFilter}
+              auditActorFilter={auditActorFilter}
+              onAuditCategoryChange={setAuditCategoryFilter}
+              onAuditStatusChange={setAuditStatusFilter}
+              onAuditActorChange={setAuditActorFilter}
+              healthCategoryFilter={healthCategoryFilter}
+              healthSeverityFilter={healthSeverityFilter}
+              onHealthCategoryChange={setHealthCategoryFilter}
+              onHealthSeverityChange={setHealthSeverityFilter}
             />
           )}
 
@@ -1817,6 +2573,13 @@ interface ShellCountsInput {
   projects: OntologyProject[];
   projectResources: OntologyProjectResourceBinding[];
   ontologyRegistry?: OntologyResourceRegistryEntry[];
+  workingChanges?: unknown[];
+  savedChanges?: unknown[];
+  usageReferences?: unknown[];
+  permissionResources?: unknown[];
+  cleanupCandidates?: number;
+  auditEvents?: number;
+  healthIssues?: number;
 }
 
 function shellNavCount(section: Section, input: ShellCountsInput) {
@@ -1842,7 +2605,17 @@ function shellNavCount(section: Section, input: ShellCountsInput) {
     case "projects":
       return input.projects.length;
     case "changes":
-      return 0;
+      return input.workingChanges?.length ?? 0;
+    case "history":
+      return input.savedChanges?.length ?? 0;
+    case "usage":
+      return input.usageReferences?.length ?? 0;
+    case "permissions":
+      return input.permissionResources?.length ?? 0;
+    case "cleanup":
+      return input.cleanupCandidates ?? 0;
+    case "auditHealth":
+      return (input.auditEvents ?? 0) + (input.healthIssues ?? 0);
     case "overview":
       return input.projectResources.length;
     default:
@@ -1873,40 +2646,6 @@ function buildRecentResources(
   return buildResourceSearchResults(input)
     .sort((a, b) => b.detail.localeCompare(a.detail))
     .slice(0, 6);
-}
-
-function buildSearchResults(
-  search: string,
-  input: Omit<ShellCountsInput, "projectResources">,
-): ShellSearchResult[] {
-  const needle = search.trim().toLowerCase();
-  if (!needle) return [];
-  return [
-    ...buildResourceSearchResults({
-      objectTypes: input.objectTypes,
-      actionTypes: input.actionTypes,
-      interfaces: input.interfaces,
-      shared: input.shared,
-      valueTypes: input.valueTypes,
-      linkTypes: input.linkTypes,
-      objectTypeGroups: input.objectTypeGroups,
-      objectViews: input.objectViews,
-    }),
-    ...input.projects.map((entry) =>
-      resourceSearchResult(
-        entry.id,
-        "Project",
-        entry.display_name || entry.slug,
-        entry.slug,
-        "projects",
-        entry.updated_at,
-      ),
-    ),
-  ].filter((entry) =>
-    `${entry.kind} ${entry.label} ${entry.detail}`
-      .toLowerCase()
-      .includes(needle),
-  );
 }
 
 function buildResourceSearchResults(
@@ -2013,6 +2752,51 @@ function resourceSearchResult(
   };
 }
 
+function searchDocumentToShellResult(document: OntologyResourceSearchResultItem): ShellSearchResult {
+  return {
+    id: document.id,
+    kind: resourceKindLabel(document.resource_kind),
+    label: document.display_name,
+    detail: [
+      document.api_name,
+      document.project_display_name,
+      document.permission.schema_only ? "schema only" : "",
+      document.match_reason,
+    ].filter(Boolean).join(" · "),
+    section: sectionForSearchDocument(document),
+  };
+}
+
+function sectionForSearchDocument(document: OntologyResourceSearchResultItem): Section {
+  switch (document.resource_kind) {
+    case "object_type":
+    case "property":
+    case "datasource_registration":
+      return "types";
+    case "link_type":
+      return "links";
+    case "action_type":
+      return "actions";
+    case "interface":
+      return "interfaces";
+    case "shared_property_type":
+      return "shared";
+    case "value_type":
+      return "valueTypes";
+    case "object_type_group":
+      return "groups";
+    case "core_object_view":
+    case "custom_object_view":
+      return "views";
+    case "usage_edge":
+    case "saved_exploration":
+    case "saved_list":
+      return "usage";
+    default:
+      return "registry";
+  }
+}
+
 function buildShellWarnings({
   ontology,
   objectTypes,
@@ -2048,26 +2832,1326 @@ function buildShellWarnings({
   return warnings;
 }
 
-function OntologyRegistryPanel({
+async function loadOntologyUsageSources(): Promise<{
+  sources: OntologyUsageExternalSource[];
+  failures: string[];
+}> {
+  const sources: OntologyUsageExternalSource[] = [];
+  const failures: string[] = [];
+
+  try {
+    const apps = await listApps({ per_page: 50 });
+    const appResults = await Promise.allSettled(
+      apps.data.slice(0, 50).map((app) => getApp(app.id)),
+    );
+    for (const result of appResults) {
+      if (result.status === "fulfilled") sources.push(workshopUsageSource(result.value));
+    }
+  } catch {
+    failures.push("Workshop");
+  }
+
+  try {
+    const pipelines = await listPipelines({ per_page: 100 });
+    sources.push(...pipelines.data.map(pipelineUsageSource));
+  } catch {
+    failures.push("Pipeline Builder");
+  }
+
+  try {
+    const objectSets = await listObjectSets({ size: 200 });
+    for (const objectSet of objectSets.data) {
+      sources.push(objectExplorerUsageSource(objectSet));
+      sources.push(savedExplorationUsageSource(objectSet));
+    }
+  } catch {
+    failures.push("Object Explorer");
+  }
+
+  try {
+    const branches = await listGlobalBranches();
+    const branchResults = await Promise.allSettled(
+      branches.slice(0, 50).map(async (branch) => ({
+        branch,
+        links: await listGlobalBranchResources(branch.id),
+      })),
+    );
+    for (const result of branchResults) {
+      if (result.status !== "fulfilled") continue;
+      for (const link of result.value.links) {
+        sources.push({
+          product: "global_branching",
+          consumer_id: `${result.value.branch.id}:${link.resource_rid}`,
+          consumer_label: result.value.branch.name,
+          consumer_kind: "Global branch resource link",
+          surface: link.status,
+          detail: `${link.resource_type} linked to ${link.branch_rid}.`,
+          payload: { branch: result.value.branch, link },
+          last_used_at: link.last_synced_at,
+          actor: result.value.branch.created_by,
+        });
+      }
+    }
+  } catch {
+    failures.push("Global Branching");
+  }
+
+  try {
+    const listings = await listListings();
+    const versionResults = await Promise.allSettled(
+      listings.items.slice(0, 50).map(async (listing) => ({
+        listing,
+        versions: (await listVersions(listing.id)).items,
+      })),
+    );
+    for (const result of versionResults) {
+      if (result.status !== "fulfilled") continue;
+      for (const version of result.value.versions.slice(0, 3)) {
+        sources.push(marketplaceUsageSource(result.value.listing, version));
+      }
+    }
+  } catch {
+    failures.push("Marketplace");
+  }
+
+  return { sources, failures };
+}
+
+function workshopUsageSource(app: AppDefinition): OntologyUsageExternalSource {
+  return {
+    product: "workshop",
+    consumer_id: app.id,
+    consumer_label: app.name,
+    consumer_kind: "Workshop app",
+    surface: `${app.pages.length} pages / ${countAppWidgets(app.pages)} widgets`,
+    detail: app.description || "Workshop app definition references ontology resources through variables, widgets, events, and actions.",
+    payload: app,
+    last_used_at: app.updated_at,
+    actor: app.created_by,
+  };
+}
+
+function pipelineUsageSource(pipeline: Pipeline): OntologyUsageExternalSource {
+  return {
+    product: "pipeline_builder",
+    consumer_id: pipeline.id,
+    consumer_label: pipeline.name,
+    consumer_kind: "Pipeline",
+    surface: pipeline.lifecycle || pipeline.status,
+    detail: pipeline.description || "Pipeline DAG and IR reference ontology resources.",
+    payload: pipeline,
+    last_used_at: pipeline.updated_at,
+    actor: pipeline.owner_id,
+  };
+}
+
+function objectExplorerUsageSource(objectSet: ObjectSetDefinition): OntologyUsageExternalSource {
+  return {
+    product: "object_explorer",
+    consumer_id: objectSet.id,
+    consumer_label: objectSet.name,
+    consumer_kind: "Object Explorer object set",
+    surface: objectSet.materialized_at ? "materialized" : "live",
+    detail: "Object Explorer can evaluate, filter, traverse, and materialize this object set.",
+    payload: objectSet,
+    last_used_at: objectSet.updated_at,
+    actor: objectSet.owner_id,
+  };
+}
+
+function savedExplorationUsageSource(objectSet: ObjectSetDefinition): OntologyUsageExternalSource {
+  return {
+    product: "saved_exploration",
+    consumer_id: objectSet.id,
+    consumer_label: objectSet.name,
+    consumer_kind: "Saved object exploration",
+    surface: objectSet.materialized_at ? "saved materialized set" : "saved live set",
+    detail: objectSet.description || "Saved Object Explorer object set.",
+    payload: objectSet,
+    last_used_at: objectSet.updated_at,
+    actor: objectSet.owner_id,
+  };
+}
+
+function marketplaceUsageSource(
+  listing: ListingDefinition,
+  version: PackageVersion,
+): OntologyUsageExternalSource {
+  return {
+    product: "marketplace",
+    consumer_id: `${listing.id}:${version.id}`,
+    consumer_label: `${listing.name} ${version.version}`,
+    consumer_kind: "Marketplace package version",
+    surface: version.release_channel,
+    detail: `${version.packaged_resources.length} packaged resources in ${listing.package_kind}.`,
+    payload: { listing, version },
+    last_used_at: version.published_at || listing.updated_at,
+    actor: listing.publisher,
+  };
+}
+
+function countAppWidgets(pages: AppDefinition["pages"]) {
+  return pages.reduce((count, page) => count + countWidgets(page.widgets) + countSections(page.sections || []), 0);
+}
+
+function countSections(sections: NonNullable<AppDefinition["pages"][number]["sections"]>): number {
+  return sections.reduce(
+    (count, section) =>
+      count + countWidgets(section.widgets || []) + countSections(section.sections || []),
+    0,
+  );
+}
+
+function countWidgets(widgets: AppDefinition["pages"][number]["widgets"]): number {
+  return widgets.reduce((count, widget) => count + 1 + countWidgets(widget.children || []), 0);
+}
+
+const USAGE_PRODUCT_ORDER: OntologyUsageProduct[] = [
+  "workshop",
+  "functions",
+  "pipeline_builder",
+  "object_explorer",
+  "saved_exploration",
+  "global_branching",
+  "marketplace",
+  "object_views",
+];
+
+function ontologyLogicMetricRun(
+  id: string,
+  status: "succeeded" | "failed",
+  minutesAgo: number,
+  durationMs: number,
+  invocationSurface: string,
+  errorMessage?: string,
+): LogicRunHistoryRecord {
+  const now = new Date();
+  const started = new Date(now.getTime() - minutesAgo * 60 * 1000);
+  return {
+    id,
+    actorId: "ontology-viewer",
+    actorName: "Ontology viewer",
+    executionMode: "project_scoped",
+    status,
+    invocationSurface,
+    startedAtIso: started.toISOString(),
+    retentionExpiresAtIso: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    durationMs,
+    errorMessage,
+  };
+}
+
+const USAGE_RESOURCE_KIND_OPTIONS = [
+  "all",
+  "object_type",
+  "property",
+  "link_type",
+  "interface",
+  "action_type",
+  "object_view",
+];
+
+function OntologyUsagePanel({
+  analysis,
+  notice,
+}: {
+  analysis: OntologyUsageImpactAnalysis;
+  notice: string;
+}) {
+  const [productFilter, setProductFilter] = useState<OntologyUsageProduct | "all">("all");
+  const [kindFilter, setKindFilter] = useState("all");
+  const visibleSummaries = analysis.summaries.filter((summary) => {
+    if (kindFilter !== "all" && summary.resource_kind !== kindFilter) return false;
+    if (productFilter !== "all" && !summary.products.includes(productFilter)) return false;
+    return true;
+  });
+  const logicMetrics = useMemo(
+    () => calculateLogicMetrics([
+      ontologyLogicMetricRun("logic-run-om-1", "succeeded", 18, 142, "workshop"),
+      ontologyLogicMetricRun("logic-run-om-2", "succeeded", 87, 176, "action_workflow"),
+      ontologyLogicMetricRun("logic-run-om-3", "failed", 136, 231, "automate", "Permission denied for Customer.creditHold"),
+      ontologyLogicMetricRun("logic-run-om-4", "succeeded", 420, 128, "function_on_objects"),
+    ], "30d"),
+    [],
+  );
+
+  return (
+    <section className="of-panel" style={{ padding: 16, display: "grid", gap: 16 }}>
+      <div>
+        <p className="of-eyebrow">Usage and impact</p>
+        <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>
+          Downstream references across Workshop, Functions, Pipeline Builder, Object Explorer, saved explorations, Global Branching, Marketplace products, and Object Views.
+        </p>
+        {notice ? <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>{notice}</p> : null}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+        <UsageMetric label="Resources used" value={analysis.totals.resources} />
+        <UsageMetric label="References" value={analysis.totals.references} />
+        <UsageMetric label="Reads" value={analysis.totals.reads} />
+        <UsageMetric label="Writes" value={analysis.totals.writes} />
+        <UsageMetric label="Active users" value={analysis.totals.active_users} />
+        <UsageMetric label="Impact warnings" value={analysis.warnings.length} tone={analysis.totals.errors > 0 ? "#b91c1c" : "#b45309"} />
+      </div>
+
+      <section style={{ border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 12, display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div>
+            <p className="of-eyebrow">Logic resource metrics</p>
+            <strong>Customer triage logic</strong>
+          </div>
+          <span className="of-chip">viewer permission required</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8 }}>
+          <UsageMetric label="Succeeded" value={logicMetrics.successCount} tone="#047857" />
+          <UsageMetric label="Failed" value={logicMetrics.failureCount} tone={logicMetrics.failureCount > 0 ? "#b91c1c" : "#047857"} />
+          <UsageMetric label="P95 ms" value={logicMetrics.p95DurationMs ?? 0} />
+          <UsageMetric label="Recent runs" value={logicMetrics.recentRuns.length} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 0.7fr) minmax(260px, 1fr)", gap: 10, fontSize: 12 }}>
+          <div>
+            <p className="of-eyebrow">Failure categories</p>
+            {logicMetrics.failureCategories.length === 0 ? (
+              <p className="of-text-muted" style={{ margin: 0 }}>No failures in the 30-day window.</p>
+            ) : logicMetrics.failureCategories.map((category) => (
+              <div key={category.category} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span>{category.category.replaceAll("_", " ")}</span>
+                <strong>{category.count}</strong>
+              </div>
+            ))}
+          </div>
+          <div>
+            <p className="of-eyebrow">Recent run history</p>
+            <div style={{ display: "grid", gap: 4 }}>
+              {logicMetrics.recentRuns.slice(0, 4).map((run) => (
+                <div key={run.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8 }}>
+                  <span>{run.invocationSurface}</span>
+                  <span className={run.status === "failed" ? "of-status-warning" : "of-status-success"} style={{ padding: "1px 6px", borderRadius: 4 }}>{run.status}</span>
+                  <span className="of-text-muted">{run.durationMs} ms</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {USAGE_PRODUCT_ORDER.map((product) => (
+          <button
+            key={product}
+            type="button"
+            className="of-button"
+            onClick={() => setProductFilter(productFilter === product ? "all" : product)}
+            style={{
+              fontSize: 12,
+              borderColor: productFilter === product ? "var(--status-info)" : undefined,
+              background: productFilter === product ? "rgba(45, 114, 210, 0.08)" : undefined,
+            }}
+          >
+            {usageProductLabel(product)} · {analysis.product_counts[product] || 0}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <select className="of-input" value={kindFilter} onChange={(event) => setKindFilter(event.target.value)} style={{ maxWidth: 240 }}>
+          {USAGE_RESOURCE_KIND_OPTIONS.map((kind) => (
+            <option key={kind} value={kind}>{kind === "all" ? "All resource kinds" : resourceKindLabel(kind)}</option>
+          ))}
+        </select>
+        <button type="button" className="of-button" onClick={() => { setProductFilter("all"); setKindFilter("all"); }}>
+          Clear filters
+        </button>
+      </div>
+
+      {analysis.warnings.length > 0 ? (
+        <section style={{ display: "grid", gap: 8 }}>
+          <p className="of-eyebrow">Warnings before save ({analysis.warnings.length})</p>
+          {analysis.warnings.map((warning) => (
+            <div
+              key={`${warning.change_id}:${warning.resource_kind}:${warning.resource_id}`}
+              className={warning.severity === "error" ? "of-status-danger" : "of-status-warning"}
+              style={{ padding: 10, borderRadius: 6, fontSize: 12 }}
+            >
+              <strong>{warning.resource_label}</strong> · {warning.code}
+              <div>{warning.message}</div>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", minWidth: 980, borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ textAlign: "left", borderBottom: "1px solid var(--border-default)" }}>
+              <th style={registryCellStyle()}>Resource</th>
+              <th style={registryCellStyle()}>Risk</th>
+              <th style={registryCellStyle()}>30-day usage model</th>
+              <th style={registryCellStyle()}>Products</th>
+              <th style={registryCellStyle()}>Where used</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleSummaries.map((summary) => (
+              <tr key={summary.resource_key} style={{ borderBottom: "1px solid var(--border-subtle)", verticalAlign: "top" }}>
+                <td style={registryCellStyle()}>
+                  <strong>{summary.resource_label}</strong>
+                  <div className="of-text-muted">{resourceKindLabel(summary.resource_kind)} · {summary.resource_id}</div>
+                </td>
+                <td style={registryCellStyle()}>
+                  <span className={`of-chip ${summary.risk_level === "high" ? "of-status-danger" : summary.risk_level === "medium" ? "of-status-warning" : "of-status-success"}`}>
+                    {summary.risk_level}
+                  </span>
+                </td>
+                <td style={registryCellStyle()}>
+                  {summary.interactions} interactions
+                  <div className="of-text-muted">{summary.read_count} reads · {summary.write_count} writes · {summary.active_users} users</div>
+                  <div className="of-text-muted">Last: {formatDateTime(summary.last_used_at)}</div>
+                </td>
+                <td style={registryCellStyle()}>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {summary.products.map((product) => (
+                      <span key={product} className="of-chip">{usageProductLabel(product)}</span>
+                    ))}
+                  </div>
+                </td>
+                <td style={registryCellStyle()}>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {summary.references.slice(0, 5).map((reference) => (
+                      <div key={reference.id}>
+                        <strong>{reference.consumer_label}</strong>
+                        <div className="of-text-muted">{reference.product_label} · {reference.consumer_kind} · {reference.surface}</div>
+                        <div className="of-text-muted">{reference.detail}</div>
+                      </div>
+                    ))}
+                    {summary.references.length > 5 ? (
+                      <span className="of-text-muted">+{summary.references.length - 5} more references</span>
+                    ) : null}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {visibleSummaries.length === 0 ? (
+          <p className="of-text-muted" style={{ marginTop: 10, fontSize: 12 }}>
+            No downstream references matched the current filters.
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function UsageMetric({ label, value, tone = "#1d4ed8" }: { label: string; value: number; tone?: string }) {
+  return (
+    <div style={{ border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 10 }}>
+      <p className="of-text-muted" style={{ margin: 0, fontSize: 11 }}>{label}</p>
+      <strong style={{ color: tone, fontSize: 20 }}>{value.toLocaleString()}</strong>
+    </div>
+  );
+}
+
+function OntologyPermissionsPanel({
+  analysis,
+  userLabel,
+}: {
+  analysis: OntologyPermissionAnalysis;
+  userLabel: string;
+}) {
+  const [levelFilter, setLevelFilter] = useState<OntologyPermissionLevel | "all">("all");
+  const [showBlockedOnly, setShowBlockedOnly] = useState(false);
+  const visibleResources = analysis.resources.filter((resource) => {
+    if (levelFilter !== "all" && resource.effective_level !== levelFilter) return false;
+    if (showBlockedOnly && resource.can_edit) return false;
+    return true;
+  });
+  const blockedChecks = analysis.change_checks.filter((check) => !check.allowed);
+
+  return (
+    <section className="of-panel" style={{ padding: 16, display: "grid", gap: 16 }}>
+      <div>
+        <p className="of-eyebrow">Ontology resource permissions</p>
+        <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>
+          Project/folder-managed resource access for {userLabel}. Object type definitions and object instance data are evaluated separately.
+        </p>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+        <UsageMetric label="Resources" value={analysis.totals.resources} />
+        <UsageMetric label="Definitions viewable" value={analysis.totals.viewable_definitions} />
+        <UsageMetric label="Objects viewable" value={analysis.totals.viewable_instances} />
+        <UsageMetric label="Editable" value={analysis.totals.editable} />
+        <UsageMetric label="Manageable" value={analysis.totals.manageable} />
+        <UsageMetric label="Blocked changes" value={analysis.blocked_changes} tone={analysis.blocked_changes > 0 ? "#b91c1c" : "#15803d"} />
+      </div>
+
+      {analysis.change_checks.length > 0 ? (
+        <section style={{ display: "grid", gap: 8 }}>
+          <p className="of-eyebrow">Edit permission checks ({analysis.change_checks.length})</p>
+          {analysis.change_checks.map((check) => (
+            <div
+              key={check.change_id}
+              className={check.allowed ? "of-status-success" : "of-status-danger"}
+              style={{ padding: 10, borderRadius: 6, fontSize: 12 }}
+            >
+              <strong>{check.change_label}</strong> · {check.allowed ? "Allowed" : "Blocked"}
+              <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
+                {check.requirements.map((requirement) => (
+                  <div key={`${check.change_id}:${requirement.resource_key}`}>
+                    {requirement.resource_label}: needs {requirement.required_level}, has {requirement.effective_level}
+                    <span className="of-text-muted"> · {requirement.reason}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {blockedChecks.length === 0 ? (
+            <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>No staged changes are blocked by ontology resource permissions.</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <select className="of-input" value={levelFilter} onChange={(event) => setLevelFilter(event.target.value as OntologyPermissionLevel | "all")} style={{ maxWidth: 220 }}>
+          <option value="all">All levels</option>
+          {(["none", "view", "edit", "manage", "owner"] as const).map((level) => (
+            <option key={level} value={level}>{level}</option>
+          ))}
+        </select>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+          <input type="checkbox" checked={showBlockedOnly} onChange={(event) => setShowBlockedOnly(event.target.checked)} />
+          Show resources without edit access
+        </label>
+      </div>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", minWidth: 1040, borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ textAlign: "left", borderBottom: "1px solid var(--border-default)" }}>
+              <th style={registryCellStyle()}>Resource</th>
+              <th style={registryCellStyle()}>Project / folder</th>
+              <th style={registryCellStyle()}>Owner</th>
+              <th style={registryCellStyle()}>Definition</th>
+              <th style={registryCellStyle()}>Objects</th>
+              <th style={registryCellStyle()}>Edit / manage</th>
+              <th style={registryCellStyle()}>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleResources.map((resource) => (
+              <tr key={resource.resource_key} style={{ borderBottom: "1px solid var(--border-subtle)", verticalAlign: "top" }}>
+                <td style={registryCellStyle()}>
+                  <strong>{resource.display_name}</strong>
+                  <div className="of-text-muted">{resourceKindLabel(resource.resource_kind)} · {resource.resource_id}</div>
+                </td>
+                <td style={registryCellStyle()}>
+                  {resource.project_display_name}
+                  <div className="of-text-muted">{resource.folder_path}</div>
+                </td>
+                <td style={registryCellStyle()}>{resource.owner_id || "—"}</td>
+                <td style={registryCellStyle()}>
+                  <span className={`of-chip ${resource.can_view_definition ? "of-status-success" : "of-status-danger"}`}>
+                    {resource.can_view_definition ? "View" : "No view"}
+                  </span>
+                </td>
+                <td style={registryCellStyle()}>
+                  {resource.object_instance_access === "not_applicable" ? (
+                    <span className="of-text-muted">Not object data</span>
+                  ) : (
+                    <>
+                      <span className={`of-chip ${resource.can_view_instances ? "of-status-success" : "of-status-warning"}`}>
+                        {resource.can_view_instances ? "Object data view" : "Schema only"}
+                      </span>
+                      <div className="of-text-muted">{objectAccessLabel(resource.object_instance_access)}</div>
+                    </>
+                  )}
+                </td>
+                <td style={registryCellStyle()}>
+                  <span style={permissionPillStyle(resource.effective_level)}>{resource.effective_level}</span>
+                  <div className="of-text-muted">
+                    {resource.can_edit ? "edit" : "no edit"} · {resource.can_manage ? "manage" : "no manage"}
+                  </div>
+                </td>
+                <td style={registryCellStyle()}>{resource.reasons.join("; ") || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {visibleResources.length === 0 ? (
+          <p className="of-text-muted" style={{ marginTop: 10, fontSize: 12 }}>No permission records matched the current filters.</p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function OntologyBranchProposalPreviewPanel({
+  integration,
+  onToggleResource,
+  onToggleIndexing,
+}: {
+  integration: OntologyGlobalBranchProposalIntegration;
+  onToggleResource: (resourceId: string, included: boolean) => void;
+  onToggleIndexing: (changeId: string, included: boolean) => void;
+}) {
+  const previewTone =
+    integration.preview.status === "blocked"
+      ? "of-status-danger"
+      : integration.preview.status === "pending"
+        ? "of-status-warning"
+        : "of-status-success";
+  const resources = integration.resources.slice(0, 8);
+  const indexingChanges = integration.indexing_changes.slice(0, 6);
+  return (
+    <section style={{ marginTop: 12, border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 12, display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div>
+          <p className="of-eyebrow">Global Branching proposal preview</p>
+          <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+            Branch {integration.branch_label} includes {integration.preview.resource_count} ontology/Object View resources, {integration.preview.indexing_change_count} indexing changes, and {integration.proposal_tasks.length} review tasks.
+          </p>
+        </div>
+        <span className={`of-chip ${previewTone}`}>{integration.preview.status}</span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
+        <UsageMetric label="Ready" value={integration.preview.ready_count} tone="#047857" />
+        <UsageMetric label="Pending" value={integration.preview.pending_count} tone="#b45309" />
+        <UsageMetric label="Blocked" value={integration.preview.blocked_count} tone={integration.preview.blocked_count > 0 ? "#b91c1c" : "#047857"} />
+      </div>
+
+      {integration.checks.length > 0 ? (
+        <div style={{ display: "grid", gap: 6 }}>
+          {integration.checks.map((check) => (
+            <div
+              key={check.id}
+              className={check.status === "failed" ? "of-status-danger" : check.status === "warning" ? "of-status-warning" : "of-status-success"}
+              style={{ padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
+            >
+              <strong>{check.label}:</strong> {check.message}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {resources.length > 0 ? (
+        <div style={{ display: "grid", gap: 6 }}>
+          <p className="of-eyebrow">Proposed resources</p>
+          {resources.map((resource) => (
+            <article key={resource.id} className="of-panel-muted" style={{ padding: 10, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div>
+                <strong>{resource.label}</strong>
+                <p className="of-text-muted" style={{ margin: "2px 0 0", fontSize: 11 }}>
+                  {resourceKindLabel(resource.kind)} · {resource.action} · {resource.included ? "included" : "removed"}
+                </p>
+                {[...resource.errors, ...resource.warnings].slice(0, 1).map((message) => (
+                  <p key={message} className="of-text-muted" style={{ margin: "4px 0 0", fontSize: 11 }}>{message}</p>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="of-button"
+                onClick={() => onToggleResource(resource.id, !resource.included)}
+                disabled={resource.included && !resource.removable}
+                style={{ fontSize: 11 }}
+              >
+                {resource.included ? "Remove from proposal" : "Restore to proposal"}
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {indexingChanges.length > 0 ? (
+        <div style={{ display: "grid", gap: 6 }}>
+          <p className="of-eyebrow">Indexing changes</p>
+          {indexingChanges.map((change) => (
+            <article key={change.id} className="of-panel-muted" style={{ padding: 10, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div>
+                <strong>{change.label}</strong>
+                <p className="of-text-muted" style={{ margin: "2px 0 0", fontSize: 11 }}>
+                  {change.required ? "required" : "optional"} · {change.status} · {change.reason}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="of-button"
+                onClick={() => onToggleIndexing(change.id, !change.included)}
+                disabled={change.included && !change.removable}
+                style={{ fontSize: 11 }}
+              >
+                {change.included ? "Remove indexing" : "Restore indexing"}
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {integration.warnings.length > 0 ? (
+        <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>{integration.warnings[0]}</p>
+      ) : null}
+    </section>
+  );
+}
+
+function objectAccessLabel(mode: string) {
+  switch (mode) {
+    case "definition_not_viewable":
+      return "Object type definition is not viewable.";
+    case "object_policy":
+      return "Object security policy grants data separately from schema.";
+    case "object_policy_required":
+      return "Object security policy visibility is still required.";
+    case "datasource_required":
+      return "Backing datasource or object-data permission is still required.";
+    case "datasource_granted":
+      return "Backing datasource or object-data permission is present.";
+    default:
+      return "Object instance access is not applicable.";
+  }
+}
+
+function permissionPillStyle(level: OntologyPermissionLevel): React.CSSProperties {
+  const tones: Record<OntologyPermissionLevel, string> = {
+    none: "#991b1b",
+    view: "#1d4ed8",
+    edit: "#047857",
+    manage: "#7c3aed",
+    owner: "#a16207",
+  };
+  return pillStyle(tones[level]);
+}
+
+interface BundleResourceOption {
+  key: string;
+  kind: string;
+  id: string;
+  api_name: string;
+  display_name: string;
+  detail: string;
+}
+
+function buildBundleResourceOptions(
+  registry: OntologyResourceRegistryEntry[],
+  valueTypes: OntologyValueType[],
+): BundleResourceOption[] {
+  const registryOptions = registry.map((entry) => ({
+    key: ontologyResourceKey(entry.resource_kind, entry.resource_id),
+    kind: entry.resource_kind,
+    id: entry.resource_id,
+    api_name: entry.api_name,
+    display_name: entry.display_name,
+    detail: entry.project_display_name || entry.folder_path || "Ontology resource",
+  }));
+  const valueTypeOptions = valueTypes.map((valueType) => ({
+    key: ontologyResourceKey("value_type", valueType.id),
+    kind: "value_type",
+    id: valueType.id,
+    api_name: valueType.name,
+    display_name: valueType.display_name,
+    detail: `${valueType.base_type} · ${valueType.status}`,
+  }));
+  return [...registryOptions, ...valueTypeOptions].sort((left, right) =>
+    `${left.kind}:${left.display_name}`.localeCompare(`${right.kind}:${right.display_name}`),
+  );
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)];
+}
+
+function downloadTextFile(filename: string, text: string) {
+  if (typeof document === "undefined") return;
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function OntologyBundlePanel({
+  resources,
+  selected,
+  onSelectedChange,
+  bundleText,
+  onBundleTextChange,
+  validation,
+  notice,
+  busy,
+  onExport,
+  onValidate,
+  onImport,
+  onFile,
+}: {
+  resources: BundleResourceOption[];
+  selected: string[];
+  onSelectedChange: (next: string[]) => void;
+  bundleText: string;
+  onBundleTextChange: (text: string) => void;
+  validation: OntologyBundleValidationResult | null;
+  notice: string;
+  busy: string;
+  onExport: () => void;
+  onValidate: () => void;
+  onImport: () => void;
+  onFile: (file: File | null) => void;
+}) {
+  const selectedSet = new Set(selected);
+  const allSelected = resources.length > 0 && selected.length === resources.length;
+
+  function toggle(key: string, checked: boolean) {
+    onSelectedChange(checked ? uniqueStrings([...selected, key]) : selected.filter((item) => item !== key));
+  }
+
+  return (
+    <section className="of-panel" style={{ padding: 16, display: "grid", gap: 16 }}>
+      <div>
+        <p className="of-eyebrow">Import / export</p>
+        <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>
+          Bundle selected ontology resources as editable JSON, validate changed bundles, and import valid entries as unsaved changes.
+        </p>
+      </div>
+
+      {notice ? (
+        <div className={validation && !validation.valid ? "of-status-warning" : "of-status-success"} style={{ padding: "10px 12px", borderRadius: 6, fontSize: 12 }}>
+          {notice}
+        </div>
+      ) : null}
+
+      <section style={{ display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <p className="of-eyebrow">Export resources ({selected.length})</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="of-button" onClick={() => onSelectedChange(allSelected ? [] : resources.map((resource) => resource.key))}>
+              {allSelected ? "Clear" : "Select all"}
+            </button>
+            <button type="button" className="of-button of-button--primary" onClick={onExport} disabled={selected.length === 0}>
+              Export JSON
+            </button>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 8, maxHeight: 280, overflow: "auto", paddingRight: 2 }}>
+          {resources.map((resource) => (
+            <label
+              key={resource.key}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "auto 1fr",
+                gap: 8,
+                alignItems: "start",
+                padding: 8,
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 6,
+                fontSize: 12,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={selectedSet.has(resource.key)}
+                onChange={(event) => toggle(resource.key, event.target.checked)}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <strong>{resource.display_name}</strong>
+                <span className="of-text-muted"> · {resourceKindLabel(resource.kind)}</span>
+                <span className="of-text-muted" style={{ display: "block", marginTop: 2 }}>
+                  {resource.api_name} · {resource.detail}
+                </span>
+              </span>
+            </label>
+          ))}
+          {resources.length === 0 ? (
+            <p className="of-text-muted" style={{ fontSize: 12 }}>No resources are available to export.</p>
+          ) : null}
+        </div>
+      </section>
+
+      <section style={{ display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <p className="of-eyebrow">Edited bundle</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <label className="of-button" style={{ cursor: "pointer" }}>
+              {busy === "file" ? "Reading…" : "Open JSON"}
+              <input
+                type="file"
+                accept="application/json,.json"
+                onChange={(event) => onFile(event.target.files?.[0] || null)}
+                style={{ display: "none" }}
+              />
+            </label>
+            <button type="button" className="of-button" onClick={onValidate} disabled={!bundleText.trim()}>
+              Validate
+            </button>
+            <button type="button" className="of-button of-button--primary" onClick={onImport} disabled={!bundleText.trim() || !validation?.valid || busy === "import"}>
+              {busy === "import" ? "Importing…" : "Import as unsaved changes"}
+            </button>
+          </div>
+        </div>
+        <textarea
+          className="of-input"
+          value={bundleText}
+          onChange={(event) => onBundleTextChange(event.target.value)}
+          rows={16}
+          spellCheck={false}
+          style={{ fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.45 }}
+        />
+      </section>
+
+      {validation ? (
+        <section style={{ display: "grid", gap: 8 }}>
+          <p className="of-eyebrow">
+            Validation · {validation.errors} errors · {validation.warnings} warnings · {validation.staged_changes.length} staged changes
+          </p>
+          {validation.issues.length === 0 ? (
+            <p className="of-text-muted" style={{ fontSize: 12 }}>No validation issues.</p>
+          ) : (
+            <ul style={{ listStyle: "none", paddingLeft: 0, margin: 0, display: "grid", gap: 6 }}>
+              {validation.issues.map((issue, index) => (
+                <li
+                  key={`${issue.code}-${issue.resource_key || "bundle"}-${index}`}
+                  className={issue.severity === "error" ? "of-status-danger" : "of-status-warning"}
+                  style={{ padding: 8, borderRadius: 6, fontSize: 12 }}
+                >
+                  <strong>{issue.code}</strong>
+                  {issue.resource_key ? <span> · {issue.resource_key}</span> : null}
+                  <div>{issue.message}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+    </section>
+  );
+}
+
+const HISTORY_RESOURCE_KIND_OPTIONS = [
+  "object_type",
+  "link_type",
+  "action_type",
+  "interface",
+  "shared_property_type",
+  "object_type_group",
+  "core_object_view",
+  "custom_object_view",
+  "datasource_registration",
+];
+
+function OntologyHistoryPanel({
   registry,
+  entries,
+  resourceEntries,
+  selectedResource,
+  onSelectedResourceChange,
+  resourceKind,
+  onResourceKindChange,
+  author,
+  onAuthorChange,
+  from,
+  onFromChange,
+  to,
+  onToChange,
+  visibility,
+  onVisibilityChange,
+  details,
+  onDetailsChange,
+  hideRestricted,
+  onHideRestrictedChange,
+  notice,
+  busyKey,
+  onRestore,
 }: {
   registry: OntologyResourceRegistryEntry[];
+  entries: OntologyHistoryEntry[];
+  resourceEntries: OntologyHistoryEntry[];
+  selectedResource: string;
+  onSelectedResourceChange: (value: string) => void;
+  resourceKind: string;
+  onResourceKindChange: (value: string) => void;
+  author: string;
+  onAuthorChange: (value: string) => void;
+  from: string;
+  onFromChange: (value: string) => void;
+  to: string;
+  onToChange: (value: string) => void;
+  visibility: OntologyHistoryVisibilityFilter;
+  onVisibilityChange: (value: OntologyHistoryVisibilityFilter) => void;
+  details: OntologyHistoryDetailsFilter;
+  onDetailsChange: (value: OntologyHistoryDetailsFilter) => void;
+  hideRestricted: boolean;
+  onHideRestrictedChange: (value: boolean) => void;
+  notice: string;
+  busyKey: string;
+  onRestore: (entry: OntologyHistoryEntry, resource: OntologyHistoryResourceSummary) => void;
 }) {
+  const resourceOptions = registry
+    .filter((entry) => entry.resource_id)
+    .sort((left, right) => left.display_name.localeCompare(right.display_name));
+
   return (
-    <section className="of-panel" style={{ padding: 16, overflowX: "auto" }}>
-      <p className="of-eyebrow">
-        Ontology resource registry ({registry.length})
-      </p>
+    <section className="of-panel" style={{ padding: 16, display: "grid", gap: 16 }}>
+      <div>
+        <p className="of-eyebrow">Ontology history ({entries.length})</p>
+        <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>
+          Saved change records are shown globally and can be narrowed to one ontology resource. Restores are staged back into unsaved changes.
+        </p>
+      </div>
+
+      {notice ? (
+        <div className="of-status-success" style={{ padding: "10px 12px", borderRadius: 6, fontSize: 12 }}>
+          {notice}
+        </div>
+      ) : null}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+        <label style={historyFilterLabelStyle()}>
+          Resource type
+          <select className="of-input" value={resourceKind} onChange={(event) => onResourceKindChange(event.target.value)} style={{ marginTop: 4 }}>
+            <option value="all">All resource types</option>
+            {HISTORY_RESOURCE_KIND_OPTIONS.map((kind) => (
+              <option key={kind} value={kind}>{resourceKindLabel(kind)}</option>
+            ))}
+          </select>
+        </label>
+        <label style={historyFilterLabelStyle()}>
+          Author
+          <input className="of-input" value={author} onChange={(event) => onAuthorChange(event.target.value)} placeholder="User ID or email" style={{ marginTop: 4 }} />
+        </label>
+        <label style={historyFilterLabelStyle()}>
+          From
+          <input className="of-input" type="datetime-local" value={from} onChange={(event) => onFromChange(event.target.value)} style={{ marginTop: 4 }} />
+        </label>
+        <label style={historyFilterLabelStyle()}>
+          To
+          <input className="of-input" type="datetime-local" value={to} onChange={(event) => onToChange(event.target.value)} style={{ marginTop: 4 }} />
+        </label>
+        <label style={historyFilterLabelStyle()}>
+          Visibility
+          <select className="of-input" value={visibility} onChange={(event) => onVisibilityChange(event.target.value as OntologyHistoryVisibilityFilter)} style={{ marginTop: 4 }}>
+            <option value="all">All visibility</option>
+            <option value="visible">Visible resources</option>
+            <option value="hidden">Hidden resources</option>
+          </select>
+        </label>
+        <label style={historyFilterLabelStyle()}>
+          Details
+          <select className="of-input" value={details} onChange={(event) => onDetailsChange(event.target.value as OntologyHistoryDetailsFilter)} style={{ marginTop: 4 }}>
+            <option value="all">All detail access</option>
+            <option value="viewable">Can view details</option>
+            <option value="restricted">Restricted details</option>
+          </select>
+        </label>
+      </div>
+
+      <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+        <input type="checkbox" checked={hideRestricted} onChange={(event) => onHideRestrictedChange(event.target.checked)} />
+        Hide records where every resource has restricted details
+      </label>
+
+      <div style={{ display: "grid", gap: 8 }}>
+        <label style={historyFilterLabelStyle()}>
+          Resource history
+          <select className="of-input" value={selectedResource} onChange={(event) => onSelectedResourceChange(event.target.value)} style={{ marginTop: 4 }}>
+            <option value="">Select a resource</option>
+            {resourceOptions.map((entry) => (
+              <option key={historyRegistryKey(entry)} value={historyRegistryKey(entry)}>
+                {entry.display_name} · {resourceKindLabel(entry.resource_kind)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedResource ? (
+          <HistoryRecordsTable
+            entries={resourceEntries}
+            busyKey={busyKey}
+            onRestore={onRestore}
+            emptyText="No saved changes matched this resource and filter set."
+          />
+        ) : null}
+      </div>
+
+      <div>
+        <p className="of-eyebrow">Global saved changes</p>
+        <HistoryRecordsTable
+          entries={entries}
+          busyKey={busyKey}
+          onRestore={onRestore}
+          emptyText="No saved change records matched the current filters."
+        />
+      </div>
+    </section>
+  );
+}
+
+function HistoryRecordsTable({
+  entries,
+  busyKey,
+  onRestore,
+  emptyText,
+}: {
+  entries: OntologyHistoryEntry[];
+  busyKey: string;
+  onRestore: (entry: OntologyHistoryEntry, resource: OntologyHistoryResourceSummary) => void;
+  emptyText: string;
+}) {
+  if (entries.length === 0) {
+    return <p className="of-text-muted" style={{ marginTop: 8, fontSize: 12 }}>{emptyText}</p>;
+  }
+  return (
+    <div style={{ overflowX: "auto", marginTop: 8 }}>
+      <table style={{ width: "100%", minWidth: 980, borderCollapse: "collapse", fontSize: 12 }}>
+        <thead>
+          <tr style={{ textAlign: "left", borderBottom: "1px solid var(--border-default)" }}>
+            <th style={registryCellStyle()}>Saved at</th>
+            <th style={registryCellStyle()}>Author</th>
+            <th style={registryCellStyle()}>Resources</th>
+            <th style={registryCellStyle()}>Details</th>
+            <th style={registryCellStyle()}>Branch / proposal</th>
+            <th style={registryCellStyle()}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => (
+            <tr key={entry.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+              <td style={registryCellStyle()}>
+                {formatDateTime(entry.saved_at)}
+                {entry.note ? <div className="of-text-muted">{entry.note}</div> : null}
+              </td>
+              <td style={registryCellStyle()}>{entry.author}</td>
+              <td style={registryCellStyle()}>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {entry.resources.map((resource) => {
+                    const key = historyBusyKey(entry, resource);
+                    return (
+                      <div key={`${entry.id}:${resource.kind}:${resource.id || resource.label}`} style={{ display: "grid", gap: 3 }}>
+                        <strong>{resource.label}</strong>
+                        <span className="of-text-muted">{resource.kind} · {resource.id || "unidentified"} · {resource.visibility}</span>
+                        <button
+                          type="button"
+                          className="of-button"
+                          disabled={!resource.can_view_details || !resource.change || busyKey === key}
+                          onClick={() => onRestore(entry, resource)}
+                          style={{ width: "fit-content", fontSize: 11 }}
+                        >
+                          {busyKey === key ? "Staging…" : "Restore"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </td>
+              <td style={registryCellStyle()}>
+                {entry.restricted_details_count > 0 ? (
+                  <span className="of-chip of-status-warning">{entry.restricted_details_count} restricted</span>
+                ) : (
+                  <span className="of-chip of-status-success">Viewable</span>
+                )}
+                <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
+                  {entry.resources.slice(0, 3).map((resource) => (
+                    <li key={`${entry.id}:detail:${resource.kind}:${resource.id || resource.label}`}>
+                      {resource.can_view_details && resource.change
+                        ? `${resource.change.action} · ${historyPayloadSummary(resource.change.payload)}`
+                        : `${resource.label}: details restricted`}
+                    </li>
+                  ))}
+                </ul>
+              </td>
+              <td style={registryCellStyle()}>{entry.record.branch_id || "main"} / {entry.record.proposal_id || "—"}</td>
+              <td style={registryCellStyle()}>
+                <span className={`of-chip ${entry.status === "failed" ? "of-status-danger" : "of-status-success"}`}>{entry.status}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function historyFilterLabelStyle(): React.CSSProperties {
+  return { display: "grid", gap: 2, fontSize: 12, color: "var(--text-muted)" };
+}
+
+function historyRegistryKey(entry: OntologyResourceRegistryEntry) {
+  return `${entry.resource_kind}:${entry.resource_id}`;
+}
+
+function historyBusyKey(entry: OntologyHistoryEntry, resource: OntologyHistoryResourceSummary) {
+  return `${entry.id}:${resource.kind}:${resource.id || ""}`;
+}
+
+function parseHistoryResourceKey(value: string) {
+  if (!value) return null;
+  const [kind, ...idParts] = value.split(":");
+  const id = idParts.join(":");
+  if (!kind || !id) return null;
+  return { kind, id };
+}
+
+function historyPayloadSummary(payload: Record<string, unknown>) {
+  const keys = Object.keys(payload || {}).filter((key) => !key.startsWith("restored_from_"));
+  if (keys.length === 0) return "metadata";
+  return keys.slice(0, 4).join(", ") + (keys.length > 4 ? ` +${keys.length - 4}` : "");
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function OntologyRegistryPanel({
+  registry,
+  searchIndex,
+  initialQuery,
+}: {
+  registry: OntologyResourceRegistryEntry[];
+  searchIndex: OntologyResourceSearchIndex;
+  initialQuery: string;
+}) {
+  const [query, setQuery] = useState(initialQuery);
+  const [kind, setKind] = useState<OntologyResourceSearchIndexKind | "all">("all");
+  const [project, setProject] = useState("all");
+  const [group, setGroup] = useState("all");
+  const [apiOnly, setApiOnly] = useState(false);
+  const [permissionFilter, setPermissionFilter] = useState<OntologyResourceSearchPermissionFilter>("viewable");
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setQuery(initialQuery);
+    setPage(1);
+  }, [initialQuery]);
+
+  const result = useMemo(
+    () =>
+      searchOntologyResourceIndex(searchIndex, {
+        query,
+        api_name_only: apiOnly,
+        resource_kinds: kind === "all" ? undefined : [kind],
+        project_ids: project === "all" ? undefined : [project],
+        group_ids: group === "all" ? undefined : [group],
+        permission_filter: permissionFilter,
+        page,
+        per_page: 25,
+      }),
+    [apiOnly, group, kind, page, permissionFilter, project, query, searchIndex],
+  );
+
+  return (
+    <section className="of-panel" style={{ padding: 16, overflowX: "auto", display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+        <div>
+          <p className="of-eyebrow">
+            Ontology resource search index ({result.total} / {searchIndex.documents.length})
+          </p>
+          <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>
+            The index expands {registry.length} registry entries into searchable properties, usage edges, Object Views, groups, and saved explorations, then hides rows the current user cannot view.
+          </p>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 }}>
+          <span className="of-chip">{searchIndex.incremental.reused_documents} reused</span>
+          <span className="of-chip">{searchIndex.incremental.upserted_documents} upserted</span>
+          <span className="of-chip">{searchIndex.incremental.removed_documents} removed</span>
+        </div>
+      </div>
       <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>
-        First-class registry entries normalize type metadata, project/folder
-        placement, visibility, branch state, usage count, backing datasource,
-        and last edit metadata.
+        First-class registry entries normalize type metadata, project/folder placement, visibility, branch state, usage count, backing datasource, and last edit metadata.
       </p>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1.6fr) repeat(4, minmax(150px, 1fr))", gap: 8 }}>
+        <input
+          className="of-input"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setPage(1);
+          }}
+          placeholder="Search display name, API name, properties, usage, saved explorations..."
+        />
+        <select
+          className="of-input"
+          value={kind}
+          onChange={(event) => {
+            setKind(event.target.value as OntologyResourceSearchIndexKind | "all");
+            setPage(1);
+          }}
+        >
+          <option value="all">All resource types</option>
+          {searchIndex.facets.resource_kinds.map((facet) => (
+            <option key={facet.id} value={facet.id}>
+              {facet.label} ({facet.count})
+            </option>
+          ))}
+        </select>
+        <select
+          className="of-input"
+          value={project}
+          onChange={(event) => {
+            setProject(event.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="all">All projects</option>
+          {searchIndex.facets.projects.map((facet) => (
+            <option key={facet.id} value={facet.id}>
+              {facet.label} ({facet.count})
+            </option>
+          ))}
+        </select>
+        <select
+          className="of-input"
+          value={group}
+          onChange={(event) => {
+            setGroup(event.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="all">All groups</option>
+          {searchIndex.facets.groups.map((facet) => (
+            <option key={facet.id} value={facet.id}>
+              {facet.label} ({facet.count})
+            </option>
+          ))}
+        </select>
+        <select
+          className="of-input"
+          value={permissionFilter}
+          onChange={(event) => {
+            setPermissionFilter(event.target.value as OntologyResourceSearchPermissionFilter);
+            setPage(1);
+          }}
+        >
+          <option value="viewable">Viewable only</option>
+          <option value="hidden">Permission-hidden</option>
+          <option value="all">All indexed rows</option>
+        </select>
+      </div>
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)" }}>
+        <input
+          type="checkbox"
+          checked={apiOnly}
+          onChange={(event) => {
+            setApiOnly(event.target.checked);
+            setPage(1);
+          }}
+        />
+        API-name / resource-id search only
+      </label>
+      {result.hidden_results > 0 && permissionFilter === "viewable" ? (
+        <div className="of-status-warning" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>
+          {result.hidden_results} matching indexed row{result.hidden_results === 1 ? "" : "s"} hidden by permissions or resource visibility.
+        </div>
+      ) : null}
       <table
         style={{
           width: "100%",
           borderCollapse: "collapse",
-          marginTop: 12,
           fontSize: 12,
         }}
       >
@@ -2081,29 +4165,29 @@ function OntologyRegistryPanel({
             <th style={registryCellStyle()}>Resource</th>
             <th style={registryCellStyle()}>Kind</th>
             <th style={registryCellStyle()}>API name</th>
-            <th style={registryCellStyle()}>Project / folder</th>
+            <th style={registryCellStyle()}>Project / group</th>
             <th style={registryCellStyle()}>Visibility</th>
             <th style={registryCellStyle()}>Status</th>
-            <th style={registryCellStyle()}>Usage</th>
-            <th style={registryCellStyle()}>Last edited</th>
+            <th style={registryCellStyle()}>Usage / links</th>
+            <th style={registryCellStyle()}>Indexed</th>
           </tr>
         </thead>
         <tbody>
-          {registry.map((entry) => (
+          {result.data.map((entry) => (
             <tr
               key={entry.id}
               style={{ borderBottom: "1px solid var(--border-subtle)" }}
             >
               <td style={registryCellStyle()}>
                 <strong>{entry.display_name}</strong>
-                {entry.plural_display_name ? (
+                {entry.parent_resource_id ? (
                   <div className="of-text-muted">
-                    Plural: {entry.plural_display_name}
+                    Parent: {entry.parent_resource_kind} / {entry.parent_resource_id}
                   </div>
                 ) : null}
-                {entry.backing_datasource_id ? (
+                {entry.permission.schema_only ? (
                   <div className="of-text-muted">
-                    Datasource: {entry.backing_datasource_id}
+                    Schema-only result
                   </div>
                 ) : null}
               </td>
@@ -2113,23 +4197,39 @@ function OntologyRegistryPanel({
               <td style={registryCellStyle()}>{entry.api_name}</td>
               <td style={registryCellStyle()}>
                 {entry.project_display_name}
-                <div className="of-text-muted">{entry.folder_path}</div>
+                <div className="of-text-muted">{entry.group_names.join(", ") || entry.folder_path}</div>
               </td>
               <td style={registryCellStyle()}>{entry.visibility}</td>
               <td style={registryCellStyle()}>
                 {entry.status} · {entry.branch_state}
               </td>
-              <td style={registryCellStyle()}>{entry.usage_count}</td>
-              <td style={registryCellStyle()}>{entry.last_edited_at ?? "—"}</td>
+              <td style={registryCellStyle()}>{entry.usage_count} / {entry.linked_resource_count}</td>
+              <td style={registryCellStyle()}>
+                {formatDateTime(entry.indexed_at)}
+                <div className="of-text-muted">score {entry.score}</div>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
-      {registry.length === 0 ? (
+      {result.total === 0 ? (
         <p className="of-text-muted" style={{ fontSize: 12 }}>
-          No registry entries have been loaded.
+          No indexed ontology resources match the current filters.
         </p>
       ) : null}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        <span className="of-text-muted" style={{ fontSize: 12 }}>
+          Page {result.page} of {result.total_pages} · {result.total} matching rows
+        </span>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button type="button" className="of-button" disabled={result.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+            Previous
+          </button>
+          <button type="button" className="of-button" disabled={result.page >= result.total_pages} onClick={() => setPage((value) => value + 1)}>
+            Next
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
@@ -2138,27 +4238,531 @@ function registryCellStyle(): React.CSSProperties {
   return { padding: "8px 10px", verticalAlign: "top" };
 }
 
-function ShellPlaceholder({
-  title,
-  description,
-  bullets,
+const ONTOLOGY_CLEANUP_KIND_LABELS: Record<OntologyCleanupCandidateKind, string> = {
+  object_type: "Object types",
+  property: "Properties",
+  link_type: "Link types",
+  interface: "Interfaces",
+  shared_property_type: "Shared property types",
+  value_type: "Value types",
+  object_type_group: "Object type groups",
+  object_view: "Object Views",
+  legacy_object_view_fragment: "Legacy Object View fragments",
+  workshop_module: "Workshop modules",
+};
+
+function CleanupAssistantPanel({
+  assistant,
+  candidatesByKind,
+  selectedIds,
+  onToggle,
+  onSelectAll,
+  onClear,
+  confirmed,
+  onConfirmChange,
+  busy,
+  notice,
+  proposalIntegration,
+  onStage,
 }: {
-  title: string;
-  description: string;
-  bullets: string[];
+  assistant: OntologyCleanupAssistant;
+  candidatesByKind: Map<OntologyCleanupCandidateKind, OntologyCleanupCandidate[]>;
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+  onSelectAll: () => void;
+  onClear: () => void;
+  confirmed: boolean;
+  onConfirmChange: (value: boolean) => void;
+  busy: boolean;
+  notice: string;
+  proposalIntegration: OntologyGlobalBranchProposalIntegration;
+  onStage: () => void;
+}) {
+  const selectedCandidates = selectedIds
+    .map((id) => assistant.candidates.find((candidate) => candidate.id === id))
+    .filter((candidate): candidate is OntologyCleanupCandidate => Boolean(candidate));
+  const selectedSupported = selectedCandidates.filter((candidate) => candidate.delete_supported);
+  const manualSelectedCount = selectedCandidates.length - selectedSupported.length;
+  const orderedKinds = Array.from(candidatesByKind.keys()).sort(
+    (a, b) =>
+      ONTOLOGY_CLEANUP_KIND_LABELS[a].localeCompare(ONTOLOGY_CLEANUP_KIND_LABELS[b]),
+  );
+  return (
+    <section className="of-panel" style={{ display: "grid", gap: 14, padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <p className="of-eyebrow">Ontology cleanup assistant</p>
+          <h2 className="of-heading-md" style={{ marginTop: 4 }}>
+            {assistant.totals.candidates === 0
+              ? "No unused ontology resources detected."
+              : `${assistant.totals.candidates} cleanup candidate${assistant.totals.candidates === 1 ? "" : "s"}`}
+          </h2>
+          <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+            Generated {new Date(assistant.generated_at).toLocaleString()}. Cleanup converts confirmed actions into unsaved
+            ontology changes; review them in Unsaved changes or fold them into a branch proposal before saving.
+          </p>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
+          <span className="of-chip">High {assistant.totals.high}</span>
+          <span className="of-chip">Warnings {assistant.totals.warning}</span>
+          <span className="of-chip">Info {assistant.totals.info}</span>
+          <span className="of-chip">Auto-delete {assistant.totals.delete_supported}</span>
+        </div>
+      </div>
+
+      {notice ? (
+        <div className="of-status-success" style={{ padding: "9px 10px", borderRadius: "var(--radius-sm)", fontSize: 12 }}>
+          {notice}
+        </div>
+      ) : null}
+
+      {assistant.totals.candidates === 0 ? (
+        <p className="of-text-muted" style={{ fontSize: 13 }}>
+          All ontology resources have recorded usage or are protected (core Object Views, published views, primary keys,
+          title properties). Re-run cleanup after editing the ontology.
+        </p>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            <button type="button" className="of-button" onClick={onSelectAll} disabled={busy}>
+              Select all auto-deletable ({assistant.totals.delete_supported})
+            </button>
+            <button type="button" className="of-button" onClick={onClear} disabled={busy || selectedIds.length === 0}>
+              Clear selection
+            </button>
+            <span className="of-chip" style={{ marginLeft: "auto" }}>
+              {selectedSupported.length} selected · {manualSelectedCount} manual
+            </span>
+          </div>
+
+          <div style={{ display: "grid", gap: 12 }}>
+            {orderedKinds.map((kind) => {
+              const candidates = candidatesByKind.get(kind) ?? [];
+              return (
+                <div key={kind} className="of-panel-muted" style={{ display: "grid", gap: 8, padding: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <strong style={{ fontSize: 13 }}>{ONTOLOGY_CLEANUP_KIND_LABELS[kind]}</strong>
+                    <span className="of-chip">{candidates.length}</span>
+                  </div>
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
+                    {candidates.map((candidate) => {
+                      const selected = selectedIds.includes(candidate.id);
+                      return (
+                        <li
+                          key={candidate.id}
+                          className="of-panel"
+                          style={{ padding: 10, display: "grid", gap: 6, opacity: busy ? 0.7 : 1 }}
+                        >
+                          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13 }}>
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              disabled={busy || !candidate.delete_supported}
+                              onChange={() => onToggle(candidate.id)}
+                              style={{ marginTop: 3 }}
+                            />
+                            <span style={{ display: "grid", gap: 2 }}>
+                              <span style={{ fontWeight: 600 }}>{candidate.label}</span>
+                              <span className="of-text-muted" style={{ fontSize: 12 }}>
+                                {candidate.reason}
+                              </span>
+                            </span>
+                          </label>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            <span
+                              className={`of-chip ${
+                                candidate.severity === "high"
+                                  ? "of-status-danger"
+                                  : candidate.severity === "warning"
+                                  ? "of-status-warning"
+                                  : ""
+                              }`}
+                            >
+                              Severity: {candidate.severity}
+                            </span>
+                            <span className="of-chip">Usage refs: {candidate.usage_count}</span>
+                            {candidate.delete_supported ? (
+                              <span className="of-chip of-status-success">Auto-delete supported</span>
+                            ) : (
+                              <span className="of-chip of-status-warning">Manual resolution required</span>
+                            )}
+                          </div>
+                          {candidate.reference_summary.length > 0 ? (
+                            <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
+                              {candidate.reference_summary.map((entry, index) => (
+                                <li key={`${candidate.id}-ref-${index}`}>{entry}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          {candidate.warnings.length > 0 ? (
+                            <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "var(--text-muted)" }}>
+                              {candidate.warnings.map((warning, index) => (
+                                <li key={`${candidate.id}-warn-${index}`}>{warning}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="of-panel-muted" style={{ display: "grid", gap: 8, padding: 12 }}>
+            <strong style={{ fontSize: 13 }}>Confirm impact review</strong>
+            <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+              Cleanup actions are staged as deletion changes. They affect downstream Object Views, actions, and external
+              products listed above. Review usage references and warnings before staging.
+            </p>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600 }}>
+              <input
+                type="checkbox"
+                checked={confirmed}
+                onChange={(event) => onConfirmChange(event.target.checked)}
+                disabled={busy}
+              />
+              I have reviewed the downstream usage impact for each selected candidate.
+            </label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+              <button
+                type="button"
+                className="of-button of-button--primary"
+                onClick={onStage}
+                disabled={
+                  busy || !confirmed || selectedIds.length === 0 || selectedSupported.length === 0
+                }
+              >
+                {busy ? "Staging..." : "Stage as unsaved changes"}
+              </button>
+              <span className="of-text-muted" style={{ fontSize: 12 }}>
+                Staged changes flow into the active branch ({proposalIntegration.branch_label || "main"}) proposal —{" "}
+                {proposalIntegration.resources.length} pending resource
+                {proposalIntegration.resources.length === 1 ? "" : "s"}.
+              </span>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+const ONTOLOGY_AUDIT_CATEGORY_OPTIONS: Array<{ id: OntologyAuditEventCategory; label: string }> = [
+  { id: "resource_crud", label: "Resource CRUD" },
+  { id: "datasource_mapping", label: "Datasource mapping" },
+  { id: "object_view_edit", label: "Object View edit" },
+  { id: "object_view_publish", label: "Object View publish" },
+  { id: "import", label: "Bundle import" },
+  { id: "export", label: "Bundle export" },
+  { id: "restore", label: "History restore" },
+  { id: "branch_rebase", label: "Branch rebase" },
+  { id: "marketplace_packaging", label: "Marketplace packaging" },
+  { id: "permission_change", label: "Permission change" },
+];
+
+const ONTOLOGY_AUDIT_STATUS_OPTIONS: Array<{ id: OntologyAuditEventStatus; label: string }> = [
+  { id: "saved", label: "Saved" },
+  { id: "pending", label: "Pending" },
+  { id: "failed", label: "Failed" },
+  { id: "info", label: "Info" },
+];
+
+const ONTOLOGY_HEALTH_CATEGORY_OPTIONS: Array<{ id: OntologyHealthCategory; label: string }> = [
+  { id: "stale_datasource", label: "Stale datasources" },
+  { id: "broken_link", label: "Broken links" },
+  { id: "widget_load_failure", label: "Widget load failures" },
+  { id: "inaccessible_backing_data", label: "Inaccessible backing data" },
+  { id: "indexing_lag", label: "Indexing lag" },
+  { id: "missing_value_type", label: "Missing value type validation" },
+  { id: "permission_mismatch", label: "Permission mismatches" },
+];
+
+function AuditHealthPanel({
+  auditLog,
+  healthReport,
+  healthIssues,
+  auditCategoryFilter,
+  auditStatusFilter,
+  auditActorFilter,
+  onAuditCategoryChange,
+  onAuditStatusChange,
+  onAuditActorChange,
+  healthCategoryFilter,
+  healthSeverityFilter,
+  onHealthCategoryChange,
+  onHealthSeverityChange,
+}: {
+  auditLog: OntologyAuditEventLog;
+  healthReport: OntologyHealthReport;
+  healthIssues: OntologyHealthIssue[];
+  auditCategoryFilter: OntologyAuditEventCategory | "all";
+  auditStatusFilter: OntologyAuditEventStatus | "all";
+  auditActorFilter: string;
+  onAuditCategoryChange: (value: OntologyAuditEventCategory | "all") => void;
+  onAuditStatusChange: (value: OntologyAuditEventStatus | "all") => void;
+  onAuditActorChange: (value: string) => void;
+  healthCategoryFilter: OntologyHealthCategory | "all";
+  healthSeverityFilter: OntologyHealthSeverity | "all";
+  onHealthCategoryChange: (value: OntologyHealthCategory | "all") => void;
+  onHealthSeverityChange: (value: OntologyHealthSeverity | "all") => void;
 }) {
   return (
-    <section className="of-panel" style={{ padding: 16 }}>
-      <p className="of-eyebrow">{title}</p>
-      <p className="of-text-muted" style={{ marginTop: 8, fontSize: 13 }}>
-        {description}
-      </p>
-      <ul style={{ marginTop: 10, paddingLeft: 18, fontSize: 12 }}>
-        {bullets.map((bullet) => (
-          <li key={bullet}>{bullet}</li>
-        ))}
-      </ul>
-    </section>
+    <div style={{ display: "grid", gap: 16 }}>
+      <section className="of-panel" style={{ display: "grid", gap: 14, padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <p className="of-eyebrow">Audit timeline</p>
+            <h2 className="of-heading-md" style={{ marginTop: 4 }}>
+              {auditLog.totals.events === 0
+                ? "No audit events match the current filters."
+                : `${auditLog.totals.events} audit event${auditLog.totals.events === 1 ? "" : "s"}`}
+            </h2>
+            <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+              Synthesized from saved ontology changes, pending unsaved changes, Object View publish history, branch
+              rebases, marketplace packaging outputs, and permission-bearing change payloads.
+            </p>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
+            <span className="of-chip">Saved {auditLog.totals.by_status.saved}</span>
+            <span className="of-chip">Pending {auditLog.totals.by_status.pending}</span>
+            <span className="of-chip">Failed {auditLog.totals.by_status.failed}</span>
+            <span className="of-chip">Info {auditLog.totals.by_status.info}</span>
+            <span className="of-chip">Actors {auditLog.totals.unique_actors}</span>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+          <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 600 }}>
+            Category
+            <select
+              className="of-input"
+              value={auditCategoryFilter}
+              onChange={(event) => onAuditCategoryChange(event.target.value as OntologyAuditEventCategory | "all")}
+              style={{ minWidth: 180 }}
+            >
+              <option value="all">All categories</option>
+              {ONTOLOGY_AUDIT_CATEGORY_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 600 }}>
+            Status
+            <select
+              className="of-input"
+              value={auditStatusFilter}
+              onChange={(event) => onAuditStatusChange(event.target.value as OntologyAuditEventStatus | "all")}
+              style={{ minWidth: 120 }}
+            >
+              <option value="all">All statuses</option>
+              {ONTOLOGY_AUDIT_STATUS_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 600, flex: "1 1 200px" }}>
+            Actor contains
+            <input
+              className="of-input"
+              value={auditActorFilter}
+              onChange={(event) => onAuditActorChange(event.target.value)}
+              placeholder="alice@example.com"
+            />
+          </label>
+        </div>
+
+        {auditLog.events.length === 0 ? (
+          <p className="of-text-muted" style={{ fontSize: 13 }}>
+            No audit events captured yet. Save changes, publish Object Views, or import bundles to populate the timeline.
+          </p>
+        ) : (
+          <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 8 }}>
+            {auditLog.events.slice(0, 60).map((event) => (
+              <li
+                key={event.id}
+                className="of-panel-muted"
+                style={{ display: "grid", gap: 4, padding: 10, fontSize: 13 }}
+              >
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                  <span
+                    className={`of-chip ${
+                      event.status === "failed"
+                        ? "of-status-danger"
+                        : event.status === "pending"
+                        ? "of-status-warning"
+                        : event.status === "saved"
+                        ? "of-status-success"
+                        : ""
+                    }`}
+                  >
+                    {event.status}
+                  </span>
+                  <span className="of-chip">{event.category_label}</span>
+                  <span className="of-chip">{event.action}</span>
+                  <span style={{ fontWeight: 600 }}>{event.resource_label}</span>
+                  <span className="of-text-muted" style={{ fontSize: 12, marginLeft: "auto" }}>
+                    {event.actor} · {new Date(event.timestamp).toLocaleString()}
+                  </span>
+                </div>
+                <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+                  {event.summary}
+                </p>
+                <p className="of-text-muted" style={{ margin: 0, fontSize: 11 }}>
+                  source: {event.source} · resource: {event.resource_kind}/{event.resource_id || "—"}
+                </p>
+              </li>
+            ))}
+            {auditLog.events.length > 60 ? (
+              <li className="of-text-muted" style={{ fontSize: 12 }}>
+                +{auditLog.events.length - 60} more events. Refine filters to see them.
+              </li>
+            ) : null}
+          </ul>
+        )}
+      </section>
+
+      <section className="of-panel" style={{ display: "grid", gap: 14, padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <p className="of-eyebrow">Operational health</p>
+            <h2 className="of-heading-md" style={{ marginTop: 4 }}>
+              {healthReport.totals.issues === 0
+                ? "No operational health issues detected."
+                : `${healthReport.totals.issues} health issue${healthReport.totals.issues === 1 ? "" : "s"}`}
+            </h2>
+            <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+              Generated {new Date(healthReport.generated_at).toLocaleString()}. Includes stale datasources, broken links,
+              widget load failures, inaccessible backing data, indexing lag, missing value type validation, and permission
+              mismatches.
+            </p>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
+            <span className={`of-chip ${healthReport.totals.critical > 0 ? "of-status-danger" : ""}`}>
+              Critical {healthReport.totals.critical}
+            </span>
+            <span className={`of-chip ${healthReport.totals.warning > 0 ? "of-status-warning" : ""}`}>
+              Warning {healthReport.totals.warning}
+            </span>
+            <span className="of-chip">Info {healthReport.totals.info}</span>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+          {healthReport.by_category.map((summary) => (
+            <button
+              key={summary.category}
+              type="button"
+              className="of-panel-muted"
+              style={{
+                display: "grid",
+                gap: 4,
+                padding: 12,
+                textAlign: "left",
+                cursor: "pointer",
+                border:
+                  healthCategoryFilter === summary.category
+                    ? "1px solid #1d4ed8"
+                    : "1px solid var(--border-subtle)",
+              }}
+              onClick={() =>
+                onHealthCategoryChange(healthCategoryFilter === summary.category ? "all" : summary.category)
+              }
+            >
+              <strong style={{ fontSize: 12 }}>{summary.label}</strong>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                <span className="of-chip">Total {summary.total}</span>
+                {summary.critical > 0 ? <span className="of-chip of-status-danger">{summary.critical} crit</span> : null}
+                {summary.warning > 0 ? <span className="of-chip of-status-warning">{summary.warning} warn</span> : null}
+                {summary.info > 0 ? <span className="of-chip">{summary.info} info</span> : null}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+          <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 600 }}>
+            Category
+            <select
+              className="of-input"
+              value={healthCategoryFilter}
+              onChange={(event) => onHealthCategoryChange(event.target.value as OntologyHealthCategory | "all")}
+              style={{ minWidth: 180 }}
+            >
+              <option value="all">All categories</option>
+              {ONTOLOGY_HEALTH_CATEGORY_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 600 }}>
+            Severity
+            <select
+              className="of-input"
+              value={healthSeverityFilter}
+              onChange={(event) => onHealthSeverityChange(event.target.value as OntologyHealthSeverity | "all")}
+              style={{ minWidth: 120 }}
+            >
+              <option value="all">All severities</option>
+              <option value="critical">Critical</option>
+              <option value="warning">Warning</option>
+              <option value="info">Info</option>
+            </select>
+          </label>
+        </div>
+
+        {healthIssues.length === 0 ? (
+          <p className="of-text-muted" style={{ fontSize: 13 }}>
+            No issues match the current filters.
+          </p>
+        ) : (
+          <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 8 }}>
+            {healthIssues.slice(0, 80).map((issue) => (
+              <li
+                key={issue.id}
+                className="of-panel-muted"
+                style={{ display: "grid", gap: 4, padding: 10, fontSize: 13 }}
+              >
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                  <span
+                    className={`of-chip ${
+                      issue.severity === "critical"
+                        ? "of-status-danger"
+                        : issue.severity === "warning"
+                        ? "of-status-warning"
+                        : ""
+                    }`}
+                  >
+                    {issue.severity}
+                  </span>
+                  <span className="of-chip">{issue.category_label}</span>
+                  <span style={{ fontWeight: 600 }}>{issue.resource_label}</span>
+                  <span className="of-text-muted" style={{ fontSize: 12, marginLeft: "auto" }}>
+                    {issue.resource_kind}/{issue.resource_id}
+                  </span>
+                </div>
+                <p style={{ margin: 0, fontSize: 13 }}>{issue.message}</p>
+                <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+                  Remediation: {issue.remediation}
+                </p>
+              </li>
+            ))}
+            {healthIssues.length > 80 ? (
+              <li className="of-text-muted" style={{ fontSize: 12 }}>
+                +{healthIssues.length - 80} more issues. Refine filters to see them.
+              </li>
+            ) : null}
+          </ul>
+        )}
+      </section>
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { executeAction, getActionType, type ActionType } from '@/lib/api/ontology';
+import { executeAction, getActionType, type ActionExecutionContext, type ActionType } from '@/lib/api/ontology';
 import { ActionExecutor } from './ActionExecutor';
 
 export interface ActionButtonConfig {
@@ -9,6 +9,7 @@ export interface ActionButtonConfig {
   color?: 'emerald' | 'sky' | 'rose' | 'amber' | 'slate';
   default_values?: Record<string, unknown>;
   hidden_params?: string[];
+  execution_context?: ActionExecutionContext;
   immediate?: boolean;
 }
 
@@ -16,6 +17,7 @@ interface ActionsButtonGroupProps {
   typeId: string;
   objectId?: string;
   buttons: ActionButtonConfig[];
+  executionContext?: ActionExecutionContext;
   onExecuted?: () => void;
 }
 
@@ -27,7 +29,7 @@ const COLOR: Record<NonNullable<ActionButtonConfig['color']>, { background: stri
   slate: { background: '#1e293b', color: '#cbd5e1' },
 };
 
-export function ActionsButtonGroup({ typeId, objectId, buttons, onExecuted }: ActionsButtonGroupProps) {
+export function ActionsButtonGroup({ typeId, objectId, buttons, executionContext, onExecuted }: ActionsButtonGroupProps) {
   const [openButton, setOpenButton] = useState<ActionButtonConfig | null>(null);
   const [openAction, setOpenAction] = useState<ActionType | null>(null);
   const [busy, setBusy] = useState('');
@@ -48,6 +50,7 @@ export function ActionsButtonGroup({ typeId, objectId, buttons, onExecuted }: Ac
         await executeAction(button.action_id, {
           target_object_id: objectId,
           parameters: button.default_values ?? {},
+          execution_context: button.execution_context ?? executionContext ?? { surface: 'workshop_action_execution' },
         });
         onExecuted?.();
         return;
@@ -108,7 +111,14 @@ export function ActionsButtonGroup({ typeId, objectId, buttons, onExecuted }: Ac
               <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{openButton.label ?? openAction.display_name ?? openAction.name}</h2>
               <button type="button" onClick={close} className="of-button" style={{ fontSize: 12 }}>Close</button>
             </div>
-            <ActionExecutor action={openAction} initialParameters={{ ...(openButton.default_values ?? {}) }} hiddenParams={openButton.hidden_params ?? []} targetObjectId={objectId ?? null} onExecuted={executed} />
+            <ActionExecutor
+              action={openAction}
+              initialParameters={{ ...(openButton.default_values ?? {}) }}
+              hiddenParams={openButton.hidden_params ?? []}
+              targetObjectId={objectId ?? null}
+              executionContext={openButton.execution_context ?? executionContext ?? { surface: 'workshop_action_execution' }}
+              onExecuted={executed}
+            />
             {(openButton.hidden_params ?? []).length > 0 && (
               <p style={{ marginTop: 12, fontSize: 11, color: '#94a3b8' }}>
                 Hidden parameters: {(openButton.hidden_params ?? []).join(', ')} are pre-filled by this button and not displayed in the form.

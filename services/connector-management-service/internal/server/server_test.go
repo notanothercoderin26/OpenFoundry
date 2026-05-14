@@ -55,20 +55,54 @@ func (s *routerStore) UpdateConnection(context.Context, uuid.UUID, *models.Updat
 
 func (s *routerStore) DeleteConnection(context.Context, uuid.UUID) (bool, error) { return true, nil }
 
+func (s *routerStore) CheckSourceRole(context.Context, uuid.UUID, uuid.UUID, models.SourcePermissionRole) (bool, error) {
+	return true, nil
+}
+
+func (s *routerStore) GetSourceGovernance(context.Context, uuid.UUID, uuid.UUID) (*models.SourceGovernance, error) {
+	return &models.SourceGovernance{
+		SourceID:                 s.source,
+		SourceRID:                models.SourceRIDForConnection(s.source),
+		OwnerID:                  s.owner,
+		RoleDefinitions:          models.SourcePermissionRoleDefinitions(),
+		EffectiveRoles:           models.AllSourcePermissionRoles(),
+		PermissionGrants:         []models.SourcePermissionGrant{},
+		Visibility:               models.DefaultSourceVisibilityPolicy(),
+		OutputDatasetPermissions: []models.SourceOutputDatasetPermission{},
+		AuditEvents:              []models.SourceGovernanceAuditEvent{},
+	}, nil
+}
+
+func (s *routerStore) UpdateSourceGovernance(ctx context.Context, sourceID uuid.UUID, actorID uuid.UUID, _ *models.UpdateSourceGovernanceRequest) (*models.SourceGovernance, error) {
+	return s.GetSourceGovernance(ctx, sourceID, actorID)
+}
+
+func (s *routerStore) ListSourceGovernanceAudit(context.Context, uuid.UUID, uuid.UUID, int) ([]models.SourceGovernanceAuditEvent, error) {
+	return []models.SourceGovernanceAuditEvent{}, nil
+}
+
+func (s *routerStore) RecordSourceGovernanceAudit(context.Context, models.RecordSourceGovernanceAuditRequest) (*models.SourceGovernanceAuditEvent, error) {
+	now := time.Now().UTC()
+	return &models.SourceGovernanceAuditEvent{ID: uuid.New(), SourceID: s.source, EventType: "source_use", Action: "test", Result: "succeeded", CreatedAt: now}, nil
+}
+
 func (s *routerStore) ListSyncJobs(context.Context, uuid.UUID, uuid.UUID) ([]models.SyncJob, error) {
 	return []models.SyncJob{}, nil
 }
 
 func (s *routerStore) GetSyncJob(context.Context, uuid.UUID, uuid.UUID) (*models.SyncJob, error) {
-	return &models.SyncJob{ID: uuid.New(), SourceID: s.source, OutputDatasetID: uuid.New()}, nil
+	output := uuid.New()
+	return &models.SyncJob{ID: uuid.New(), SourceID: s.source, OutputDatasetID: &output, OutputKind: "dataset"}, nil
 }
 
 func (s *routerStore) CreateSyncJob(context.Context, *models.CreateSyncJobRequest, uuid.UUID) (*models.SyncJob, error) {
-	return &models.SyncJob{ID: uuid.New(), SourceID: s.source, OutputDatasetID: uuid.New()}, nil
+	output := uuid.New()
+	return &models.SyncJob{ID: uuid.New(), SourceID: s.source, OutputDatasetID: &output, OutputKind: "dataset"}, nil
 }
 
 func (s *routerStore) UpdateSyncJob(context.Context, uuid.UUID, *models.UpdateSyncJobRequest, uuid.UUID) (*models.SyncJob, error) {
-	return &models.SyncJob{ID: uuid.New(), SourceID: s.source, OutputDatasetID: uuid.New()}, nil
+	output := uuid.New()
+	return &models.SyncJob{ID: uuid.New(), SourceID: s.source, OutputDatasetID: &output, OutputKind: "dataset"}, nil
 }
 
 func (s *routerStore) RunSyncJob(context.Context, uuid.UUID, uuid.UUID) (*models.SyncRun, error) {
@@ -77,6 +111,30 @@ func (s *routerStore) RunSyncJob(context.Context, uuid.UUID, uuid.UUID) (*models
 
 func (s *routerStore) ListSyncRuns(context.Context, uuid.UUID, uuid.UUID) ([]models.SyncRun, error) {
 	return []models.SyncRun{}, nil
+}
+func (s *routerStore) ListDataExports(context.Context, uuid.UUID, uuid.UUID) ([]models.DataExport, error) {
+	return []models.DataExport{}, nil
+}
+func (s *routerStore) GetDataExport(context.Context, uuid.UUID, uuid.UUID) (*models.DataExport, error) {
+	return &models.DataExport{ID: uuid.New(), SourceID: s.source, Name: "export", ExportType: models.DataExportTypeTable, ExportMode: models.DataExportModeTableMirror, Status: models.DataExportStatusDraft, Config: json.RawMessage(`{}`), Health: models.DefaultDataExportHealth(), History: []models.DataExportHistoryEntry{}}, nil
+}
+func (s *routerStore) CreateDataExport(context.Context, *models.CreateDataExportRequest, uuid.UUID) (*models.DataExport, error) {
+	return &models.DataExport{ID: uuid.New(), SourceID: s.source, Name: "export", ExportType: models.DataExportTypeTable, ExportMode: models.DataExportModeTableMirror, DestinationTable: stringPtr("public.orders_export"), Status: models.DataExportStatusDraft, Config: json.RawMessage(`{}`), Health: models.DefaultDataExportHealth(), History: []models.DataExportHistoryEntry{}}, nil
+}
+func (s *routerStore) UpdateDataExport(context.Context, uuid.UUID, *models.UpdateDataExportRequest, uuid.UUID) (*models.DataExport, error) {
+	return &models.DataExport{ID: uuid.New(), SourceID: s.source, Name: "export", ExportType: models.DataExportTypeTable, ExportMode: models.DataExportModeTableMirror, DestinationTable: stringPtr("public.orders_export"), Status: models.DataExportStatusDraft, Config: json.RawMessage(`{}`), Health: models.DefaultDataExportHealth(), History: []models.DataExportHistoryEntry{}}, nil
+}
+func (s *routerStore) RunDataExport(context.Context, uuid.UUID, uuid.UUID) (*models.DataExport, error) {
+	now := time.Now().UTC()
+	return &models.DataExport{ID: uuid.New(), SourceID: s.source, Name: "export", ExportType: models.DataExportTypeTable, ExportMode: models.DataExportModeTableMirror, Status: models.DataExportStatusSucceeded, Health: models.DataExportHealth{State: models.DataExportHealthHealthy, LastCheckedAt: &now}, LastRunAt: &now, Config: json.RawMessage(`{}`), History: []models.DataExportHistoryEntry{}}, nil
+}
+func (s *routerStore) StartDataExport(context.Context, uuid.UUID, uuid.UUID) (*models.DataExport, error) {
+	now := time.Now().UTC()
+	return &models.DataExport{ID: uuid.New(), SourceID: s.source, Name: "stream export", ExportType: models.DataExportTypeStreaming, ExportMode: models.DataExportModeStreamingContinuous, Status: models.DataExportStatusRunning, Health: models.DataExportHealth{State: models.DataExportHealthRunning, LastCheckedAt: &now}, LastRunAt: &now, Config: json.RawMessage(`{}`), History: []models.DataExportHistoryEntry{}}, nil
+}
+func (s *routerStore) StopDataExport(context.Context, uuid.UUID, uuid.UUID) (*models.DataExport, error) {
+	now := time.Now().UTC()
+	return &models.DataExport{ID: uuid.New(), SourceID: s.source, Name: "stream export", ExportType: models.DataExportTypeStreaming, ExportMode: models.DataExportModeStreamingContinuous, Status: models.DataExportStatusStopped, Health: models.DataExportHealth{State: models.DataExportHealthHealthy, LastCheckedAt: &now}, Config: json.RawMessage(`{}`), History: []models.DataExportHistoryEntry{}}, nil
 }
 func (s *routerStore) ListCredentials(context.Context, uuid.UUID, uuid.UUID) ([]models.CredentialResponse, error) {
 	return []models.CredentialResponse{}, nil
@@ -107,6 +165,56 @@ func (s *routerStore) DetachPolicy(context.Context, uuid.UUID, uuid.UUID, uuid.U
 	return true, nil
 }
 
+func (s *routerStore) GetSourceCodeImport(context.Context, uuid.UUID, uuid.UUID) (*models.SourceCodeImport, error) {
+	sourceRID := models.SourceRIDForConnection(s.source)
+	binding := models.SourceBindingSnippet(sourceRID, "pg", "pg")
+	resolution := models.SourceCodeImportBuildResolution{
+		SourceID:              s.source,
+		SourceRID:             sourceRID,
+		SourceName:            "pg",
+		ConnectorType:         "postgres",
+		PythonIdentifier:      "pg",
+		FriendlyName:          "pg",
+		ResolvedAt:            time.Now().UTC(),
+		SourceUpdatedAt:       time.Now().UTC(),
+		ConfigHash:            "sha256:test",
+		CredentialBindings:    []models.SourceCredentialBinding{},
+		EgressPolicyBindings:  []models.SourceEgressPolicyBinding{},
+		ExportControls:        models.ExportControls{},
+		ExportPolicyDecision:  models.ResolveSourceCodeImportExportPolicy(models.ExportControls{}, false, nil),
+		UsesLiveConfiguration: true,
+		NoCodeChangeRequired:  true,
+		GeneratedBinding:      binding,
+	}
+	return &models.SourceCodeImport{
+		SourceID:                  s.source,
+		SourceRID:                 sourceRID,
+		SourceName:                "pg",
+		ConnectorType:             "postgres",
+		Enabled:                   true,
+		FriendlyName:              "pg",
+		PythonIdentifier:          "pg",
+		GeneratedBinding:          binding,
+		CodeRepositories:          []models.CodeRepositorySourceImport{},
+		ExportControls:            models.ExportControls{},
+		ExternalTransformPatterns: models.ExternalTransformPatternsForSource(sourceRID, "pg", "pg", models.ExportControls{}),
+		ComputeModuleAlternatives: models.ComputeModuleAlternativesForSource(sourceRID, "pg", "pg"),
+		BuildStartResolution:      resolution,
+		CreatedAt:                 time.Now().UTC(),
+		UpdatedAt:                 time.Now().UTC(),
+	}, nil
+}
+func (s *routerStore) UpdateSourceCodeImport(ctx context.Context, sourceID uuid.UUID, ownerID uuid.UUID, _ *models.UpdateSourceCodeImportRequest) (*models.SourceCodeImport, error) {
+	return s.GetSourceCodeImport(ctx, sourceID, ownerID)
+}
+func (s *routerStore) ResolveSourceCodeImportBuildStart(ctx context.Context, sourceID uuid.UUID, ownerID uuid.UUID, _ *models.ResolveSourceCodeImportBuildRequest) (*models.SourceCodeImportBuildResolution, error) {
+	v, err := s.GetSourceCodeImport(ctx, sourceID, ownerID)
+	if err != nil || v == nil {
+		return nil, err
+	}
+	return &v.BuildStartResolution, nil
+}
+
 func (s *routerStore) ListMediaSetSyncs(context.Context, uuid.UUID, uuid.UUID) ([]models.MediaSetSync, error) {
 	return []models.MediaSetSync{}, nil
 }
@@ -124,19 +232,58 @@ func (s *routerStore) UpdateMediaSetSync(context.Context, uuid.UUID, *models.Upd
 }
 
 func (s *routerStore) EnableVirtualTableSource(context.Context, string, *models.EnableVirtualTableSourceRequest) (*models.VirtualTableSourceLink, error) {
-	return &models.VirtualTableSourceLink{SourceRID: "ri.source", Provider: "POSTGRES", VirtualTablesEnabled: true}, nil
+	return &models.VirtualTableSourceLink{SourceRID: "ri.source", Provider: "BIGQUERY", VirtualTablesEnabled: true, AutoRegisterTagFilters: json.RawMessage(`[]`), AutoRegisterFolderMirrorKind: "NESTED", AutoRegisterTableTagFilters: []string{}}, nil
+}
+
+func (s *routerStore) DiscoverVirtualTableCatalog(context.Context, string, string) ([]models.DiscoveredEntry, error) {
+	return []models.DiscoveredEntry{{DisplayName: "orders", Path: "analytics/public/orders", Kind: "table", Registrable: true}}, nil
 }
 
 func (s *routerStore) CreateVirtualTable(context.Context, string, string, *models.CreateVirtualTableRequest) (*models.VirtualTable, error) {
 	return &models.VirtualTable{RID: "ri.virtual", SourceRID: "ri.source", CreatedBy: stringPtr(s.owner.String())}, nil
 }
 
-func (s *routerStore) ListVirtualTables(context.Context, string, string, string, int) ([]models.VirtualTable, error) {
+func (s *routerStore) BulkRegisterVirtualTables(context.Context, string, string, *models.VirtualTableBulkRegisterRequest) (*models.VirtualTableBulkRegisterResponse, error) {
+	return &models.VirtualTableBulkRegisterResponse{Registered: []models.VirtualTable{{RID: "ri.virtual", SourceRID: "ri.source", CreatedBy: stringPtr(s.owner.String())}}, Errors: []models.VirtualTableBulkError{}}, nil
+}
+
+func (s *routerStore) EnableVirtualTableAutoRegistration(context.Context, string, *models.EnableAutoRegistrationRequest) (*models.VirtualTableSourceLink, error) {
+	interval := int32(3600)
+	projectRID := "ri.foundry.main.project.mirror"
+	return &models.VirtualTableSourceLink{SourceRID: "ri.source", Provider: "BIGQUERY", VirtualTablesEnabled: true, AutoRegisterEnabled: true, AutoRegisterProjectRID: &projectRID, AutoRegisterIntervalSeconds: &interval, AutoRegisterTagFilters: json.RawMessage(`[]`), AutoRegisterFolderMirrorKind: "NESTED", AutoRegisterTableTagFilters: []string{}}, nil
+}
+
+func (s *routerStore) DisableVirtualTableAutoRegistration(context.Context, string) error {
+	return nil
+}
+
+func (s *routerStore) ScanVirtualTableAutoRegistrationNow(context.Context, string) (*models.AutoRegistrationScanSummary, error) {
+	return &models.AutoRegistrationScanSummary{}, nil
+}
+
+func (s *routerStore) ListVirtualTables(context.Context, string, string, string, string, string, int) ([]models.VirtualTable, error) {
 	return []models.VirtualTable{}, nil
 }
 
 func (s *routerStore) GetVirtualTable(context.Context, string, string) (*models.VirtualTable, error) {
 	return &models.VirtualTable{RID: "ri.virtual", SourceRID: "ri.source", CreatedBy: stringPtr(s.owner.String())}, nil
+}
+
+func (s *routerStore) SetVirtualTableUpdateDetection(context.Context, string, string, *models.UpdateDetectionToggle) (*models.VirtualTable, error) {
+	interval := int32(3600)
+	return &models.VirtualTable{RID: "ri.virtual", SourceRID: "ri.source", CreatedBy: stringPtr(s.owner.String()), UpdateDetectionEnabled: true, UpdateDetectionIntervalSeconds: &interval}, nil
+}
+
+func (s *routerStore) PollVirtualTableUpdateDetection(context.Context, string, string) (*models.PollResult, error) {
+	return &models.PollResult{VirtualTableRID: "ri.virtual", Outcome: models.PollOutcomeInitial, ChangeDetected: true, EventEmitted: true}, nil
+}
+
+func (s *routerStore) ListVirtualTableUpdateDetectionHistory(context.Context, string, string, int) ([]models.PollHistoryRow, error) {
+	return []models.PollHistoryRow{}, nil
+}
+
+func (s *routerStore) GetVirtualTableLineage(context.Context, string, string) (*models.VirtualTableLineageResponse, error) {
+	return &models.VirtualTableLineageResponse{VirtualTableRID: "ri.virtual", SourceRID: "ri.source", Nodes: []models.VirtualTableLineageNode{{RID: "ri.source", Kind: "source"}, {RID: "ri.virtual", Kind: "virtual_table"}}, Edges: []models.VirtualTableLineageEdge{{FromRID: "ri.source", ToRID: "ri.virtual", Kind: "backs"}}}, nil
 }
 
 func (s *routerStore) ListRegistrations(context.Context, uuid.UUID) ([]models.ConnectionRegistration, error) {
@@ -162,6 +309,39 @@ func (s *routerStore) GetIcebergConnection(context.Context, string) (*models.Con
 }
 func (s *routerStore) ListIcebergTables(context.Context, uuid.UUID) ([]models.ConnectionRegistration, error) {
 	return []models.ConnectionRegistration{{ID: uuid.New(), ConnectionID: s.source, Selector: "pg", DisplayName: "pg", SourceKind: "postgres", RegistrationMode: "zero_copy", Metadata: json.RawMessage(`{"supports_zero_copy":true}`)}}, nil
+}
+func (s *routerStore) GetSourceRetryPolicy(context.Context, uuid.UUID, uuid.UUID) (*models.SourceRetryPolicy, error) {
+	return nil, nil
+}
+func (s *routerStore) UpsertSourceRetryPolicy(context.Context, uuid.UUID, uuid.UUID, *string, models.SourceRetryPolicy) (*models.SourceRetryPolicy, error) {
+	return nil, nil
+}
+func (s *routerStore) ListSyncRunFailuresForSource(context.Context, uuid.UUID, uuid.UUID, int) ([]models.RetryRecoveryRunSummary, error) {
+	return nil, nil
+}
+func (s *routerStore) RecordMediaSetSyncRun(context.Context, uuid.UUID, uuid.UUID, models.MediaSetSyncRun) (*models.MediaSetSyncRun, error) {
+	return nil, nil
+}
+func (s *routerStore) ListMediaSetSyncRuns(context.Context, uuid.UUID, uuid.UUID, int) ([]models.MediaSetSyncRun, error) {
+	return nil, nil
+}
+func (s *routerStore) MediaSetSyncUsageForSource(context.Context, uuid.UUID, uuid.UUID) (map[uuid.UUID]models.MediaSetSyncUsageSummary, error) {
+	return map[uuid.UUID]models.MediaSetSyncUsageSummary{}, nil
+}
+func (s *routerStore) GetDeadLetterSink(context.Context, uuid.UUID, uuid.UUID) (*models.DeadLetterSink, error) {
+	return nil, nil
+}
+func (s *routerStore) UpsertDeadLetterSink(context.Context, uuid.UUID, uuid.UUID, *string, models.UpdateDeadLetterSinkRequest) (*models.DeadLetterSink, error) {
+	return nil, nil
+}
+func (s *routerStore) RecordQuarantinedRecord(context.Context, uuid.UUID, uuid.UUID, models.RecordQuarantineRequest, models.DeadLetterSink, time.Time) (*models.QuarantinedRecord, error) {
+	return nil, nil
+}
+func (s *routerStore) ListQuarantinedRecords(context.Context, uuid.UUID, uuid.UUID, models.QuarantineFailureCategory, int) ([]models.QuarantinedRecord, error) {
+	return nil, nil
+}
+func (s *routerStore) MarkQuarantinedRecordsForReplay(context.Context, uuid.UUID, uuid.UUID, *string, []uuid.UUID, time.Time) (int, error) {
+	return 0, nil
 }
 
 func stringPtr(v string) *string { return &v }
@@ -220,6 +400,10 @@ func TestRustRouteSurfaceIsMounted(t *testing.T) {
 		{http.MethodDelete, "/api/v1/data-connection/sources/" + id, token, ""},
 		{http.MethodPost, "/api/v1/data-connection/sources/" + id + "/test-connection", token, "{}"},
 		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/capabilities", "", ""},
+		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/health", token, ""},
+		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/permissions", token, ""},
+		{http.MethodPatch, "/api/v1/data-connection/sources/" + id + "/permissions", token, "{}"},
+		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/audit", token, ""},
 		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/credentials", token, ""},
 		{http.MethodPost, "/api/v1/data-connection/sources/" + id + "/credentials", token, "{}"},
 		{http.MethodGet, "/api/v1/data-connection/agents", token, ""},
@@ -233,6 +417,13 @@ func TestRustRouteSurfaceIsMounted(t *testing.T) {
 		{http.MethodPost, "/api/v1/data-connection/syncs", token, `{"source_id":"` + id + `","output_dataset_id":"` + uuid.NewString() + `"}`},
 		{http.MethodPost, "/api/v1/data-connection/syncs/" + syncID + "/run", token, "{}"},
 		{http.MethodGet, "/api/v1/data-connection/syncs/" + syncID + "/runs", token, ""},
+		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/exports", token, ""},
+		{http.MethodPost, "/api/v1/data-connection/sources/" + id + "/exports", token, `{"export_type":"table","input_dataset_rid":"ri.foundry.main.dataset.orders","destination_table":"public.orders_export"}`},
+		{http.MethodGet, "/api/v1/data-connection/exports/" + uuid.NewString(), token, ""},
+		{http.MethodPatch, "/api/v1/data-connection/exports/" + uuid.NewString(), token, `{"schedule_cron":"0 * * * *"}`},
+		{http.MethodPost, "/api/v1/data-connection/exports/" + uuid.NewString() + "/run", token, "{}"},
+		{http.MethodPost, "/api/v1/data-connection/exports/" + uuid.NewString() + "/start", token, "{}"},
+		{http.MethodPost, "/api/v1/data-connection/exports/" + uuid.NewString() + "/stop", token, "{}"},
 		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/media-set-syncs", token, ""},
 		{http.MethodPost, "/api/v1/data-connection/sources/" + id + "/media-set-syncs", token, `{"kind":"MEDIA_SET_SYNC","target_media_set_rid":"ri.foundry.main.media_set.x"}`},
 		{http.MethodGet, "/api/v1/data-connection/sources/" + id + "/registrations", token, ""},
@@ -260,6 +451,20 @@ func TestRustRouteSurfaceIsMounted(t *testing.T) {
 		{http.MethodDelete, "/api/v1/connections/" + id, token, ""},
 		{http.MethodPost, "/api/v1/connections/" + id + "/test", token, "{}"},
 		{http.MethodPost, "/api/v1/webhooks/" + uuid.NewString() + "/invoke", token, "{}"},
+		{http.MethodPost, "/api/v1/sources/ri.source/virtual-tables/enable", token, `{"provider":"BIGQUERY"}`},
+		{http.MethodGet, "/api/v1/sources/ri.source/virtual-tables/discover", token, ""},
+		{http.MethodPost, "/api/v1/sources/ri.source/virtual-tables/register", token, `{"project_rid":"ri.project","locator":{"kind":"tabular","database":"db","schema":"public","table":"orders"},"table_type":"TABLE"}`},
+		{http.MethodPost, "/api/v1/sources/ri.source/virtual-tables/bulk-register", token, `{"project_rid":"ri.project","entries":[{"locator":{"kind":"tabular","database":"db","schema":"public","table":"orders"},"table_type":"TABLE"}]}`},
+		{http.MethodPost, "/api/v1/sources/ri.source/auto-registration", token, `{"project_name":"mirror","folder_mirror_kind":"NESTED","poll_interval_seconds":3600}`},
+		{http.MethodPost, "/api/v1/sources/ri.source/auto-registration:scan-now", token, "{}"},
+		{http.MethodDelete, "/api/v1/sources/ri.source/auto-registration", token, ""},
+		{http.MethodGet, "/api/v1/virtual-tables", token, ""},
+		{http.MethodGet, "/api/v1/virtual-tables/ri.virtual", token, ""},
+		{http.MethodPost, "/api/v1/virtual-tables/ri.virtual/query", token, `{"limit":1}`},
+		{http.MethodPatch, "/api/v1/virtual-tables/ri.virtual/update-detection", token, `{"enabled":true,"interval_seconds":3600}`},
+		{http.MethodPost, "/api/v1/virtual-tables/ri.virtual/update-detection:poll-now", token, "{}"},
+		{http.MethodGet, "/api/v1/virtual-tables/ri.virtual/update-detection/history", token, ""},
+		{http.MethodGet, "/api/v1/virtual-tables/ri.virtual/lineage", token, ""},
 		{http.MethodGet, "/iceberg/v1/config", token, ""},
 		{http.MethodGet, "/iceberg/v1/namespaces", token, ""},
 		{http.MethodGet, "/iceberg/v1/namespaces/default", token, ""},

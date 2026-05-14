@@ -1,183 +1,183 @@
-# 12 — Checklist de preparación
+# 12 — Preparation checklist
 
-> Checklist accionable. Tachar conforme se completa. Hitos por **T-30 días, T-7, T-1, T-0**. Si en T-7 hay > 5 ítems sin tachar de T-30, **postpone la demo**.
+> Actionable checklist. Tick off as completed. Milestones at **T-30 days, T-7, T-1, T-0**. If at T-7 there are > 5 unchecked items from T-30, **postpone the demo**.
 
 ---
 
-## 📅 T-30 días — Fundación
+## 📅 T-30 days — Foundation
 
-### Decisiones
-- [ ] Confirmar fecha y hora de la demo con cliente.
-- [ ] Confirmar modalidad (presencial / remota / híbrida).
-- [ ] Confirmar idioma (ES/EN) y traducir prompts si aplica.
-- [ ] Confirmar que el MVP de OpenFoundry tiene los 15 servicios del subset arrancables.
+### Decisions
+- [ ] Confirm demo date and time with the customer.
+- [ ] Confirm format (in-person / remote / hybrid).
+- [ ] Confirm language (ES/EN) and translate prompts if applicable.
+- [ ] Confirm that the OpenFoundry MVP has the ~17 services of the subset bootable (see [`02-arquitectura-y-servicios.md`](02-arquitectura-y-servicios.md) §Layer 2).
 
 ### Infra
-- [ ] Decidir opción A/B/C de [`04-infraestructura-y-despliegue.md`](04-infraestructura-y-despliegue.md).
-- [ ] Si C: provisionar AWS account dedicada + budget alert ($500/semana).
-- [ ] Si B: contratar Hetzner AX102 + montar discos.
-- [ ] Registrar dominios `poc.openfoundry.dev` y `keycloak.poc.openfoundry.dev`.
+- [ ] Choose option A/B/C from [`04-infraestructura-y-despliegue.md`](04-infraestructura-y-despliegue.md).
+- [ ] If C: provision a dedicated AWS account + budget alert ($500/week).
+- [ ] If B: order a Hetzner AX102 + mount disks.
+- [ ] Register the domains `poc.openfoundry.dev` and `keycloak.poc.openfoundry.dev`.
 
-### Datos
-- [ ] Crear cuenta OpenSky (acceso Trino confirmado).
-- [ ] Solicitar EUROCONTROL R&D (toma 1–2 semanas).
-- [ ] Verificar acceso a buckets S3 NOAA (sin credenciales necesarias).
-- [ ] Generar y firmar licencia de uso para OurAirports (ODbL).
+### Data
+- [ ] Create an OpenSky account (Trino access confirmed).
+- [ ] Request EUROCONTROL R&D access (takes 1–2 weeks).
+- [ ] Verify access to NOAA S3 buckets (no credentials required).
+- [ ] Generate and sign a usage license for OurAirports (ODbL).
 
-### Servicios
-- [ ] `cargo build --workspace -p <cada servicio del subset>` → 100% verde.
-- [ ] Crear `infra/docker-compose.poc-aviation.yml` con los 15 servicios.
-- [ ] Crear (si C) `infra/terraform/poc-aviation/`.
+### Services
+- [ ] `go build ./services/<each service in the subset>` → 100% green (alternative: `make build-services` and verify each subset binary exists in `./bin/`).
+- [ ] Create `infra/docker-compose.poc-aviation.yml` with the ~17 services + dependencies (Postgres CNPG, Kafka Strimzi, Cassandra, Lakekeeper, Vespa, Temporal if applicable).
+- [ ] Create (if C) `infra/terraform/poc-aviation/` + `values.yaml` for the Helm releases `of-platform`/`of-data-engine`/`of-ontology`/`of-ml-aip`/`of-apps-ops`/`of-web`.
 
 ---
 
-## 📅 T-21 días — Construcción
+## 📅 T-21 days — Build
 
-### Pipelines y datos
-- [ ] Lanzar descargas batch:
-  - [ ] OpenSky histórico 12 meses (~600 GB).
-  - [ ] NOAA HRRR 6 meses CONUS (~250 GB).
-  - [ ] NOAA GFS 6 meses Europa (~150 GB).
+### Pipelines and data
+- [ ] Kick off batch downloads:
+  - [ ] OpenSky historical 12 months (~600 GB).
+  - [ ] NOAA HRRR 6 months CONUS (~250 GB).
+  - [ ] NOAA GFS 6 months Europe (~150 GB).
   - [ ] BTS 2018–2024 (~50 GB).
   - [ ] FAA Registry, OurAirports.
-- [ ] Verificar `aws s3 ls --summarize`: ≥ 1.0 TB en `s3://acme-poc/raw/`.
-- [ ] Implementar y ejecutar `tools/poc-aviation/generate_mro.py` (250M filas).
-- [ ] Materializar pipelines bronze (ejecutar `bz-*`).
-- [ ] Materializar pipelines silver y gold.
+- [ ] Verify `aws s3 ls --summarize`: ≥ 1.0 TB under `s3://acme-poc/raw/`.
+- [ ] Implement and run `tools/poc-aviation/generate_mro.py` (250M rows).
+- [ ] Materialize bronze pipelines (run `bz-*`).
+- [ ] Materialize silver and gold pipelines.
 
-### Ontología
-- [ ] Materializar `PoC/assets/ontology-aviation.yaml`.
-- [ ] Cargar en `ontology-definition-service`.
-- [ ] Validar 3 queries de ejemplo (ver `05-ontologia-aviacion.md` §Ejemplos).
+### Ontology
+- [ ] Materialize `PoC/assets/ontology-aviation.yaml`.
+- [ ] Load into `ontology-definition-service`.
+- [ ] Validate 3 example queries (see `05-ontologia-aviacion.md` §Examples).
 
-### Modelo
-- [ ] Entrenar `delay_risk_predictor`.
-- [ ] Validar AUC > 0.75 sobre BTS 2024 holdout.
-- [ ] Publicar en `model-serving-service`.
+### Model
+- [ ] Train `delay_risk_predictor`.
+- [ ] Validate AUC > 0.75 on BTS 2024 holdout.
+- [ ] Register in `model-catalog-service` and publish via `model-deployment-service` (lib `ml-kernel-go`).
 
 ---
 
-## 📅 T-14 días — UX y Workflows
+## 📅 T-14 days — UX and Workflows
 
 ### UI
-- [ ] Implementar Operations Live (3 pantallas P1, P2, P3 en `apps/web`).
-- [ ] Materializar Workshop App `mro-triage-workbench` en `app-builder-service`.
-- [ ] Performance: Lighthouse score > 80 en cada pantalla.
+- [ ] Implement Operations Live (3 screens P1, P2, P3 in `apps/web` — React 19 + Vite).
+- [ ] Materialize the Workshop App `mro-triage-workbench` in `application-composition-service`.
+- [ ] Performance: Lighthouse score > 80 on each screen.
 
 ### Workflows
-- [ ] Materializar `mro-inspection.yaml`, `order-critical-parts.yaml`, `weather-disruption-response.yaml`.
-- [ ] Cargar en `workflow-automation-service`.
-- [ ] Smoke test: lanzar `flag-aircraft-for-inspection` → workflow completo en < 30 s.
+- [ ] Materialize `mro-inspection.yaml`, `order-critical-parts.yaml`, `weather-disruption-response.yaml`.
+- [ ] Load into `workflow-automation-service`.
+- [ ] Smoke test: trigger `flag-aircraft-for-inspection` → full workflow in < 30 s.
 
-### Copiloto
-- [ ] Configurar Ollama con Llama 3.1 70B (descarga 40 GB; reservar tiempo).
-- [ ] Configurar Azure OpenAI fallback.
-- [ ] Cargar system prompt en `ai-application-generation-service`.
-- [ ] Registrar las 10 tools MCP en `mcp-orchestration-service`.
+### Copilot
+- [ ] Configure Ollama with Llama 3.1 70B (40 GB download; allow time).
+- [ ] Configure Azure OpenAI fallback in `llm-catalog-service`.
+- [ ] Load system prompt into `agent-runtime-service`.
+- [ ] Register the 10 MCP tools in the `agent-runtime-service` tool registry (there is no separate MCP binary).
 
-### Seguridad
-- [ ] Crear realm Keycloak `openfoundry-poc`.
-- [ ] Crear los 5 usuarios.
-- [ ] Cargar policy YAML.
-- [ ] Probar matriz RBAC (script `tools/poc-aviation/test_rbac.sh`).
-
----
-
-## 📅 T-7 días — Hardening
-
-### Validación
-- [ ] Ejecutar smoke tests end-to-end (script `tools/poc-aviation/smoke.sh`):
-  - [ ] Login de los 5 usuarios.
-  - [ ] Cada pantalla renderiza < 3 s.
-  - [ ] 3 queries ontológicas < 2 s.
-  - [ ] Workflow `mro-inspection` completo < 30 s.
-  - [ ] 7 prompts D1–D7 del copiloto OK.
-  - [ ] 2 prompts de "ataque" bloqueados.
-- [ ] Validar audit log inmutable (intentar borrar y fallar).
-- [ ] Validar branch + diff + merge + rollback.
-
-### Observabilidad
-- [ ] 3 dashboards Grafana funcionando con datos reales.
-- [ ] Captura de pantalla del dashboard "números finales" (Acto 7).
-
-### Cacheo y plan B
-- [ ] Generar `PoC/assets/aip-cache/D1..D7.md` desde respuestas reales.
-- [ ] Probar replay mode con red al LLM cortada.
-- [ ] Grabar vídeo plan B (10 min, ver [`13-riesgos-y-plan-b.md`](13-riesgos-y-plan-b.md)).
-
-### Ensayos
-- [ ] **Ensayo 1**: 1 persona, sin público.
-- [ ] **Ensayo 2**: con un colega que haga preguntas tipo cliente.
-- [ ] **Ensayo 3**: con red lenta simulada (`tc qdisc add dev eth0 root netem delay 200ms`).
+### Security
+- [ ] Create the Keycloak realm `openfoundry-poc`.
+- [ ] Create the 5 users.
+- [ ] Load the YAML policy.
+- [ ] Test the RBAC matrix (script `tools/poc-aviation/test_rbac.sh`).
 
 ---
 
-## 📅 T-1 día — Sellado
+## 📅 T-7 days — Hardening
 
-### Estado del sistema
-- [ ] **Snapshot completo** del entorno (AMI o volumen).
-- [ ] Detener cualquier despliegue / cambio.
-- [ ] Confirmar que el branch `feat/risk-model-v2` está creado y poblado.
-- [ ] Confirmar que hay tráfico OpenSky live entrando (verificar lag Kafka < 10 s).
+### Validation
+- [ ] Run end-to-end smoke tests (script `tools/poc-aviation/smoke.sh`; alternative: the monorepo already has `smoke/chaos/run.sh` invoked by `chaos-smoke.yml`):
+  - [ ] Login for the 5 users.
+  - [ ] Each screen renders in < 3 s.
+  - [ ] 3 ontology queries in < 2 s.
+  - [ ] Full `mro-inspection` workflow in < 30 s.
+  - [ ] All 7 copilot prompts D1–D7 OK.
+  - [ ] 2 "attack" prompts blocked.
+- [ ] Validate the audit log is immutable (attempt to delete and fail).
+- [ ] Validate branch + diff + merge + rollback.
 
-### Logística
-- [ ] Confirmar enlace Zoom/Meet/sala física.
-- [ ] Recordatorio al cliente con agenda y link.
-- [ ] Lista de asistentes y sus roles (para personalizar comentarios).
-- [ ] Tener móvil con datos como red de respaldo (hotspot).
-- [ ] Cargar laptop al 100% + cargador.
+### Observability
+- [ ] 3 Grafana dashboards working with real data.
+- [ ] Screenshot of the "final numbers" dashboard (Act 7).
 
-### Materiales
-- [ ] PDF imprimible del guion (`11-guion-demo.md`).
-- [ ] Pestañas del navegador pre-abiertas en orden.
-- [ ] Vídeo plan B descargado en local (no streaming).
-- [ ] Slides: portada + 3 mensajes clave + cierre con números + Q&A + thank-you.
+### Caching and plan B
+- [ ] Generate `PoC/assets/aip-cache/D1..D7.md` from real responses.
+- [ ] Test replay mode with the LLM network cut off.
+- [ ] Record the plan B video (10 min, see [`13-riesgos-y-plan-b.md`](13-riesgos-y-plan-b.md)).
 
-### Seguridad
-- [ ] Cambiar passwords de los 5 usuarios (los anteriores pueden estar en logs).
-- [ ] Verificar que el bucket de audit es **append-only**.
-- [ ] Verificar `.env` no commiteado: `git status` limpio.
-
----
-
-## 📅 T-0 (día de la demo)
-
-### 2 horas antes
-- [ ] Levantar stack completo (`docker compose up -d`).
-- [ ] Esperar healthchecks verdes (objetivo < 4 min para los 15).
-- [ ] Smoke test rápido (`tools/poc-aviation/smoke.sh --quick`).
-- [ ] Calentar caché del copiloto: ejecutar D1–D7 una vez.
-- [ ] Verificar OpenSky live polling.
-
-### 30 min antes
-- [ ] Cerrar todas las apps no necesarias en la laptop.
-- [ ] Modo "no molestar" en sistema y móvil.
-- [ ] Test de pantalla compartida (resolución 1920×1080, escalado 100%).
-- [ ] Test de audio.
-- [ ] Café 🙂.
-
-### Durante
-- [ ] Seguir el guion. Sin improvisación de prompts.
-- [ ] Si algo falla → ver `13-riesgos-y-plan-b.md` y aplicar contingencia silenciosamente.
-
-### Después
-- [ ] Notas de Q&A en un doc separado.
-- [ ] Capturas de pantalla de momentos clave.
-- [ ] Snapshot final del sistema (por si hay follow-up con el cliente).
-- [ ] Apagar (si C) recursos cloud para ahorrar.
-- [ ] Enviar al cliente: gracias + 1 PDF resumen + 1 pregunta clara para next step.
+### Rehearsals
+- [ ] **Rehearsal 1**: 1 person, no audience.
+- [ ] **Rehearsal 2**: with a colleague asking customer-style questions.
+- [ ] **Rehearsal 3**: with simulated slow network (`tc qdisc add dev eth0 root netem delay 200ms`).
 
 ---
 
-## ✅ Criterio "go / no-go" en T-7
+## 📅 T-1 day — Lock down
 
-La demo se ejecuta solo si **TODOS** estos están verdes en T-7:
-- [ ] Subset de 15 servicios arranca y pasa healthchecks.
-- [ ] Volumen de datos ≥ 1.0 TB confirmado.
-- [ ] Ontología cargada y queries < 2 s.
-- [ ] 7 prompts del copiloto generan respuestas válidas.
-- [ ] 1 workflow completo end-to-end < 30 s.
-- [ ] Audit log inmutable validado.
-- [ ] Vídeo plan B grabado.
+### System state
+- [ ] **Full snapshot** of the environment (AMI or volume).
+- [ ] Freeze any deploy / change.
+- [ ] Confirm that the `feat/risk-model-v2` branch is created and populated.
+- [ ] Confirm there is live OpenSky traffic coming in (verify Kafka lag < 10 s).
 
-Si **uno** falla → posponer demo 1 semana, no negociable.
+### Logistics
+- [ ] Confirm the Zoom/Meet link / physical room.
+- [ ] Reminder to the customer with agenda and link.
+- [ ] List of attendees and their roles (for personalized commentary).
+- [ ] Have a mobile phone with data as backup network (hotspot).
+- [ ] Charge laptop to 100% + charger.
+
+### Materials
+- [ ] Printable PDF of the script (`11-guion-demo.md`).
+- [ ] Browser tabs pre-opened in order.
+- [ ] Plan B video downloaded locally (no streaming).
+- [ ] Slides: title + 3 key messages + closing numbers + Q&A + thank-you.
+
+### Security
+- [ ] Rotate passwords for the 5 users (the previous ones may be in logs).
+- [ ] Verify that the audit bucket is **append-only**.
+- [ ] Verify `.env` is not committed: `git status` clean.
+
+---
+
+## 📅 T-0 (demo day)
+
+### 2 hours before
+- [ ] Bring up the full stack (`docker compose up -d`).
+- [ ] Wait for green healthchecks (target < 4 min for the ~17 services).
+- [ ] Quick smoke test (`tools/poc-aviation/smoke.sh --quick`).
+- [ ] Warm up the copilot cache: run D1–D7 once.
+- [ ] Verify OpenSky live polling.
+
+### 30 min before
+- [ ] Close all unnecessary apps on the laptop.
+- [ ] "Do not disturb" mode on system and phone.
+- [ ] Test screen share (resolution 1920×1080, scaling 100%).
+- [ ] Audio test.
+- [ ] Coffee 🙂.
+
+### During
+- [ ] Stick to the script. No improvised prompts.
+- [ ] If something fails → see `13-riesgos-y-plan-b.md` and apply the contingency silently.
+
+### After
+- [ ] Q&A notes in a separate doc.
+- [ ] Screenshots of key moments.
+- [ ] Final system snapshot (in case there's a customer follow-up).
+- [ ] Shut down (if C) cloud resources to save money.
+- [ ] Send to the customer: thanks + 1 PDF summary + 1 clear question for next step.
+
+---
+
+## ✅ "Go / no-go" criterion at T-7
+
+The demo runs only if **ALL** of these are green at T-7:
+- [ ] The ~17-service subset boots and passes healthchecks (`/healthz` for each).
+- [ ] Data volume ≥ 1.0 TB confirmed.
+- [ ] Ontology loaded and queries < 2 s.
+- [ ] 7 copilot prompts produce valid responses.
+- [ ] 1 full end-to-end workflow < 30 s.
+- [ ] Immutable audit log validated.
+- [ ] Plan B video recorded.
+
+If **one** fails → postpone the demo 1 week, non-negotiable.

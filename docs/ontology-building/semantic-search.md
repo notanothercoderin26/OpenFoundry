@@ -10,7 +10,7 @@ The repository already suggests two complementary search paths.
 
 ### 1. Ontology search
 
-`libs/ontology-kernel/src/domain/search/mod.rs` already combines:
+`libs/ontology-kernel/domain/search/search.go` already combines:
 
 - full-text scoring
 - semantic candidate recall
@@ -76,9 +76,9 @@ OpenFoundry already has parts of this flow in place, but distributed across serv
 
 The most relevant repository signals are:
 
-- `libs/ontology-kernel/src/domain/search/mod.rs`
-- `libs/ontology-kernel/src/domain/search/semantic.rs`
-- `libs/ontology-kernel/src/handlers/search.rs`
+- `libs/ontology-kernel/domain/search/search.go`
+- `libs/ontology-kernel/domain/search/semantic.go`
+- `libs/ontology-kernel/handlers/search/search.go`
 - `services/ontology-query-service` (serving owner)
 - `services/agent-runtime-service` (knowledge-base and RAG path)
 - `libs/vector-store`
@@ -123,7 +123,7 @@ Compared with a more complete ontology-semantic platform, the current repository
 - no end-to-end permission-aware search contract shared across ontology and AI surfaces
 - `knn_vector_projection` and `search_document_projection` currently store embeddings as JSONB; pgvector activation (Phase 2) will replace this with native vector indexes
 
-Also worth noting: `libs/ontology-kernel/src/domain/search/semantic.rs` still keeps the deterministic hash embedder as a fallback path. The important change is that it is no longer the only semantic signal available to ontology search.
+Also worth noting: `libs/ontology-kernel/domain/search/semantic.go` still keeps the deterministic hash embedder as a fallback path. The important change is that it is no longer the only semantic signal available to ontology search.
 
 ## Related pages
 

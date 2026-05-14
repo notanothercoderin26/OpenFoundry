@@ -10,7 +10,7 @@ Provisions the production object-storage backend for OpenFoundry:
    - `objectstore.yaml` — `CephObjectStore` with EC 8+3 data pool + replicated metadata pool, 3 RGW pods, and a `ceph-bucket` `StorageClass`
    - `bucket.yaml` — `ObjectBucketClaim`s for `openfoundry-datasets`, `openfoundry-models`, `openfoundry-iceberg`
 
-The `libs/storage-abstraction` crate is unaffected — it keeps speaking S3
+The `libs/storage-abstraction` package is unaffected — it keeps speaking S3
 against `OBJECT_STORE_ENDPOINT`. In production that endpoint becomes:
 
 ```

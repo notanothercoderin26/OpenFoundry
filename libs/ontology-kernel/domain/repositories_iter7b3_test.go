@@ -282,6 +282,48 @@ func TestObjectSetDefinitionFromRecordJoinAliases(t *testing.T) {
 	}
 }
 
+func TestObjectSetDefinitionSavedExplorationFieldsRoundTrip(t *testing.T) {
+	owner := uuid.New()
+	base := uuid.New()
+	projectID := uuid.New()
+	now := time.Now().UTC().Truncate(time.Second)
+
+	definition := models.ObjectSetDefinition{
+		ID:                uuid.New(),
+		Name:              "High value accounts",
+		Description:       "Saved from Object Explorer",
+		BaseObjectTypeID:  base,
+		Filters:           []models.ObjectSetFilter{{Field: "id", Operator: "in", Value: json.RawMessage(`["acct-1"]`)}},
+		Projections:       []string{"id", "name"},
+		Policy:            models.ObjectSetPolicy{},
+		Kind:              "list",
+		QueryState:        json.RawMessage(`{"query":"account","selected_object_ids":["acct-1"]}`),
+		Layout:            json.RawMessage(`{"view":"table","columns":["id","name"]}`),
+		Privacy:           "public",
+		ProjectID:         &projectID,
+		FolderPath:        "/Commercial/Lists",
+		ShareSlug:         "high-value-accounts",
+		SelectedObjectIDs: []string{"acct-1"},
+		OwnerID:           owner,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	record, err := ObjectSetDefinitionToRecord(definition)
+	require.NoError(t, err)
+
+	got, err := ObjectSetDefinitionFromRecord(record)
+	require.NoError(t, err)
+	assert.Equal(t, "list", got.Kind)
+	assert.Equal(t, "public", got.Privacy)
+	require.NotNil(t, got.ProjectID)
+	assert.Equal(t, projectID, *got.ProjectID)
+	assert.Equal(t, "/Commercial/Lists", got.FolderPath)
+	assert.Equal(t, "high-value-accounts", got.ShareSlug)
+	assert.Equal(t, []string{"acct-1"}, got.SelectedObjectIDs)
+	assert.JSONEq(t, `{"query":"account","selected_object_ids":["acct-1"]}`, string(got.QueryState))
+	assert.JSONEq(t, `{"view":"table","columns":["id","name"]}`, string(got.Layout))
+}
+
 // libs/ontology-kernel/src/domain/object_set_repository.rs
 // `pub async fn list` — when `include_restricted_views=false` the
 // store-side filter pins owner_id; in-memory re-filter still applies
@@ -329,12 +371,19 @@ func TestListObjectSetsAppliesOwnerFilter(t *testing.T) {
 
 	// With include_restricted_views=true: owner_id filter dropped
 	// from the store query AND non-owner rows with a restricted_view
-	// leak through.
+	// or public privacy leak through as shareable metadata.
 	view := uuid.New()
+	public := mkRecord(other, nil)
+	var publicPayload map[string]any
+	require.NoError(t, json.Unmarshal(public.Payload, &publicPayload))
+	publicPayload["privacy"] = "public"
+	public.Payload, err = json.Marshal(publicPayload)
+	require.NoError(t, err)
 	store = &fakeDefinitionStore{
 		listResult: storageabstraction.PagedResult[storageabstraction.DefinitionRecord]{
 			Items: []storageabstraction.DefinitionRecord{
 				mkRecord(other, &view),
+				public,
 			},
 		},
 	}
@@ -343,7 +392,7 @@ func TestListObjectSetsAppliesOwnerFilter(t *testing.T) {
 		IncludeRestrictedViews: true,
 	})
 	require.NoError(t, err)
-	require.Len(t, page.Items, 1, "restricted view leaks through")
+	require.Len(t, page.Items, 2, "restricted views and public saved explorations leak through")
 	assert.NotContains(t, store.lastQuery.Filters, "owner_id")
 }
 
@@ -517,14 +566,14 @@ func TestCountActionRowsPropagatesQuery(t *testing.T) {
 // ---- test doubles ---------------------------------------------------------
 
 type fakeDefinitionStore struct {
-	getResult       *storageabstraction.DefinitionRecord
-	getErr          error
-	listResult      storageabstraction.PagedResult[storageabstraction.DefinitionRecord]
-	listErr         error
-	countResult     uint64
-	countErr        error
-	lastQuery       *storageabstraction.DefinitionQuery
-	lastCountQuery  *storageabstraction.DefinitionQuery
+	getResult      *storageabstraction.DefinitionRecord
+	getErr         error
+	listResult     storageabstraction.PagedResult[storageabstraction.DefinitionRecord]
+	listErr        error
+	countResult    uint64
+	countErr       error
+	lastQuery      *storageabstraction.DefinitionQuery
+	lastCountQuery *storageabstraction.DefinitionQuery
 }
 
 func (s *fakeDefinitionStore) Get(_ context.Context, _ storageabstraction.DefinitionKind, _ storageabstraction.DefinitionId, _ storageabstraction.ReadConsistency) (*storageabstraction.DefinitionRecord, error) {

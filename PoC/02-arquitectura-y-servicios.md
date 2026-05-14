@@ -1,141 +1,162 @@
-# 02 — Arquitectura y servicios a encender
+# 02 — Architecture and services to spin up
 
-> El repo OpenFoundry tiene **~95 microservicios**. Encender todos en una demo es ingobernable y, si alguno falla, rompe la narrativa. Este documento define el **subset mínimo viable para la PoC (≈ 15 servicios)** y deja el resto explícitamente apagado pero "listado como disponible".
+> The OpenFoundry repo has **42 Go microservices** under `services/` (plus the boilerplate `template/`). Spinning up all of them for a demo is unmanageable and, if any one of them fails, it breaks the narrative. This document defines the **minimum viable subset for the PoC (~15 services)** and explicitly leaves the rest off but "listed as available".
 
 ---
 
-## 🧩 Subset de servicios a encender ("Foundry Minimum Viable Demo")
+## 🧩 Subset of services to spin up ("Foundry Minimum Viable Demo")
 
-### Capa 1 — Infraestructura base (no son servicios OpenFoundry, son dependencias)
-| Componente | Tecnología | Para qué |
+### Layer 1 — Base infrastructure (not OpenFoundry services, these are dependencies)
+| Component | Technology | Purpose |
 |---|---|---|
-| Object storage | **MinIO** (local) o **S3** (cloud) | Lago de datos Iceberg/Delta |
-| Catálogo de tablas | **Apache Iceberg REST catalog** o Hive Metastore | Metadatos de las tablas |
-| Cómputo batch | **Apache Spark 3.5** o **DataFusion/Ballista** | Pipelines |
-| Mensajería | **Redpanda** (compatible Kafka) | Streaming OpenSky |
-| OLTP | **PostgreSQL 16** | Estado de servicios |
-| Cache + cola | **Redis 7** | Sesiones, cache |
-| Search | **OpenSearch** o **Meilisearch** | Búsqueda en catálogo y ontología |
-| Identidad | **Keycloak 24** | OIDC para `identity-federation-service` |
-| Observabilidad | **Prometheus + Grafana + Loki + Tempo** | Métricas, logs, trazas |
-| LLM | **Ollama (Llama 3.1 70B)** local + fallback **Azure OpenAI GPT-4o** | Copiloto AIP |
+| Object storage | **MinIO** (local) or **S3** (cloud) | Iceberg/Delta data lake |
+| Table catalog | **Apache Iceberg REST catalog** or Hive Metastore | Table metadata |
+| Batch compute | **Apache Spark 3.5** or **DataFusion/Ballista** | Pipelines |
+| Messaging | **Redpanda** (Kafka-compatible) | OpenSky streaming |
+| OLTP | **PostgreSQL 16** | Service state |
+| Cache + queue | **Redis 7** | Sessions, cache |
+| Search | **OpenSearch** or **Meilisearch** | Catalog and ontology search |
+| Identity | **Keycloak 24** | OIDC for `identity-federation-service` |
+| Observability | **Prometheus + Grafana + Loki + Tempo** | Metrics, logs, traces |
+| LLM | **Ollama (Llama 3.1 70B)** local + fallback **Azure OpenAI GPT-4o** | AIP copilot |
 
-### Capa 2 — Servicios OpenFoundry encendidos en la PoC (15)
+### Layer 2 — OpenFoundry services running in the PoC (~17)
 
-| # | Servicio | Rol en la demo | Acto del guion |
+> The subset uses only service names that physically exist in `services/<name>/cmd/<name>/main.go`. Where the "logical" capability (e.g. pipeline authoring + build + scheduling) is consolidated into a single binary, this is called out explicitly.
+
+| # | Service | Role in the demo | Script act |
 |---|---|---|---|
-| 1 | `connector-management-service` | Define los conectores OpenSky / S3 / NOAA | Acto 1 |
-| 2 | `ingestion-replication-service` | Ejecuta ingestas batch y CDC | Acto 1 |
-| 3 | `event-streaming-service` | Pipeline streaming OpenSky → Iceberg | Acto 1 |
-| 4 | `dataset-versioning-service` | Datasets versionados (branches) | Actos 1, 6 |
-| 5 | `data-asset-catalog-service` | Catálogo navegable | Acto 1 |
-| 6 | `lineage-service` | Lineage end-to-end | Actos 1, 3 |
-| 7 | `dataset-quality-service` | Reglas de calidad sobre datasets | Acto 3 |
-| 8 | `ontology-definition-service` | Define el modelo de aviación | Acto 2 |
-| 9 | `ontology-query-service` | Consulta de objetos y relaciones | Actos 2, 4, 5 |
-| 10 | `ontology-actions-service` | Acciones disparables sobre objetos | Acto 5 |
-| 11 | `pipeline-authoring-service` + `pipeline-build-service` + `pipeline-schedule-service` | Pipelines (los 3 cuentan como 1 grupo) | Acto 3 |
-| 12 | `geospatial-intelligence-service` | Mapa de tracks ADS-B | Actos 1, 4 |
-| 13 | `app-builder-service` + `apps/web` | Workshop App + dashboards | Acto 4 |
-| 14 | `ai-application-generation-service` + `mcp-orchestration-service` + `retrieval-context-service` | Copiloto AIP | Acto 5 |
-| 15 | `workflow-automation-service` + `notification-alerting-service` + `approvals-service` | Workflow MRO end-to-end | Acto 5 |
-| + | `identity-federation-service` + `authorization-policy-service` + `audit-compliance-service` + `session-governance-service` | Seguridad y audit (transversales) | Acto 6 |
+| 1 | `connector-management-service` | Defines data sources, REST webhooks, and OpenSky/S3/NOAA connectors | Act 1 |
+| 2 | `ingestion-replication-service` | Batch + streaming ingestion (with `event-bus-data` lib over Kafka), branching and replication | Act 1 |
+| 3 | `iceberg-catalog-service` | Iceberg REST catalog (Foundry-flavor): Iceberg lake metadata | Act 1 |
+| 4 | `dataset-versioning-service` | Versioned datasets (branches, transactions, file APIs) | Acts 1, 6 |
+| 5 | `lineage-service` | OpenLineage sink + end-to-end lineage graph | Acts 1, 3 |
+| 6 | `pipeline-build-service` | Pipeline authoring, build, and orchestration (quality "expectations" are evaluated with the `pipeline-expression` lib) | Act 3 |
+| 7 | `pipeline-runner` + `pipeline-runner-spark` | Spark orchestrator + Scala transforms JAR (Iceberg read/write) | Act 3 |
+| 8 | `ontology-definition-service` | Defines the aviation model (object types, link types, action types) | Act 2 |
+| 9 | `ontology-query-service` | Ontology reads (objects, links, schemas) | Acts 2, 4, 5 |
+| 10 | `object-database-service` | Storage of ontological objects (Cassandra/Scylla) | Act 2 |
+| 11 | `ontology-indexer` | Kafka worker that projects changes into the search backend | Act 2 |
+| 12 | `ontology-actions-service` | Actions, funnels, functions, inline-edit on objects | Act 5 |
+| 13 | `ontology-exploratory-analysis-service` | Time-series, geospatial, scenarios (covers what was previously thought of as "geospatial-intelligence") | Acts 1, 4 |
+| 14 | `application-composition-service` + `apps/web` | Workshop App (composition, pages, widgets, publish runtime) + React 19 frontend | Act 4 |
+| 15 | `agent-runtime-service` + `retrieval-context-service` + `llm-catalog-service` | AIP copilot: OpenAI-compatible chat, tools, RAG, LLM catalog | Act 5 |
+| 16 | `workflow-automation-service` + `notification-alerting-service` | Workflow definitions, sagas, **approvals**, and notifications (approvals are part of `workflow-automation-service`, not a separate service) | Act 5 |
+| + | `identity-federation-service` + `authorization-policy-service` + `audit-compliance-service` + `tenancy-organizations-service` | Security, audit, and multi-tenancy (cross-cutting — sessions live inside `identity-federation-service` + the `auth-middleware` lib) | Act 6 |
+| + | `edge-gateway-service` | HTTP edge gateway: JWT, routing, and rate-limiting in front of `apps/web` | cross-cutting |
 
-### Capa 3 — Servicios apagados pero "documentados como disponibles"
+### Layer 3 — Services turned off but "documented as available"
 
-Listar abiertamente al cliente que existen pero no se demuestran hoy:
-`agent-runtime-service`, `ai-evaluation-service`, `analytical-logic-service`, `ingestion-replication-service CDC metadata module`, `cipher-service`, `code-repository-review-service`, `code-security-scanning-service`, `compute-modules-*`, `conversation-state-service`, `custom-endpoints-service`, `developer-console-service`, `document-intelligence-service`, `document-reporting-service`, `edge-gateway-service`, `entity-resolution-service`, `execution-observability-service`, `federation-product-exchange-service`, `global-branch-service`, `health-check-service`, `knowledge-index-service`, `lineage-deletion-service`, `llm-catalog-service`, `managed-workspace-service`, `marketplace-*`, `ml-experiments-service`, `model-*` (catalog, deployment, evaluation, inference-history, lifecycle, serving), `monitoring-rules-service`, `network-boundary-service`, `nexus-service`, `notebook-runtime-service`, `oauth-integration-service`, `object-database-service`, `ontology-exploratory-analysis-service`, `ontology-functions-service`, `ontology-funnel-service`, `ontology-security-service`, `ontology-timeseries-analytics-service`, `prompt-workflow-service`, `product-distribution-service`, `report-service`, `retention-policy-service`, `scenario-simulation-service`, `sdk-generation-service`, `sds-service`, `security-governance-service`, `solution-design-service`, `spreadsheet-computation-service`, `sql-bi-gateway-service`, `sql-warehousing-service`, `tabular-analysis-service`, `telemetry-governance-service`, `tenancy-organizations-service`, `time-series-data-service`, `tool-registry-service`, `virtual-table-service`, `widget-registry-service`, `workflow-trace-service`, `checkpoints-purpose-service`, `conversation-state-service`.
+Full list of real monorepo services that are **not** spun up in the PoC but are listed:
 
-> 👉 Mensaje al cliente: *"La PoC enciende ~15 servicios para mantener la demo simple. La plataforma cuenta con 95 servicios listos para activarse según vuestra hoja de ruta."*
+`ai-evaluation-service`, `ai-sink`, `audit-sink`, `code-repository-review-service`, `compute-module-service`, `entity-resolution-service`, `federation-product-exchange-service`, `media-sets-service`, `media-transform-runtime-service`, `model-catalog-service`, `model-deployment-service`, `notebook-runtime-service`, `reindex-coordinator-service`, `sdk-generation-service`, `solution-design-service`, `sql-bi-gateway-service`, `telemetry-governance-service`.
+
+> 👉 Message to the customer: *"The PoC spins up ~15 services to keep the demo simple. The platform has 42 Go services in the monorepo, grouped into 6 Helm releases (`of-platform`, `of-data-engine`, `of-ontology`, `of-ml-aip`, `of-apps-ops`, `of-web`), ready to be enabled according to your roadmap."*
+
+> 🧹 **Note on names**: earlier versions of this document mentioned services such as `event-streaming-service`, `data-asset-catalog-service`, `dataset-quality-service`, `pipeline-authoring-service`, `pipeline-schedule-service`, `geospatial-intelligence-service`, `app-builder-service`, `ai-application-generation-service`, `mcp-orchestration-service`, `approvals-service` or `session-governance-service`. Those pieces **do not exist as separate binaries**; their capabilities live inside the services listed above (e.g. streaming uses `ingestion-replication-service` + the `event-bus-data` lib; approvals are a workflow step in `workflow-automation-service`).
 
 ---
 
-## 🗺️ Diagrama lógico (ASCII)
+## 🗺️ Logical diagram (ASCII)
 
 ```
                 ┌────────────────────────────────────────────────────┐
-                │                  apps/web (UI)                     │
+                │     apps/web (React 19 · Vite · TypeScript)        │
                 │  Dashboard operacional · Workshop App · Copiloto   │
                 └───────────────┬─────────────────────┬──────────────┘
                                 │                     │
+                       edge-gateway-service (JWT, routing, rate-limit)
+                                │                     │
               ┌─────────────────▼─────┐   ┌───────────▼──────────────┐
-              │ ontology-query-svc    │   │ ai-app-generation-svc    │
-              │ ontology-actions-svc  │   │ mcp-orchestration-svc    │
-              │ geospatial-intel-svc  │   │ retrieval-context-svc    │
+              │ ontology-query-svc    │   │ agent-runtime-svc        │
+              │ ontology-actions-svc  │   │ retrieval-context-svc    │
+              │ object-database-svc   │   │ llm-catalog-svc          │
+              │ ontology-exploratory- │   │ (Ollama / Azure OpenAI)  │
+              │   analysis-svc        │   │                          │
               └─────────────┬─────────┘   └───────────┬──────────────┘
                             │                         │
               ┌─────────────▼─────────────────────────▼──────────────┐
               │            ontology-definition-service                │
               │     (Aircraft, Flight, Airport, MaintenanceEvent…)    │
+              │      + ontology-indexer (Kafka → search backend)      │
               └─────────────┬─────────────────────────┬──────────────┘
                             │                         │
    ┌────────────────────────▼───────────┐  ┌──────────▼─────────────┐
-   │ pipeline-authoring/build/schedule  │  │ workflow-automation-svc│
-   │  + dataset-quality-service          │  │ + notification-alerting│
-   │  + lineage-service                  │  │ + approvals-service    │
+   │ pipeline-build-service             │  │ workflow-automation-svc│
+   │ pipeline-runner / pipeline-runner- │  │  (incluye aprobaciones │
+   │   spark (Spark + Iceberg)          │  │   y workflow traces)   │
+   │ pipeline-expression (lib: quality  │  │ notification-alerting- │
+   │   checks declarativos)             │  │   service              │
+   │ lineage-service (OpenLineage sink) │  │                        │
    └────────────────────────┬───────────┘  └────────────────────────┘
                             │
    ┌────────────────────────▼─────────────────────────────────────────┐
-   │              dataset-versioning-service · data-asset-catalog     │
+   │ dataset-versioning-service · iceberg-catalog-service             │
+   │  + application-composition-service (Workshop apps + widgets)     │
    └────────────────────────┬─────────────────────────────────────────┘
                             │
    ┌────────────────────────▼─────────────────────────────────────────┐
-   │ Iceberg/Delta on MinIO/S3  ◀──  Spark / DataFusion               │
+   │ Iceberg on Ceph S3 (Lakekeeper)  ◀──  Spark (operator + jobs)    │
    └────────────────────────▲─────────────────────────────────────────┘
                             │
-   ┌────────────────────────┴──────────────┐    ┌────────────────────┐
-   │ ingestion-replication-service (batch) │    │ event-streaming-svc│
-   │   + connector-management-service      │    │  (Redpanda/Kafka)  │
-   └─────┬──────────┬────────┬─────────────┘    └─────────┬──────────┘
-         │          │        │                            │
-       NOAA       BTS    Synthetic                     OpenSky
-       HRRR    On-Time     MRO                       (ADS-B live)
+   ┌────────────────────────┴────────────────────────────────────────┐
+   │ ingestion-replication-service                                   │
+   │   (batch + streaming via event-bus-data lib sobre Kafka/Strimzi)│
+   │ connector-management-service (REST/webhooks/data sources)       │
+   └─────┬──────────┬────────┬──────────────────────────────┬────────┘
+         │          │        │                              │
+       NOAA       BTS    Synthetic                       OpenSky
+       HRRR    On-Time     MRO                         (ADS-B live)
 
-     [Transversal]  identity-federation · authorization-policy · audit-compliance
+  [Transversal] identity-federation-service · authorization-policy-service
+                audit-compliance-service · tenancy-organizations-service
 ```
 
 ---
 
-## 🛠️ Cómo levantar el stack (cuando llegue el momento)
+## 🛠️ How to bring up the stack (when the time comes)
 
-### Local (laptop potente o Hetzner dedicado)
+### Local (powerful laptop or dedicated Hetzner)
 ```bash
-# Desde la raíz del repo
+# From the repo root
 cp .env.example .env
-# Editar .env: poner credenciales MinIO, Keycloak, etc.
+# Edit .env: set MinIO, Keycloak, etc. credentials.
 
-# Stack base
+# Base stack
 docker compose -f compose.yaml up -d
 
-# Si añadimos overlay específico de la PoC (a crear en infra/)
+# If we add a PoC-specific overlay (to be created in infra/)
 docker compose -f compose.yaml -f infra/docker-compose.poc-aviation.yml up -d
 ```
 
-> Tarea pendiente al ejecutar la PoC: **crear `infra/docker-compose.poc-aviation.yml`** con SOLO los 15 servicios del subset, perfiles de recursos generosos y healthchecks. **No crear ahora** — es trabajo de implementación.
+> Pending task when running the PoC: **create `infra/docker-compose.poc-aviation.yml`** with ONLY the 15 subset services, generous resource profiles, and healthchecks. **Do not create it now** — that is implementation work.
 
-### Cloud (recomendado para la demo al cliente)
-- **Despliegue:** Helm charts en `infra/` (a completar) sobre **K3s** o **EKS Managed**.
-- **Tamaño mínimo:** ver [`04-infraestructura-y-despliegue.md`](04-infraestructura-y-despliegue.md).
+### Cloud (recommended for the customer demo)
+- **Deployment:** existing Helm charts in `infra/helm/apps/` (`of-platform`, `of-data-engine`, `of-ontology`, `of-ml-aip`, `of-apps-ops`, `of-web`) on **K3s** or **EKS Managed**.
+- Operators (`infra/helm/operators/`): cert-manager, CNPG, Flink, K8ssandra, kube-prometheus-stack, Loki, OTel Collector, Promtail, Rook-Ceph, Strimzi, Tempo.
+- Base infra (`infra/helm/infra/`): Cassandra, Ceph, Debezium, Flink jobs, Kafka, Kite, Lakekeeper, local registry, Mimir, observability, Postgres clusters, Spark jobs/operator, Trino, Vespa.
+- **Minimum size:** see [`04-infraestructura-y-despliegue.md`](04-infraestructura-y-despliegue.md).
 
 ---
 
-## ⚙️ Configuración crítica por servicio
+## ⚙️ Critical configuration per service
 
-| Servicio | Variables de entorno clave | Notas |
+| Service | Key environment variables | Notes |
 |---|---|---|
-| `event-streaming-service` | `KAFKA_BROKERS`, `OPENSKY_USER`, `OPENSKY_PASS` | Usar cuenta gratuita OpenSky; ratelimit 1 req/5s |
-| `ingestion-replication-service` | `S3_ENDPOINT`, `S3_BUCKET`, `MAX_PARALLELISM=8` | Subir bandwidth para NOAA |
-| `pipeline-build-service` | `SPARK_MASTER`, `EXECUTOR_MEMORY=8g`, `EXECUTORS=12` | Ajustar al hardware real |
-| `ontology-query-service` | `OPENSEARCH_URL`, `CACHE_TTL=300` | Cache es clave para latencia p95 < 2s |
-| `ai-application-generation-service` | `LLM_PROVIDER=ollama|azure`, `LLM_MODEL`, `EMBEDDING_MODEL` | Doble proveedor por si falla red |
-| `audit-compliance-service` | `AUDIT_SINK=postgres+s3`, `IMMUTABLE_RETENTION=7y` | Mostrar al cliente la inmutabilidad |
+| `ingestion-replication-service` | `KAFKA_BROKERS`, `OPENSKY_USER`, `OPENSKY_PASS`, `S3_ENDPOINT`, `S3_BUCKET`, `MAX_PARALLELISM=8` | Covers batch ingestion + REST polling to OpenSky (live) and the NOAA sync |
+| `iceberg-catalog-service` | `LAKEKEEPER_ENDPOINT`, `CATALOG_WAREHOUSE=s3://acme-poc/warehouse` | Iceberg REST API; consumed by Spark/Trino |
+| `pipeline-build-service` | `SPARK_MASTER`, `EXECUTOR_MEMORY=8g`, `EXECUTORS=12` | Tune to the actual hardware; launches Spark jobs via `pipeline-runner` |
+| `ontology-query-service` | `VESPA_ENDPOINT`, `CACHE_TTL=300` | Cache is key for p95 latency < 2s |
+| `agent-runtime-service` | `LLM_PROVIDER=ollama\|azure`, `LLM_MODEL`, `EMBEDDING_MODEL` | Dual provider in case the network fails; OpenAI-compatible chat endpoint |
+| `audit-compliance-service` | `AUDIT_SINK=postgres+s3`, `IMMUTABLE_RETENTION=7y` | Show the customer the immutability |
+| `edge-gateway-service` | `JWT_ISSUER=keycloak.poc.openfoundry.dev`, `RATE_LIMIT_PER_IP=200` | Single HTTP frontend |
 
 ---
 
-## ✅ Acciones concretas (cuando se ejecute la PoC)
+## ✅ Concrete actions (when the PoC is executed)
 
-1. Auditar con `cargo build --workspace -p <cada-uno-del-subset>` que los 15 servicios compilan y arrancan.
-2. Crear `infra/docker-compose.poc-aviation.yml` con SOLO esos 15 + dependencias.
-3. Documentar puerto, healthcheck y dependencias de cada servicio en una tabla en ese YAML.
-4. Configurar Prometheus para scrape de los 15 (los demás silenciados).
-5. Probar arranque en frío end-to-end y medir tiempo (objetivo < 4 min).
+1. Audit with `go build ./services/<each-one-in-the-subset>` that the ~17 services compile and start.
+2. Create `infra/docker-compose.poc-aviation.yml` with ONLY those services + dependencies (or, in cloud, a `values.yaml` that activates only the necessary Helm releases).
+3. Document the port, healthcheck (`/healthz`), and dependencies of each service in a table in that YAML.
+4. Configure Prometheus / kube-prometheus-stack to scrape the `/metrics` endpoints of the subset (the rest silenced).
+5. Test cold start end-to-end and measure the time (target < 4 min).

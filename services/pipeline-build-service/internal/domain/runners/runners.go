@@ -1,13 +1,12 @@
-// Package runners ports
-// `services/pipeline-build-service/src/domain/runners/*` — the five
-// per-kind job runners (SYNC, TRANSFORM, HEALTH_CHECK, ANALYTICAL,
-// EXPORT) plus the dispatcher routing JobContext → JobRunner.
+// Package runners hosts the five per-kind job runners (SYNC,
+// TRANSFORM, HEALTH_CHECK, ANALYTICAL, EXPORT) plus the dispatcher
+// routing JobContext → JobRunner.
 //
 // The package owns the job-runner contract, logic-kind validation,
 // dispatching, HTTP-backed SYNC / HEALTH_CHECK / EXPORT runners, and
-// deterministic Rust-compatible shims for TRANSFORM / ANALYTICAL.
-// Python sidecar execution remains behind an explicit interface so the
-// domain runner does not wire sidecar runtime concerns directly.
+// deterministic shims for TRANSFORM / ANALYTICAL. Python sidecar
+// execution remains behind an explicit interface so the domain
+// runner does not wire sidecar runtime concerns directly.
 package runners
 
 import (
@@ -26,10 +25,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// LogSink mirrors the Rust `crate::domain::logs::LogSink` trait used
-// by runners to fan out live-log entries to the build's SSE consumers.
-// Concrete implementations land alongside the live-logs port; today
-// nil is the only valid value.
+// LogSink lets runners fan out live-log entries to the build's SSE
+// consumers. Concrete implementations land alongside the live-logs
+// port; today nil is the only valid value.
 type LogSink interface {
 	Append(jobID uuid.UUID, line string)
 }
@@ -61,9 +59,8 @@ func IsKnownLogicKind(kind string) bool {
 	return false
 }
 
-// ValidateLogicKind mirrors `pub fn validate_logic_kind`. Returns the
-// canonical Foundry error messages the Rust crate uses so the build-
-// resolution gate keeps round-tripping.
+// ValidateLogicKind returns the canonical Foundry error messages for
+// each logic kind so the build-resolution gate stays wire-stable.
 func ValidateLogicKind(kind string, outputCount int) error {
 	switch kind {
 	case LogicKindSync:

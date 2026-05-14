@@ -10,10 +10,9 @@ import (
 
 // RedisStore is the distributed rate-limit backend.
 //
-// Implements the same atomic token-bucket math as the Rust gateway via
-// a Lua script (single round-trip, no race window). The Lua script is
-// the same shape as the Rust crate's: bucket_ttl seeds the EXPIRE,
-// the bucket key is `<prefix>:<id>`, and the script returns
+// Implements atomic token-bucket math via a Lua script (single
+// round-trip, no race window). bucket_ttl seeds the EXPIRE, the
+// bucket key is `<prefix>:<id>`, and the script returns
 // (allowed, tokens_left, reset_after_ms).
 //
 // On any Redis-side error the middleware wrapper falls back to letting

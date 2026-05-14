@@ -8,10 +8,12 @@
 
   An open, cloud-native operational data platform for building data products with datasets, ontologies, applications, AI/ML, governance, and observability from one monorepo.
 
-  [![Go CI](https://github.com/openfoundry/openfoundry-go/actions/workflows/openfoundry-go.yml/badge.svg)](https://github.com/openfoundry/openfoundry-go/actions/workflows/openfoundry-go.yml)
-  [![Frontend CI](https://github.com/openfoundry/openfoundry-go/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/openfoundry/openfoundry-go/actions/workflows/ci-frontend.yml)
-  [![Proto Check](https://github.com/openfoundry/openfoundry-go/actions/workflows/proto-check.yml/badge.svg)](https://github.com/openfoundry/openfoundry-go/actions/workflows/proto-check.yml)
-  [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](LICENSE)
+  <p align="center">
+    <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/openfoundry-go.yml"><img src="https://img.shields.io/github/actions/workflow/status/openfoundry/openfoundry-go/openfoundry-go.yml?branch=main&style=for-the-badge&label=Go%20CI" alt="Go CI" /></a>
+    <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/ci-frontend.yml"><img src="https://img.shields.io/github/actions/workflow/status/openfoundry/openfoundry-go/ci-frontend.yml?branch=main&style=for-the-badge&label=Frontend%20CI" alt="Frontend CI" /></a>
+    <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/proto-check.yml"><img src="https://img.shields.io/github/actions/workflow/status/openfoundry/openfoundry-go/proto-check.yml?branch=main&style=for-the-badge&label=Proto%20Check" alt="Proto Check" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg?style=for-the-badge" alt="AGPL-3.0-only license" /></a>
+  </p>
 
   [Documentation](docs/) · [Architecture](ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Issues](https://github.com/openfoundry/openfoundry-go/issues)
 </div>
@@ -215,5 +217,4 @@ Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the PR p
 ## License
 
 OpenFoundry is licensed under **AGPL-3.0-only**. See [`LICENSE`](LICENSE).
-
 

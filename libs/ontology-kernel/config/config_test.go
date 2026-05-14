@@ -53,9 +53,8 @@ func TestFromEnvRequiresJWTSecret(t *testing.T) {
 	assert.Contains(t, err.Error(), "JWT_SECRET")
 }
 
-// libs/ontology-kernel/src/config.rs — env vars override the
-// defaulted fields, mirroring the `config` crate's environment-source
-// layering. Required fields populate the non-defaulted slots.
+// Env vars override the defaulted fields via FromEnv's layering.
+// Required fields populate the non-defaulted slots.
 func TestFromEnvLayersOverDefaults(t *testing.T) {
 	env := map[string]string{
 		"DATABASE_URL":              "postgres://prod",

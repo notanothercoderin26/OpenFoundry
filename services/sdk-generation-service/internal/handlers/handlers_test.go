@@ -12,8 +12,8 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/sdk-generation-service/internal/models"
 )
 
-// Wire-format invariants: Job + Publication JSON shape preserved 1:1
-// with the Rust crate's PrimaryItem/SecondaryItem.
+// Wire-format invariants: Job + Publication JSON shape pinned for
+// SDK consumers (PrimaryItem/SecondaryItem-shaped envelope).
 func TestJobJSONShape(t *testing.T) {
 	t.Parallel()
 	j := models.Job{

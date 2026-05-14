@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import {
   capabilityChips,
+  virtualTableBuildActionLabel,
   virtualTables,
   type Capabilities,
   type UpdateDetectionPollResult,
@@ -155,20 +156,27 @@ export function VirtualTableDetailsPanel({ table, onChanged }: Props) {
                 {busy === 'poll' ? 'Polling…' : 'Poll now'}
               </button>
               {lastPoll && (
-                <p
-                  data-testid="vt-update-detection-last-poll"
-                  className="of-text-muted"
-                  style={{ marginTop: 8, fontSize: 12 }}
-                >
-                  Last poll: <strong>{lastPoll.outcome}</strong>
-                  {lastPoll.event_emitted && <> · downstream event emitted</>}
-                  {lastPoll.observed_version && (
-                    <>
-                      {' · v='}<code>{lastPoll.observed_version}</code>
-                    </>
-                  )}
-                  {' '}({lastPoll.latency_ms} ms)
-                </p>
+                <div data-testid="vt-update-detection-last-poll" style={{ marginTop: 8 }}>
+                  <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+                    Last poll: <strong>{lastPoll.outcome}</strong>
+                    {lastPoll.event_emitted ? <> · downstream event emitted</> : <> · downstream builds skipped</>}
+                    {lastPoll.observed_version && (
+                      <>
+                        {' · v='}<code>{lastPoll.observed_version}</code>
+                      </>
+                    )}
+                    {' '}({lastPoll.latency_ms} ms)
+                  </p>
+                  {lastPoll.downstream_builds?.length ? (
+                    <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
+                      {lastPoll.downstream_builds.map((build) => (
+                        <li key={build.target_rid}>
+                          <strong>{virtualTableBuildActionLabel(build.action)}</strong> {build.display_name}: {build.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               )}
             </>
           ) : (

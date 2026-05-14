@@ -6,6 +6,7 @@
       "description": "Shared SQL connector contract with validation, discovery and virtual tables.",
       "capabilities": [
         "batch_sync",
+        "cdc_sync",
         "exploration",
         "virtual_table"
       ],
@@ -20,6 +21,7 @@
       "description": "Shared SQL connector contract with validation, discovery and virtual tables.",
       "capabilities": [
         "batch_sync",
+        "cdc_sync",
         "exploration",
         "virtual_table"
       ],
@@ -48,6 +50,7 @@
       "description": "Shared SQL connector contract with validation, discovery and virtual tables.",
       "capabilities": [
         "batch_sync",
+        "cdc_sync",
         "exploration",
         "virtual_table"
       ],
@@ -62,6 +65,22 @@
       "description": "Shared SQL connector contract with validation, discovery and virtual tables.",
       "capabilities": [
         "batch_sync",
+        "cdc_sync",
+        "exploration",
+        "virtual_table"
+      ],
+      "workers": [
+        "foundry"
+      ],
+      "available": false
+    },
+    {
+      "type": "db2",
+      "name": "IBM Db2",
+      "description": "Shared SQL connector contract with validation, discovery and virtual tables.",
+      "capabilities": [
+        "batch_sync",
+        "cdc_sync",
         "exploration",
         "virtual_table"
       ],

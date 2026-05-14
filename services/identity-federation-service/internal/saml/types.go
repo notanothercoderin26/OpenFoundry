@@ -1,13 +1,11 @@
-// Package saml ports `domain::saml` from the Rust crate. Sub-slice
-// 3.7a.1 lays the foundation: pure-domain types + format helpers
-// (XML escape, certificate normalisation, time parsing, claim
-// extraction). The XML parser, AuthnRequest builder and signature
-// verification land in 3.7a.2 / 3.7a.3 / 3.7a.4 respectively.
+// Package saml hosts the SAML SP/IdP helpers. Sub-slice 3.7a.1 lays
+// the foundation: pure-domain types + format helpers (XML escape,
+// certificate normalisation, time parsing, claim extraction). The
+// XML parser, AuthnRequest builder and signature verification land
+// in 3.7a.2 / 3.7a.3 / 3.7a.4 respectively.
 //
-// The Go port keeps the public-API names from the Rust source so the
-// follow-up slices can wire it with no surprise. SsoProvider lives
-// in `services/identity-federation-service/internal/models` to
-// preserve the Rust separation between persistence rows and
+// SsoProvider lives in
+// `services/identity-federation-service/internal/models` so that
 // domain-layer logic.
 package saml
 

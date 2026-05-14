@@ -25,8 +25,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger) *Handlers {
 	return &Handlers{Pool: pool, Log: log}
 }
 
-// Mount wires every warehousing route onto r. Mirrors the routes
-// declared in the Rust `crate::http::build_router`.
+// Mount wires every warehousing route onto r.
 func (h *Handlers) Mount(r chi.Router) {
 	r.Get("/jobs", h.ListJobs)
 	r.Post("/jobs", h.SubmitJob)

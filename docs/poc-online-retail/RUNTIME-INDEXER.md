@@ -138,7 +138,7 @@ different Iceberg tables to the same Cassandra row.
 
 The user flagged the writeback question as architecturally open:
 
-> **Writeback Iceberg para actions (decisión arquitectónica abierta:
+> **Iceberg writeback for actions (open architectural decision:
 > Iceberg row-level vs Cassandra-as-cache).**
 
 ### Decision: **Cassandra is canonical for object state; Iceberg is

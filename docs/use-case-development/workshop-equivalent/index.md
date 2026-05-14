@@ -1,10 +1,10 @@
 # Workshop equivalent
 
-OpenFoundry does not currently expose a product named Workshop, but `app-builder-service` and the `apps` route family strongly suggest an equivalent application composition surface.
+OpenFoundry does not currently expose a product named Workshop, but `application-composition-service` and the `apps` route family strongly suggest an equivalent application composition surface.
 
 ## Repository signals
 
-`app-builder-service` already exposes:
+`application-composition-service` already exposes:
 
 - app CRUD
 - template-based app creation
@@ -15,7 +15,7 @@ OpenFoundry does not currently expose a product named Workshop, but `app-builder
 - publish
 - slate package import and export
 
-These routes are defined in `services/app-builder-service/src/main.rs`.
+These routes are wired in `services/application-composition-service/cmd/application-composition-service/main.go` + `internal/server/`, with handlers under `internal/handlers/`.
 
 ## Why this matters
 

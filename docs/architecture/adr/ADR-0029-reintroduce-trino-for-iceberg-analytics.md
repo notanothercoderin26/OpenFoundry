@@ -9,7 +9,7 @@
 
 ADR-0014 (Accepted) retired Trino in favour of a single Flight SQL
 edge gateway (`sql-bi-gateway-service`) backed by DataFusion plus
-optional remote Flight SQL endpoints (`sql-warehousing-service`,
+optional remote Flight SQL endpoints (`sql-bi-gateway-service`,
 Vespa, Postgres). That decision was right for the
 Sprint-3 timeframe: it removed an operational liability and let us
 collapse OLAP, search and OLTP behind one wire protocol.
@@ -39,7 +39,7 @@ to **batch maintenance** jobs (S5.7) — not interactive query.
 ## Decision
 
 Reintroduce Trino as the **Iceberg-analytics engine**, deployed via
-`infra/k8s/platform/manifests/trino/values.yaml` (S5.6.a/b/c). Keep Flight SQL as the
+`infra/helm/infra/manifests/trino/values.yaml` (S5.6.a/b/c). Keep Flight SQL as the
 **edge protocol**: BI clients still connect to
 `sql-bi-gateway-service:50133` and the gateway delegates by catalog
 prefix.
@@ -54,7 +54,7 @@ gains a fifth backend:
 | Catalog prefix in SQL | Backend | Endpoint |
 |-----------------------|---------|----------|
 | `trino.*`             | `Backend::Trino` | `trino-flight-sql-proxy.trino:50133` (Flight SQL adapter in front of Trino's HTTP API) |
-| `iceberg.*` (default) | `Backend::Iceberg` | local DataFusion / `sql-warehousing-service` |
+| `iceberg.*` (default) | `Backend::Iceberg` | local DataFusion / `sql-bi-gateway-service` |
 | `vespa.*`             | `Backend::Vespa` | unchanged |
 | `postgres.*` / `postgresql.*` | `Backend::Postgres` | unchanged |
 
@@ -79,7 +79,7 @@ fetch.
 - Two more StatefulSets (Trino coordinator HA pair) + a HPA-managed
   worker Deployment.
 - One new Helm chart dependency (`trinodb/trino`, Apache-2.0) bumped
-  in the split Helm profile set under `infra/k8s/helm/profiles/` (deferred to runtime
+  in the split Helm profile set under `infra/helm/apps/profiles/` (deferred to runtime
   PR).
 - `sql-bi-gateway-service` gains an additional optional env var
   `TRINO_FLIGHT_SQL_URL`. When unset the gateway returns
@@ -98,6 +98,6 @@ fetch.
 ## Rollback
 
 Revert the gateway change (`Backend::Trino` arm) and scale the Trino
-coordinator/worker StatefulSets to zero. `sql-warehousing-service`
+coordinator/worker StatefulSets to zero. `sql-bi-gateway-service`
 keeps serving Iceberg traffic, with the known limitation on cross-TB
 joins.

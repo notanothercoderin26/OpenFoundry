@@ -8,14 +8,15 @@ It documents the part of the platform that can turn datasets, streams, workflows
 
 The closest repository components today are:
 
-- `services/ontology-service`
-- `services/auth-service`
-- `services/audit-service`
+- the ontology service split: `services/ontology-definition-service`, `services/ontology-query-service`, `services/ontology-actions-service`, `services/object-database-service`, `services/ontology-indexer`
+- `services/identity-federation-service`
+- `services/authorization-policy-service`
+- `services/audit-compliance-service` + `services/audit-sink`
 - `services/sql-bi-gateway-service`
 - `services/workflow-automation-service`
-- `services/app-builder-service`
-- `services/geospatial-service`
-- `services/ai-service`
+- `services/application-composition-service`
+- `services/ontology-exploratory-analysis-service`
+- `services/agent-runtime-service` + `services/retrieval-context-service` + `services/llm-catalog-service`
 - `proto/ontology/*`
 - `proto/workflow/*`
 - `proto/query/*`

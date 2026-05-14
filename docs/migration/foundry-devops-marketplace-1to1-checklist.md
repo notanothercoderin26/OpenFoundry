@@ -548,6 +548,17 @@ OpenFoundry canonical IDs.
 
 ## Suggested service boundaries
 
+> **Reader note (2026-05-14)** — The services in the table below are
+> *target* decomposition proposals, not a current inventory of
+> binaries. Some have been built under consolidated names after S8
+> (`marketplace-service` → `federation-product-exchange-service`;
+> `approvals-service` → `workflow-automation-service/internal/approvals`;
+> `ontology-security-service` → `authorization-policy-service`;
+> `ai-service` → `agent-runtime-service` + `llm-catalog-service`).
+> Others are not yet implemented. For the canonical list of binaries
+> on disk today, see
+> [`docs/architecture/services-and-ports.md`](../architecture/services-and-ports.md).
+
 | Surface | Responsibilities |
 | --- | --- |
 | `marketplace-store-service` | Store CRUD, local/remote store metadata, tags/categories, featured products, store links, permissions, approval requirements, visibility. |

@@ -4,14 +4,14 @@ Interfaces and shared property types are how the ontology avoids repeating the s
 
 ## Repository signals
 
-OpenFoundry already exposes first-class support for both ideas in `ontology-service`:
+OpenFoundry already exposes first-class support for both ideas in `ontology-definition-service`:
 
 - interface routes under `/api/v1/ontology/interfaces`
 - type attachment routes under `/api/v1/ontology/types/{type_id}/interfaces/{interface_id}`
 - shared property type routes under `/api/v1/ontology/shared-property-types`
 - type attachment routes for shared property types under `/api/v1/ontology/types/{type_id}/shared-property-types/{shared_property_type_id}`
 
-Those routes are wired in `services/ontology-service/src/main.rs`.
+Those routes are wired in `services/ontology-definition-service/cmd/ontology-definition-service/main.go` (chi router in `services/ontology-definition-service/internal/server/`).
 
 ## Why this matters
 

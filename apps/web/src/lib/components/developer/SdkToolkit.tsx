@@ -2,31 +2,31 @@ const ARCHETYPES = [
   {
     name: 'Connector plugin',
     description:
-      'Wrap an external system, validate credentials, and expose sync-ready metadata through the Rust + WASM SDK.',
-    command: 'cargo run -p of-cli -- project init payment-connector --template connector --output plugins',
+      'Wrap an external system, validate credentials, and expose sync-ready metadata through the plugin SDK.',
+    command: 'go run ./tools/of-cli project init payment-connector --template connector --output plugins',
   },
   {
     name: 'Transform plugin',
     description:
       'Package deterministic row or document transforms that can run inside pipeline or notebook execution surfaces.',
-    command: 'cargo run -p of-cli -- project init pii-redactor --template transform --output plugins',
+    command: 'go run ./tools/of-cli project init pii-redactor --template transform --output plugins',
   },
   {
     name: 'Widget plugin',
     description:
       'Ship a presentation layer component with manifest metadata ready for app builder and marketplace flows.',
-    command: 'cargo run -p of-cli -- project init telemetry-widget --template widget --output plugins',
+    command: 'go run ./tools/of-cli project init telemetry-widget --template widget --output plugins',
   },
 ];
 
 const COMMAND_DECK = [
-  'cargo run -p of-cli -- deploy plan gateway --environment staging',
-  'cargo run -p of-cli -- script render "deploy {{service}} to {{env}}" --var service=gateway --var env=prod',
-  'cargo run -p of-cli -- docs generate-openapi --output apps/web/static/generated/openapi/openfoundry.json',
-  'cargo run -p of-cli -- docs generate-sdk-typescript --input apps/web/static/generated/openapi/openfoundry.json --output sdks/typescript/openfoundry-sdk',
-  'cargo run -p of-cli -- docs generate-sdk-python --input apps/web/static/generated/openapi/openfoundry.json --output sdks/python/openfoundry-sdk',
-  'cargo run -p of-cli -- docs generate-sdk-java --input apps/web/static/generated/openapi/openfoundry.json --output sdks/java/openfoundry-sdk',
-  'cargo run -p of-cli -- terraform schema --output apps/web/static/generated/terraform/openfoundry-provider.json',
+  'go run ./tools/of-cli deploy plan gateway --environment staging',
+  'go run ./tools/of-cli script render "deploy {{service}} to {{env}}" --var service=gateway --var env=prod',
+  'go run ./tools/of-cli docs generate-openapi --output apps/web/static/generated/openapi/openfoundry.json',
+  'go run ./tools/of-cli docs generate-sdk-typescript --input apps/web/static/generated/openapi/openfoundry.json --output sdks/typescript/openfoundry-sdk',
+  'go run ./tools/of-cli docs generate-sdk-python --input apps/web/static/generated/openapi/openfoundry.json --output sdks/python/openfoundry-sdk',
+  'go run ./tools/of-cli docs generate-sdk-java --input apps/web/static/generated/openapi/openfoundry.json --output sdks/java/openfoundry-sdk',
+  'go run ./tools/of-cli terraform schema --output apps/web/static/generated/terraform/openfoundry-provider.json',
 ];
 
 const COOKBOOKS = [
@@ -44,7 +44,7 @@ const COOKBOOKS = [
   },
   {
     title: 'Bootstrap a WASM widget package',
-    focus: 'Scaffold a new widget crate, fill in the manifest, and prepare the distribution assets consumed by app builder.',
+    focus: 'Scaffold a new widget package, fill in the manifest, and prepare the distribution assets consumed by app builder.',
   },
 ];
 
@@ -60,9 +60,9 @@ export function SdkToolkit() {
             Build plugins and automate delivery
           </h2>
           <p className="of-text-muted" style={{ marginTop: 8, fontSize: 13, lineHeight: 1.7 }}>
-            The plugin-sdk crate standardizes Rust + WASM manifests for connectors, transforms, and
-            widgets. The of CLI scaffolds projects, renders deployment scripts, emits proto-derived
-            docs, and generates the official TypeScript, Python, and Java SDKs.
+            The plugin SDK standardizes WASM manifests for connectors, transforms, and widgets. The
+            of CLI scaffolds projects, renders deployment scripts, emits proto-derived docs, and
+            generates the official TypeScript, Python, and Java SDKs.
           </p>
         </div>
       </div>

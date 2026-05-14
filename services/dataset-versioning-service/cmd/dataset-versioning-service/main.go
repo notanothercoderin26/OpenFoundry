@@ -1,6 +1,6 @@
-// Command dataset-versioning-service hosts the foundation slice of
-// the Rust crate `dataset-versioning-service` (25k LOC; this slice
-// covers datasets, versions, branches, and the Files API backing-fs vertical).
+// Command dataset-versioning-service hosts the dataset / version /
+// branch / Files-API surface (~25k LOC total; this binary covers the
+// foundation slice).
 //
 // Follow-up slices: dataset_quality, lint, views, health, retention_worker,
 // foundry-model surface, and Iceberg writer integration.

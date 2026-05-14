@@ -58,11 +58,11 @@ post-processing.
 | Search backend | ✅ Vespa/OpenSearch when `SEARCH_ENDPOINT` is configured; otherwise nil fallback path |
 | Explicit local/test in-memory mode | ✅ opt-in with `OF_DEV_STUB_MODE=true` |
 
-The same in-process integration tests the Rust crate ships with
-(`tests/health.rs::list_action_types_requires_bearer_token` and
-`absorbed_routes_require_bearer_token`) are mirrored under
-[`internal/server/server_test.go`](internal/server/server_test.go), using an
-explicit in-memory `AppState`.
+In-process integration tests covering bearer-token enforcement
+(`list_action_types_requires_bearer_token`,
+`absorbed_routes_require_bearer_token`) live under
+[`internal/server/server_test.go`](internal/server/server_test.go),
+using an explicit in-memory `AppState`.
 
 ## Build & run
 

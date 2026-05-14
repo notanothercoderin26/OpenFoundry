@@ -71,8 +71,8 @@ func BuildRouter(cfg *config.Config, state *ontologykernel.AppState, m *observab
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
 
-	// /api/v1/ontology/* requires a Bearer token. The Rust crate
-	// applies `auth_middleware::layer::auth_layer` exactly here.
+	// /api/v1/ontology/* requires a Bearer token (auth applied
+	// uniformly via authmw.Middleware below).
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	r.Route("/api/v1/ontology", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))

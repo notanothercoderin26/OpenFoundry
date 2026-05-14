@@ -16,6 +16,10 @@ export function AppShell() {
   const authenticated = Boolean(token) || Boolean(user);
   const navigate = useNavigate();
   const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const embeddedWorkspace =
+    location.pathname.startsWith('/object-views') &&
+    (searchParams.get('embedded') === 'true' || searchParams.get('embedded') === '1');
 
   useEffect(() => {
     if (bootstrapStatus !== 'ready') return;
@@ -28,6 +32,17 @@ export function AppShell() {
 
   if (bootstrapStatus !== 'ready' || !authenticated) {
     return null;
+  }
+
+  if (embeddedWorkspace) {
+    return (
+      <div className="of-shell" data-embedded="true" style={{ minHeight: '100vh' }}>
+        <main className="of-main" style={{ width: '100%', minHeight: '100vh' }}>
+          <Outlet />
+        </main>
+        <Toaster />
+      </div>
+    );
   }
 
   return (

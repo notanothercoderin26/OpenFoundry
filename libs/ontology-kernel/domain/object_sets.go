@@ -191,6 +191,19 @@ func ValidateObjectSetDefinition(definition models.ObjectSetDefinition) error {
 			return fmt.Errorf("projections cannot contain empty values")
 		}
 	}
+	switch definition.Kind {
+	case "", "exploration", "list":
+	default:
+		return fmt.Errorf("unsupported object set kind '%s'", definition.Kind)
+	}
+	switch definition.Privacy {
+	case "", "private", "public":
+	default:
+		return fmt.Errorf("unsupported object set privacy '%s'", definition.Privacy)
+	}
+	if definition.Kind == "list" && len(definition.SelectedObjectIDs) == 0 && len(definition.Filters) == 0 {
+		return fmt.Errorf("saved lists require selected_object_ids or filters")
+	}
 	return ValidateObjectSetPolicy(definition.Policy)
 }
 
@@ -200,7 +213,7 @@ func ValidateObjectSetFilter(filter models.ObjectSetFilter) error {
 		return fmt.Errorf("filters require a field")
 	}
 	switch filter.Operator {
-	case "equals", "not_equals", "contains", "in", "exists", "gte", "lte":
+	case "equals", "not_equals", "contains", "in", "exists", "gt", "gte", "lt", "lte", "is_empty", "is_not_empty":
 		return nil
 	default:
 		return fmt.Errorf("unsupported filter operator '%s'", filter.Operator)

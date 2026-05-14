@@ -360,7 +360,7 @@ no workflow definitions live in Rust.
 
 - New top-level directory `workers-go/` with its own `go.work` and CI
   job (`go-workers-build`).
-- New `infra/k8s/platform/manifests/temporal/` Helm release.
+- New `infra/helm/infra/manifests/temporal/` Helm release.
 - New runbook `infra/runbooks/temporal.md` covering schema upgrades,
   task queue rebalancing, scaling history shards, namespace
   configuration, retention policies and the failover procedure for the

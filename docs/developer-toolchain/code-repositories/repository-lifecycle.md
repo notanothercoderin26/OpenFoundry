@@ -14,4 +14,4 @@ Code repositories in OpenFoundry already look like a product surface, not just a
 
 ## Repository signals
 
-These stages map directly onto handlers in `services/code-repo-service/src/handlers/*`.
+These stages map directly onto handlers in `services/code-repository-review-service/src/handlers/*`.

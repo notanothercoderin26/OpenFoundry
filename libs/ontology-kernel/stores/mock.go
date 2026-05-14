@@ -42,10 +42,9 @@ type imObjectKey struct {
 	id     storageabstraction.ObjectId
 }
 
-// InMemoryObjectStore is a tenant-scoped in-process store. Mirrors
-// the contract of `noop::InMemoryObjectStore` shipped by the Rust
-// storage-abstraction crate: optimistic concurrency on Put, idempotent
-// Delete, paging via deterministic key ordering.
+// InMemoryObjectStore is a tenant-scoped in-process store with
+// optimistic concurrency on Put, idempotent Delete, and paging via
+// deterministic key ordering.
 type InMemoryObjectStore struct {
 	mu   sync.RWMutex
 	data map[imObjectKey]storageabstraction.Object

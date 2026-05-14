@@ -22,11 +22,9 @@ import (
 
 const linkPageSize = uint32(256)
 
-// CollectLinkInstancesForType mirrors
-// `pub(crate) async fn collect_link_instances_for_type`. Walks every
-// source object of the link type's `source_type_id`, then every
-// outgoing link of the type from each, sorts the result the same
-// way the Rust impl does (created_at ASC, then ID ASC for stability).
+// CollectLinkInstancesForType walks every source object of the link
+// type's `source_type_id`, then every outgoing link of the type from
+// each, sorting the result by (created_at ASC, ID ASC) for stability.
 func CollectLinkInstancesForType(
 	ctx context.Context,
 	state *ontologykernel.AppState,

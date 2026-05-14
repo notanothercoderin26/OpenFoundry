@@ -1,7 +1,5 @@
 package controlbus
 
-// schema_registry.go ports libs/event-bus-control/src/schema_registry.rs.
-//
 // Schema Registry primitives shared by ingestion-replication-service
 // (storage + REST API) and the data-connection plane connectors
 // (validation of incoming samples).
@@ -13,7 +11,7 @@ package controlbus
 // versioning, references and Confluent-style HTTP routes on top of
 // these helpers.
 //
-// Four entry points mirror the Rust crate:
+// Four entry points:
 //   - SchemaType / CompatibilityMode parsing
 //   - Fingerprint  — deterministic SHA-256 over canonicalised schema
 //   - ValidatePayload  — parse the schema once, then check the payload

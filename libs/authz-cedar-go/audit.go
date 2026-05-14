@@ -40,9 +40,6 @@ func (NoopAuditSink) Emit(context.Context, AuthzAuditEvent) {}
 
 // SlogAuditSink logs every decision at INFO level via the supplied
 // logger (or the default logger when nil). Useful in dev / smoke runs.
-//
-// Replaces the Rust `TracingAuditSink` — same emission semantics, just
-// using log/slog instead of the tracing crate.
 type SlogAuditSink struct {
 	Logger *slog.Logger
 }

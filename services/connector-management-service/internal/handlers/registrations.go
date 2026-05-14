@@ -119,25 +119,33 @@ func boolValue(m map[string]any, key string, fallback bool) bool {
 	return fallback
 }
 
-func (h *Handlers) sourceForClaims(w http.ResponseWriter, r *http.Request, id uuid.UUID) (*models.Connection, bool) {
+func (h *Handlers) sourceForRoleClaims(w http.ResponseWriter, r *http.Request, id uuid.UUID, role models.SourcePermissionRole) (*models.Connection, uuid.UUID, bool) {
 	claims, ok := requireClaims(w, r)
 	if !ok {
-		return nil, false
+		return nil, uuid.Nil, false
+	}
+	if h.Repo == nil {
+		writeRoutePending(w, http.StatusServiceUnavailable, "repository_unavailable", "connection repository is not configured")
+		return nil, uuid.Nil, false
 	}
 	c, err := h.Repo.GetConnection(r.Context(), id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, "connection lookup failed")
-		return nil, false
+		return nil, uuid.Nil, false
 	}
 	if c == nil {
 		writeJSONErr(w, http.StatusNotFound, "connection not found")
-		return nil, false
+		return nil, uuid.Nil, false
 	}
-	if c.OwnerID != claims.Sub && !claims.HasRole("admin") && !claims.HasPermission("connections", "write") {
-		writeJSONErr(w, http.StatusForbidden, "forbidden")
-		return nil, false
+	if !h.requireSourceRole(w, r, id, claims.Sub, role) {
+		return nil, uuid.Nil, false
 	}
-	return c, true
+	return c, claims.Sub, true
+}
+
+func (h *Handlers) sourceForRole(w http.ResponseWriter, r *http.Request, id uuid.UUID, role models.SourcePermissionRole) (*models.Connection, bool) {
+	c, _, ok := h.sourceForRoleClaims(w, r, id, role)
+	return c, ok
 }
 
 func (h *Handlers) ListRegistrations(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +154,7 @@ func (h *Handlers) ListRegistrations(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if _, ok := h.sourceForClaims(w, r, id); !ok {
+	if _, ok := h.sourceForRole(w, r, id, models.SourceRoleView); !ok {
 		return
 	}
 	items, err := h.Repo.ListRegistrations(r.Context(), id)
@@ -163,10 +171,11 @@ func (h *Handlers) DiscoverRegistrations(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	c, ok := h.sourceForClaims(w, r, id)
+	c, actorID, ok := h.sourceForRoleClaims(w, r, id, models.SourceRoleUse)
 	if !ok {
 		return
 	}
+	h.recordSourceUseAudit(r.Context(), id, actorID, "registration_sources_discovered", "exploration", "", models.SourceRIDForConnection(id), "Discovered source registration candidates", map[string]any{"connector_type": c.ConnectorType})
 	writeJSON(w, http.StatusOK, map[string]any{"sources": discoverConnectionSources(c)})
 }
 
@@ -176,7 +185,7 @@ func (h *Handlers) BulkRegisterPreview(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	c, ok := h.sourceForClaims(w, r, id)
+	c, ok := h.sourceForRole(w, r, id, models.SourceRoleUse)
 	if !ok {
 		return
 	}
@@ -216,7 +225,7 @@ func (h *Handlers) BulkRegister(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	c, ok := h.sourceForClaims(w, r, id)
+	c, actorID, ok := h.sourceForRoleClaims(w, r, id, models.SourceRoleSyncCreate)
 	if !ok {
 		return
 	}
@@ -264,6 +273,7 @@ func (h *Handlers) BulkRegister(w http.ResponseWriter, r *http.Request) {
 		}
 		created = append(created, *reg)
 	}
+	h.recordSourceUseAudit(r.Context(), id, actorID, "registrations_bulk_created", "sync_create", "", models.SourceRIDForConnection(id), "Bulk registered external source entries", map[string]any{"created_count": len(created), "error_count": len(errs)})
 	writeJSON(w, http.StatusOK, map[string]any{"created": created, "errors": errs})
 }
 
@@ -273,7 +283,7 @@ func (h *Handlers) AutoRegister(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	c, ok := h.sourceForClaims(w, r, id)
+	c, actorID, ok := h.sourceForRoleClaims(w, r, id, models.SourceRoleSyncCreate)
 	if !ok {
 		return
 	}
@@ -306,6 +316,7 @@ func (h *Handlers) AutoRegister(w http.ResponseWriter, r *http.Request) {
 		}
 		created = append(created, *reg)
 	}
+	h.recordSourceUseAudit(r.Context(), id, actorID, "auto_registration_run", "sync_create", "", models.SourceRIDForConnection(id), "Auto-registered external source entries", map[string]any{"discovered_count": len(discovered), "created_count": len(created), "error_count": len(errs)})
 	writeJSON(w, http.StatusOK, map[string]any{"discovered_count": len(discovered), "created": created, "errors": errs})
 }
 
@@ -315,7 +326,7 @@ func (h *Handlers) AutoRegisterStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	c, ok := h.sourceForClaims(w, r, id)
+	c, ok := h.sourceForRole(w, r, id, models.SourceRoleView)
 	if !ok {
 		return
 	}
@@ -332,7 +343,7 @@ func (h *Handlers) UpdateAutoRegistration(w http.ResponseWriter, r *http.Request
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	c, ok := h.sourceForClaims(w, r, id)
+	c, ok := h.sourceForRole(w, r, id, models.SourceRoleEdit)
 	if !ok {
 		return
 	}
@@ -396,7 +407,7 @@ func (h *Handlers) DeleteRegistration(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid registration_id")
 		return
 	}
-	if _, ok := h.sourceForClaims(w, r, sid); !ok {
+	if _, ok := h.sourceForRole(w, r, sid, models.SourceRoleEdit); !ok {
 		return
 	}
 	deleted, err := h.Repo.DeleteRegistration(r.Context(), sid, rid)
@@ -422,7 +433,7 @@ func (h *Handlers) QueryRegistration(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid registration_id")
 		return
 	}
-	c, ok := h.sourceForClaims(w, r, sid)
+	c, actorID, ok := h.sourceForRoleClaims(w, r, sid, models.SourceRoleUse)
 	if !ok {
 		return
 	}
@@ -441,6 +452,7 @@ func (h *Handlers) QueryRegistration(w http.ResponseWriter, r *http.Request) {
 		limit = *body.Limit
 	}
 	response := virtualTableQueryFromConfig(c, reg, limit)
+	h.recordSourceUseAudit(r.Context(), sid, actorID, "registration_preview_queried", "exploration", "", reg.Selector, "Previewed external registration rows", map[string]any{"registration_id": reg.ID.String(), "limit": limit})
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -459,7 +471,8 @@ func (h *Handlers) QueryRegistrationArrow(w http.ResponseWriter, r *http.Request
 		writeJSONErr(w, http.StatusBadRequest, "invalid registration_id")
 		return
 	}
-	if _, ok := h.sourceForClaims(w, r, sid); !ok {
+	_, actorID, ok := h.sourceForRoleClaims(w, r, sid, models.SourceRoleUse)
+	if !ok {
 		return
 	}
 	reg, err := h.Repo.GetRegistration(r.Context(), sid, rid)
@@ -491,6 +504,7 @@ func (h *Handlers) QueryRegistrationArrow(w http.ResponseWriter, r *http.Request
 		writeJSONErr(w, http.StatusInternalServerError, "failed to encode arrow stream")
 		return
 	}
+	h.recordSourceUseAudit(r.Context(), sid, actorID, "registration_arrow_previewed", "exploration", "", reg.Selector, "Previewed external registration rows as Arrow", map[string]any{"registration_id": reg.ID.String(), "limit": limit})
 	w.Header().Set("Content-Type", "application/vnd.apache.arrow.stream")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(stream)
@@ -634,21 +648,13 @@ type connectionTestAdapter interface {
 }
 
 func (h *Handlers) TestConnection(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireClaims(w, r); !ok {
-		return
-	}
 	id, _, err := routeUUIDParam(r, "id", "source_id")
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	c, err := h.Repo.GetConnection(r.Context(), id)
-	if err != nil {
-		writeJSONErr(w, http.StatusInternalServerError, "connection lookup failed")
-		return
-	}
-	if c == nil {
-		writeJSONErr(w, http.StatusNotFound, "connection not found")
+	c, actorID, ok := h.sourceForRoleClaims(w, r, id, models.SourceRoleUse)
+	if !ok {
 		return
 	}
 
@@ -681,6 +687,7 @@ func (h *Handlers) TestConnection(w http.ResponseWriter, r *http.Request) {
 	if result.Success || result.LatencyMS != 0 {
 		latency = result.LatencyMS
 	}
+	h.recordSourceUseAudit(r.Context(), id, actorID, "connection_tested", "connection_test", "", models.SourceRIDForConnection(id), "Tested external source connection", map[string]any{"success": result.Success, "status": status})
 	writeJSON(w, http.StatusOK, map[string]any{"success": result.Success, "message": result.Message, "latency_ms": latency, "details": result.Details})
 }
 
@@ -719,8 +726,8 @@ func (h *Handlers) InvokeWebhook(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusNotFound, "webhook not found")
 		return
 	}
-	if c.OwnerID != claims.Sub && !claims.HasRole("admin") && !claims.HasPermission("connections", "write") && !claims.HasPermission("webhooks", "invoke") {
-		writeJSONErr(w, http.StatusForbidden, "forbidden")
+	if c.OwnerID != claims.Sub && !claims.HasRole("admin") && !claims.HasPermission("connections", "write") && !claims.HasPermission("webhooks", "invoke") &&
+		!h.requireSourceRole(w, r, id, claims.Sub, models.SourceRoleWebhookExecute) {
 		return
 	}
 	var body models.InvokeWebhookRequest
@@ -822,6 +829,7 @@ func (h *Handlers) InvokeWebhook(w http.ResponseWriter, r *http.Request) {
 		upstreamStatus = &status
 	}
 	history := h.recordWebhookHistory(r.Context(), id, claims.Sub, def, body.Inputs, "succeeded", upstreamStatus, out, "", startedAt, len(results))
+	h.recordSourceUseAudit(r.Context(), id, claims.Sub, "webhook_executed", "webhook", "", def.Name, "Executed source webhook", map[string]any{"http_status": status, "call_count": len(results)})
 	writeJSON(w, http.StatusOK, models.InvokeWebhookResponse{Status: status, Response: final, OutputParameters: out, History: history})
 }
 
@@ -848,8 +856,8 @@ func (h *Handlers) ListWebhookHistory(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusNotFound, "webhook not found")
 		return
 	}
-	if c.OwnerID != claims.Sub && !claims.HasRole("admin") && !claims.HasPermission("connections", "read") && !claims.HasPermission("webhooks", "read") {
-		writeJSONErr(w, http.StatusForbidden, "forbidden")
+	if c.OwnerID != claims.Sub && !claims.HasRole("admin") && !claims.HasPermission("connections", "read") && !claims.HasPermission("webhooks", "read") &&
+		!h.requireSourceRole(w, r, id, claims.Sub, models.SourceRoleView) {
 		return
 	}
 	lister, ok := h.Repo.(webhookHistoryLister)

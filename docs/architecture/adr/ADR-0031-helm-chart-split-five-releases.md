@@ -30,7 +30,7 @@ bad upgrade.
 ## Decision
 
 Split the umbrella `open-foundry` chart into **five top-level Helm
-releases** under `infra/k8s/helm/`. Each release groups services that
+releases** under `infra/helm/apps/`. Each release groups services that
 share an oncall rotation, a release cadence and a blast radius.
 
 | Release | Services (post-S8.1) | Oncall |
@@ -44,7 +44,7 @@ share an oncall rotation, a release cadence and a blast radius.
 ### Layout
 
 ```
-infra/k8s/helm/
+infra/helm/apps/
 ├── of-platform/
 │   ├── Chart.yaml
 │   ├── values.yaml
@@ -95,7 +95,7 @@ sidecar) to a single PR against `of-shared`.
 ### Values overlays
 
 Each release owns its service-specific `values-{dev,staging,prod}.yaml`.
-Cross-release posture lives in `infra/k8s/helm/profiles/values-{dev,
+Cross-release posture lives in `infra/helm/apps/profiles/values-{dev,
 staging,prod,sovereign-eu,airgap,multicloud,apollo}.yaml` so one
 environment change (ingress, air-gap posture, object store, Cassandra
 failover pinning) can be applied uniformly across all five releases.
@@ -141,10 +141,10 @@ failover pinning) can be applied uniformly across all five releases.
 ## Follow-up
 
 The legacy umbrella was removed on **2026-05-02**; the operational
-entrypoint is now [`infra/k8s/helm/bin/upgrade-split-releases.sh`](../../../infra/k8s/helm/bin/upgrade-split-releases.sh).
+entrypoint is now [`infra/helm/apps/bin/upgrade-split-releases.sh`](../../../infra/helm/apps/bin/upgrade-split-releases.sh).
 
 ## References
 
 * [ADR-0011 — Control vs data bus contract](ADR-0011-control-vs-data-bus-contract.md)
 * [ADR-0030 — Service consolidation to ownership boundaries](ADR-0030-service-consolidation-30-targets.md)
-* [`infra/k8s/helm/MIGRATION.md`](../../../infra/k8s/helm/MIGRATION.md)
+* [`infra/helm/apps/MIGRATION.md`](../../../infra/helm/apps/MIGRATION.md)

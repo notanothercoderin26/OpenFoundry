@@ -11,20 +11,21 @@ This section is the contributor entry point for the OpenFoundry documentation se
 
 ## Deploying to Kubernetes (post-S8 layout)
 
-OpenFoundry now ships as **five Helm releases** plus the
+OpenFoundry now ships as **six Helm releases** plus the
 `of-shared` library chart. See
 [ADR-0031](/architecture/adr/ADR-0031-helm-chart-split-five-releases)
-and [`infra/k8s/helm/MIGRATION.md`](https://github.com/diocrafts/OpenFoundry/blob/main/infra/k8s/helm/MIGRATION.md):
+and [`infra/helm/apps/MIGRATION.md`](https://github.com/diocrafts/OpenFoundry/blob/main/infra/helm/apps/MIGRATION.md):
 
 - `of-platform` — gateway, identity, authz, tenancy.
 - `of-data-engine` — connectors, ingestion, datasets, lineage, pipeline, SQL/BI.
 - `of-ontology` — ontology definition/actions/query, object-database, sinks.
 - `of-ml-aip` — model catalog/deployment, agent runtime, LLM, retrieval, eval.
 - `of-apps-ops` — apps, notebook, exploratory, workflow, audit, telemetry, federation, code repo, SDK, entity-resolution.
+- `of-web` — `apps/web` React 19 + Vite frontend.
 
 The legacy umbrella chart was removed on **2026-05-02**. Deployments
-now go through the five split charts plus the shared profile overlays
-under `infra/k8s/helm/profiles/`.
+now go through the six split charts plus the shared profile overlays
+under `infra/helm/apps/profiles/`.
 
 ## Why this section exists
 

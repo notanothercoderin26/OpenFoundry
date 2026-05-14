@@ -15,6 +15,14 @@ import {
   previewInstallSchedules,
   type ProductScheduleManifest,
 } from '@/lib/api/marketplace-schedules';
+import {
+  buildObjectViewMarketplaceInstallPlan,
+  listActionTypes,
+  listObjectTypes,
+  type ActionType,
+  type ObjectType,
+  type ObjectViewMarketplaceInstallPlan,
+} from '@/lib/api/ontology';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { notifications } from '@stores/notifications';
 
@@ -67,6 +75,8 @@ export function MarketplaceProductPage() {
   const [activeSection, setActiveSection] = useState<Section>('overview');
   const [detail, setDetail] = useState<ListingDetail | null>(null);
   const [fleets, setFleets] = useState<ProductFleetRecord[]>([]);
+  const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
+  const [actionTypes, setActionTypes] = useState<ActionType[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -96,9 +106,16 @@ export function MarketplaceProductPage() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const [listingResp, fleetsResp] = await Promise.all([getListing(productId), listFleets()]);
+      const [listingResp, fleetsResp, objectTypeResp, actionTypeResp] = await Promise.all([
+        getListing(productId),
+        listFleets(),
+        listObjectTypes({ per_page: 200 }).catch(() => ({ data: [] as ObjectType[], total: 0, page: 1, per_page: 200 })),
+        listActionTypes({ per_page: 200 }).catch(() => ({ data: [] as ActionType[], total: 0 })),
+      ]);
       setDetail(listingResp);
       setFleets(fleetsResp.items);
+      setObjectTypes(objectTypeResp.data);
+      setActionTypes(actionTypeResp.data);
       const initialVersion =
         listingResp.latest_version?.version ?? listingResp.versions[0]?.version ?? '';
       setSelectedVersion(initialVersion);
@@ -133,6 +150,47 @@ export function MarketplaceProductPage() {
       null
     );
   }, [detail, selectedVersion]);
+  const installTargetVersion: PackageVersion | null = useMemo(() => {
+    if (!detail) return null;
+    return (
+      detail.versions.find((v) => v.version === installVersion) ??
+      resolvedVersion
+    );
+  }, [detail, installVersion, resolvedVersion]);
+  const objectViewInstallPlan = useMemo<ObjectViewMarketplaceInstallPlan | null>(() => {
+    if (!installTargetVersion) return null;
+    const outputs = Array.isArray(installTargetVersion.manifest.object_view_outputs)
+      ? installTargetVersion.manifest.object_view_outputs
+      : [];
+    const moduleIds = outputs.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return [] as string[];
+      const tabs = Array.isArray((entry as { tabs?: unknown }).tabs) ? (entry as { tabs: unknown[] }).tabs : [];
+      return tabs.flatMap((tab) =>
+        tab && typeof tab === 'object' && typeof (tab as { module_id?: unknown }).module_id === 'string'
+          ? [(tab as { module_id: string }).module_id]
+          : [],
+      );
+    });
+    const widgetIds = outputs.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return [] as string[];
+      const tabs = Array.isArray((entry as { tabs?: unknown }).tabs) ? (entry as { tabs: unknown[] }).tabs : [];
+      return tabs.flatMap((tab) =>
+        tab && typeof tab === 'object' && Array.isArray((tab as { widget_ids?: unknown }).widget_ids)
+          ? (tab as { widget_ids: unknown[] }).widget_ids.filter((id): id is string => typeof id === 'string')
+          : [],
+      );
+    });
+    return buildObjectViewMarketplaceInstallPlan({
+      manifest: installTargetVersion.manifest,
+      packagedResources: installTargetVersion.packaged_resources,
+      targetObjectTypes: objectTypes,
+      availableActionTypeIds: actionTypes.map((action) => action.id),
+      availableWorkshopModuleIds: moduleIds,
+      availableWidgetIds: widgetIds,
+      availableFunctionIds: [],
+      installedBy: 'marketplace-install',
+    });
+  }, [actionTypes, installTargetVersion, objectTypes]);
 
   const sections: SectionDef[] = [
     { id: 'overview', label: 'Overview', icon: 'document' },
@@ -150,6 +208,12 @@ export function MarketplaceProductPage() {
 
   async function installPackage() {
     if (!detail) return;
+    if (objectViewInstallPlan && !objectViewInstallPlan.valid) {
+      const message = `Resolve ${objectViewInstallPlan.failures.length} Object View install failure${objectViewInstallPlan.failures.length === 1 ? '' : 's'} before installing this product.`;
+      setErrorMsg(message);
+      notifications.error(message);
+      return;
+    }
     setBusy('install');
     setErrorMsg(null);
     try {
@@ -628,6 +692,7 @@ export function MarketplaceProductPage() {
               fleetId={installFleetId}
               branch={installBranch}
               busy={busy === 'install'}
+              objectViewPlan={objectViewInstallPlan}
               onVersionChange={setInstallVersion}
               onWorkspaceChange={setInstallWorkspace}
               onChannelChange={setInstallChannel}
@@ -1184,6 +1249,7 @@ function InstallSection(props: {
   fleetId: string;
   branch: string;
   busy: boolean;
+  objectViewPlan: ObjectViewMarketplaceInstallPlan | null;
   onVersionChange: (v: string) => void;
   onWorkspaceChange: (v: string) => void;
   onChannelChange: (v: string) => void;
@@ -1264,6 +1330,46 @@ function InstallSection(props: {
             placeholder="feature/ops-branch (optional)"
           />
         </label>
+        {props.objectViewPlan && (props.objectViewPlan.outputs.length > 0 || props.objectViewPlan.failures.length > 0) ? (
+          <section className="of-panel-muted" style={{ gridColumn: 'span 2', padding: 12, display: 'grid', gap: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <p className="of-eyebrow">Object View install remapping</p>
+                <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+                  {props.objectViewPlan.outputs.length} Object View outputs, {props.objectViewPlan.preserved.selected_tabs} selected tabs, {props.objectViewPlan.preserved.module_dependencies} module dependencies.
+                </p>
+              </div>
+              <span className={`of-chip${props.objectViewPlan.valid ? ' of-status-success' : ' of-status-danger'}`}>
+                {props.objectViewPlan.valid ? 'Ready' : 'Blocked'}
+              </span>
+            </div>
+            {props.objectViewPlan.remaps.length > 0 ? (
+              <div style={{ display: 'grid', gap: 6 }}>
+                {props.objectViewPlan.remaps.map((remap) => (
+                  <div key={remap.source_object_type_id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
+                    <span>{remap.source_object_type_id}</span>
+                    <span className="of-text-muted">
+                      {remap.target_object_type_name || 'Missing object type'} · {remap.strategy}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <span className="of-chip">Permissions: {props.objectViewPlan.preserved.permissions.replace(/_/g, ' ')}</span>
+              <span className="of-chip">Custom defaults: {props.objectViewPlan.preserved.custom_view_default_count}</span>
+            </div>
+            {props.objectViewPlan.failures.length > 0 ? (
+              <div style={{ display: 'grid', gap: 6 }}>
+                {props.objectViewPlan.failures.slice(0, 6).map((failure, index) => (
+                  <div key={`${failure.code}-${failure.dependency_ref || failure.output_ref || index}`} className="of-status-danger" style={{ padding: '7px 9px', borderRadius: 6, fontSize: 12 }}>
+                    <strong>{failure.code}:</strong> {failure.message}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
       </div>
       <footer
         style={{
@@ -1279,7 +1385,7 @@ function InstallSection(props: {
           type="button"
           className="of-button of-button--primary"
           onClick={props.onInstall}
-          disabled={props.busy || props.versions.length === 0}
+          disabled={props.busy || props.versions.length === 0 || Boolean(props.objectViewPlan && !props.objectViewPlan.valid)}
           data-testid="install-button"
         >
           <Glyph name="shield-plus" size={14} />

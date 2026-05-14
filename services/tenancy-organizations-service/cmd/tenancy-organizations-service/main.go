@@ -1,10 +1,8 @@
-// Command tenancy-organizations-service hosts the foundation slice of
-// the Rust `tenancy-organizations-service` crate: organizations + enrollments
-// CRUD over Postgres.
+// Command tenancy-organizations-service hosts the foundation slice:
+// organizations + enrollments CRUD over Postgres.
 //
 // Spaces, projects, sharing, trash, favorites, recents, resource_resolve and
-// resource_ops land in follow-up slices — see
-// docs/archive/INVENTORY-tenancy-organizations-service.md.
+// resource_ops land in follow-up slices.
 package main
 
 import (

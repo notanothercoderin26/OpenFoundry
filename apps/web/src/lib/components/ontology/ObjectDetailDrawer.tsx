@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import {
+  buildObjectInstanceViewPolicy,
+  buildObjectViewApplicationEmbeddingMatrix,
   formatPropertyValue,
   getObject,
   groupLinkedObjectsByLinkType,
@@ -16,14 +18,20 @@ import {
   objectViewVisibleProperties,
   prominentPropertyPresentation,
   propertyConditionalStyle,
+  redactNeighborLinksForObjectAccess,
+  redactObjectInstanceForPolicy,
+  redactObjectInstanceForRestrictedViewPolicy,
+  schemaOnlyObjectInstance,
   type ActionType,
   type ExecuteActionResponse,
   type ExecuteBatchActionResponse,
   type LinkType,
   type NeighborLink,
   type ObjectInstance,
+  type ObjectInstanceViewPolicy,
   type ObjectType,
   type ObjectViewFormFactor,
+  type OntologyPermissionPrincipal,
   type Property,
 } from '@/lib/api/ontology';
 import { Tabs } from '@/lib/components/Tabs';
@@ -43,6 +51,9 @@ interface ObjectDetailDrawerProps {
   properties?: Property[];
   actions?: ActionType[];
   linkTypes?: LinkType[];
+  objectTypes?: ObjectType[];
+  instanceAccess?: ObjectInstanceViewPolicy | null;
+  principal?: OntologyPermissionPrincipal | null;
   formFactor?: ObjectViewFormFactor;
   fullViewHref?: string;
   onClose: () => void;
@@ -178,22 +189,40 @@ function LinkedObjectPreview({ neighbor, onOpenFull }: { neighbor: NeighborLink 
   }
   return (
     <aside style={{ padding: 12, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8, display: 'grid', gap: 8, alignContent: 'start' }}>
+      {neighbor.object.object_view_access?.schema_only ? (
+        <div className="of-status-warning" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>
+          {neighbor.object.object_view_access.reason}
+        </div>
+      ) : null}
       <div>
         <p className="of-eyebrow" style={{ margin: 0 }}>{neighbor.link_name}</p>
-        <h3 style={{ margin: '4px 0 0', color: '#f8fafc', fontSize: 16 }}>{objectViewTitle(neighbor.object)}</h3>
-        <p style={{ margin: '4px 0 0', color: '#94a3b8', fontFamily: 'var(--font-mono)', fontSize: 11, overflowWrap: 'anywhere' }}>{neighbor.object.id}</p>
+        <h3 style={{ margin: '4px 0 0', color: '#f8fafc', fontSize: 16 }}>
+          {neighbor.object.object_view_access?.schema_only ? 'Schema-only linked object' : objectViewTitle(neighbor.object)}
+        </h3>
+        {!neighbor.object.object_view_access?.schema_only ? (
+          <p style={{ margin: '4px 0 0', color: '#94a3b8', fontFamily: 'var(--font-mono)', fontSize: 11, overflowWrap: 'anywhere' }}>{neighbor.object.id}</p>
+        ) : null}
       </div>
       <dl style={{ display: 'grid', gap: 6, margin: 0, fontSize: 12 }}>
-        {Object.entries(neighbor.object.properties ?? {}).slice(0, 8).map(([key, value]) => (
-          <div key={key} style={{ display: 'grid', gap: 2 }}>
-            <dt style={{ color: '#64748b', overflowWrap: 'anywhere' }}>{key}</dt>
-            <dd style={{ margin: 0, overflowWrap: 'anywhere' }}>{typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—')}</dd>
+        {neighbor.object.object_view_access?.schema_only ? (
+          <div style={{ display: 'grid', gap: 2 }}>
+            <dt style={{ color: '#64748b' }}>Object values</dt>
+            <dd style={{ margin: 0 }}>Restricted</dd>
           </div>
-        ))}
+        ) : (
+          Object.entries(neighbor.object.properties ?? {}).slice(0, 8).map(([key, value]) => (
+            <div key={key} style={{ display: 'grid', gap: 2 }}>
+              <dt style={{ color: '#64748b', overflowWrap: 'anywhere' }}>{key}</dt>
+              <dd style={{ margin: 0, overflowWrap: 'anywhere' }}>{typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—')}</dd>
+            </div>
+          ))
+        )}
       </dl>
-      <button type="button" className="of-button" onClick={() => onOpenFull(neighbor)} style={{ justifySelf: 'start' }}>
-        Open full Object View
-      </button>
+      {!neighbor.object.object_view_access?.schema_only ? (
+        <button type="button" className="of-button" onClick={() => onOpenFull(neighbor)} style={{ justifySelf: 'start' }}>
+          Open full Object View
+        </button>
+      ) : null}
     </aside>
   );
 }
@@ -207,6 +236,9 @@ export function ObjectDetailDrawer({
   properties: providedProperties = EMPTY_PROPERTIES,
   actions: providedActions = EMPTY_ACTIONS,
   linkTypes = [],
+  objectTypes = [],
+  instanceAccess = null,
+  principal = null,
   formFactor = 'full',
   fullViewHref,
   onClose,
@@ -224,6 +256,29 @@ export function ObjectDetailDrawer({
   const [linksLoading, setLinksLoading] = useState(false);
   const [error, setError] = useState('');
   const [linksError, setLinksError] = useState('');
+  const activeAccess = useMemo(
+    () => object?.object_view_access ?? instanceAccess ?? (
+      objectType ? buildObjectInstanceViewPolicy({ objectType, principal }) : null
+    ),
+    [instanceAccess, object?.object_view_access, objectType, principal],
+  );
+  const schemaOnly = Boolean(activeAccess?.schema_only);
+  const canViewDefinition = activeAccess?.can_view_definition ?? true;
+  const canViewInstances = activeAccess?.can_view_instances ?? true;
+  const detailEmbeddingEntry = useMemo(
+    () =>
+      objectType
+        ? buildObjectViewApplicationEmbeddingMatrix({
+            objectType,
+            object: schemaOnly ? null : object,
+            objectId: objectId || object?.id || undefined,
+            formFactor: formFactor === 'panel' ? 'panel' : 'full',
+            hosts: ['object_detail_drawer'],
+          }).entries[0]
+        : null,
+    [formFactor, object, objectId, objectType, schemaOnly],
+  );
+  const detailFullViewHref = fullViewHref || detailEmbeddingEntry?.full_href || (objectId ? objectViewFullHref(typeId, objectId) : `/ontology/${encodeURIComponent(typeId)}`);
 
   useEffect(() => {
     if (providedProperties.length > 0) setProperties(providedProperties);
@@ -255,6 +310,26 @@ export function ObjectDetailDrawer({
 
     async function load() {
       try {
+        if (!canViewDefinition) {
+          if (!cancelled) {
+            setObject(null);
+            setProperties(providedProperties.length > 0 ? providedProperties : []);
+            setActions([]);
+            setError('Object type definition is not viewable for the current user.');
+          }
+          return;
+        }
+        if (!canViewInstances && activeAccess) {
+          const propertyRes = providedProperties.length > 0 ? providedProperties : await listProperties(typeId);
+          if (cancelled) return;
+          setObject(redactObjectInstanceForPolicy(
+            initialObject ?? schemaOnlyObjectInstance(typeId, activeObjectId, activeAccess),
+            activeAccess,
+          ));
+          setProperties(propertyRes);
+          setActions([]);
+          return;
+        }
         const [objectRes, propertyRes, actionRes, implementedInterfaces, allActions] = await Promise.all([
           getObject(typeId, activeObjectId),
           providedProperties.length > 0 ? Promise.resolve(providedProperties) : listProperties(typeId),
@@ -265,7 +340,7 @@ export function ObjectDetailDrawer({
           listActionTypes({ per_page: 200 }).then((response) => response.data).catch(() => []),
         ]);
         if (cancelled) return;
-        setObject(objectRes);
+        setObject(redactObjectInstanceForRestrictedViewPolicy(objectRes, objectType, principal));
         setProperties(propertyRes);
         setActions(mergeApplicableInterfaceActions(actionRes.data, allActions, implementedInterfaces));
       } catch (cause) {
@@ -280,14 +355,15 @@ export function ObjectDetailDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, typeId, objectId, initialObject, providedActions, providedProperties]);
+  }, [open, typeId, objectId, initialObject, providedActions, providedProperties, activeAccess, canViewDefinition, canViewInstances]);
 
   async function loadLinks(force = false) {
-    if (!objectId || linksLoading || (!force && neighbors.length > 0)) return;
+    if (!objectId || schemaOnly || !canViewInstances || linksLoading || (!force && neighbors.length > 0)) return;
     setLinksLoading(true);
     setLinksError('');
     try {
-      setNeighbors(await listNeighbors(typeId, objectId));
+      const loaded = await listNeighbors(typeId, objectId);
+      setNeighbors(redactNeighborLinksForObjectAccess({ neighbors: loaded, objectTypes, principal }));
     } catch (cause) {
       setLinksError(cause instanceof Error ? cause.message : 'Failed to load linked objects');
     } finally {
@@ -312,10 +388,11 @@ export function ObjectDetailDrawer({
   }
 
   async function refreshObject() {
-    if (!objectId) return;
+    if (!objectId || schemaOnly || !canViewInstances) return;
     const next = await getObject(typeId, objectId);
-    setObject(next);
-    onObjectUpdated?.(next);
+    const redacted = redactObjectInstanceForRestrictedViewPolicy(next, objectType, principal);
+    setObject(redacted);
+    onObjectUpdated?.(redacted);
   }
 
   async function handleExecuted(response: ExecuteActionResponse | ExecuteBatchActionResponse) {
@@ -343,7 +420,12 @@ export function ObjectDetailDrawer({
   const linkedObjectGroups = useMemo(() => groupLinkedObjectsByLinkType(neighbors, linkTypes), [neighbors, linkTypes]);
   const visibleNeighbors = useMemo(() => linkedObjectGroups.flatMap((group) => group.items), [linkedObjectGroups]);
   const availableTabs = useMemo(() => (
-    formFactor === 'panel'
+    schemaOnly
+      ? ([
+          { id: 'summary', label: 'Summary' },
+          { id: 'properties', label: `Schema (${properties.length})` },
+        ] as const)
+      : formFactor === 'panel'
       ? ([
           { id: 'summary', label: 'Summary' },
           { id: 'properties', label: `Properties (${properties.length})` },
@@ -358,7 +440,7 @@ export function ObjectDetailDrawer({
           { id: 'timeline', label: 'Timeline' },
           { id: 'raw', label: 'Raw' },
         ] as const)
-  ), [actions.length, formFactor, properties.length, visibleNeighbors.length]);
+  ), [actions.length, formFactor, properties.length, schemaOnly, visibleNeighbors.length]);
 
   useEffect(() => {
     if (!availableTabs.some((entry) => entry.id === tab)) setTab('summary');
@@ -388,19 +470,27 @@ export function ObjectDetailDrawer({
                   {objectType?.display_name || objectType?.name || 'Ontology object'}
                 </p>
                 <h2 style={{ margin: '4px 0 0', color: '#f8fafc', fontSize: 20, lineHeight: 1.2, overflowWrap: 'anywhere' }}>
-                  {object ? objectViewTitle(object, objectType) : shortId(objectId)}
+                  {schemaOnly ? `${objectType?.display_name || objectType?.name || 'Object'} schema` : object ? objectViewTitle(object, objectType) : shortId(objectId)}
                 </h2>
                 <p style={{ margin: '6px 0 0', color: '#94a3b8', fontFamily: 'var(--font-mono)', fontSize: 11, overflowWrap: 'anywhere' }}>
-                  Primary key: {object ? objectViewPrimaryKey(object, objectType) : shortId(objectId)} · Object ID: {objectId}
+                  {schemaOnly
+                    ? 'Object values restricted · showing schema only'
+                    : `Primary key: ${object ? objectViewPrimaryKey(object, objectType) : shortId(objectId)} · Object ID: ${objectId}`}
                 </p>
                 {formFactor === 'panel' && (
-                  <a href={fullViewHref || objectViewFullHref(typeId, objectId)} target="_blank" rel="noreferrer" className="of-button" style={{ marginTop: 8, display: 'inline-flex', fontSize: 12 }}>
+                  <a href={schemaOnly ? `/ontology/${encodeURIComponent(typeId)}` : detailFullViewHref} target="_blank" rel="noreferrer" className="of-button" style={{ marginTop: 8, display: 'inline-flex', fontSize: 12 }}>
                     Open full Object View
                   </a>
                 )}
               </div>
-              {object?.marking && <span className="of-chip">{object.marking}</span>}
+              {schemaOnly ? <span className="of-chip">schema only</span> : object?.marking && <span className="of-chip">{object.marking}</span>}
             </div>
+
+            {schemaOnly && activeAccess ? (
+              <div className="of-status-warning" style={{ padding: '8px 10px', borderRadius: 6, fontSize: 12 }}>
+                {activeAccess.reason}
+              </div>
+            ) : null}
 
             {error && (
               <div className="of-status-danger" style={{ padding: '8px 10px', borderRadius: 6, fontSize: 12 }}>
@@ -422,24 +512,33 @@ export function ObjectDetailDrawer({
 
             {!loading && object && tab === 'summary' && (
               <div style={{ display: 'grid', gap: 12 }}>
-                <ObjectCard object={object} properties={properties} objectType={objectType} actions={cardActions} />
+                <ObjectCard object={object} properties={properties} objectType={objectType} actions={schemaOnly ? [] : cardActions} schemaOnly={schemaOnly} />
                 <section style={{ display: 'grid', gap: 8, padding: 12, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8 }}>
-                  <p className="of-eyebrow" style={{ margin: 0 }}>Prominent properties</p>
+                  <p className="of-eyebrow" style={{ margin: 0 }}>{schemaOnly ? 'Schema properties' : 'Prominent properties'}</p>
                   {prominentProperties.length > 0 ? (
                     <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
                       {prominentProperties.map((property) => (
-                        <ProminentPropertyCard
-                          key={property.id}
-                          property={property}
-                          value={object.properties?.[property.name]}
-                        />
+                        schemaOnly ? (
+                          <article key={property.id} style={{ padding: 12, background: '#111827', border: '1px solid #334155', borderRadius: 10, minHeight: 90, display: 'grid', gap: 6 }}>
+                            <p className="of-eyebrow" style={{ margin: 0 }}>{property.display_name || property.name}</p>
+                            <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>{property.property_type}</p>
+                            <strong style={{ fontSize: 14 }}>Restricted</strong>
+                          </article>
+                        ) : (
+                          <ProminentPropertyCard
+                            key={property.id}
+                            property={property}
+                            value={object.properties?.[property.name]}
+                          />
+                        )
                       ))}
                     </div>
                   ) : (
-                    <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>No prominent properties configured.</p>
+                    <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>{schemaOnly ? 'No schema properties configured.' : 'No prominent properties configured.'}</p>
                   )}
                 </section>
-                <section style={{ display: 'grid', gap: 8, padding: 12, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8 }}>
+                {!schemaOnly ? (
+                  <section style={{ display: 'grid', gap: 8, padding: 12, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8 }}>
                   <p className="of-eyebrow" style={{ margin: 0 }}>Metadata</p>
                   <dl style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', margin: 0, fontSize: 12 }}>
                     <div>
@@ -459,7 +558,8 @@ export function ObjectDetailDrawer({
                       <dd style={{ margin: 0, fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere' }}>{object.created_by || '-'}</dd>
                     </div>
                   </dl>
-                </section>
+                  </section>
+                ) : null}
               </div>
             )}
 
@@ -474,24 +574,36 @@ export function ObjectDetailDrawer({
                     </tr>
                   </thead>
                   <tbody>
-                    {normalProperties.map((property) => (
-                      <tr key={property.id}>
-                        <td style={{ padding: 8, borderBottom: '1px solid #1f2937', verticalAlign: 'top' }}>
-                          <strong style={{ color: '#e2e8f0' }}>{property.display_name || property.name}</strong>
-                          <p className="of-text-muted" style={{ margin: '3px 0 0', fontSize: 11 }}>{property.name}{property.required ? ' · required' : ''}</p>
-                        </td>
-                        <td style={{ padding: 8, borderBottom: '1px solid #1f2937', verticalAlign: 'top', color: '#94a3b8' }}>{property.property_type}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid #1f2937', verticalAlign: 'top' }}>
-                          <InlineEditCell
-                            typeId={typeId}
-                            objectId={object.id}
-                            property={property}
-                            value={object.properties?.[property.name]}
-                            onUpdated={(next) => updateProperty(property, next)}
-                          />
-                        </td>
-                      </tr>
-                    ))}
+                    {normalProperties.map((property) => {
+                        const security = object.object_security_access?.property_decisions.find((decision) => decision.property_name === property.name);
+                        const readBlocked = Boolean(security && !security.can_read);
+                        const editBlocked = security && !(security.policy_property ? security.can_edit_policy_property : security.can_edit_property)
+                          ? security.reason
+                          : '';
+                        return (
+                          <tr key={property.id}>
+                            <td style={{ padding: 8, borderBottom: '1px solid #1f2937', verticalAlign: 'top' }}>
+                              <strong style={{ color: '#e2e8f0' }}>{property.display_name || property.name}</strong>
+                              <p className="of-text-muted" style={{ margin: '3px 0 0', fontSize: 11 }}>{property.name}{property.required ? ' · required' : ''}</p>
+                            </td>
+                            <td style={{ padding: 8, borderBottom: '1px solid #1f2937', verticalAlign: 'top', color: '#94a3b8' }}>{property.property_type}</td>
+                            <td style={{ padding: 8, borderBottom: '1px solid #1f2937', verticalAlign: 'top' }}>
+                              {schemaOnly || readBlocked ? (
+                                <span className="of-text-muted">Restricted</span>
+                              ) : (
+                                <InlineEditCell
+                                  typeId={typeId}
+                                  objectId={object.id}
+                                  property={property}
+                                  value={object.properties?.[property.name]}
+                                  disabledReason={editBlocked}
+                                  onUpdated={(next) => updateProperty(property, next)}
+                                />
+                              )}
+                            </td>
+                          </tr>
+                        );
+                    })}
                   </tbody>
                 </table>
                 {normalProperties.length === 0 && (
@@ -518,40 +630,54 @@ export function ObjectDetailDrawer({
                             {group.outbound.length} outbound · {group.inbound.length} inbound
                           </p>
                         </div>
-                        <button type="button" className="of-button" onClick={() => openLinkedObjectExploration(group.link_type_id, group.items)} style={{ fontSize: 11 }}>
-                          Explore subset
-                        </button>
+                        {group.items.some((item) => item.object.object_view_access?.schema_only) ? (
+                          <span className="of-chip">restricted previews</span>
+                        ) : (
+                          <button type="button" className="of-button" onClick={() => openLinkedObjectExploration(group.link_type_id, group.items)} style={{ fontSize: 11 }}>
+                            Explore subset
+                          </button>
+                        )}
                       </div>
                       <div style={{ display: 'grid', gap: 6 }}>
-                        {group.items.slice(0, formFactor === 'panel' ? 3 : 6).map((neighbor) => (
-                          <button
-                            key={`${neighbor.link_id}-${neighbor.object.id}`}
-                            type="button"
-                            onClick={() => setSelectedLinkedObject(neighbor)}
-                            style={{
-                              padding: 8,
-                              border: selectedLinkedObject?.object.id === neighbor.object.id ? '1px solid #38bdf8' : '1px solid #1f2937',
-                              borderRadius: 6,
-                              background: selectedLinkedObject?.object.id === neighbor.object.id ? 'rgba(14, 165, 233, 0.12)' : '#020617',
-                              color: '#e2e8f0',
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                              <strong style={{ fontSize: 12 }}>{objectViewTitle(neighbor.object)}</strong>
-                              <span className="of-chip">{neighbor.direction}</span>
-                            </div>
-                            <dl style={{ display: 'grid', gap: 3, margin: '6px 0 0', fontSize: 11 }}>
-                              {Object.entries(neighbor.object.properties ?? {}).slice(0, 3).map(([key, value]) => (
-                                <div key={key} style={{ display: 'grid', gridTemplateColumns: '100px minmax(0, 1fr)', gap: 6 }}>
-                                  <dt style={{ color: '#64748b', overflowWrap: 'anywhere' }}>{key}</dt>
-                                  <dd style={{ margin: 0, overflowWrap: 'anywhere' }}>{typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—')}</dd>
-                                </div>
-                              ))}
-                            </dl>
-                          </button>
-                        ))}
+                        {group.items.slice(0, formFactor === 'panel' ? 3 : 6).map((neighbor) => {
+                          const neighborSchemaOnly = Boolean(neighbor.object.object_view_access?.schema_only);
+                          return (
+                            <button
+                              key={`${neighbor.link_id}-${neighbor.object.id}`}
+                              type="button"
+                              onClick={() => setSelectedLinkedObject(neighbor)}
+                              style={{
+                                padding: 8,
+                                border: selectedLinkedObject?.object.id === neighbor.object.id ? '1px solid #38bdf8' : '1px solid #1f2937',
+                                borderRadius: 6,
+                                background: selectedLinkedObject?.object.id === neighbor.object.id ? 'rgba(14, 165, 233, 0.12)' : '#020617',
+                                color: '#e2e8f0',
+                                textAlign: 'left',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                                <strong style={{ fontSize: 12 }}>{neighborSchemaOnly ? 'Schema-only linked object' : objectViewTitle(neighbor.object)}</strong>
+                                <span className="of-chip">{neighbor.direction}</span>
+                              </div>
+                              <dl style={{ display: 'grid', gap: 3, margin: '6px 0 0', fontSize: 11 }}>
+                                {neighborSchemaOnly ? (
+                                  <div style={{ display: 'grid', gridTemplateColumns: '100px minmax(0, 1fr)', gap: 6 }}>
+                                    <dt style={{ color: '#64748b' }}>Values</dt>
+                                    <dd style={{ margin: 0 }}>Restricted</dd>
+                                  </div>
+                                ) : (
+                                  Object.entries(neighbor.object.properties ?? {}).slice(0, 3).map(([key, value]) => (
+                                    <div key={key} style={{ display: 'grid', gridTemplateColumns: '100px minmax(0, 1fr)', gap: 6 }}>
+                                      <dt style={{ color: '#64748b', overflowWrap: 'anywhere' }}>{key}</dt>
+                                      <dd style={{ margin: 0, overflowWrap: 'anywhere' }}>{typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—')}</dd>
+                                    </div>
+                                  ))
+                                )}
+                              </dl>
+                            </button>
+                          );
+                        })}
                       </div>
                     </article>
                   ))}
@@ -588,7 +714,7 @@ export function ObjectDetailDrawer({
                   {actions.length === 0 && <p className="of-text-muted" style={{ fontSize: 13 }}>No actions apply to this object type.</p>}
                 </div>
                 <div style={{ minWidth: 0, padding: 12, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8 }}>
-                  <ActionExecutor action={selectedAction} targetObjectId={object.id} onExecuted={(response) => void handleExecuted(response)} />
+                  <ActionExecutor action={selectedAction} targetObjectId={object.id} disabledReason={object.object_security_access?.blocked ? object.object_security_access.reason : ''} onExecuted={(response) => void handleExecuted(response)} />
                   {actionResult && (
                     <pre style={{ marginTop: 12, padding: 10, background: '#020617', color: '#a5f3fc', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 11, maxHeight: 220, overflow: 'auto' }}>
                       {JSON.stringify(actionResult, null, 2)}

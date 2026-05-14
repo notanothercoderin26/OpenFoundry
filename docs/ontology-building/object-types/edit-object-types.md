@@ -19,7 +19,7 @@ The stable `name` is not currently part of the update payload, which is a health
 ```text
 editor
   -> PATCH/PUT ontology type endpoint
-  -> ontology-service updates mutable metadata
+  -> ontology-definition-service updates mutable metadata
   -> updated_at changes
   -> downstream applications consume revised semantics
 ```

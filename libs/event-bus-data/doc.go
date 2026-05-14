@@ -1,5 +1,4 @@
-// Package databus is the OpenFoundry data-plane event bus (Kafka) —
-// the Go counterpart of Rust's `event-bus-data`.
+// Package databus is the OpenFoundry data-plane event bus (Kafka).
 //
 // Why split it from the control plane (controlbus / NATS)
 //
@@ -19,9 +18,8 @@
 //
 // Records carry the small, well-known set of Kafka headers
 // (`ol-namespace`, `ol-job-name`, `ol-run-id`, `ol-event-time`,
-// `ol-producer`, `ol-schema-url`) so any consumer (Rust, Go, Python,
-// Java) can extract them without a schema registry lookup. See
-// OpenLineageHeaders.
+// `ol-producer`, `ol-schema-url`) so any consumer can extract them
+// without a schema registry lookup. See OpenLineageHeaders.
 //
 // Auto-creation and ACLs
 //
@@ -31,9 +29,6 @@
 //
 // Implementation note
 //
-// The Rust crate uses rdkafka (librdkafka). The Go side uses
-// segmentio/kafka-go (pure Go, no CGO) — the wire-level Kafka protocol
-// is identical so brokers cannot tell which client is connected.
-// Producer settings (acks=all, idempotent writes, compression) match
-// the Rust defaults.
+// Uses segmentio/kafka-go (pure Go, no CGO). Producer settings:
+// acks=all, idempotent writes, zstd compression.
 package databus

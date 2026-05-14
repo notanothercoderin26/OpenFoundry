@@ -1,10 +1,10 @@
 # Create a property
 
-Property creation is already guarded by basic semantic validation in `ontology-service`.
+Property creation is already guarded by basic semantic validation in `ontology-definition-service`.
 
 ## Current request shape
 
-Based on `CreatePropertyRequest` in `services/ontology-service/src/models/property.rs`, OpenFoundry currently supports:
+Based on `CreatePropertyRequest` in `services/ontology-definition-service/internal/models/property.go`, OpenFoundry currently supports:
 
 | Field | Required | Purpose |
 | --- | --- | --- |

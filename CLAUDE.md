@@ -14,8 +14,8 @@ from this tree but its vocabulary still leaks into docs.
 
 ```
 apps/web/        React 19 + Vite + TypeScript frontend
-services/        41 Go microservices (one binary per dir, see template/)
-libs/            32 shared Go packages (kernels, observability, auth, …)
+services/        42 Go microservices (one binary per dir, see template/)
+libs/            33 shared Go packages (kernels, observability, auth, …)
 proto/           Source-of-truth .proto files (Go code generated to libs/proto-gen/)
 sdks/            Generated client SDKs (TS/Python/Java)
 infra/           Helm charts, ArgoCD, Terraform, runbooks

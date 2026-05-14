@@ -131,24 +131,28 @@ OpenFoundry canonical IDs.
 
 ### Compute Module resource and image basics
 
-- [ ] `CM.1` Compute Module CRUD and project placement (`P0`, `todo`)
+- [x] `CM.1` Compute Module CRUD and project placement (`P0`, `done`)
   - Create, list, get, update metadata, move, duplicate, archive/delete, and restore Compute Module resources.
   - Support creation from a folder/project with function-mode or pipeline-mode selection.
+  - Implemented in `services/compute-module-service/` (CRUD handlers, in-memory repo, Postgres migration `0001_compute_modules.sql`, capability registrations, unit/handler tests).
   - Docs: [Compute Modules overview](https://www.palantir.com/docs/foundry/compute-modules/overview), [Compute Modules getting started](https://www.palantir.com/docs/foundry/compute-modules/get-started).
 
-- [ ] `CM.2` Execution mode model (`P0`, `todo`)
+- [x] `CM.2` Execution mode model (`P0`, `done`)
   - Persist function execution mode and pipeline execution mode with mode-specific validation and UI affordances.
   - Block querying pipeline-mode modules as functions and block pipeline input/output config for function-only modules.
+  - Implemented in `services/compute-module-service/internal/domain/executionmode/` (Policy + Affordances + EnsureFunctionMode/EnsurePipelineMode guards) wired into the repo (`SetPipelineIOConfig`/`ClearPipelineIOConfig` reject function-mode modules) and exposed via `GET /compute-modules/{id}/execution-mode`, `PUT|DELETE /compute-modules/{id}/pipeline-io`, and `POST /compute-modules/{id}/functions/query` (function-mode only).
   - Docs: [Compute Modules execution modes](https://www.palantir.com/docs/foundry/compute-modules/execution-modes/).
 
-- [ ] `CM.3` Container image reference and compatibility validation (`P0`, `todo`)
+- [x] `CM.3` Container image reference and compatibility validation (`P0`, `done`)
   - Store image registry, repository, tag, digest, provenance, and compatibility findings.
   - Validate non-root numeric user, linux/amd64 platform, non-`latest` tags or digest use, and exposed port constraints where locally enforceable.
+  - Implemented in `services/compute-module-service/internal/domain/containerimage/` (stable-coded findings: `non-root-required`, `numeric-user`, `unsupported-platform`, `mutable-tag`, `missing-digest`, `malformed-digest`, `privileged-port`, `missing-provenance`, `oversized-exposed-ports`) wired through `PUT|GET|DELETE /compute-modules/{id}/container-image` and a module-agnostic dry-run at `POST /compute-modules/container-image/validate`. Error findings → 422 with full finding list; warn/info findings persist alongside the image. Storage column `container_image JSONB` added to migration `0001`.
   - Docs: [Containers](https://www.palantir.com/docs/foundry/compute-modules/containers/).
 
-- [ ] `CM.4` Single-container runtime configuration (`P0`, `todo`)
+- [x] `CM.4` Single-container runtime configuration (`P0`, `done`)
   - Configure command/args, environment variables, ports, resource profile, logging configuration, health metadata, and entrypoint/client role.
   - Redact secret-like environment values and route secrets through secret bindings.
+  - Implemented in `services/compute-module-service/internal/domain/runtime/policy.go` (regex-based secret detection by env name + JWT/AWS/GitHub/Slack token shapes; redaction with `***` placeholder + `redacted=true` flag; structural validation in `models.RuntimeConfig.ValidateStructure`). Wired through `PUT|GET|DELETE /compute-modules/{id}/runtime` and a dry-run at `POST /compute-modules/runtime/validate` that returns the redacted draft + finding list. Storage column `runtime_config JSONB` added to migration `0001`. Secret bindings supply named slots referenced by `value_from_secret`; unreferenced bindings emit an info finding.
   - Docs: [Containers](https://www.palantir.com/docs/foundry/compute-modules/containers/).
 
 - [ ] `CM.5` Build and publish metadata ingest (`P0`, `todo`)
@@ -388,6 +392,17 @@ OpenFoundry canonical IDs.
 - [ ] `INV.8` Identify local development constraints for running Docker/containers in tests and decide which tests require integration tags.
 
 ## Suggested service boundaries
+
+> **Reader note (2026-05-14)** — The services in the table below are
+> *target* decomposition proposals, not a current inventory of
+> binaries. Some have been built under consolidated names after S8
+> (`marketplace-service` → `federation-product-exchange-service`;
+> `approvals-service` → `workflow-automation-service/internal/approvals`;
+> `ontology-security-service` → `authorization-policy-service`;
+> `ai-service` → `agent-runtime-service` + `llm-catalog-service`).
+> Others are not yet implemented. For the canonical list of binaries
+> on disk today, see
+> [`docs/architecture/services-and-ports.md`](../architecture/services-and-ports.md).
 
 | Service or package | Responsibility |
 | --- | --- |

@@ -5,7 +5,7 @@
 
 OpenFoundry's local development stack is defined in
 [`compose.yaml`](../../compose.yaml) at the repo root, which delegates
-to [`infra/docker-compose.yml`](../../infra/docker-compose.yml). One
+to [`infra/compose/docker-compose.yml`](../../infra/compose/docker-compose.yml). One
 command brings up every external dependency the workspace needs to
 build and run end to end.
 
@@ -45,7 +45,7 @@ docker compose down -v
 | `debezium-connect`    | `debezium/connect:2.7`               | `8083`              | `GET /`                                         |
 
 Override any image or host port via the standard environment
-variables documented inline in [`infra/docker-compose.yml`](../../infra/docker-compose.yml)
+variables documented inline in [`infra/compose/docker-compose.yml`](../../infra/compose/docker-compose.yml)
 (e.g. `OPENFOUNDRY_CASSANDRA_HOST_PORT=19042`).
 
 ## Cassandra (S0.6.a–b)
@@ -176,7 +176,8 @@ Default heap caps and memory hints, in rough descending order:
 | Everything else | <200 MB each |
 
 Total infra footprint is around 6–7 GB. Application services add a
-modest amount on top because each Rust service is built statically.
+modest amount on top because each Go service binary is built statically
+under a single root `go.mod`.
 
 ## Profiles
 

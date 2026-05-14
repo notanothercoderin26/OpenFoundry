@@ -2,10 +2,9 @@
 // audit ledger, retention policies, sensitive-data scanning surface,
 // lineage-deletion ledger and saga audit log (per ADR-0030 / B15).
 //
-// The Rust crate is `fn main(){}` (S8 / B15 consolidation pending);
-// this Go port becomes the canonical implementation. Foundation slice
-// covers all 6 schema migrations + read-only list endpoints + write
-// paths for retention_policies + lineage_deletion_requests.
+// Foundation slice covers all 6 schema migrations + read-only list
+// endpoints + write paths for retention_policies +
+// lineage_deletion_requests.
 package main
 
 import (

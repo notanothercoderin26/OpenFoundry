@@ -15,44 +15,9 @@ func TestNormalizeComparablePath(t *testing.T) {
 	}
 }
 
-func TestExtractRustRoutesWithNestAndMergeAlias(t *testing.T) {
-	repo := t.TempDir()
-	src := filepath.Join(repo, "services", "svc", "src")
-	if err := os.MkdirAll(src, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	code := `use axum::{Router, routing::{get, post}};
-fn build() -> Router {
-    let actions = Router::new()
-        .route("/actions", get(list_actions).post(create_action))
-        .route("/actions/{id}", axum::routing::patch(update_action));
-    let protected = actions;
-    Router::new().nest("/api/v1/ontology", protected)
-}
-`
-	if err := os.WriteFile(filepath.Join(src, "lib.rs"), []byte(code), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	routes := extractRustRoutes(repo, "svc")
-	want := map[string]string{
-		"GET /api/v1/ontology/actions":      "list_actions",
-		"POST /api/v1/ontology/actions":     "create_action",
-		"PATCH /api/v1/ontology/actions/{}": "update_action",
-	}
-	if len(routes) != len(want) {
-		t.Fatalf("expected %d routes, got %d: %#v", len(want), len(routes), routes)
-	}
-	for _, r := range routes {
-		key := r.Method + " " + comparablePath(r.Path)
-		if want[key] != r.Handler {
-			t.Fatalf("unexpected route %s handler %q", key, r.Handler)
-		}
-	}
-}
-
 func TestExtractGoRoutesAndClassifyPlaceholders(t *testing.T) {
 	repo := t.TempDir()
-	root := filepath.Join(repo, "openfoundry-go", "services", "svc", "internal", "server")
+	root := filepath.Join(repo, "services", "svc", "internal", "server")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +58,7 @@ func createThing(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.St
 
 func TestExtractGoRoutesPropagatesNestedPrefixThroughMountHelper(t *testing.T) {
 	repo := t.TempDir()
-	root := filepath.Join(repo, "openfoundry-go", "services", "svc", "internal", "server")
+	root := filepath.Join(repo, "services", "svc", "internal", "server")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +93,7 @@ func listActions(w http.ResponseWriter, r *http.Request) {}
 
 func TestExtractGoRoutesSeedsServerNewConstructor(t *testing.T) {
 	repo := t.TempDir()
-	root := filepath.Join(repo, "openfoundry-go", "services", "svc", "internal", "server")
+	root := filepath.Join(repo, "services", "svc", "internal", "server")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -155,17 +120,5 @@ func listThings(w http.ResponseWriter, r *http.Request) {}
 	}
 	if routes[0].Path != "/api/v1/things" {
 		t.Fatalf("New constructor route was not extracted: %#v", routes[0])
-	}
-}
-
-func TestConnectorManagementRustRouteKeyCanonicalizesAPIV1Closure(t *testing.T) {
-	r := Route{Service: "connector-management-service", Side: "rust", Method: "GET", Path: "/data-connection/catalog"}
-	if got := routeKey(r); got != "GET /api/v1/data-connection/catalog" {
-		t.Fatalf("routeKey mismatch: %q", got)
-	}
-
-	health := Route{Service: "connector-management-service", Side: "rust", Method: "GET", Path: "/health"}
-	if got := routeKey(health); got != "GET /health" {
-		t.Fatalf("health routeKey mismatch: %q", got)
 	}
 }

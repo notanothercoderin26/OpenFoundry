@@ -321,195 +321,225 @@ OpenFoundry canonical IDs.
   - Implementation note: The projects API exposes atomic save and saved-record history endpoints; saves validate staged changes, persist success/failure records with resource lists and context, and clear only saved working-state changes in the same transaction.
   - Docs: [Save changes to the Ontology](https://www.palantir.com/docs/foundry/ontology-manager/save-changes), [Review and restore changes](https://www.palantir.com/docs/foundry/ontology-manager/restore-changes).
 
-- [ ] `OMOV.24` Ontology history and restore (`P1`, `todo`)
+- [x] `OMOV.24` Ontology history and restore (`P1`, `done`)
   - Show global saved-change history and per-resource history.
   - Filter history by resource type, author, time, visibility, and whether the user can view details.
   - Restore an object type or supported resource to an older version by creating a new unsaved change that must be saved to take effect.
+  - Implementation note: Ontology Manager now loads project saved-change records, renders global and per-resource history with resource-type/author/time/visibility/detail-access filters, masks restricted details, and stages restore operations as unsaved working-state changes with provenance back to the saved record.
   - Docs: [Review and restore changes](https://www.palantir.com/docs/foundry/ontology-manager/restore-changes).
 
-- [ ] `OMOV.25` Export, edit, and import ontology bundles (`P1`, `todo`)
+- [x] `OMOV.25` Export, edit, and import ontology bundles (`P1`, `done`)
   - Export selected ontology resources into an OpenFoundry-native bundle.
   - Validate edited bundles before import, including API name uniqueness, missing dependencies, unsafe deletes, permission requirements, and unsupported private fields.
   - Import as unsaved changes for review before saving.
+  - Implementation note: Ontology Manager now builds OpenFoundry-native JSON bundles for selected registry resources and value types, validates edited bundles for schema support, API-name conflicts, dependency gaps, unsafe deletes, action permission declarations, private fields, and cross-ontology conditional formatting, then imports valid resources as unsaved working-state changes that must be reviewed and saved.
   - Docs: [Export, edit, and import an Ontology](https://www.palantir.com/docs/foundry/ontology-manager/export-import/), [Ontology cleanup](https://www.palantir.com/docs/foundry/ontology-manager/ontology-cleanup).
 
-- [ ] `OMOV.26` Usage and impact analysis (`P1`, `todo`)
+- [x] `OMOV.26` Usage and impact analysis (`P1`, `done`)
   - Show where object types, properties, link types, interfaces, actions, and Object Views are used across Workshop, Functions, Pipeline Builder, Object Explorer, saved explorations, Global Branching, and Marketplace products.
   - Warn before edits that may break downstream apps, functions, object views, or action parameters.
+  - Implementation note: Ontology Manager now builds a usage-impact graph from Object Views, function-backed actions, Workshop apps, Pipeline Builder pipelines, Object Explorer saved object sets, Global Branching resource links, and Marketplace package manifests; the Usage tab summarizes references, modeled reads/writes/active users, product coverage, and risk by resource, and unsaved changes now surface downstream-impact warnings before save.
   - Docs: [Viewing usage](https://www.palantir.com/docs/foundry/ontology-manager/viewing-usage), [Object Views overview](https://www.palantir.com/docs/foundry/object-views/overview).
 
 ### Object permissions and security
 
-- [ ] `OMOV.27` Ontology resource permissions (`P1`, `todo`)
+- [x] `OMOV.27` Ontology resource permissions (`P1`, `done`)
   - Model ontology resources as project/folder-managed resources with view, edit, manage, and ownership semantics.
   - Enforce that viewing object type definitions differs from viewing object instances.
   - Enforce link edit permissions on both the link type and linked object types, and action edit permissions on the action type plus edited resource types.
+  - Implementation note: Ontology Manager now derives per-resource permission decisions from project/folder placement, ownership, project memberships, elevated ontology roles, and object-data permissions; the Permissions tab separates object type definition visibility from object instance visibility and staged link/action edits now report every required ontology resource edit grant before save.
   - Docs: [Ontology permissions](https://www.palantir.com/docs/foundry/ontologies/ontology-permissions/), [Object permissioning overview](https://www.palantir.com/docs/foundry/object-permissioning/overview).
 
-- [ ] `OMOV.28` Object instance permission checks (`P1`, `todo`)
+- [x] `OMOV.28` Object instance permission checks (`P1`, `done`)
   - Require object type visibility and backing datasource or object security policy visibility to see object instances.
   - Ensure Object Views, Object Explorer, linked-object previews, and comments never reveal object data the user cannot access.
   - Render schema-only views when the user can view definitions but not backing data.
+  - Implementation note: OpenFoundry now computes object-instance visibility separately from object type definition visibility, requiring backing datasource access or explicit object security policy visibility before values render. Object Views, Object Explorer search/results, saved object-set previews, linked-object previews, actions, timelines/comments, and raw payloads now redact or skip object values in schema-only mode while preserving schema/property metadata.
   - Docs: [Object permissioning overview](https://www.palantir.com/docs/foundry/object-permissioning/overview), [Ontology permissions](https://www.palantir.com/docs/foundry/ontologies/ontology-permissions/).
 
-- [ ] `OMOV.29` Restricted-view-backed object types (`P1`, `todo`)
+- [x] `OMOV.29` Restricted-view-backed object types (`P1`, `done`)
   - Allow object types to use restricted views as backing datasources.
   - Enforce row-level policy outcomes in object search, Object Explorer, Object Views, links, and actions.
   - Track policy propagation/update requirements and warn when restricted-view policy changes require re-registration or re-indexing in local storage modes.
+  - Implementation note: Object type datasource settings now support restricted-view backing metadata, local row-policy rules, storage mode/version tracking, and propagation warnings for local registrations/indexes. Object instance policy evaluation now checks restricted-view visibility and row outcomes before search results, Object Explorer rows, Object Views, linked-object previews, and action surfaces can expose object values.
   - Docs: [Configure restricted-view-backed object types](https://www.palantir.com/docs/foundry/object-permissioning/configuring-rv-access-controls/), [Managing object security](https://www.palantir.com/docs/foundry/object-permissioning/managing-object-security/).
 
-- [ ] `OMOV.30` Object and property security policies (`P1`, `blocked`)
+- [x] `OMOV.30` Object and property security policies (`P1`, `done; enforcement-blocked`)
   - Support object instance policies and property policies when OpenFoundry's security/governance layer supports policy evaluation over object attributes.
   - Include read, edit property, and edit policy-property distinctions where supported.
   - Mark policy enforcement blocked until OpenFoundry has compatible policy primitives and test fixtures.
+  - Implementation note: OpenFoundry now models object security policy support status, object read decisions, property read redaction, normal edit-property decisions, and policy-property edit decisions. Attribute-backed enforcement remains explicitly blocked without object-attribute policy primitives and compatible fixtures; blocked policies render schema-only or null protected properties conservatively, disable unsafe edits/actions, and surface status warnings in object type datasource/security settings.
   - Docs: [Object security policies](https://www.palantir.com/docs/foundry/object-permissioning/object-and-property-policies), [Configure restricted-view-backed object types](https://www.palantir.com/docs/foundry/object-permissioning/configuring-rv-access-controls/).
 
 ### Object Explorer-adjacent exploration
 
-- [ ] `OMOV.31` Object Explorer home and search (`P1`, `todo`)
+- [x] `OMOV.31` Object Explorer home and search (`P1`, `done`)
   - Provide an object search/exploration surface for simple keyword search, property filters, object type group browsing, saved explorations, and direct object view opening.
   - Show only object types and objects visible to the user.
+  - Implementation note: Object Explorer now loads visible object types, configured type groups, saved object-set explorations, and recent objects through permission-aware helpers; the home surface supports keyword/semantic search, object type browsing by group, property-filtered object queries, visible saved explorations, and direct Object View opening while preserving schema-only behavior when users can view definitions but not object data.
   - Docs: [Object Explorer overview](https://www.palantir.com/docs/foundry/object-explorer/overview), [Configure Object Explorer](https://www.palantir.com/docs/foundry/object-explorer/configure), [Object type groups](https://www.palantir.com/docs/foundry/object-link-types/type-groups/).
 
-- [ ] `OMOV.32` Object set filters, pivots, and linked-object exploration (`P1`, `todo`)
+- [x] `OMOV.32` Object set filters, pivots, and linked-object exploration (`P1`, `done`)
   - Filter by properties, linked properties, has-link predicates, numeric/date/string controls, and object references.
   - Pivot from one object type to a linked object type while retaining the selected source object set as link-derived context.
+  - Implementation note: Object Explorer now builds typed property filters with numeric/date/string/boolean controls, linked-object filters for has-link, linked property, and object-reference cases, and link-aware pivots using the ontology query `search_around` contract. Pivoted or linked-filtered results carry source-object context and can be saved as OpenFoundry object-set explorations with result-ID filters plus reverse traversals back to the source object set.
   - Docs: [Filter results](https://www.palantir.com/docs/foundry/object-explorer/filter-results), [Pivot to explore linked objects](https://www.palantir.com/docs/foundry/object-explorer/pivot-linked/).
 
-- [ ] `OMOV.33` Saved explorations and object lists (`P1`, `todo`)
+- [x] `OMOV.33` Saved explorations and object lists (`P1`, `done`)
   - Save explorations with query/filter state, layout, privacy, folder/project location, and shareable link.
   - Enforce that saved exploration access does not grant access to underlying objects.
   - Support saved lists where OpenFoundry object set persistence exists.
+  - Implementation note: Object Explorer now saves explorations and object lists into Object Set persistence with query state, selected object IDs, layout columns/view, privacy, project/folder placement, and stable share links. Public saved-exploration metadata can be opened without granting object instance access; schema-only users see the saved context but preview/materialize/object rows remain blocked until datasource or object-policy visibility allows them.
   - Docs: [Save explorations](https://www.palantir.com/docs/foundry/object-explorer/save-explorations), [Object Explorer overview](https://www.palantir.com/docs/foundry/object-explorer/overview).
 
-- [ ] `OMOV.34` Object Explorer actions and open-in/export affordances (`P1`, `todo`)
+- [x] `OMOV.34` Object Explorer actions and open-in/export affordances (`P1`, `done`)
   - Show applicable action types for the current object selection or object set, with parameter prefill where unambiguous.
   - Show Open In affordances for compatible OpenFoundry applications and export affordances where policy allows.
   - Enforce selected-object count limits through local product configuration.
+  - Implementation note: Object Explorer now has a perspective affordance panel for the active result set with Actions, Open In, and Export sections. Actions are filtered for the current object type, hidden when configured for Object Explorer hiding, prefilled only when an object-reference or object-list parameter is unambiguous, and blocked above the local 1,000-object action limit. Open In links route compatible selections to Object Views, graph, map, Workshop apps, and reports; exports provide object ID copy plus CSV/JSON downloads only when object data is viewable and within configured export limits.
   - Docs: [Apply Actions in Object Explorer](https://www.palantir.com/docs/foundry/object-explorer/apply-actions/), [Configure Object Explorer](https://www.palantir.com/docs/foundry/object-explorer/configure).
 
 ### Custom Object Views
 
-- [ ] `OMOV.35` Custom Object View default configuration (`P1`, `todo`)
+- [x] `OMOV.35` Custom Object View default configuration (`P1`, `done`)
   - Automatically create default custom full and panel Object View configurations for each object type.
   - Default full view should include prominent properties or all non-hidden properties and links.
   - Default panel view should include critical property list content.
   - Keep defaults dynamically synchronized with object type metadata until the view is manually edited.
+  - Implementation note: Object View helpers now synthesize configured full and panel defaults for every object type, using prominent properties when present, all non-hidden properties as the fallback, visible links for full views, and compact critical property lists for panel views. Generated defaults carry `default_sync` metadata tied to object type/property/link metadata and are re-synchronized while marked `synced`; editor mutations mark the configuration `manual`, preserving user-managed views and generating only missing form factors.
   - Docs: [Custom Object View configuration](https://www.palantir.com/docs/foundry/object-views/config-overview), [Configure full Object Views](https://www.palantir.com/docs/foundry/object-views/config-object-views), [Configure panel Object Views](https://www.palantir.com/docs/foundry/object-views/config-panel-views/).
 
-- [ ] `OMOV.36` Object View editor shell (`P1`, `todo`)
+- [x] `OMOV.36` Object View editor shell (`P1`, `done`)
   - Provide editor header with ontology, object type, form factor selector, Object View version, Workshop module version, selected preview object, save/publish controls, and open-in-object-explorer link.
   - Provide object title bar and manage-tabs controls for full Object Views.
   - Embed a Workshop module editor for tab/module content.
+  - Implementation note: The Object Views route now renders a configured Object View editor shell with breadcrumb-style ontology/object type/form factor context, Object View and Workshop module version chips, preview-object selection, Save draft/Save and publish controls, and an Object Explorer link. Full views include an object title bar with tab selection and tab settings, while the editor body embeds a Workshop-module-shaped editor for module name, object context, and widget bindings backed by `tabs` and module metadata in the Object View config.
   - Docs: [Configure full Object Views](https://www.palantir.com/docs/foundry/object-views/config-object-views), [Custom Object View configuration](https://www.palantir.com/docs/foundry/object-views/config-overview).
 
-- [ ] `OMOV.37` Full Object View tabs (`P1`, `todo`)
+- [x] `OMOV.37` Full Object View tabs (`P1`, `done`)
   - Add, reorder, rename, delete, and configure visibility for full Object View tabs.
   - Back each tab with a Workshop module that receives selected object context.
   - Hide the tab title in runtime when only one tab exists, while still showing it in edit mode.
+  - Implementation note: Full Object View configs now expose tab helpers for add, reorder, rename, delete, visibility changes, and runtime tab-title evaluation. The Object View editor's Manage tabs panel supports those operations directly, preserves at least one tab, selects a sensible successor when deleting, and creates a user-managed Workshop module for every new tab with `selectedObject` context and default widgets derived from the current Object View sections.
   - Docs: [Configure full Object Views](https://www.palantir.com/docs/foundry/object-views/config-object-views).
 
-- [ ] `OMOV.38` Panel Object View configuration (`P1`, `todo`)
+- [x] `OMOV.38` Panel Object View configuration (`P1`, `done`)
   - Configure compact panel content separately from full view content.
   - Support platform applications and Workshop widgets embedding panel Object Views for selected objects.
   - Provide a title/open-full-view behavior that works in side panels and compact contexts.
+  - Implementation note: Object View configs now carry a dedicated `panel_config` with compact property lists, section kinds, density, title/open-full-view behavior, supported embedding hosts, and Workshop widget metadata independent of full-view tab configuration. The Object Views editor exposes panel-only controls for density, property budgets, host enablement, Workshop widget selected-object bindings, and runtime open-full-view links; runtime helpers resolve panel titles and host-specific embedding state without leaking full-view tab behavior into compact panels.
   - Docs: [Use panel Object Views](https://www.palantir.com/docs/foundry/object-views/use-panel-views-in-platform), [Configure panel Object Views](https://www.palantir.com/docs/foundry/object-views/config-panel-views/), [Object Views overview](https://www.palantir.com/docs/foundry/object-views/overview).
 
-- [ ] `OMOV.39` Core/custom Object View toggle (`P1`, `todo`)
+- [x] `OMOV.39` Core/custom Object View toggle (`P1`, `done`)
   - Let users switch between core and custom Object Views wherever the hosting application supports the toggle.
   - Make custom Object Views the default when configured, while keeping core Object Views accessible.
   - In Workshop, document and enforce any local limitation when toggling is not implemented.
+  - Implementation note: Object View runtime resolution now has a reusable core/custom toggle policy per host. Supported hosts such as Object Views, Object Explorer, Map, Vertex, Gaia, and detail drawers can switch between custom and core views, custom configured views become the selected default whenever present, and core views remain available as an explicit toggle option. Workshop is modeled as a local limitation: it uses the default view and disables core/custom switching until the Workshop widget host implements the toggle.
   - Docs: [Object Views overview](https://www.palantir.com/docs/foundry/object-views/overview), [Custom Object View configuration](https://www.palantir.com/docs/foundry/object-views/config-overview).
 
-- [ ] `OMOV.40` Object View save, publish, and versions (`P1`, `todo`)
+- [x] `OMOV.40` Object View save, publish, and versions (`P1`, `done`)
   - Save and publish Object View tab edits and Workshop module edits together unless automatic publishing is disabled.
   - Track Object View version, module version, author, timestamp, change summary, publish state, and rollback target.
   - Support version history and restore paths for custom Object Views.
+  - Implementation note: Configured Object View configs now carry version history records with Object View version, active Workshop module version, author, timestamp, change summary, publish state, published version, snapshots, and rollback/restore provenance. Saving creates a single version for tab configuration plus the active module; automatic publishing produces one Save and publish path, while disabling it exposes separate Save draft and Publish flows. The editor's history panel lists prior versions and can restore any version as an editable draft that must be saved to become the next version.
   - Docs: [Manage custom Object View versions](https://www.palantir.com/docs/foundry/object-views/manage-versions/), [Configure full Object Views](https://www.palantir.com/docs/foundry/object-views/config-object-views).
 
-- [ ] `OMOV.41` Object View permissions (`P1`, `todo`)
+- [x] `OMOV.41` Object View permissions (`P1`, `done`)
   - Enforce edit permissions based on object type Ontology roles or OpenFoundry's project/resource permissions.
   - Require object view admin permissions and input datasource editor permissions when using a datasource-derived compatibility mode.
   - Keep Object View runtime reads constrained by object type, object instance, property, datasource, and restricted-view permissions.
+  - Implementation note: Object View configs now declare native vs datasource-derived compatibility metadata and input datasource IDs. A reusable edit-permission decision helper allows native edits through object type Ontology edit roles or resource edit permission, and requires Object View Admin/manage plus editor access to an input datasource for datasource-derived compatibility. Object View and Object Explorer runtime previews now share a single redaction path that composes object type visibility, object instance access, object/property policies, datasource-binding nulling, restricted-view row outcomes, neighbor redaction, and schema-only fallbacks.
   - Docs: [Custom Object View configuration](https://www.palantir.com/docs/foundry/object-views/config-overview), [Ontology permissions](https://www.palantir.com/docs/foundry/ontologies/ontology-permissions/).
 
 ## Milestone C: advanced Object View delivery, branching, packaging, and scale
 
 ### Object View delivery and collaboration
 
-- [ ] `OMOV.42` Object View URLs and embeds (`P2`, `todo`)
+- [x] `OMOV.42` Object View URLs and embeds (`P2`, `done`)
   - Generate URLs by object type and primary key or by object ID.
   - Support embedded mode that hides surrounding workspace/navigation chrome for iframe-like embeds where product policy allows.
   - Preserve branch, form factor, and selected tab where supported.
+  - Implementation note: Object View URL helpers now generate OpenFoundry links by object type plus primary-key property/value or by object ID, with branch, form factor, selected tab, core/custom mode, and `embedded=true` preservation. Embed host policy gates iframe-style links and `/object-views?embedded=true` hides workspace sidebar/topbar chrome while rendering a compact Object View surface. The Object Views route parses direct URL state, resolves object IDs or primary-key matches, applies branch/tab selection, and shows generated primary-key, object-ID, and embedded URL variants in the publish panel.
   - Docs: [Generate Object View URLs](https://www.palantir.com/docs/foundry/object-views/generate-urls/), [Use full Object Views](https://www.palantir.com/docs/foundry/object-views/use-full-views-in-platform).
 
-- [ ] `OMOV.43` Comments on objects (`P2`, `todo`)
+- [x] `OMOV.43` Comments on objects (`P2`, `done`)
   - Add comments helper from Object View headers.
   - Support object-scoped comment threads, mentions, file/image attachments, permissions, notifications, edit/delete policy, and activity history.
   - Keep Object Explorer comments distinct from Workshop Comment widgets.
+  - Implementation note: Object comment helpers now model object-scoped threads with explicit Object View/Object Explorer surfaces, mention parsing, file/image attachment metadata, in-app mention notifications, edit/delete permissions, and activity history. Object View headers and Object Explorer panel headers expose a Comments helper that remains hidden for schema-only object data and labels Object Explorer comments as distinct from Workshop Comment widgets, preserving a separate workshop widget thread ID for compatibility.
   - Docs: [Comment on objects](https://www.palantir.com/docs/foundry/object-views/comment-on-objects/).
 
-- [ ] `OMOV.44` Application embedding matrix (`P2`, `todo`)
+- [x] `OMOV.44` Application embedding matrix (`P2`, `done`)
   - Embed full and panel Object Views in Object Explorer, Workshop, Map/Vertex-like surfaces, object detail drawers, action success toasts, and generated deep links.
   - Provide fallbacks when a host application uses its own header or cannot support core/custom toggle.
+  - Implementation note: OpenFoundry now has a reusable Object View application embedding matrix that covers Object Explorer, Workshop, Map, Vertex, Gaia-like surfaces, object detail drawers, action success toasts, and generated deep links. Each host records full/panel delivery mode, host-owned header fallback behavior, core/custom toggle support, generated full/panel/embed URLs, and open-full/deep-link fallbacks. Object View publish tooling displays the matrix beside generated URLs, Object Explorer and detail drawers consume matrix-derived links, Workshop action success toasts expose Object View links for create/modify results, and panel host defaults now include Gaia-like compact selected-object surfaces.
   - Docs: [Use full Object Views](https://www.palantir.com/docs/foundry/object-views/use-full-views-in-platform), [Use panel Object Views](https://www.palantir.com/docs/foundry/object-views/use-panel-views-in-platform), [Configure Object Explorer](https://www.palantir.com/docs/foundry/object-explorer/configure).
 
 ### Branching and change isolation
 
-- [ ] `OMOV.45` Object View Global Branching adapter (`P2`, `todo`)
+- [x] `OMOV.45` Object View Global Branching adapter (`P2`, `done`)
   - Track Object View modules and tab resources on Global Branches.
   - Add, remove, preview, rebase, check, approve, and merge Object View resources through the branch adapter contract.
   - Ensure branched Object Views render against the latest ontology state on the same branch.
+  - Implementation note: Object Views now expose a Global Branch adapter contract that materializes full Object View tab resources separately from OV-managed Workshop module resources, including full-tab modules and object-instance panel modules. The adapter supports add, remove, preview, rebase, deployability check, approve, and merge operations; removing a full tabs resource cascades to associated tab modules, preview records the latest same-branch ontology signature, deployability checks enforce rebase, publish permission, legacy-field, approval, and preview freshness requirements, and merge only succeeds after checks pass. The Object View publish panel surfaces branch resource status, checks, and branch-preserving resource links, while the Global Branching app can link Object View tab/module resource types.
   - Docs: [Branching object views](https://www.palantir.com/docs/foundry/object-views/branching-object-views), [Test changes in the Ontology](https://www.palantir.com/docs/foundry/ontologies/test-changes-in-ontology).
 
-- [ ] `OMOV.46` Object View rebase UX (`P2`, `todo`)
+- [x] `OMOV.46` Object View rebase UX (`P2`, `done`)
   - Show main state, branch state, proposed rebase result, automatically accepted non-conflicting changes, conflicts, and manual resolution choices.
   - Handle OV-managed modules and full Object View tab configuration as distinct rebase resources when needed.
   - Re-run deployability checks after successful rebase.
+  - Implementation note: Object View branching now builds a rebase-dialog model with separate rows for full Object View tab resources and OV-managed module resources, including main state, branch state, proposed result, auto-accepted non-conflicting changes, changed fields, conflict counts, and manual resolution choices (`main`, `branch`, or `custom`). The Object View publish panel renders the rebase model as a three-column comparison and allows conflict resolution before finishing rebase; finishing rebase updates branch rebase metadata and reruns deployability checks through the Object View branch adapter.
   - Docs: [Branching object views](https://www.palantir.com/docs/foundry/object-views/branching-object-views).
 
-- [ ] `OMOV.47` Ontology branch/proposal integration (`P2`, `todo`)
+- [x] `OMOV.47` Ontology branch/proposal integration (`P2`, `done`)
   - Let ontology object types, link types, action types, interfaces, shared properties, and Object Views participate in Global Branching proposals.
   - Validate indexing changes and allow users to remove unwanted indexing/resource changes before merge.
   - Surface branch preview state in Ontology Manager and Object View editor.
+  - Implementation note: OpenFoundry now builds a unified ontology proposal integration model for Global Branching that turns staged object type, link type, action type, interface, shared property, and Object View changes into proposal resources, review tasks, dependency checks, branch preview state, and mergeability checks. Indexing changes are validated as separate proposal items, required indexing cannot be silently removed, optional indexing/resource changes can be removed before merge, and both Ontology Manager and the Object View editor surface the branch proposal preview with Object View adapter checks included.
   - Docs: [Test changes in the Ontology](https://www.palantir.com/docs/foundry/ontologies/test-changes-in-ontology), [Branching object views](https://www.palantir.com/docs/foundry/object-views/branching-object-views).
 
 ### Marketplace and DevOps packaging
 
-- [ ] `OMOV.48` Marketplace Object View outputs (`P2`, `todo`)
+- [x] `OMOV.48` Marketplace Object View outputs (`P2`, `done`)
   - Package selected Object View tabs into OpenFoundry product outputs.
   - Support only Workshop-tab-backed Object View tabs in marketplace packaging unless a local legacy builder compatibility mode is explicitly implemented.
   - Validate dependencies on object types, Workshop modules, widgets, functions, actions, and data resources before packaging.
+  - Implementation note: Object Views now build `marketplace_object_view_output` product resources from selected full-view tabs, with a manifest entry that records the Object View, object type, selected tabs, backing Workshop modules, widget IDs, dependency refs, source branch, and Workshop-tab-only compatibility mode. Packaging is blocked for non-configured/panel views, missing tabs, tabs without Workshop modules, and legacy-builder metadata unless explicit compatibility is enabled; dependency validation covers object types, Workshop modules, widgets, functions, action types, and backing data resources before the output JSON is surfaced in the Object View publish panel.
   - Docs: [Add Object Views to a Marketplace product](https://www.palantir.com/docs/foundry/object-views/marketplace-object-views).
 
-- [ ] `OMOV.49` Product install and remapping behavior (`P2`, `todo`)
+- [x] `OMOV.49` Product install and remapping behavior (`P2`, `done`)
   - During product install, map packaged Object Views to installed or existing object types.
   - Preserve selected tabs, module dependencies, permissions, and custom view default status.
   - Provide clear failures for missing object types, unsupported tab builders, missing functions, missing actions, and unavailable widgets.
+  - Implementation note: Marketplace product installs now build an Object View install plan from packaged `marketplace_object_view_output` resources, resolving each packaged object type through explicit remaps, existing IDs, or API-name matches before synthesizing installed configured views. The plan preserves selected full-view tabs, Workshop module dependency refs, object-type-managed permission semantics, and custom-view default status, while blocking install with actionable failures for missing object types, unsupported legacy/non-Workshop tabs, missing Workshop modules, missing functions/actions, and unavailable widgets. The Marketplace install panel surfaces the remap table, preserved counts, and failure list before the normal product install action can proceed.
   - Docs: [Add Object Views to a Marketplace product](https://www.palantir.com/docs/foundry/object-views/marketplace-object-views), [Custom Object View configuration](https://www.palantir.com/docs/foundry/object-views/config-overview).
 
 ### Scale, indexing, and operational quality
 
-- [ ] `OMOV.50` Ontology resource indexing and search scale (`P2`, `todo`)
+- [x] `OMOV.50` Ontology resource indexing and search scale (`P2`, `done`)
   - Incrementally index ontology resources, properties, links, interfaces, groups, Object Views, usage edges, and saved explorations.
   - Support pagination, type filters, project filters, group filters, fuzzy search, API-name search, and permission-aware result hiding.
+  - Implementation note: Ontology Manager now builds an incremental OpenFoundry-native search index over registry resources, object type properties, link/action/interface/group/Object View entries, usage edges, and Object Explorer saved explorations/lists. The index reuses unchanged documents from the previous revision, records upserted/removed counts, exposes kind/project/group facets, and searches with pagination, resource type filters, project filters, group filters, API-name-only matching, fuzzy token matching, and permission-aware hiding. The Registry panel now uses the index directly, showing rematerialization counts, hidden-result warnings, filters, and paginated search results.
   - Docs: [Ontology Manager overview](https://www.palantir.com/docs/foundry/ontology-manager/overview/index.html), [Object type groups](https://www.palantir.com/docs/foundry/object-link-types/type-groups/), [Object Explorer overview](https://www.palantir.com/docs/foundry/object-explorer/overview).
 
-- [ ] `OMOV.51` Object View runtime performance budgets (`P2`, `todo`)
+- [x] `OMOV.51` Object View runtime performance budgets (`P2`, `done`)
   - Track query count, linked object loading, media loads, map loads, time-series loads, Workshop widget execution, and function-backed display values per Object View render.
   - Warn editors when tabs or panels exceed configured runtime budgets.
   - Cache safe metadata while never caching object data beyond the current user's permission context.
+  - Implementation note: Object View configs now carry an optional `runtime_budgets` block (`per_render`, `per_tab`, `per_panel`) with sensible defaults. The ontology API exposes `measureObjectViewRuntimeUsage` (queries, linked-object loads, media, map, time-series, Workshop widget executions, function-backed display values) and `evaluateObjectViewRuntimeBudgets`, which together drive the Object View editor: the header shows a Within/Exceeded budgets chip and the run-totals strip, a dedicated panel lists each warning, tab buttons surface a per-tab badge with the count and message, and editors can edit per-render limits or disable enforcement inline. A new `ObjectViewMetadataCache` keyed by `(object_view_id, form_factor, permission_context_key)` stores only safe metadata (counts, prominent/panel property names, link type ids, section kinds, budgets) and exposes `cacheObjectViewSafeMetadata` / `getObjectViewSafeMetadata` / `invalidateObjectViewMetadataCache`; object instance data, summaries, and neighbors are never cached, so the cache never leaks data beyond the current user's permission context.
   - Docs: [Core Object Views](https://www.palantir.com/docs/foundry/object-views/core-object-views/), [Use full Object Views](https://www.palantir.com/docs/foundry/object-views/use-full-views-in-platform), [Use panel Object Views](https://www.palantir.com/docs/foundry/object-views/use-panel-views-in-platform).
 
-- [ ] `OMOV.52` Ontology cleanup assistant (`P2`, `todo`)
+- [x] `OMOV.52` Ontology cleanup assistant (`P2`, `done`)
   - Identify unused object types, properties, link types, groups, interfaces, Object Views, legacy Object View fragments, and orphaned Workshop modules.
   - Require usage-impact review and explicit confirmation before cleanup actions.
   - Convert cleanup actions into unsaved changes or branch proposal changes before applying.
+  - Implementation note: The ontology API now exposes `buildOntologyCleanupAssistant`, which fans out across `objectTypes`, `linkTypes`, `interfaces`, `sharedPropertyTypes`, `valueTypes`, `objectViews`, and `objectTypeGroups`, reusing `buildOntologyUsageImpactAnalysis` to detect unused object types, unused non-primary/non-title properties, unused link/shared/value types, empty groups, orphan custom Object Views, unreferenced configured Object Views, legacy Object View fragments (`legacy_builder` / `legacy_fields_modified`), and orphan Workshop modules embedded in user-managed tabs with no widgets. Each `OntologyCleanupCandidate` carries severity, usage_count, reference_summary, warnings, and `delete_supported` flags. `createOntologyCleanupStagedChanges` requires explicit `confirmed: true` and selected ids before emitting any staged change; otherwise it returns `confirmation_required: true` and zero changes. Emitted staged changes are `action: "delete"`, `source: "ontology_cleanup_assistant"`, run through `reviewUnsavedOntologyChanges`, and flow into the existing project working-state → branch proposal pipeline via `buildOntologyBranchProposalIntegration` so they appear as proposal resources. The Ontology Manager `cleanup` section is now a real `CleanupAssistantPanel` (replacing the placeholder) that lists candidates grouped by kind with severity/usage chips, requires an explicit "I have reviewed the downstream usage impact" checkbox before staging, and posts the staged changes via `replaceProjectWorkingState` so they show up in the Unsaved changes review.
   - Docs: [Ontology cleanup](https://www.palantir.com/docs/foundry/ontology-manager/ontology-cleanup), [Viewing usage](https://www.palantir.com/docs/foundry/ontology-manager/viewing-usage).
 
-- [ ] `OMOV.53` Audit, metrics, and health panels (`P2`, `todo`)
+- [x] `OMOV.53` Audit, metrics, and health panels (`P2`, `done`)
   - Emit audit events for ontology resource CRUD, datasource mapping changes, Object View edits, publish events, imports, exports, restores, branch rebases, marketplace packaging, and permission changes.
   - Show operational panels for stale datasources, broken links, failed Object View widget loads, inaccessible backing data, indexing lag, missing value type validation, and permission mismatches.
+  - Implementation note: The ontology API now exposes `buildOntologyAuditEventLog`, which synthesizes a unified audit timeline (`OntologyAuditEvent[]`) from `OntologySavedChangeRecord` entries, pending `OntologyStagedChange` working changes, Object View `version_history` publish entries, `metadata.branch_rebased_at` rebases, marketplace packaging outputs, and permission-bearing change payloads. Each event carries category (`resource_crud`, `datasource_mapping`, `object_view_edit`, `object_view_publish`, `import`, `export`, `restore`, `branch_rebase`, `marketplace_packaging`, `permission_change`), status (`saved`, `pending`, `failed`, `info`), actor, timestamp, source, and a stable `resource_kind/resource_id` pair. A second function, `buildOntologyHealthReport`, runs seven operational detectors and emits `OntologyHealthIssue[]` with `OntologyHealthSeverity` (`info`/`warning`/`critical`) and remediation guidance: stale datasources (object types with backing dataset and `updated_at` older than the threshold), broken links (source/target object type missing from the catalog), widget load failures (empty visible tabs, legacy builder, runtime failures supplied via `widgetFailures` input), inaccessible backing data (no binding configured, or principal can view definition but not instances), indexing lag (`restricted_view_policy_version` ahead of `restricted_view_indexed_policy_version`), missing value type validation (`property.value_type_id` not present in the active value type list), and permission mismatches (owner without edit rights, blocked staged changes from `OntologyPermissionAnalysis.change_checks`). Both builders are pure and feed a new "Audit & health" section in `OntologyManagerPage`, with filters by category/status/actor for the timeline and category-card click-throughs plus severity filtering for the health panel; the nav badge totals are wired into `shellNavCount` so the section surface mirrors how many events + issues are currently active.
   - Docs: [Review and restore changes](https://www.palantir.com/docs/foundry/ontology-manager/restore-changes), [Viewing usage](https://www.palantir.com/docs/foundry/ontology-manager/viewing-usage), [Object Views overview](https://www.palantir.com/docs/foundry/object-views/overview).
 
 ## Implementation inventory to collect before coding
@@ -528,6 +558,17 @@ OpenFoundry canonical IDs.
 - [ ] `INV.12` Produce a machine-readable parity matrix sibling JSON after inventory, following the pattern of [foundry-feature-parity-matrix.json](./foundry-feature-parity-matrix.json).
 
 ## Suggested service boundaries
+
+> **Reader note (2026-05-14)** — The services in the table below are
+> *target* decomposition proposals, not a current inventory of
+> binaries. Some have been built under consolidated names after S8
+> (`marketplace-service` → `federation-product-exchange-service`;
+> `approvals-service` → `workflow-automation-service/internal/approvals`;
+> `ontology-security-service` → `authorization-policy-service`;
+> `ai-service` → `agent-runtime-service` + `llm-catalog-service`).
+> Others are not yet implemented. For the canonical list of binaries
+> on disk today, see
+> [`docs/architecture/services-and-ports.md`](../architecture/services-and-ports.md).
 
 | Surface | Responsibilities |
 | --- | --- |

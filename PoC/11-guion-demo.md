@@ -1,245 +1,245 @@
-# 11 — Guion de la demo (45–60 min)
+# 11 — Demo script (45–60 min)
 
-> Este es el **script literal minuto a minuto** para presentar la PoC al cliente. Léelo en voz alta antes de cada ensayo. Lo que aparece entre `«»` son indicaciones para el presentador (no se dicen).
+> This is the **literal minute-by-minute script** for presenting the PoC to the customer. Read it aloud before each rehearsal. Anything between `«»` is a cue for the presenter (not spoken).
 
 ---
 
-## ⏱️ Timeline general
+## ⏱️ Overall timeline
 
-| Tiempo | Acto | Duración | Quién |
+| Time | Act | Duration | Who |
 |---|---|---|---|
-| 00:00–05:00 | **Acto 0 — Apertura** | 5 min | Presentador |
-| 05:00–10:00 | **Acto 1 — Conectar el caos** | 5 min | Demo |
-| 10:00–20:00 | **Acto 2 — Modelar la realidad (Ontología)** | 10 min | Demo |
-| 20:00–30:00 | **Acto 3 — Pipeline + calidad + lineage** | 10 min | Demo |
-| 30:00–40:00 | **Acto 4 — Workshop App + dashboards** | 10 min | Demo |
-| 40:00–50:00 | **Acto 5 — Copiloto AIP + workflows** | 10 min | Demo |
-| 50:00–55:00 | **Acto 6 — Gobierno (RBAC + audit + branches)** | 5 min | Demo |
-| 55:00–60:00 | **Acto 7 — Cierre con números + Q&A** | 5 min + Q&A | Presentador |
+| 00:00–05:00 | **Act 0 — Opening** | 5 min | Presenter |
+| 05:00–10:00 | **Act 1 — Connect the chaos** | 5 min | Demo |
+| 10:00–20:00 | **Act 2 — Model reality (Ontology)** | 10 min | Demo |
+| 20:00–30:00 | **Act 3 — Pipeline + quality + lineage** | 10 min | Demo |
+| 30:00–40:00 | **Act 4 — Workshop App + dashboards** | 10 min | Demo |
+| 40:00–50:00 | **Act 5 — AIP copilot + workflows** | 10 min | Demo |
+| 50:00–55:00 | **Act 6 — Governance (RBAC + audit + branches)** | 5 min | Demo |
+| 55:00–60:00 | **Act 7 — Closing with numbers + Q&A** | 5 min + Q&A | Presenter |
 
 ---
 
-## 🎬 Acto 0 — Apertura (5 min)
+## 🎬 Act 0 — Opening (5 min)
 
-«Pantalla de portada con logo OpenFoundry y nombre del cliente»
+«Title screen with OpenFoundry logo and customer name»
 
-> *"Buenos días. Hoy os vamos a enseñar OpenFoundry: la alternativa open-source y self-hosted a Palantir Foundry, sobre vuestra propia infraestructura, sin lock-in. Para que sea relevante hemos elegido un caso aviación, idéntico al que Foundry resuelve en Skywise: unir operaciones de vuelo, mantenimiento, meteo y supply chain en una sola realidad operacional, con copiloto IA encima."*
+> *"Good morning. Today we're going to show you OpenFoundry: the open-source, self-hosted alternative to Palantir Foundry, running on your own infrastructure, with no lock-in. To make it relevant, we picked an aviation use case, identical to the one Foundry solves in Skywise: bringing together flight operations, maintenance, weather and supply chain into a single operational reality, with an AI copilot on top."*
 
-> *"En 50 minutos vais a ver cómo conectamos más de 1 terabyte de datos reales — vuelos ADS-B en directo, meteo NOAA, datos públicos del DOT americano, y un MRO sintético — los modelamos como ontología, los explotamos en dashboards y app, y dejamos que un copiloto razone, proponga acciones y dispare workflows. Todo auditado, todo con permisos, todo trazable."*
+> *"In 50 minutes you'll see how we connect more than 1 terabyte of real data — live ADS-B flights, NOAA weather, public data from the US DOT, and a synthetic MRO — model it as an ontology, exploit it in dashboards and apps, and let a copilot reason, propose actions, and trigger workflows. All audited, all permissioned, all traceable."*
 
-«Mostrar slide con los **3 mensajes clave** (ver `01-vision-y-caso-de-uso.md`)»
+«Show slide with the **3 key messages** (see `01-vision-y-caso-de-uso.md`)»
 
-> *"Si os tenéis que llevar 3 ideas: **conecta**, **acciona**, **abierto**. Empezamos."*
-
----
-
-## 🔌 Acto 1 — Conectar el caos (5 min)
-
-«Cambiar a la UI. Login como `admin@acme-airlines.demo`. Ir a `data-asset-catalog-service`.»
-
-> *"Esto es el catálogo. Ya hemos pre-cargado en background los datasets — son TBs, no se cargan en directo, pero os enseño los conectores."*
-
-«Click en `connector-management-service` → mostrar 4 conectores ya activos:»
-- `opensky-historical` (Trino) — *"vuelos reales de toda la red ADS-B mundial"*
-- `opensky-live` (REST polling 5s) — *"y este sí, en directo. Ahora mismo recibe aviones cada 5 segundos."*
-- `noaa-hrrr` (S3 sync) — *"meteorología pública de NOAA. ~50 GB por mes."*
-- `mro-synth` (file upload) — *"y aquí, sintético de mantenimiento, generado a partir de matrículas reales para que tenga consistencia."*
-
-«Mostrar el lineage del catálogo (gráfica) que ya conecta bronze → silver → gold.»
-
-> *"Esto es el lineage real, no es un dibujo. Cada flecha la genera el pipeline al ejecutarse. Más adelante os enseño cómo se usa para auditar."*
+> *"If you take 3 ideas away with you: **connect**, **act**, **open**. Let's get started."*
 
 ---
 
-## 🧬 Acto 2 — Modelar la realidad: la ontología (10 min)
+## 🔌 Act 1 — Connect the chaos (5 min)
 
-«Ir a `ontology-definition-service`. Mostrar el grafo de tipos.»
+«Switch to the UI. Log in as `admin@acme-airlines.demo`. Go to the catalog view (`apps/web` route `/datasets` + `/iceberg-tables`, fed by `iceberg-catalog-service` and `dataset-versioning-service`).»
 
-> *"Esto es lo más importante de Foundry, y de OpenFoundry. La ontología es el diccionario de vuestro negocio: avión, vuelo, aeropuerto, evento de mantenimiento, pieza, ingeniero. Y las relaciones entre ellos."*
+> *"This is the catalog. We've already pre-loaded the datasets in the background — they're TBs, not loaded live, but I'll walk you through the connectors."*
 
-«Hacer click en `Aircraft` → mostrar propiedades, relaciones, acciones disponibles.»
+«Go to `/data-connection` (view fed by `connector-management-service`) → show 4 connectors already active:»
+- `opensky-historical` (Trino) — *"real flights from the entire global ADS-B network"*
+- `opensky-live` (REST polling 5s) — *"and this one, live. Right now it's receiving aircraft every 5 seconds."*
+- `noaa-hrrr` (S3 sync) — *"public NOAA weather. ~50 GB per month."*
+- `mro-synth` (file upload) — *"and here, synthetic maintenance data, generated from real tail numbers so it stays consistent."*
 
-> *"Cada objeto tiene propiedades — tail_number, modelo, horas voladas — y acciones que se pueden ejecutar sobre él. Las acciones son lo que convierte la ontología en algo vivo, no un modelo dibujado en Confluence."*
+«Show the catalog lineage (graph) already wiring bronze → silver → gold.»
 
-«Buscar en la barra superior: "N12345"» «Aparece la ficha del avión con su grafo asociado.»
-
-> *"Esto es Object Explorer. Os muestra ese avión, sus últimos vuelos, los eventos de mantenimiento abiertos, las piezas que ha gastado, el ingeniero asignado. Todo en un click. Notad que el avión está volando ahora mismo — esa información viene del stream OpenSky en directo."*
-
-«Click en un `Flight` enlazado → ir al Flight Detail.»
-
-> *"Y aquí veis el vuelo con sus enlaces a aeropuerto origen, destino, observaciones meteo correlacionadas, y el modelo predictor que le ha calculado un risk_score."*
+> *"This is real lineage, not a drawing. Every arrow is emitted by the pipeline at execution time. Later I'll show you how it's used for auditing."*
 
 ---
 
-## 🧪 Acto 3 — Pipeline, calidad y lineage (10 min)
+## 🧬 Act 2 — Modeling reality: the ontology (10 min)
 
-«Ir a `pipeline-authoring-service`. Mostrar la lista de pipelines.»
+«Go to `ontology-definition-service`. Show the type graph.»
 
-> *"Tenemos 12 pipelines activos, en arquitectura medallion: bronze, silver, gold, ontology. Os abro uno: el que enriquece vuelos con meteo."*
+> *"This is the most important thing about Foundry, and about OpenFoundry. The ontology is the dictionary of your business: aircraft, flight, airport, maintenance event, part, engineer. And the relationships among them."*
 
-«Abrir `gd-flights-enriched` → enseñar el SQL declarativo, los inputs versionados, las expectations de calidad.»
+«Click on `Aircraft` → show properties, relationships, available actions.»
 
-> *"Notad tres cosas: primero, es declarativo — versionado en git, no es un script perdido. Segundo, las expectations: si los datos rompen schema o las distribuciones, el pipeline falla y se queda en estado FAILED. Tercero, el lineage se emite automáticamente a OpenLineage."*
+> *"Each object has properties — tail_number, model, flight hours — and actions that can be executed on it. Actions are what turn the ontology into something alive, not a model drawn in Confluence."*
 
-«Click en "Run history" → mostrar runs verdes y un FAILED reciente.»
+«Search in the top bar: "N12345"» «The aircraft card appears with its associated graph.»
 
-> *"Aquí teníamos un run que falló porque `distance_km` salía negativa. Os lo dejé adrede para que veáis el sistema reaccionando."*
+> *"This is Object Explorer. It shows you this aircraft, its latest flights, the open maintenance events, the parts it has consumed, the assigned engineer. All in one click. Note that the aircraft is flying right now — that information comes from the live OpenSky stream."*
 
-«Ir a `lineage-service` → mostrar el grafo end-to-end de `risk_score` para `flight AAL256`.»
+«Click on a linked `Flight` → go to the Flight Detail.»
 
-> *"De dónde sale el risk_score de este vuelo. El servicio de modelo, los features, el join con meteo, los datasets bronze de origen. En auditoría regulatoria esto es oro."*
-
-«Mostrar `dataset-quality-service` → 4 reglas verdes y 1 amarilla.»
+> *"And here you see the flight with its links to origin and destination airports, correlated weather observations, and the predictor model that has computed a risk_score for it."*
 
 ---
 
-## 🖥️ Acto 4 — Workshop App + dashboards (10 min)
+## 🧪 Act 3 — Pipeline, quality and lineage (10 min)
 
-«Logout admin → Login como `ana@acme-airlines.demo`.»
+«Go to `/pipelines` in `apps/web` (data served by `pipeline-build-service`). Show the list of pipelines.»
 
-> *"Ahora soy Ana, controladora de operaciones. Esta es mi pantalla."*
+> *"We have 12 active pipelines, in medallion architecture: bronze, silver, gold, ontology. I'll open one: the one that enriches flights with weather."*
 
-«Mostrar Operations Live (ver `07-dashboards-y-app-workshop.md`).»
+«Open `gd-flights-enriched` → show the declarative SQL, the versioned inputs, the quality expectations.»
 
-- *"1.247 vuelos en el aire ahora mismo. Reales — los podéis verificar en FlightRadar."*
-- *"38 vuelos clasificados HIGH o CRITICAL para retraso por nuestro modelo predictor."*
-- *"Mapa con colores según riesgo, overlay de meteo del NOAA…"*
+> *"Notice three things: first, it's declarative — versioned in git, not a lost script. Second, the expectations: if the data breaks schema or distributions, the pipeline fails and stays in FAILED state. Third, the lineage is emitted automatically to OpenLineage."*
 
-«Hover en un avión del mapa → side panel.»
+«Click on "Run history" → show green runs and a recent FAILED one.»
 
-«Click en "AAL256" en la tabla → abre Flight Detail.»
+> *"Here we had a run that failed because `distance_km` came out negative. I left it in on purpose so you'd see the system reacting."*
 
-«Tab Linked objects → click en el aircraft → muestra historial.»
+«Go to `/lineage` in `apps/web` (fed by `lineage-service`, OpenLineage sink) → show the end-to-end graph of `risk_score` for `flight AAL256`.»
 
-> *"En 2 clicks he pasado del mapa al avión, al modelo, al historial de mantenimiento. Es lo que llamamos navegar el grafo de la ontología."*
+> *"Where the risk_score for this flight comes from. The model service, the features, the join with weather, the bronze datasets of origin. In regulatory audits, this is gold."*
 
-«Cambiar a Workshop App `mro-triage-workbench`. Ya logueado como Ana, mostrar que **no puede ejecutar** acciones MRO (botones grises, tooltip "requires mro-lead role").»
-
-> *"Vais a notar algo importante: yo, como Ana, veo todo, pero no puedo ejecutar acciones de mantenimiento. RBAC de verdad."*
-
-«Logout → login como `luis@acme-airlines.demo`.»
-
-> *"Ahora soy Luis, jefe de hangar. Esta es mi vista."*
-
-«Mostrar Fleet Health: heatmap de defectos recurrentes, lista de aviones, parts at risk.»
-
-«Click en el heatmap → drill al cluster ATA-27 en flota A320.»
-
-> *"Aquí veo un cluster anómalo de defectos en aileron, A320, últimos 60 días. ¿Es cosa de un avión o un problema de flota? Vamos a preguntárselo al copiloto."*
+«Show the expectations of the `gd-flights-enriched` pipeline (declared with the `pipeline-expression` lib inside `pipeline-build-service`) → 4 green rules and 1 yellow.»
 
 ---
 
-## 🤖 Acto 5 — Copiloto AIP + workflows (10 min)
+## 🖥️ Act 4 — Workshop App + dashboards (10 min)
 
-«Click "Ask AIP" en el header. Se abre el copiloto en overlay.»
+«Logout admin → Login as `ana@acme-airlines.demo`.»
 
-«Pegar prompt **D1**:»
+> *"Now I'm Ana, ops controller. This is my screen."*
+
+«Show Operations Live (see `07-dashboards-y-app-workshop.md`).»
+
+- *"1,247 flights in the air right now. Real — you can verify them on FlightRadar."*
+- *"38 flights classified as HIGH or CRITICAL delay risk by our predictor model."*
+- *"Map color-coded by risk, NOAA weather overlay…"*
+
+«Hover on an aircraft on the map → side panel.»
+
+«Click on "AAL256" in the table → opens Flight Detail.»
+
+«Linked objects tab → click on the aircraft → shows history.»
+
+> *"In 2 clicks I've gone from the map to the aircraft, to the model, to the maintenance history. This is what we call navigating the ontology graph."*
+
+«Switch to Workshop App `mro-triage-workbench`. Still logged in as Ana, show that she **cannot execute** MRO actions (greyed-out buttons, tooltip "requires mro-lead role").»
+
+> *"You'll notice something important: as Ana, I see everything, but I cannot execute maintenance actions. Real RBAC."*
+
+«Logout → login as `luis@acme-airlines.demo`.»
+
+> *"Now I'm Luis, hangar lead. This is my view."*
+
+«Show Fleet Health: heatmap of recurring defects, list of aircraft, parts at risk.»
+
+«Click on the heatmap → drill into the ATA-27 cluster on the A320 fleet.»
+
+> *"Here I see an anomalous cluster of defects on the aileron, A320, last 60 days. Is it one aircraft or a fleet-wide issue? Let's ask the copilot."*
+
+---
+
+## 🤖 Act 5 — AIP copilot + workflows (10 min)
+
+«Click "Ask AIP" in the header. The copilot opens as an overlay.»
+
+«Paste prompt **D1**:»
 ```
 What flights arriving at JFK in the next 4 hours are at HIGH or CRITICAL risk
 of delay? Show me the top 5, ordered by risk, with the main contributing
 weather factor for each.
 ```
 
-«Esperar respuesta (~5 s). Aparece tabla. Comentar que el copiloto ha llamado a 2 tools (visible en panel de "tool calls").»
+«Wait for response (~5 s). A table appears. Note that the copilot has called 2 tools (visible in the "tool calls" panel).»
 
-«Pegar prompt **D2**:**
+«Paste prompt **D2**:**
 ```
 Tell me more about the first one. Why is its risk score so high?
 ```
 
-«Comentar la explicación, citar los datos.»
+«Comment on the explanation, cite the data.»
 
-«Pegar prompt **D3**:**
+«Paste prompt **D3**:**
 ```
 For the A320 fleet, are there any recurring defects in the last 60 days?
 Highlight any ATA chapter that is statistically anomalous compared to the
 prior 60-day baseline.
 ```
 
-> *"Recordad: el copiloto no inventa. Está consultando la ontología. Si la información no existe, lo dice."*
+> *"Remember: the copilot doesn't make things up. It's querying the ontology. If the information doesn't exist, it says so."*
 
-«Pegar prompt **D4** (la propuesta de acción):»
+«Paste prompt **D4** (the action proposal):»
 ```
 For the affected aircraft, propose flagging them for an unscheduled inspection
 within 72 hours, priority HIGH, with a clear justification linked to the
 recurring ATA-27 defect.
 ```
 
-> *"Atención a esto: el copiloto **propone** las acciones. No las ejecuta. Esto es human-in-the-loop. Voy a aprobar."*
+> *"Pay attention here: the copilot **proposes** actions. It does not execute them. This is human-in-the-loop. I'm going to approve."*
 
-«Pegar prompt **D5**:**
+«Paste prompt **D5**:**
 ```
 Yes, execute these actions. Assign the inspections to the engineer with the
 lowest current workload at the home base of each aircraft.
 ```
 
-«Las acciones se ejecutan. Aparecen toasts de notificación. Cambiar a la pestaña de `workflow-trace-service` y mostrar los workflows `mro-inspection` corriendo.»
+«The actions execute. Notification toasts appear (`notification-alerting-service` + WebSocket). Switch to the `/workflows` tab (served by `workflow-automation-service`) and show the `mro-inspection` workflows running.»
 
-> *"Esto es lo que más demuestra Foundry: del insight a la acción coordinada en 30 segundos, todo trazado, todo asignado, todo notificado."*
+> *"This is what most demonstrates Foundry: from insight to coordinated action in 30 seconds, all traced, all assigned, all notified."*
 
 ---
 
-## 🔐 Acto 6 — Gobierno: RBAC, audit, branches (5 min)
+## 🔐 Act 6 — Governance: RBAC, audit, branches (5 min)
 
-«Logout → login como `diego@acme-airlines.demo` (mro-engineer).»
+«Logout → login as `diego@acme-airlines.demo` (mro-engineer).»
 
-> *"Ahora soy Diego, ingeniero. Mirad qué veo."*
+> *"Now I'm Diego, engineer. Look at what I see."*
 
-«Solo aparecen los `MaintenanceEvent` asignados a él. Intentar abrir el workshop app → 403.»
+«Only the `MaintenanceEvent`s assigned to him appear. Try to open the workshop app → 403.»
 
-> *"ABAC de verdad: el filtro está a nivel de fila, no solo a nivel de pantalla."*
+> *"Real ABAC: the filter is at the row level, not just at the screen level."*
 
-«Logout → login como admin. Ir a `audit-compliance-service`.»
+«Logout → login as admin. Go to `/audit` in `apps/web` (fed by `audit-compliance-service`).»
 
-«Filtrar por `actor.user_id = ai-copilot` y `action_id = flag-aircraft-for-inspection` últimos 5 min.»
+«Filter by `actor.user_id = ai-copilot` and `action_id = flag-aircraft-for-inspection` in the last 5 min.»
 
-> *"Cada acción del copiloto queda con quién la propuso, quién la confirmó, qué objetos creó, qué workflows disparó. Inmutable, replicado en S3 con object-lock."*
+> *"Every copilot action records who proposed it, who confirmed it, what objects it created, what workflows it triggered. Immutable, replicated to S3 with object-lock."*
 
-«Pegar prompt **D7** (branch comparison) en el copiloto:**
+«Paste prompt **D7** (branch comparison) in the copilot:**
 ```
 Compare the risk_score distribution for flights to JFK on the 'main' branch
 vs the 'feat/risk-model-v2' branch. Are there meaningful differences?
 ```
 
-«Mostrar tabla side-by-side.»
+«Show the side-by-side table.»
 
-> *"Branches sobre datasets — Foundry-style. Probáis modelos nuevos en una rama, los comparáis, los mergeáis si funcionan, hacéis rollback si no. Y todo queda en lineage."*
-
----
-
-## 🎯 Acto 7 — Cierre con números (5 min)
-
-«Mostrar dashboard de Grafana de **observabilidad** (preparado para esto):»
-
-- 1.18 TB ingeridos.
-- 4.300 millones de filas analizables.
-- 12 pipelines activos, ratio de éxito 99.2%.
-- Latencia query p95 ontología: 1.4 s.
-- Latencia ingesta stream → dashboard: 3.8 s.
-- 100% acciones del copiloto en audit log.
-- 0 datos PII expuestos.
-
-> *"Esto es la PoC. ¿Qué viene después? Un piloto con vuestros datos reales, en vuestra infra, en 6 semanas. Sin lock-in. Sin pago de licencia. Y todo el código está en GitHub."*
-
-«Mostrar `github.com/unnamedlab/OpenFoundry`.»
-
-«Pasar a Q&A.»
+> *"Branches over datasets — Foundry-style. You try new models on a branch, compare them, merge them if they work, roll back if not. And everything stays in lineage."*
 
 ---
 
-## 🧷 Cosas que **nunca** se dicen en directo
+## 🎯 Act 7 — Closing with numbers (5 min)
 
-- "Esto está en beta" / "Esto es experimental" → debilita.
-- Mencionar bugs recientes.
-- Tocar funciones que **no estén en el subset de los 15 servicios**.
-- Improvisar prompts del copiloto fuera de D1–D7. Si el cliente pide algo nuevo: *"buena pregunta, lo enseñamos en un follow-up para no quedarnos sin tiempo"*.
+«Show the **observability** Grafana dashboard (prepared for this):»
+
+- 1.18 TB ingested.
+- 4.3 billion analyzable rows.
+- 12 active pipelines, 99.2% success rate.
+- Ontology query latency p95: 1.4 s.
+- Stream ingest → dashboard latency: 3.8 s.
+- 100% of copilot actions in the audit log.
+- 0 PII data exposed.
+
+> *"This is the PoC. What comes next? A pilot with your real data, on your infra, in 6 weeks. No lock-in. No license fees. And all the code is on GitHub."*
+
+«Show `github.com/unnamedlab/OpenFoundry`.»
+
+«Move to Q&A.»
 
 ---
 
-## ✅ Acciones concretas (cuando se ejecute la PoC)
+## 🧷 Things to **never** say live
 
-1. Imprimir este documento. Llevarlo encima.
-2. Ensayar 3 veces el guion completo cronometrado.
-3. Grabar el ensayo final como **plan B** (vídeo de 10 min, ver [`13-riesgos-y-plan-b.md`](13-riesgos-y-plan-b.md)).
-4. Si el cliente es no-anglófono, traducir prompts D1–D7.
-5. Tener pestañas del navegador pre-abiertas en el orden del guion.
+- "This is beta" / "This is experimental" → weakens it.
+- Mentioning recent bugs.
+- Touching features that are **not in the ~17-service subset**.
+- Improvising copilot prompts outside D1–D7. If the customer asks for something new: *"good question, we'll show it in a follow-up so we don't run out of time"*.
+
+---
+
+## ✅ Concrete actions (when the PoC is executed)
+
+1. Print this document. Keep it on you.
+2. Rehearse the full script 3 times against the clock.
+3. Record the final rehearsal as a **plan B** (10-min video, see [`13-riesgos-y-plan-b.md`](13-riesgos-y-plan-b.md)).
+4. If the customer is non-English-speaking, translate prompts D1–D7.
+5. Have browser tabs pre-opened in the order of the script.

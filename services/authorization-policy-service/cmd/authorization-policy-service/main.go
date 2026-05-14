@@ -5,13 +5,10 @@
 // optional `authz.policy.changed` publish, ABAC policy evaluation, RBAC
 // roles/groups/permissions, governance/project constraints,
 // checkpoints/purpose records, cipher catalogs, and network-boundary
-// resources. The Rust crate still has no wired `main`, so this Go
-// binary is the canonical runnable implementation for these routes.
-// This Go port is the canonical implementation while the Rust crate's
-// consolidated binary remains a stub. The live surface includes Cedar policy
-// CRUD, tenant-scoped ABAC policy management/evaluation, top-level RBAC
-// roles/groups/permissions, governance, checkpoint/purpose, cipher, and
-// network-boundary routes.
+// resources. The live surface includes Cedar policy CRUD,
+// tenant-scoped ABAC policy management/evaluation, top-level RBAC
+// roles/groups/permissions, governance, checkpoint/purpose, cipher,
+// and network-boundary routes.
 //
 // RBAC source-of-truth split: identity-federation owns identity-local user
 // lifecycle, login/session, API-key, and SCIM group administration. This

@@ -1,10 +1,8 @@
 // Function-package runtime: parsing, validation, dispatch.
 //
-// Behavioural parity:
-//
 //   - TypeScript / JavaScript inline functions execute via Node
-//     (`state.NodeRuntimeCommand`) using the same harness script the
-//     Rust crate ships, embedded byte-for-byte via go:embed.
+//     (`state.NodeRuntimeCommand`) using the in-tree harness script
+//     embedded via go:embed.
 //   - Python inline functions execute through the injected
 //     PythonInlineRuntime. The ontology-actions-service binary wires
 //     that runtime from libs/python-sidecar when PYTHON_SIDECAR_BINARY

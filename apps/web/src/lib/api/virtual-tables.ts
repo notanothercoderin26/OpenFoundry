@@ -104,6 +104,13 @@ export interface SchemaColumn {
   nullable: boolean;
 }
 
+export interface VirtualTablePermissions {
+  owners?: string[];
+  readers?: string[];
+  writers?: string[];
+  admins?: string[];
+}
+
 /**
  * Update detection state (Foundry doc § "Update detection for virtual
  * table inputs"). The poller body lives behind a flag; the UI only
@@ -114,6 +121,50 @@ export interface UpdateDetection {
   interval_seconds: number | null;
   last_observed_version: string | null;
   last_polled_at: string | null;
+}
+
+export type VirtualTableComputeLocation = 'source_system' | 'openfoundry' | 'hybrid';
+
+export interface VirtualTablePushdownPlan {
+  compute_location: VirtualTableComputeLocation;
+  pushdown_engine?: ComputePushdownEngine;
+  foundry_engine?: string;
+  pushed_operations: string[];
+  foundry_operations: string[];
+  direct_query: boolean;
+  uses_copied_dataset: boolean;
+  interactive_preview: boolean;
+}
+
+export interface VirtualTableLimitation {
+  code: string;
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+  remediation?: string;
+}
+
+export interface VirtualTableQueryRequest {
+  selector?: string;
+  limit?: number;
+  columns?: string[];
+  filters?: string[];
+  order_by?: string[];
+  aggregations?: string[];
+  requires_foundry_compute?: boolean;
+  preferred_compute_location?: VirtualTableComputeLocation;
+}
+
+export interface VirtualTableQueryResponse {
+  selector: string;
+  mode: string;
+  columns: string[];
+  row_count: number;
+  rows: Array<Record<string, unknown>>;
+  source_signature?: string;
+  metadata: Record<string, unknown>;
+  compute_location: VirtualTableComputeLocation;
+  pushdown: VirtualTablePushdownPlan;
+  limitations: VirtualTableLimitation[];
 }
 
 /**
@@ -152,6 +203,8 @@ export interface VirtualTableSourceLink {
   auto_register_enabled: boolean;
   auto_register_interval_seconds: number | null;
   auto_register_tag_filters: unknown[];
+  auto_register_folder_mirror_kind: FolderMirrorKind;
+  auto_register_table_tag_filters: string[];
   iceberg_catalog_kind: IcebergCatalogKind | null;
   iceberg_catalog_config: Record<string, unknown> | null;
   created_at: string;
@@ -188,6 +241,11 @@ export interface RegisterVirtualTableRequest {
   parent_folder_rid?: string;
   locator: Locator;
   table_type: TableType;
+  schema_inferred?: SchemaColumn[];
+  capabilities?: Capabilities;
+  properties?: Record<string, unknown>;
+  owner?: string;
+  permissions?: VirtualTablePermissions;
   markings?: string[];
 }
 
@@ -374,6 +432,17 @@ export const virtualTables = {
     return api.get<VirtualTable>(`${BASE}/virtual-tables/${encodeURIComponent(rid)}`);
   },
 
+  /** POST /v1/virtual-tables/{rid}/query — direct preview, no dataset copy. */
+  queryVirtualTable(
+    rid: string,
+    body: VirtualTableQueryRequest,
+  ): Promise<VirtualTableQueryResponse> {
+    return api.post<VirtualTableQueryResponse>(
+      `${BASE}/virtual-tables/${encodeURIComponent(rid)}/query`,
+      body,
+    );
+  },
+
   /** DELETE /v1/virtual-tables/{rid}. */
   deleteVirtualTable(rid: string): Promise<void> {
     return api.delete<void>(`${BASE}/virtual-tables/${encodeURIComponent(rid)}`);
@@ -479,6 +548,13 @@ export const virtualTables = {
       `${BASE}/virtual-tables/${encodeURIComponent(rid)}/update-detection/history?limit=${limit}`,
     );
   },
+
+  /** GET /v1/virtual-tables/{rid}/lineage. */
+  getLineage(rid: string): Promise<VirtualTableLineageResponse> {
+    return api.get<VirtualTableLineageResponse>(
+      `${BASE}/virtual-tables/${encodeURIComponent(rid)}/lineage`,
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -505,6 +581,7 @@ export interface UpdateDetectionPollResult {
   latency_ms: number;
   change_detected: boolean;
   event_emitted: boolean;
+  downstream_builds?: VirtualTableDownstreamBuildPlan[];
 }
 
 export interface UpdateDetectionPollHistoryRow {
@@ -515,6 +592,38 @@ export interface UpdateDetectionPollHistoryRow {
   change_detected: boolean;
   latency_ms: number;
   error_message: string | null;
+}
+
+export interface VirtualTableLineageNode {
+  rid: string;
+  kind: 'source' | 'virtual_table' | 'pipeline' | 'dataset' | 'object_type' | 'project_import' | string;
+  display_name: string;
+  status: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface VirtualTableLineageEdge {
+  from_rid: string;
+  to_rid: string;
+  kind: string;
+}
+
+export interface VirtualTableDownstreamBuildPlan {
+  target_rid: string;
+  target_kind: string;
+  display_name: string;
+  action: 'triggered' | 'skipped' | string;
+  reason: string;
+}
+
+export interface VirtualTableLineageResponse {
+  virtual_table_rid: string;
+  source_rid: string;
+  update_detection_enabled: boolean;
+  last_observed_version: string | null;
+  nodes: VirtualTableLineageNode[];
+  edges: VirtualTableLineageEdge[];
+  downstream_builds: VirtualTableDownstreamBuildPlan[];
 }
 
 // ---------------------------------------------------------------------------
@@ -562,6 +671,281 @@ export function tableTypeLabel(type: TableType): string {
       return 'CSV files';
     case 'OTHER':
       return 'Other';
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringField(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+export function virtualTableExternalReference(row: VirtualTable): string {
+  const reference = asRecord(row.properties?.external_reference) ?? row.locator;
+  const kind = stringField(reference, 'kind');
+  if (kind === 'tabular') {
+    return [stringField(reference, 'database'), stringField(reference, 'schema'), stringField(reference, 'table')]
+      .filter(Boolean)
+      .join('.');
+  }
+  if (kind === 'iceberg') {
+    return [stringField(reference, 'catalog'), stringField(reference, 'namespace'), stringField(reference, 'table')]
+      .filter(Boolean)
+      .join('/');
+  }
+  if (kind === 'file') {
+    return [stringField(reference, 'bucket'), stringField(reference, 'prefix')]
+      .filter(Boolean)
+      .join('/');
+  }
+  return row.name;
+}
+
+export function virtualTableSaveLocation(row: VirtualTable): string {
+  const location = asRecord(row.properties?.save_location);
+  const project = location ? stringField(location, 'project_rid') || row.project_rid : row.project_rid;
+  const folder = location ? stringField(location, 'parent_folder_rid') : row.parent_folder_rid ?? '';
+  return folder ? `${project} / ${folder}` : project;
+}
+
+export function virtualTableOwner(row: VirtualTable): string {
+  const owner = row.properties?.owner;
+  return typeof owner === 'string' && owner.trim() ? owner : row.created_by ?? '';
+}
+
+export function virtualTablePermissionsLabel(row: VirtualTable): string {
+  const permissions = asRecord(row.properties?.permissions);
+  if (!permissions) {
+    return row.markings.length ? `markings: ${row.markings.join(', ')}` : 'inherit source';
+  }
+  const labels = [
+    ['owners', stringArray(permissions.owners)],
+    ['readers', stringArray(permissions.readers)],
+    ['writers', stringArray(permissions.writers)],
+    ['admins', stringArray(permissions.admins)],
+  ]
+    .filter(([, values]) => (values as string[]).length > 0)
+    .map(([kind, values]) => `${kind}: ${(values as string[]).join(', ')}`);
+  if (labels.length === 0) {
+    return row.markings.length ? `markings: ${row.markings.join(', ')}` : 'inherit source';
+  }
+  return labels.join(' | ');
+}
+
+export function virtualTableSchemaSummary(row: VirtualTable): string {
+  const count = row.schema_inferred.length;
+  if (count === 0) return 'schema pending';
+  return `${count} column${count === 1 ? '' : 's'}`;
+}
+
+export function virtualTableComputeLocationLabel(location: VirtualTableComputeLocation): string {
+  switch (location) {
+    case 'source_system':
+      return 'Source system';
+    case 'openfoundry':
+      return 'OpenFoundry';
+    case 'hybrid':
+      return 'Hybrid';
+  }
+}
+
+export function virtualTableDefaultSelector(row: VirtualTable): string {
+  return virtualTableExternalReference(row);
+}
+
+export function virtualTablePushdownPreview(
+  row: VirtualTable,
+  request: Pick<VirtualTableQueryRequest, 'columns' | 'filters' | 'order_by' | 'aggregations' | 'requires_foundry_compute'> = {},
+): VirtualTablePushdownPlan {
+  const operations = ['scan'];
+  if (request.columns?.length) operations.push('projection');
+  if (request.filters?.length) operations.push('filter');
+  if (request.aggregations?.length) operations.push('aggregation');
+  if (request.order_by?.length) operations.push('order_by');
+  operations.push('limit');
+
+  const pushdownEngine = row.capabilities.compute_pushdown ?? undefined;
+  if (pushdownEngine && !request.requires_foundry_compute) {
+    return {
+      compute_location: 'source_system',
+      pushdown_engine: pushdownEngine,
+      foundry_engine: 'openfoundry_spark',
+      pushed_operations: operations,
+      foundry_operations: [],
+      direct_query: true,
+      uses_copied_dataset: false,
+      interactive_preview: true,
+    };
+  }
+  if (pushdownEngine && request.requires_foundry_compute) {
+    return {
+      compute_location: 'hybrid',
+      pushdown_engine: pushdownEngine,
+      foundry_engine: 'openfoundry_spark',
+      pushed_operations: ['scan', 'projection', 'filter'],
+      foundry_operations: ['custom_expression'],
+      direct_query: true,
+      uses_copied_dataset: false,
+      interactive_preview: true,
+    };
+  }
+  return {
+    compute_location: 'openfoundry',
+    foundry_engine: 'openfoundry_spark',
+    pushed_operations: [],
+    foundry_operations: operations,
+    direct_query: true,
+    uses_copied_dataset: false,
+    interactive_preview: true,
+  };
+}
+
+export function virtualTablePushdownLimitations(
+  row: VirtualTable,
+  request: Pick<VirtualTableQueryRequest, 'requires_foundry_compute'> = {},
+): VirtualTableLimitation[] {
+  const plan = virtualTablePushdownPreview(row, request);
+  const out: VirtualTableLimitation[] = [
+    {
+      code: 'interactive_performance',
+      severity: 'info',
+      message: 'Interactive reads query the external table directly, so latency depends on the source and network path.',
+      remediation: 'Use a synchronized Foundry dataset for latency-sensitive or heavily reused interactive analysis.',
+    },
+  ];
+  if (plan.compute_location === 'source_system') {
+    out.push({
+      code: 'source_compute_usage',
+      severity: 'info',
+      message: 'The preview can run in the source system and may consume source warehouse or database compute.',
+    });
+  } else if (plan.compute_location === 'hybrid') {
+    out.push({
+      code: 'hybrid_compute_usage',
+      severity: 'warning',
+      message: 'Some operations can run in the source, but unsupported pieces still need OpenFoundry compute.',
+      remediation: 'Prefer source-native filters, projections, aggregations, and ordering to maximize pushdown.',
+    });
+  } else {
+    out.push({
+      code: 'openfoundry_compute_usage',
+      severity: 'warning',
+      message: 'No native source pushdown engine is available for this source/table type.',
+      remediation: 'Use a supported BigQuery, Databricks, or Snowflake table type when source-side compute is required.',
+    });
+  }
+  if (request.requires_foundry_compute) {
+    out.push({
+      code: 'unsupported_feature_partial_pushdown',
+      severity: 'warning',
+      message: 'The requested operation cannot be fully pushed down and needs OpenFoundry-side execution.',
+    });
+  }
+  return out;
+}
+
+export type VirtualTablePipelineSurface = 'pipeline_builder' | 'code_repository';
+export type VirtualTablePipelineRole = 'input' | 'output';
+
+export interface VirtualTablePipelineCompatibility {
+  supported: boolean;
+  role: VirtualTablePipelineRole;
+  surface: VirtualTablePipelineSurface;
+  mode: 'foundry_compute' | 'source_pushdown' | 'external_storage';
+  reasons: string[];
+  warnings: string[];
+}
+
+export function virtualTablePipelineInputSupport(
+  row: VirtualTable,
+  surface: VirtualTablePipelineSurface = 'pipeline_builder',
+): VirtualTablePipelineCompatibility {
+  return virtualTablePipelineSupport(row, 'input', surface);
+}
+
+export function virtualTablePipelineOutputSupport(
+  row: VirtualTable,
+  surface: VirtualTablePipelineSurface = 'pipeline_builder',
+): VirtualTablePipelineCompatibility {
+  return virtualTablePipelineSupport(row, 'output', surface);
+}
+
+function virtualTablePipelineSupport(
+  row: VirtualTable,
+  role: VirtualTablePipelineRole,
+  surface: VirtualTablePipelineSurface,
+): VirtualTablePipelineCompatibility {
+  const reasons: string[] = [];
+  const warnings: string[] = [];
+  const caps = row.capabilities;
+  if (role === 'input' && !caps.read) {
+    reasons.push('The source/table type is not readable as a virtual table input.');
+  }
+  if (role === 'output' && !caps.write) {
+    reasons.push('The source/table type is read-only for virtual table outputs.');
+  }
+  if (surface === 'pipeline_builder' && !caps.foundry_compute.pipeline_builder_spark) {
+    reasons.push('Pipeline Builder Spark compute is not supported for this virtual table.');
+  }
+  if (
+    surface === 'code_repository' &&
+    !caps.foundry_compute.python_single_node &&
+    !caps.foundry_compute.python_spark
+  ) {
+    reasons.push('Code Repository transforms cannot use this virtual table with Foundry compute.');
+  }
+  if (role === 'input' && caps.compute_pushdown) {
+    warnings.push(`Eligible operations can be pushed down with ${caps.compute_pushdown}.`);
+  }
+  if (role === 'output') {
+    warnings.push('OpenFoundry will orchestrate the transform, but table storage remains in the external source.');
+  }
+  return {
+    supported: reasons.length === 0,
+    role,
+    surface,
+    mode: role === 'output' ? 'external_storage' : caps.compute_pushdown ? 'source_pushdown' : 'foundry_compute',
+    reasons,
+    warnings,
+  };
+}
+
+export function virtualTableBuildActionLabel(action: string): string {
+  switch (action) {
+    case 'triggered':
+      return 'Triggered';
+    case 'skipped':
+      return 'Skipped';
+    default:
+      return action;
+  }
+}
+
+export function virtualTableLineageKindLabel(kind: string): string {
+  switch (kind) {
+    case 'source':
+      return 'Source';
+    case 'virtual_table':
+      return 'Virtual table';
+    case 'pipeline':
+      return 'Pipeline';
+    case 'dataset':
+      return 'Dataset';
+    case 'object_type':
+      return 'Object output';
+    case 'project_import':
+      return 'Project import';
+    default:
+      return kind;
   }
 }
 

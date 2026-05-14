@@ -12,8 +12,8 @@ Object types are the canonical containers for operational entities in the OpenFo
 
 The current implementation signals are strongest in:
 
-- `services/ontology-service/src/handlers/types.rs`
-- `services/ontology-service/src/models/object_type.rs`
+- `services/ontology-definition-service/internal/handlers/object_types.go`
+- `services/ontology-definition-service/internal/models/object_type.go`
 - `proto/ontology/object.proto`
 
 ## OpenFoundry direction

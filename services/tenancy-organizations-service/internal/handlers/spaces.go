@@ -32,9 +32,8 @@ import (
 )
 
 // SpacesHandlers owns the nexus_spaces HTTP surface. The Pool is the
-// same shared pgxpool used by the rest of the service — the Rust crate
-// carries a separate `nexus_db` handle, but the Go port runs against a
-// single DATABASE_URL so we reuse the foundation pool.
+// same shared pgxpool used by the rest of the service: spaces run
+// against the single DATABASE_URL alongside organizations.
 type SpacesHandlers struct {
 	Pool *pgxpool.Pool
 }

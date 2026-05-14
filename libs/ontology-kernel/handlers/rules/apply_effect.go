@@ -1,11 +1,6 @@
-// ApplyRuleEffect — full 1:1 port of the Rust function of the same
-// name in `libs/ontology-kernel/src/domain/rules.rs`.
-//
-// Lives in the rules handler package (instead of `domain/`) because
-// it composes the writeback path through `handlers/objects`, which
-// would cycle if reached from `domain/`. The Rust source crosses the
-// same boundary internally — `handlers/objects` is `pub(crate)` and
-// `domain::rules` reaches into it.
+// ApplyRuleEffect lives in the rules handler package (instead of
+// `domain/`) because it composes the writeback path through
+// `handlers/objects`, which would cycle if reached from `domain/`.
 //
 // Pipeline:
 //

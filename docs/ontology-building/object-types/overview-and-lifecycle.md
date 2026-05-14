@@ -6,7 +6,7 @@ Object types are created, enriched, secured, queried, and then consumed by appli
 
 | Dimension | OpenFoundry current | OpenFoundry target |
 | --- | --- | --- |
-| Definition surface | CRUD-style backend routes in `ontology-service` | richer authoring UX with proposal, review, and branching |
+| Definition surface | CRUD-style backend routes in `ontology-definition-service` | richer authoring UX with proposal, review, and branching |
 | Schema model | object types plus attached properties and interfaces | fully managed semantic lifecycle with staged rollout |
 | Runtime usage | consumed implicitly by objects, search, rules, and views | explicit platform-wide contract for apps, AI, maps, and workflows |
 
@@ -21,9 +21,9 @@ Object types are created, enriched, secured, queried, and then consumed by appli
 
 ## Repository signals
 
-- `services/ontology-service/src/handlers/types.rs`
-- `services/ontology-service/src/models/object_type.rs`
-- `services/ontology-service/migrations/*`
+- `services/ontology-definition-service/internal/handlers/object_types.go`
+- `services/ontology-definition-service/internal/models/object_type.go`
+- `services/ontology-definition-service/internal/repo/migrations/`
 
 ## Why this matters
 

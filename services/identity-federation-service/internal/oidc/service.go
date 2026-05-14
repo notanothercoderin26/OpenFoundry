@@ -141,9 +141,8 @@ type Claims struct {
 	Name          string `json:"name"`
 }
 
-// Exchange validates the OAuth2 code + the id_token nonce + extracts
-// the claims. Mirrors the Rust crate's `domain::oauth::exchange_code`
-// minus the rich IdP claim mapping.
+// Exchange validates the OAuth2 code + the id_token nonce and
+// extracts the claims. Rich IdP claim mapping is a follow-up.
 func (p *Provider) Exchange(ctx context.Context, code, codeVerifier, expectedNonce string) (*Claims, error) {
 	tok, err := p.OAuth2.Exchange(ctx, code,
 		oauth2.SetAuthURLParam("code_verifier", codeVerifier),
@@ -186,5 +185,5 @@ func randomURLToken(byteLen int) (string, error) {
 }
 
 // StateTTL is how long a state row remains valid. 10 minutes matches
-// the Rust crate (auth_runtime.oauth_state default_time_to_live=600).
+// the auth_runtime.oauth_state default (time_to_live=600s).
 const StateTTL = 10 * time.Minute

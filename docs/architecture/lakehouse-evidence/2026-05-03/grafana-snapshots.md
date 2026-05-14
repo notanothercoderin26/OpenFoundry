@@ -443,7 +443,7 @@ Debezium:
 Source:
 
 ```text
-infra/k8s/platform/manifests/debezium/prometheus-rules.yaml
+infra/helm/infra/manifests/debezium/prometheus-rules.yaml
 ```
 
 Ontology indexer:
@@ -455,7 +455,7 @@ Ontology indexer:
 Source:
 
 ```text
-infra/k8s/platform/manifests/observability/prometheus-rules-indexer.yaml
+infra/helm/infra/manifests/observability/prometheus-rules-indexer.yaml
 ```
 
 Spark WORM guardrail:
@@ -465,7 +465,7 @@ Spark WORM guardrail:
 Source:
 
 ```text
-infra/k8s/platform/manifests/observability/spark-operator-rules.yaml
+infra/helm/infra/manifests/observability/spark-operator-rules.yaml
 ```
 
 Expression:

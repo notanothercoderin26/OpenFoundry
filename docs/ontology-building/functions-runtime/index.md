@@ -6,9 +6,9 @@ Functions are likely to evolve into a multi-runtime capability in OpenFoundry.
 
 The repo already suggests several function execution modes:
 
-- Rust-native control-plane logic
+- Go-native control-plane logic
 - Node-oriented package simulation and validation via `node_runtime_command`
-- Python-enabled semantics through `pyo3` in `ontology-service`
+- Python-enabled semantics through `libs/python-sidecar` (gRPC subprocess) consumed by `ontology-actions-service` for function execution and by `notebook-runtime-service` for notebooks
 - SDK-backed external consumption paths
 - Data Connection external Functions through configured webhooks via
   `context.sdk.dataConnection.invokeWebhook({ sourceId, inputs })`

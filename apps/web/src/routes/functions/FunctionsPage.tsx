@@ -528,6 +528,13 @@ export function FunctionsPage() {
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <span className="of-chip">{selectedPackage.entrypoint}</span>
                     <span className="of-chip of-status-info">{selectedPackage.runtime}</span>
+                    <a
+                      className="of-button"
+                      href={`/aip-evals?source=code_function_published&target=${encodeURIComponent(selectedPackage.id)}`}
+                      style={{ fontSize: 12, padding: '3px 8px' }}
+                    >
+                      <Glyph name="graph" size={11} /> Create eval suite
+                    </a>
                   </div>
                 </div>
 

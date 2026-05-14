@@ -1,9 +1,6 @@
-# authorization-policy-service (Go port)
+# authorization-policy-service
 
-Go port of the Rust `services/authorization-policy-service` crate (per
-ADR-0027). The Rust binary is currently `fn main() {}` (S8 / B14
-consolidation pending), so the Go port is the **canonical
-implementation**.
+The platform's authorization decision point (per ADR-0027).
 
 ## Port status (2026-05-07)
 

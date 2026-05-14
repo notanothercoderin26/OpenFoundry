@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import {
   FALLBACK_CONNECTOR_CATALOG,
   capabilityLabel,
+  connectorAgentHealthLabel,
   dataConnection,
   type ConnectorAgent,
   type ConnectorCapability,
@@ -89,6 +90,8 @@ function emptyVirtualLink(sourceRid: string, provider: VirtualTableProvider): Vi
     auto_register_enabled: false,
     auto_register_interval_seconds: null,
     auto_register_tag_filters: [],
+    auto_register_folder_mirror_kind: 'NESTED',
+    auto_register_table_tag_filters: [],
     iceberg_catalog_kind: null,
     iceberg_catalog_config: null,
     created_at: '',
@@ -534,7 +537,7 @@ function ViewPreview({
         {agents.slice(0, 4).map((agent) => (
           <Link key={agent.id} to="/data-connection/agents" style={previewCardLinkStyle}>
             <strong>{agent.name}</strong>
-            <span className="of-text-muted" style={{ fontSize: 12 }}>{agent.status} · owner {agent.owner_id}</span>
+            <span className="of-text-muted" style={{ fontSize: 12 }}>{connectorAgentHealthLabel(agent)} · owner {agent.owner_id}</span>
           </Link>
         ))}
         {agents.length === 0 && <p className="of-text-muted" style={{ margin: 0 }}>No agents are registered yet.</p>}

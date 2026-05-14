@@ -1,15 +1,29 @@
 {
   "agent": {
     "agent_url": "http://agent:8080",
+    "assigned_proxy_policies": [],
     "capabilities": {"jdbc": true},
+    "connected_sources": [],
     "created_at": "2026-05-07T06:00:00Z",
+    "connection_failures": [],
+    "environment": "test",
+    "health": {
+      "assigned_proxy_policy_count": 0,
+      "connected_source_count": 0,
+      "failure_count": 0,
+      "stale": false,
+      "state": "healthy"
+    },
+    "host": "agent-host",
     "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     "last_heartbeat_at": "2026-05-07T06:01:00Z",
     "metadata": {"zone": "us-east-1"},
     "name": "agent-a",
     "owner_id": "22222222-2222-2222-2222-222222222222",
     "status": "online",
-    "updated_at": "2026-05-07T06:02:00Z"
+    "supported_connector_capabilities": [],
+    "updated_at": "2026-05-07T06:02:00Z",
+    "version": "1.0.0"
   },
   "credential": {
     "created_at": "2026-05-07T06:03:00Z",
@@ -38,7 +52,9 @@
     "auto_register_enabled": true,
     "auto_register_interval_seconds": 300,
     "auto_register_project_rid": "ri.project.main.project.x",
+    "auto_register_folder_mirror_kind": "NESTED",
     "auto_register_tag_filters": ["prod"],
+    "auto_register_table_tag_filters": ["prod"],
     "code_imports_enabled": false,
     "created_at": "2026-05-07T06:06:00Z",
     "export_controls": {"allowed_markings": ["public"]},

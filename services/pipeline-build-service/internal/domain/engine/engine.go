@@ -1,11 +1,10 @@
 // Package engine — top-level pipeline orchestrator.
 //
-// 1:1 port of `services/pipeline-build-service/src/domain/engine/mod.rs`.
 // `ExecutePipeline` dispatches to the sequential or distributed-worker
 // driver based on `request.DistributedWorkerCount`. Both walk the DAG
 // in topological order, attach fingerprints to the per-node metadata,
-// honour the `skip_unchanged` shortcut by comparing previous
-// metadata fingerprints, and bail out on the first failed node.
+// honour the `skip_unchanged` shortcut by comparing previous metadata
+// fingerprints, and bail out on the first failed node.
 package engine
 
 import (
@@ -14,10 +13,9 @@ import (
 	"fmt"
 )
 
-// ExecutePipeline mirrors `pub async fn execute_pipeline` in the
-// Rust crate. Returns the per-node results in the order they were
-// executed; the slice is truncated at the first failed node so the
-// failure cascade matches the Rust impl.
+// ExecutePipeline runs the per-node executor and returns the results
+// in execution order. The slice is truncated at the first failed
+// node — the failure cascade is intentional.
 func ExecutePipeline(
 	ctx context.Context,
 	env *ExecutionEnvironment,
@@ -88,9 +86,8 @@ func executePipelineSequential(
 	return results, nil
 }
 
-// executeNode mirrors `pub(crate) async fn execute_node`. Loads
-// inputs, computes the fingerprint, honours the skip-unchanged
-// shortcut, and dispatches on `transform_type`.
+// executeNode loads inputs, computes the fingerprint, honours the
+// skip-unchanged shortcut, and dispatches on `transform_type`.
 func executeNode(
 	ctx context.Context,
 	env *ExecutionEnvironment,

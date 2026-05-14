@@ -1,29 +1,29 @@
 # Ceph (Rook) Runbook
 
-Fecha: 29 de abril de 2026
+Date: April 29, 2026
 
-OpenFoundry usa **Ceph RGW** operado por **Rook** como backend S3-compatible
-en producción. La capa `libs/storage-abstraction` no cambia: solo se le
-apunta a un endpoint distinto. En desarrollo se utiliza **RustFS**, no
-MinIO.
+OpenFoundry uses **Ceph RGW** operated by **Rook** as the S3-compatible
+backend in production. The `libs/storage-abstraction` layer does not change:
+it is simply pointed at a different endpoint. In development, **RustFS** is
+used, not MinIO.
 
-Manifestos: `infra/k8s/platform/manifests/rook/`
-Módulo Terraform: `infra/terraform/modules/ceph/`
-Helm values prod: `infra/k8s/helm/profiles/values-prod.yaml`
+Manifests: `infra/k8s/platform/manifests/rook/`
+Terraform module: `infra/terraform/modules/ceph/`
+Helm prod values: `infra/k8s/helm/profiles/values-prod.yaml`
 
-## 1. Arquitectura desplegada
+## 1. Deployed architecture
 
-| Componente            | Configuración                                             |
+| Component             | Configuration                                             |
 |-----------------------|-----------------------------------------------------------|
 | `CephCluster`         | mon=5, mgr=2, `dataDirHostPath=/var/lib/rook`, discovery on |
 | `CephObjectStore`     | metadata pool replicated=3, data pool EC 8+3, RGW=3        |
 | `StorageClass`        | `ceph-bucket` (provisioner `rook-ceph.ceph.rook.io/bucket`)|
-| Endpoint S3 in-cluster| `http://rook-ceph-rgw-openfoundry.rook-ceph.svc:80`        |
+| In-cluster S3 endpoint| `http://rook-ceph-rgw-openfoundry.rook-ceph.svc:80`        |
 | Buckets               | `openfoundry-datasets`, `openfoundry-models`, `openfoundry-iceberg` |
 
-## 2. Instalación
+## 2. Installation
 
-### 2.1 Vía Terraform (recomendado)
+### 2.1 Via Terraform (recommended)
 
 ```hcl
 module "ceph" {
@@ -42,16 +42,16 @@ terraform validate
 terraform apply -target=module.ceph
 ```
 
-El módulo:
+The module:
 
-1. Crea el namespace `rook-ceph`.
-2. Instala el chart oficial `rook-ceph` (repo
-   `https://charts.rook.io/release`, ver chart_version).
-3. Aplica `cluster.yaml`, espera `status.phase=Ready`.
-4. Aplica `objectstore.yaml` (CephObjectStore + StorageClass `ceph-bucket`).
-5. Aplica los `ObjectBucketClaim` para los tres buckets de OpenFoundry.
+1. Creates the `rook-ceph` namespace.
+2. Installs the official `rook-ceph` chart (repo
+   `https://charts.rook.io/release`, see chart_version).
+3. Applies `cluster.yaml`, waits for `status.phase=Ready`.
+4. Applies `objectstore.yaml` (CephObjectStore + `ceph-bucket` StorageClass).
+5. Applies the `ObjectBucketClaim` resources for the three OpenFoundry buckets.
 
-### 2.2 Vía kubectl (manual / DR)
+### 2.2 Via kubectl (manual / DR)
 
 ```bash
 helm repo add rook-release https://charts.rook.io/release
@@ -71,10 +71,10 @@ kubectl -n rook-ceph wait --for=jsonpath='{.status.phase}'=Ready \
 kubectl apply -f infra/k8s/platform/manifests/rook/bucket.yaml
 ```
 
-### 2.3 Verificación de salud
+### 2.3 Health verification
 
 ```bash
-# Pod toolbox para hablar con el cluster Ceph
+# Toolbox pod for talking to the Ceph cluster
 kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph status
 kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph osd tree
 kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph df
@@ -83,27 +83,27 @@ kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph df
 kubectl -n rook-ceph get svc rook-ceph-rgw-openfoundry
 ```
 
-Un cluster sano reporta `HEALTH_OK` y `n osds: n up, n in`.
+A healthy cluster reports `HEALTH_OK` and `n osds: n up, n in`.
 
-## 3. Comando E2E para crear OBC y obtener credenciales
+## 3. End-to-end command to create an OBC and obtain credentials
 
-Cada `ObjectBucketClaim` (OBC) declara un bucket en el `CephObjectStore`.
-Cuando el provisioner lo enlaza, crea en el mismo namespace de la OBC:
+Each `ObjectBucketClaim` (OBC) declares a bucket in the `CephObjectStore`.
+When the provisioner binds it, it creates, in the same namespace as the OBC:
 
-- `Secret` `<bucketName>` con claves `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
-- `ConfigMap` `<bucketName>` con `BUCKET_HOST`, `BUCKET_PORT`, `BUCKET_NAME`, `BUCKET_REGION`
+- `Secret` `<bucketName>` with keys `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+- `ConfigMap` `<bucketName>` with `BUCKET_HOST`, `BUCKET_PORT`, `BUCKET_NAME`, `BUCKET_REGION`
 
-Workflow E2E (ejemplo con `openfoundry-datasets`):
+End-to-end workflow (example with `openfoundry-datasets`):
 
 ```bash
-# 1. Crear el OBC (idempotente)
+# 1. Create the OBC (idempotent)
 kubectl apply -f infra/k8s/platform/manifests/rook/bucket.yaml
 
-# 2. Esperar a que se aprovisione el bucket
+# 2. Wait for the bucket to be provisioned
 kubectl -n openfoundry wait --for=jsonpath='{.status.phase}'=Bound \
   obc/openfoundry-datasets --timeout=5m
 
-# 3. Recuperar credenciales y metadatos
+# 3. Retrieve credentials and metadata
 ACCESS_KEY=$(kubectl -n openfoundry get secret openfoundry-datasets \
   -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
 SECRET_KEY=$(kubectl -n openfoundry get secret openfoundry-datasets \
@@ -120,7 +120,7 @@ echo "bucket=${BUCKET_NAME}"
 echo "access_key=${ACCESS_KEY}"
 echo "secret_key=${SECRET_KEY}"
 
-# 4. Smoke test S3 (usa awscli o mc apuntando al endpoint in-cluster)
+# 4. S3 smoke test (use awscli or mc pointed at the in-cluster endpoint)
 kubectl -n openfoundry run s3-smoke --rm -it --restart=Never \
   --image=amazon/aws-cli --env="AWS_ACCESS_KEY_ID=${ACCESS_KEY}" \
   --env="AWS_SECRET_ACCESS_KEY=${SECRET_KEY}" -- \
@@ -128,12 +128,12 @@ kubectl -n openfoundry run s3-smoke --rm -it --restart=Never \
   s3 ls "s3://${BUCKET_NAME}"
 ```
 
-### Proyectar credenciales en `open-foundry-prod-env`
+### Project credentials into `open-foundry-prod-env`
 
-Los servicios consumen `OBJECT_STORE_ACCESS_KEY` /
-`OBJECT_STORE_SECRET_KEY` del Secret referenciado por
-`global.existingSecret` (en prod: `open-foundry-prod-env`). Para
-materializarlas desde el OBC primario (`openfoundry-datasets`):
+Services consume `OBJECT_STORE_ACCESS_KEY` / `OBJECT_STORE_SECRET_KEY`
+from the Secret referenced by `global.existingSecret` (in prod:
+`open-foundry-prod-env`). To materialize them from the primary OBC
+(`openfoundry-datasets`):
 
 ```bash
 kubectl -n openfoundry create secret generic open-foundry-prod-env \
@@ -143,139 +143,139 @@ kubectl -n openfoundry create secret generic open-foundry-prod-env \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-> Las tres OBCs comparten el mismo CephObjectStore, así que las claves de
-> cualquiera de ellas son válidas para acceder a los tres buckets *si* el
-> usuario tiene políticas para los otros (por defecto, cada OBC genera un
-> usuario con permisos solo sobre su bucket). Para acceso multi-bucket
-> centralizado, crea un usuario RGW dedicado con `radosgw-admin user create`
-> y enlázalo al secret.
+> The three OBCs share the same CephObjectStore, so the keys of any of
+> them are valid to access all three buckets *if* the user has policies
+> for the others (by default, each OBC generates a user with permissions
+> only on its own bucket). For centralized multi-bucket access, create a
+> dedicated RGW user with `radosgw-admin user create` and bind it to the
+> secret.
 
-## 4. Expansión de OSDs
+## 4. OSD expansion
 
-### 4.1 Agregar nuevos discos a nodos existentes
+### 4.1 Add new disks to existing nodes
 
-1. Insertar/atachar el disco en el nodo (debe aparecer como dispositivo
-   crudo, sin filesystem).
-2. El daemon de descubrimiento (`enableDiscoveryDaemon=true`) detecta el
-   nuevo dispositivo en ≤ 60 s.
-3. Si el dispositivo casa con `deviceFilter` de `cluster.yaml` (por
-   defecto `^(sd[b-z]|nvme[0-9]+n[0-9]+)$`), el operador crea un nuevo
-   OSD automáticamente.
-4. Verificar:
+1. Insert/attach the disk into the node (it must show up as a raw
+   device, with no filesystem).
+2. The discovery daemon (`enableDiscoveryDaemon=true`) detects the new
+   device in ≤ 60 s.
+3. If the device matches the `deviceFilter` in `cluster.yaml` (by
+   default `^(sd[b-z]|nvme[0-9]+n[0-9]+)$`), the operator creates a new
+   OSD automatically.
+4. Verify:
 
    ```bash
    kubectl -n rook-ceph exec deploy/rook-ceph-tools -- ceph osd tree
    kubectl -n rook-ceph exec deploy/rook-ceph-tools -- ceph status
    ```
 
-5. El balanceo PG se realiza por el módulo `pg_autoscaler` (ya activo).
+5. PG balancing is performed by the `pg_autoscaler` module (already active).
 
-### 4.2 Agregar nuevos nodos al cluster
+### 4.2 Add new nodes to the cluster
 
-1. Etiquetar el nodo:
+1. Label the node:
 
    ```bash
    kubectl label node <node> role=storage
-   kubectl taint node <node> storage-node=true:NoSchedule  # opcional
+   kubectl taint node <node> storage-node=true:NoSchedule  # optional
    ```
 
-   (Coincide con el `nodeAffinity` y `tolerations` de `cluster.yaml`.)
+   (Matches the `nodeAffinity` and `tolerations` in `cluster.yaml`.)
 
-2. El operador planifica mons/mgrs/osds nuevos cuando aplique.
-3. Para limitar qué dispositivos consumir, edita `spec.storage` en
-   `cluster.yaml` y reaplica.
+2. The operator schedules new mons/mgrs/osds as appropriate.
+3. To limit which devices to consume, edit `spec.storage` in
+   `cluster.yaml` and reapply.
 
-### 4.3 Sustituir un OSD fallido
+### 4.3 Replace a failed OSD
 
 ```bash
-# 1. Identificar el OSD fallido
+# 1. Identify the failed OSD
 kubectl -n rook-ceph exec deploy/rook-ceph-tools -- ceph osd tree | grep down
 
-# 2. Marcar el OSD como out y purgarlo
+# 2. Mark the OSD as out and purge it
 OSD_ID=<id>
 kubectl -n rook-ceph exec deploy/rook-ceph-tools -- ceph osd out osd.${OSD_ID}
-# Esperar a que el cluster recupere las PGs
+# Wait for the cluster to recover the PGs
 kubectl -n rook-ceph exec deploy/rook-ceph-tools -- ceph status
 kubectl -n rook-ceph exec deploy/rook-ceph-tools -- \
   ceph osd purge ${OSD_ID} --yes-i-really-mean-it
 
-# 3. Quitar el deployment OSD residual
+# 3. Remove the leftover OSD deployment
 kubectl -n rook-ceph delete deploy rook-ceph-osd-${OSD_ID}
 
-# 4. Sustituir físicamente el disco; el operador re-aprovisiona el OSD.
+# 4. Physically replace the disk; the operator re-provisions the OSD.
 ```
 
 ## 5. Disaster Recovery
 
-### 5.1 Pérdida de un único nodo (mon/osd)
+### 5.1 Loss of a single node (mon/osd)
 
-- mon=5 tolera la pérdida de hasta 2 mons sin perder quorum.
-- EC 8+3 tolera la pérdida de hasta 3 chunks por PG.
-- Acciones: reemplazar el nodo, etiquetarlo como `role=storage`,
-  esperar al operador. Sin RPO ni intervención sobre datos.
+- mon=5 tolerates the loss of up to 2 mons without losing quorum.
+- EC 8+3 tolerates the loss of up to 3 chunks per PG.
+- Actions: replace the node, label it as `role=storage`, wait for the
+  operator. No RPO and no intervention on data.
 
-### 5.2 Pérdida de quorum de mons
+### 5.2 Loss of mon quorum
 
 ```bash
-# 1. Listar mons supervivientes
+# 1. List the surviving mons
 kubectl -n rook-ceph get pods -l app=rook-ceph-mon
 
-# 2. Forzar reconstrucción del quorum desde el mon superviviente
-#    (procedimiento `rook-ceph mons restore-quorum` en toolbox)
+# 2. Force quorum rebuild from the surviving mon
+#    (`rook-ceph mons restore-quorum` procedure in the toolbox)
 kubectl -n rook-ceph rollout restart deploy/rook-ceph-operator
-# Si persiste: seguir https://rook.io/docs/rook/latest/Troubleshooting/disaster-recovery/
+# If it persists: follow https://rook.io/docs/rook/latest/Troubleshooting/disaster-recovery/
 ```
 
-### 5.3 Pérdida total del object store (RGW)
+### 5.3 Total loss of the object store (RGW)
 
-Los pools de RGW son persistentes; los pods RGW son stateless.
+The RGW pools are persistent; the RGW pods are stateless.
 
 ```bash
 kubectl -n rook-ceph delete pod -l app=rook-ceph-rgw
-# El operador re-crea las 3 instancias (gateway.instances=3).
+# The operator recreates the 3 instances (gateway.instances=3).
 ```
 
-### 5.4 Pérdida total del cluster Ceph (catastrófico)
+### 5.4 Total loss of the Ceph cluster (catastrophic)
 
-1. Restaurar nodos de almacenamiento desde imágenes base con
-   `/var/lib/rook` intacto si está disponible. Reaplicar manifestos:
+1. Restore storage nodes from base images with `/var/lib/rook` intact
+   if available. Reapply manifests:
 
    ```bash
    terraform apply -target=module.ceph
    ```
 
-2. Si `/var/lib/rook` también se perdió pero tienes un backup S3 externo
-   de los buckets (recomendado para `openfoundry-datasets`):
+2. If `/var/lib/rook` is also lost but you have an external S3 backup
+   of the buckets (recommended for `openfoundry-datasets`):
 
    ```bash
-   # Reinstalar el cluster vacío
+   # Reinstall the empty cluster
    terraform apply -target=module.ceph
 
-   # Esperar a HEALTH_OK
+   # Wait for HEALTH_OK
    kubectl -n rook-ceph exec deploy/rook-ceph-tools -- ceph status
 
-   # Re-hidratar buckets desde el backup externo (ej. snapshots offsite)
+   # Re-hydrate buckets from the external backup (e.g. offsite snapshots)
    aws s3 sync s3://openfoundry-dr-mirror/datasets \
      s3://openfoundry-datasets \
      --endpoint-url http://rook-ceph-rgw-openfoundry.rook-ceph.svc:80
    ```
 
-3. Reanudar servicios — el endpoint S3 no cambia, las nuevas credenciales
-   de OBC se proyectan a `open-foundry-prod-env` con el procedimiento de
-   §3.
+3. Resume services — the S3 endpoint does not change; the new OBC
+   credentials are projected into `open-foundry-prod-env` using the
+   procedure in §3.
 
-### 5.5 Backups recomendados
+### 5.5 Recommended backups
 
-- `radosgw-admin metadata list bucket` → exportar lista de buckets cada
-  hora.
-- Snapshot diario S3-to-S3 a un bucket externo (otra región, otro
-  proveedor) para los datos críticos (`openfoundry-datasets`).
-- Backup periódico de los Secrets `openfoundry-*` en `openfoundry`
-  (contienen las credenciales de los OBCs) a una bóveda offline.
+- `radosgw-admin metadata list bucket` → export the bucket list every
+  hour.
+- Daily S3-to-S3 snapshot to an external bucket (another region, another
+  provider) for critical data (`openfoundry-datasets`).
+- Periodic backup of the `openfoundry-*` Secrets in `openfoundry`
+  (they contain the OBC credentials) to an offline vault.
 
-## 6. Limpieza
+## 6. Cleanup
 
-Para destruir el cluster y los datos (¡irreversible!):
+To destroy the cluster and the data (irreversible!):
 
 ```bash
 kubectl -n openfoundry delete obc --all
@@ -285,5 +285,5 @@ kubectl -n rook-ceph patch cephcluster openfoundry --type=merge \
 kubectl -n rook-ceph delete cephcluster openfoundry
 helm -n rook-ceph uninstall rook-ceph
 kubectl delete ns rook-ceph
-# Limpiar /var/lib/rook en cada nodo de storage.
+# Clean /var/lib/rook on each storage node.
 ```

@@ -1,8 +1,7 @@
 // Package models holds the wire types for notification-alerting-service.
 //
-// JSON tag set + field types match the Rust crate verbatim so the
-// frontend, edge-gateway and event-bus consumers do not see a wire
-// difference between the two implementations.
+// JSON tag set + field types are pinned for SDK consumers
+// (frontend, edge-gateway, event-bus subscribers).
 package models
 
 import (

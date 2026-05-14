@@ -1,10 +1,10 @@
-# `sql-bi-gateway-service` (Go)
+# `sql-bi-gateway-service`
 
-Edge SQL gateway: ports the Rust crate of the same name with a
-substantial caveat — Go has no first-class DataFusion equivalent, so
-the Flight SQL gRPC surface is **substrate-only** until the proxy
-bindings land. The HTTP side router (saved queries, warehousing,
-tabular) is a 1:1 port.
+Edge SQL gateway. Caveat: the Flight SQL gRPC surface is
+**substrate-only** today — a literal-SELECT evaluator answers BI
+client probes, anything richer is delegated to the configured
+warehousing endpoint. The HTTP side router (saved queries,
+warehousing, tabular) is fully wired.
 
 ## Surfaces
 

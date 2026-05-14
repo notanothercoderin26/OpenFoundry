@@ -1,0 +1,24 @@
+# Defaults shipped inside the container image.
+# Override per-environment via CONFIG_FILE or OF_* env vars.
+
+service:
+  name: compute-module-service
+  version: 0.1.0
+
+server:
+  addr: ":8080"
+  shutdown_timeout: 15s
+
+jwt:
+  secret: ""
+  issuer: "https://auth.openfoundry.local"
+  audience: "openfoundry"
+
+telemetry:
+  otlp_endpoint: "localhost:4317"
+  log_format: "plain"
+
+# Empty enables the in-memory repository (smoke mode); set to the
+# Postgres DSN to enable the persistent backend once the pgx repo
+# lands alongside CM.2/CM.3.
+database_url: ""

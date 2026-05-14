@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { formatPropertyValue, listObjects, listProperties, objectViewVisibleProperties, propertyConditionalStyle, queryObjects, type ObjectInstance, type ObjectType, type Property } from '@/lib/api/ontology';
+import { filterObjectsForRestrictedViewPolicy, formatPropertyValue, listObjects, listProperties, objectViewVisibleProperties, propertyConditionalStyle, queryObjects, restrictedViewBackingConfigForObjectType, type ObjectInstance, type ObjectInstanceViewPolicy, type ObjectType, type OntologyPermissionPrincipal, type Property } from '@/lib/api/ontology';
 import { InlineEditCell } from './InlineEditCell';
 import { ObjectCard } from './ObjectCard';
 
@@ -10,6 +10,8 @@ interface ObjectExplorerProps {
   properties?: Property[];
   pageSize?: number;
   editable?: boolean;
+  instanceAccess?: ObjectInstanceViewPolicy | null;
+  principal?: OntologyPermissionPrincipal | null;
   reloadSignal?: number;
   onSelect?: (object: ObjectInstance) => void;
   onObjectUpdated?: (object: ObjectInstance) => void;
@@ -21,6 +23,8 @@ export function ObjectExplorer({
   properties: propertiesProp,
   pageSize = 50,
   editable = false,
+  instanceAccess = null,
+  principal = null,
   reloadSignal = 0,
   onSelect,
   onObjectUpdated,
@@ -34,6 +38,10 @@ export function ObjectExplorer({
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const canViewDefinition = instanceAccess?.can_view_definition ?? true;
+  const canViewInstances = instanceAccess?.can_view_instances ?? true;
+  const schemaOnly = Boolean(instanceAccess?.schema_only);
+  const restrictedViewBacked = Boolean(objectType && restrictedViewBackingConfigForObjectType(objectType));
 
   useEffect(() => {
     if (propertiesProp) {
@@ -49,20 +57,27 @@ export function ObjectExplorer({
   }
 
   async function load() {
+    if (!canViewDefinition || !canViewInstances) {
+      setObjects([]);
+      setTotal(0);
+      return;
+    }
     setLoading(true);
     setError('');
     try {
       const active = filters.filter((f) => f.name && f.value !== '');
       if (active.length === 0) {
         const r = await listObjects(typeId, { page, per_page: pageSize });
-        setObjects(applyFacet(r.data ?? []));
-        setTotal(r.total ?? r.data?.length ?? 0);
+        const rows = filterObjectsForRestrictedViewPolicy(applyFacet(r.data ?? []), { objectType, principal });
+        setObjects(rows);
+        setTotal(restrictedViewBacked ? rows.length : r.total ?? r.data?.length ?? 0);
       } else {
         const equals: Record<string, unknown> = {};
         for (const f of active) equals[f.name] = f.value;
         const r = await queryObjects(typeId, { equals, limit: pageSize });
-        setObjects(applyFacet(r.data ?? []));
-        setTotal(r.total ?? r.data?.length ?? 0);
+        const rows = filterObjectsForRestrictedViewPolicy(applyFacet(r.data ?? []), { objectType, principal });
+        setObjects(rows);
+        setTotal(restrictedViewBacked ? rows.length : r.total ?? r.data?.length ?? 0);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -71,7 +86,7 @@ export function ObjectExplorer({
     }
   }
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [typeId, page, marking, reloadSignal]);
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [typeId, page, marking, reloadSignal, canViewDefinition, canViewInstances, restrictedViewBacked, principal]);
 
   function addFilter() {
     setFilters((prev) => [...prev, { name: properties[0]?.name ?? '', value: '' }]);
@@ -107,11 +122,23 @@ export function ObjectExplorer({
             <option value="confidential">confidential</option>
             <option value="pii">pii</option>
           </select>
-          <button type="button" onClick={() => void load()} disabled={loading} className="of-button" style={{ fontSize: 11 }}>Refresh</button>
+          <button type="button" onClick={() => void load()} disabled={loading || !canViewInstances} className="of-button" style={{ fontSize: 11 }}>Refresh</button>
         </div>
       </header>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {!canViewDefinition && (
+        <div className="of-status-danger" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>
+          Object type definition is not viewable for the current user.
+        </div>
+      )}
+
+      {schemaOnly && (
+        <div className="of-status-warning" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>
+          {instanceAccess?.reason || 'Object values are restricted; rendering schema only.'}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, opacity: canViewInstances ? 1 : 0.65 }}>
         {filters.map((f, i) => (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 4 }}>
             <select
@@ -127,14 +154,38 @@ export function ObjectExplorer({
           </div>
         ))}
         <div style={{ display: 'flex', gap: 6 }}>
-          <button type="button" onClick={addFilter} className="of-button" style={{ fontSize: 11 }}>+ Filter</button>
-          <button type="button" onClick={() => { setPage(1); void load(); }} className="of-button of-button--primary" style={{ fontSize: 11 }}>Apply</button>
+          <button type="button" onClick={addFilter} disabled={!canViewInstances} className="of-button" style={{ fontSize: 11 }}>+ Filter</button>
+          <button type="button" onClick={() => { setPage(1); void load(); }} disabled={!canViewInstances} className="of-button of-button--primary" style={{ fontSize: 11 }}>Apply</button>
         </div>
       </div>
 
       {error && <p style={{ color: '#fca5a5', fontSize: 11, margin: 0 }}>{error}</p>}
 
-      {layout === 'table' ? (
+      {schemaOnly ? (
+        <div style={{ overflow: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: 6, borderBottom: '1px solid #1f2937' }}>Property</th>
+                <th style={{ textAlign: 'left', padding: 6, borderBottom: '1px solid #1f2937' }}>Type</th>
+                <th style={{ textAlign: 'left', padding: 6, borderBottom: '1px solid #1f2937' }}>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {objectViewVisibleProperties(properties).map((property) => (
+                <tr key={property.id}>
+                  <td style={{ padding: 6, borderBottom: '1px solid #1f2937' }}>{property.display_name || property.name}</td>
+                  <td style={{ padding: 6, borderBottom: '1px solid #1f2937', color: '#94a3b8' }}>{property.property_type}</td>
+                  <td style={{ padding: 6, borderBottom: '1px solid #1f2937', color: '#94a3b8' }}>Restricted</td>
+                </tr>
+              ))}
+              {properties.length === 0 && (
+                <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>No schema properties.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : layout === 'table' ? (
         <div style={{ overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
@@ -155,23 +206,33 @@ export function ObjectExplorer({
                   style={{ cursor: onSelect ? 'pointer' : 'default', borderBottom: '1px solid #1f2937' }}
                 >
                   <td style={{ padding: 6, fontFamily: 'var(--font-mono)' }}>{o.id.slice(0, 12)}…</td>
-                  {visibleProperties.map((p) => (
-                    <td key={p.id} style={{ padding: 6 }}>
-                      {editable ? (
-                        <InlineEditCell
-                          typeId={typeId}
-                          objectId={o.id}
-                          property={p}
-                          value={o.properties?.[p.name]}
-                          onUpdated={(value) => updateObjectProperty(o, p, value)}
-                        />
-                      ) : (
-                        <span style={propertyConditionalStyle(p, o.properties?.[p.name])}>
-                          {formatPropertyValue(p, o.properties?.[p.name])}
-                        </span>
-                      )}
-                    </td>
-                  ))}
+                  {visibleProperties.map((p) => {
+                    const security = o.object_security_access?.property_decisions.find((decision) => decision.property_name === p.name);
+                    const readBlocked = Boolean(security && !security.can_read);
+                    const editBlocked = security && !(security.policy_property ? security.can_edit_policy_property : security.can_edit_property)
+                      ? security.reason
+                      : '';
+                    return (
+                      <td key={p.id} style={{ padding: 6 }}>
+                        {readBlocked ? (
+                          <span className="of-text-muted">Restricted</span>
+                        ) : editable ? (
+                          <InlineEditCell
+                            typeId={typeId}
+                            objectId={o.id}
+                            property={p}
+                            value={o.properties?.[p.name]}
+                            disabledReason={editBlocked}
+                            onUpdated={(value) => updateObjectProperty(o, p, value)}
+                          />
+                        ) : (
+                          <span style={propertyConditionalStyle(p, o.properties?.[p.name])}>
+                            {formatPropertyValue(p, o.properties?.[p.name])}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
                   <td style={{ padding: 6 }}>{o.marking ?? '—'}</td>
                   {onSelect && (
                     <td style={{ padding: 6, textAlign: 'right' }}>
@@ -207,8 +268,8 @@ export function ObjectExplorer({
       <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
         <span style={{ color: '#94a3b8' }}>Page {page} · {total} total</span>
         <span style={{ display: 'flex', gap: 6 }}>
-          <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="of-button" style={{ fontSize: 11 }}>← Prev</button>
-          <button type="button" onClick={() => setPage((p) => p + 1)} disabled={page * pageSize >= total} className="of-button" style={{ fontSize: 11 }}>Next →</button>
+          <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || !canViewInstances} className="of-button" style={{ fontSize: 11 }}>← Prev</button>
+          <button type="button" onClick={() => setPage((p) => p + 1)} disabled={page * pageSize >= total || !canViewInstances} className="of-button" style={{ fontSize: 11 }}>Next →</button>
         </span>
       </footer>
     </section>

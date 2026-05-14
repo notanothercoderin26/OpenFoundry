@@ -5,6 +5,7 @@ import {
   executeActionBatch,
   validateAction,
   type ActionInputField,
+  type ActionExecutionContext,
   type ActionType,
   type ExecuteActionResponse,
   type ExecuteBatchActionResponse,
@@ -18,6 +19,8 @@ interface ActionExecutorProps {
   targetObjectId?: string | null;
   batchTargetObjectIds?: string[];
   emptyMessage?: string;
+  disabledReason?: string;
+  executionContext?: ActionExecutionContext;
   onExecuted?: (response: ExecuteActionResponse | ExecuteBatchActionResponse) => void;
   onValidated?: (response: ValidateActionResponse) => void;
 }
@@ -90,9 +93,12 @@ export function ActionExecutor({
   targetObjectId = null,
   batchTargetObjectIds = [],
   emptyMessage = 'This action does not require user-entered parameters.',
+  disabledReason = '',
+  executionContext,
   onExecuted,
   onValidated,
 }: ActionExecutorProps) {
+  const initialParametersKey = JSON.stringify(initialParameters);
   const [parameters, setParameters] = useState<Record<string, unknown>>({ ...initialParameters });
   const [justification, setJustification] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -102,10 +108,10 @@ export function ActionExecutor({
   const [confirm, setConfirm] = useState(false);
 
   useEffect(() => {
-    setParameters({ ...initialParameters });
+    setParameters(JSON.parse(initialParametersKey) as Record<string, unknown>);
     setValidation(null);
     setError('');
-  }, [action?.id]);
+  }, [action?.id, initialParametersKey]);
 
   const visibleFields = useMemo(
     () => (action?.input_schema ?? []).filter((f) => !hiddenParams.includes(f.name)),
@@ -122,11 +128,15 @@ export function ActionExecutor({
   }
 
   async function runValidate() {
-    if (!action) return;
+    if (!action || disabledReason) return;
     setValidating(true);
     setError('');
     try {
-      const r = await validateAction(action.id, { target_object_id: targetObjectId ?? undefined, parameters });
+      const r = await validateAction(action.id, {
+        target_object_id: targetObjectId ?? undefined,
+        parameters,
+        execution_context: executionContext,
+      });
       setValidation(r);
       onValidated?.(r);
     } catch (cause) {
@@ -137,7 +147,7 @@ export function ActionExecutor({
   }
 
   async function runExecute() {
-    if (!action) return;
+    if (!action || disabledReason) return;
     if (action.confirmation_required && !confirm) {
       setConfirm(true);
       return;
@@ -151,12 +161,14 @@ export function ActionExecutor({
           target_object_ids: batchTargetObjectIds,
           parameters,
           justification: justification || undefined,
+          execution_context: executionContext,
         });
       } else {
         response = await executeAction(action.id, {
           target_object_id: targetObjectId ?? undefined,
           parameters,
           justification: justification || undefined,
+          execution_context: executionContext,
         });
       }
       onExecuted?.(response);
@@ -177,6 +189,12 @@ export function ActionExecutor({
       <header>
         <h3 style={{ margin: 0, fontSize: 14 }}>{action.display_name || action.name}</h3>
         {action.description && <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>{action.description}</p>}
+        {executionContext?.surface && (
+          <p className="of-text-muted" style={{ marginTop: 4, fontSize: 11 }}>
+            Context: {executionContext.surface.replaceAll('_', ' ')}
+            {executionContext.branch_name ? ` / ${executionContext.branch_name}` : ''}
+          </p>
+        )}
       </header>
 
       {visibleFields.length === 0 ? (
@@ -189,16 +207,22 @@ export function ActionExecutor({
               {field.required && <span style={{ color: '#fca5a5' }}>*</span>}
               {field.description && <span className="of-text-muted" style={{ display: 'block', fontSize: 11 }}>{field.description}</span>}
               <div style={{ marginTop: 4 }}>
-                {inputFor(field, parameters[field.name] ?? field.default_value, (v) => setField(field.name, v), submitting)}
+                {inputFor(field, parameters[field.name] ?? field.default_value, (v) => setField(field.name, v), submitting || Boolean(disabledReason))}
               </div>
             </label>
           ))}
         </div>
       )}
 
+      {disabledReason ? (
+        <div className="of-status-warning" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>
+          {disabledReason}
+        </div>
+      ) : null}
+
       <label style={{ fontSize: 13 }}>
         Justification (optional)
-        <input value={justification} onChange={(e) => setJustification(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
+        <input value={justification} onChange={(e) => setJustification(e.target.value)} disabled={Boolean(disabledReason)} className="of-input" style={{ marginTop: 4 }} />
       </label>
 
       {validation && (
@@ -221,10 +245,10 @@ export function ActionExecutor({
       )}
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <button type="button" onClick={() => void runValidate()} disabled={validating} className="of-button" style={{ fontSize: 12 }}>
+        <button type="button" onClick={() => void runValidate()} disabled={validating || Boolean(disabledReason)} className="of-button" style={{ fontSize: 12 }}>
           {validating ? 'Validating…' : 'Validate'}
         </button>
-        <button type="button" onClick={() => void runExecute()} disabled={submitting} className="of-button of-button--primary" style={{ fontSize: 12 }}>
+        <button type="button" onClick={() => void runExecute()} disabled={submitting || Boolean(disabledReason)} className="of-button of-button--primary" style={{ fontSize: 12 }}>
           {submitting ? 'Executing…' : batchTargetObjectIds.length > 0 ? `Execute on ${batchTargetObjectIds.length} objects` : confirm ? 'Confirm execute' : 'Execute'}
         </button>
         {confirm && <button type="button" onClick={() => setConfirm(false)} className="of-button" style={{ fontSize: 12 }}>Cancel</button>}

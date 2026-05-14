@@ -21,8 +21,7 @@
 // CheckAndRecord records the eventID before the closure runs. A failed
 // closure leaves the eventID marked as processed; the next redelivery
 // will skip. Wrap side effects in an outbox / saga so this corner case
-// is not silent data loss. Same trade-off the Rust crate makes — see
-// the package doc on the Rust side.
+// is not silent data loss.
 package idempotency
 
 import (

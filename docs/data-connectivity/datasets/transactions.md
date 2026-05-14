@@ -14,8 +14,8 @@ A transaction lives in one of three states:
 ```
 
 * **`OPEN`** — created with `POST /v1/datasets/{rid}/branches/{branch}/transactions`. The branch may have **at most one** OPEN transaction at any time (enforced by a unique partial index on `dataset_transactions`); a second `POST` while one is OPEN responds `409 Conflict`.
-* **`COMMITTED`** — produced by `POST .../transactions/{txn}:commit` after the domain validator (`crate::domain::transactions`) accepts the staged ops. The branch's `head_transaction_id` advances atomically.
-* **`ABORTED`** — produced by `POST .../transactions/{txn}:abort`. The staged file paths remain on object storage until `lineage-deletion-service` reaps them under the `DELETE_ABORTED_TRANSACTIONS` retention policy.
+* **`COMMITTED`** — produced by `POST .../transactions/{txn}:commit` after the domain validator (`internal/domain/transactions`) accepts the staged ops. The branch's `head_transaction_id` advances atomically.
+* **`ABORTED`** — produced by `POST .../transactions/{txn}:abort`. The staged file paths remain on object storage until the lineage-deletion subsystem in `audit-compliance-service` reaps them under the `DELETE_ABORTED_TRANSACTIONS` retention policy.
 
 ## Transaction types
 
@@ -26,7 +26,7 @@ A transaction lives in one of three states:
 | `UPDATE`   | `ADD` and `REMOVE` ops. May add new paths and may remove paths from the view.   | Previous view minus removes ∪ adds |
 | `DELETE`   | Only `REMOVE` ops.                                                              | Previous view minus removes       |
 
-These constraints are enforced at commit time inside `domain::transactions`. Violations short-circuit with structured 4xx errors (see `map_commit_error` in [`services/dataset-versioning-service/src/handlers/foundry.rs`](../../../services/dataset-versioning-service/src/handlers/foundry.rs)).
+These constraints are enforced at commit time inside the `internal/domain/transactions` package. Violations short-circuit with structured 4xx errors (see [`services/dataset-versioning-service/internal/handlers/transactions.go`](../../../services/dataset-versioning-service/internal/handlers/transactions.go) and the invariants test in `internal/repo/transaction_invariants_test.go`).
 
 ## Endpoints
 

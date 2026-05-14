@@ -15,8 +15,8 @@ The current repository already contains a meaningful edit surface through ontolo
 
 Today, the strongest concrete signals are:
 
-- object instance CRUD in `services/ontology-service/src/handlers/objects.rs`
-- action execution in `services/ontology-service/src/handlers/actions.rs`
+- object instance CRUD across `services/object-database-service/internal/handlers/objects.go` (storage), `services/ontology-actions-service/internal/handlers/objects.go` (mutations), and `services/ontology-query-service/internal/handlers/objects.go` (reads)
+- action execution in `services/ontology-actions-service/internal/handlers/actions.go`
 - batch action execution
 - what-if branches for previewing alternative outcomes
 - link creation as part of action execution

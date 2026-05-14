@@ -13,9 +13,9 @@ The ontology backend already exposes:
 
 The relevant components are visible in:
 
-- `services/ontology-service/src/handlers/search.rs`
-- `services/ontology-service/src/handlers/object_sets.rs`
-- `services/ontology-service/src/domain/object_sets.rs`
+- `services/ontology-query-service/internal/handlers/search.go`
+- `services/ontology-query-service/internal/handlers/object_sets.go`
+- `services/ontology-query-service/internal/domain/object_sets.go`
 
 ## Why this matters
 

@@ -15,9 +15,9 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/models"
 )
 
-// Wire-format: the Organization JSON shape must match the Rust crate
-// (snake_case, NO HTML camelCase). Tests below are pinned so a future
-// change to JSON tags fails loudly.
+// Wire-format: the Organization JSON shape must be snake_case (NOT
+// camelCase). Tests below are pinned so a future change to JSON tags
+// fails loudly.
 func TestOrganizationJSONShape(t *testing.T) {
 	t.Parallel()
 	dw := "default-ws"
@@ -63,7 +63,7 @@ func TestEnrollmentJSONShape(t *testing.T) {
 }
 
 // ListResponse[T] envelope must always carry an "items" field, never
-// "data" or "results", to keep wire-compat with the Rust crate.
+// "data" or "results", to keep wire-compat with SDKs and the frontend.
 func TestListResponseEnvelope(t *testing.T) {
 	t.Parallel()
 	out, err := json.Marshal(models.ListResponse[models.Organization]{Items: []models.Organization{}})

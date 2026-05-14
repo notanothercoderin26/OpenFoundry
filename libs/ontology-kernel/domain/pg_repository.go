@@ -116,7 +116,7 @@ func definitionTableFor(kind storageabstraction.DefinitionKind) (definitionTable
 			ownerCol:   "owner_id",
 			parentCol:  "base_object_type_id",
 			searchCols: []string{"name", "description"},
-			filterCols: []string{"base_object_type_id", "name", "owner_id"},
+			filterCols: []string{"base_object_type_id", "name", "owner_id", "kind", "privacy", "project_id"},
 		}, true
 	case "quiver_visual_function", "quiver_visual_functions":
 		return definitionTable{
@@ -407,6 +407,20 @@ func (s *PostgresDefinitionStore) putObjectSetDefinition(ctx context.Context, re
 	projections := payloadJSONOrEmptyArray(payload, "projections")
 	whatIfLabel := payloadOptStringPtr(payload, "what_if_label")
 	policy := payloadJSONOrEmptyObject(payload, "policy")
+	kind := payloadOptString(payload, "kind")
+	if kind == "" {
+		kind = "exploration"
+	}
+	queryState := payloadJSONOrEmptyObject(payload, "query_state")
+	layout := payloadJSONOrEmptyObject(payload, "layout")
+	privacy := payloadOptString(payload, "privacy")
+	if privacy == "" {
+		privacy = "private"
+	}
+	projectID := payloadOptUUIDPtr(payload, "project_id")
+	folderPath := payloadOptString(payload, "folder_path")
+	shareSlug := payloadOptString(payload, "share_slug")
+	selectedObjectIDs := payloadJSONOrEmptyArray(payload, "selected_object_ids")
 	ownerID, err := payloadUUID(payload, "owner_id")
 	if err != nil {
 		return storageabstraction.PutOutcome{}, err
@@ -415,8 +429,9 @@ func (s *PostgresDefinitionStore) putObjectSetDefinition(ctx context.Context, re
 	var inserted bool
 	err = s.Pool.QueryRow(ctx, `INSERT INTO ontology_object_sets (
                id, name, description, base_object_type_id, filters, traversals, join_config,
-               projections, what_if_label, policy, owner_id
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+               projections, what_if_label, policy, kind, query_state, layout, privacy, project_id,
+               folder_path, share_slug, selected_object_ids, owner_id
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
            ON CONFLICT (id) DO UPDATE SET
                name = EXCLUDED.name,
                description = EXCLUDED.description,
@@ -427,10 +442,19 @@ func (s *PostgresDefinitionStore) putObjectSetDefinition(ctx context.Context, re
                projections = EXCLUDED.projections,
                what_if_label = EXCLUDED.what_if_label,
                policy = EXCLUDED.policy,
+               kind = EXCLUDED.kind,
+               query_state = EXCLUDED.query_state,
+               layout = EXCLUDED.layout,
+               privacy = EXCLUDED.privacy,
+               project_id = EXCLUDED.project_id,
+               folder_path = EXCLUDED.folder_path,
+               share_slug = EXCLUDED.share_slug,
+               selected_object_ids = EXCLUDED.selected_object_ids,
                updated_at = now()
            RETURNING (xmax = 0) AS inserted`,
 		id, name, description, baseObjectTypeID, filters, traversals, joinConfig,
-		projections, whatIfLabel, policy, ownerID,
+		projections, whatIfLabel, policy, kind, queryState, layout, privacy, projectID,
+		folderPath, shareSlug, selectedObjectIDs, ownerID,
 	).Scan(&inserted)
 	if err != nil {
 		return storageabstraction.PutOutcome{}, storageabstraction.Backend(err.Error())
@@ -599,6 +623,18 @@ func payloadUUID(payload map[string]json.RawMessage, field string) (uuid.UUID, e
 		return uuid.Nil, storageabstraction.Invalidf("%s is not a UUID: %s", field, parseErr)
 	}
 	return id, nil
+}
+
+func payloadOptUUIDPtr(payload map[string]json.RawMessage, field string) *uuid.UUID {
+	s := payloadOptString(payload, field)
+	if s == "" {
+		return nil
+	}
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return nil
+	}
+	return &id
 }
 
 func payloadBool(payload map[string]json.RawMessage, field string) bool {

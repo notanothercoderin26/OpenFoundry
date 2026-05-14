@@ -200,7 +200,8 @@ func DeleteActionWhatIfBranch(state *ontologykernel.AppState) http.HandlerFunc {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-// ensureActionActorPermission mirrors `pub(crate) fn ensure_action_actor_permission`.
+// ensureActionActorPermission checks the actor has the action's
+// permission key (when one is required).
 func ensureActionActorPermission(claims *authmw.Claims, action models.ActionType) error {
 	if action.PermissionKey != nil {
 		if !claims.HasPermissionKey(*action.PermissionKey) {

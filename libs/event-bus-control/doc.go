@@ -1,18 +1,18 @@
 // Package controlbus is the OpenFoundry control-plane event bus
-// (NATS JetStream) — the Go counterpart of Rust's `event-bus-control`.
+// (NATS JetStream).
 //
 // What this package owns
 //
 //   - Connect          — open a NATS connection + JetStream context.
 //   - Publisher        — typed event publishing with the canonical
 //     Event<T> envelope.
-//   - EnsureStream     — idempotent stream creation with the same
-//     defaults the Rust crate uses (limits retention, 1M msgs, 7d).
+//   - EnsureStream     — idempotent stream creation with conservative
+//     defaults (LimitsPolicy retention, 1M msgs, 7d).
 //   - CreateConsumer   — durable pull consumer.
 //   - Subjects/Streams — well-known constants (`of.auth`, `of.datasets`,
-//     `OF_EVENTS`, …) shared with Rust.
+//     `OF_EVENTS`, …).
 //
-// Wire compatibility: Event<T> serialises with the same JSON shape as
-// the Rust side so a Rust publisher and a Go consumer (or vice versa)
-// round-trip the envelope unchanged.
+// Wire compatibility: Event<T> is JSON-serialised with a stable shape
+// so publishers and consumers in any language round-trip the envelope
+// unchanged.
 package controlbus

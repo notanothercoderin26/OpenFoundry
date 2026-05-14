@@ -1,5 +1,4 @@
-// Package dbpool exposes a writer + reader Postgres pool pair, the Go
-// equivalent of the Rust `db-pool` crate's DualPool.
+// Package dbpool exposes a writer + reader Postgres pool pair.
 //
 // Why two pools
 //
@@ -44,9 +43,9 @@ const (
 	EnvReaderURL = "DATABASE_READ_URL"
 )
 
-// PoolSizing tunes the underlying pgxpool. Defaults match the Rust
-// crate (20 max client connections per service, fitting under the
-// PgBouncer 50-connection server-side budget).
+// PoolSizing tunes the underlying pgxpool. Defaults: 20 max client
+// connections per service, fitting under the PgBouncer 50-connection
+// server-side budget.
 type PoolSizing struct {
 	MaxConns        int32
 	MinConns        int32
@@ -55,7 +54,7 @@ type PoolSizing struct {
 	MaxConnLifetime time.Duration
 }
 
-// DefaultPoolSizing returns the sizing the Rust crate ships with.
+// DefaultPoolSizing returns the standard sizing used across services.
 func DefaultPoolSizing() PoolSizing {
 	return PoolSizing{
 		MaxConns:        20,
@@ -111,8 +110,8 @@ func FromEnvWith(ctx context.Context, sizing PoolSizing) (*DualPool, error) {
 
 // Connect builds the pair from explicit URLs (test + non-env config callers).
 //
-// readerURL may be empty; whitespace-only values are treated as empty,
-// matching the Rust impl's lenient handling of operator-supplied configs.
+// readerURL may be empty; whitespace-only values are treated as empty so
+// operator-supplied configs with stray whitespace still degrade cleanly.
 func Connect(ctx context.Context, writerURL, readerURL string, sizing PoolSizing) (*DualPool, error) {
 	writer, err := buildPool(ctx, writerURL, sizing)
 	if err != nil {
@@ -184,7 +183,7 @@ func buildPool(ctx context.Context, url string, sizing PoolSizing) (*pgxpool.Poo
 		return nil, err
 	}
 	// pgxpool.New does not eagerly verify connectivity; ping once so
-	// the failure mode matches sqlx's connect-on-create behaviour.
+	// bad URLs / unreachable hosts fail at startup instead of first query.
 	if err := pool.Ping(connectCtx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("ping: %w", err)

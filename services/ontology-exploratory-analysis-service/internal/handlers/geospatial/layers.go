@@ -32,10 +32,9 @@ type DB interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// AppState carries the dependencies needed by every geospatial handler.
-// Mirrors `crate::geospatial::AppState { db, jwt_config }` — the
-// jwt_config field is intentionally omitted until OEA-3+ wires auth
-// (matches Rust where the field is held but unused on these handlers).
+// AppState carries the dependencies needed by every geospatial
+// handler. The jwt_config field is intentionally omitted until OEA-3+
+// wires auth on these endpoints.
 type AppState struct {
 	DB DB
 }

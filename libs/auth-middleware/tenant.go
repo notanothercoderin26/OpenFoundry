@@ -7,9 +7,8 @@ import (
 )
 
 // TenantQuotaPolicy is the resource budget a tenant tier carries through
-// every gateway hop. Values match the Rust crate verbatim so dashboards,
-// runbooks and the upstream services see the same numbers regardless
-// of which language emitted the headers.
+// every gateway hop. Values are wire-stable across services so dashboards,
+// runbooks and the upstream services see the same numbers.
 type TenantQuotaPolicy struct {
 	MaxQueryLimit              uint32 `json:"max_query_limit"`
 	MaxDistributedQueryWorkers uint32 `json:"max_distributed_query_workers"`

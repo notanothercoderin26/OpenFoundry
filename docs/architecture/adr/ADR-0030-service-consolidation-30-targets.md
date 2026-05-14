@@ -2,11 +2,29 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted, amended 2026-05-03 after live repo audit |
+| Status | Accepted, amended 2026-05-03 after live repo audit; **partially superseded by [ADR-0040](ADR-0040-virtual-tables-service.md)** (2026-05-04) for the `virtual-table-service` decision. |
 | Date | 2026-05-02 |
 | Stream | S8.1 (cleanup & hardening) |
 | Supersedes / amends | The 85-service taxonomy in [`microservicios-derivados-desde-foundry-docs.md`](../../archive/microservicios-derivados-desde-foundry-docs.md) and the prompt program in [`prompts-migracion-hasta-85-microservicios.md`](../../archive/prompts-migracion-hasta-85-microservicios.md). |
-| Related ADRs | [ADR-0011](ADR-0011-control-vs-data-bus-contract.md), [ADR-0020](ADR-0020-cassandra-as-operational-store.md), [ADR-0024](ADR-0024-postgres-consolidation.md). |
+| Related ADRs | [ADR-0011](ADR-0011-control-vs-data-bus-contract.md), [ADR-0020](ADR-0020-cassandra-as-operational-store.md), [ADR-0024](ADR-0024-postgres-consolidation.md), [ADR-0040](ADR-0040-virtual-tables-service.md) (supersedes the virtual-tables row of the consolidation map), [ADR-0042](ADR-0042-service-consolidation-map-reconciliation.md). |
+
+> **Reader note (2026-05-14):** Two rows of the consolidation map are
+> stale on a live disk audit and should be read in conjunction with
+> their replacement ADRs / READMEs:
+>
+> - The `connector-management-service` ← absorbs `virtual-table-service`
+>   row below is **reversed** by [ADR-0040](ADR-0040-virtual-tables-service.md),
+>   which establishes `virtual-table-service` as a dedicated binary
+>   (D-1 of that ADR).
+> - The `federation-product-exchange-service` ← absorbs
+>   `marketplace-service`, `marketplace-catalog-service`,
+>   `product-distribution-service` row reflects the
+>   *consolidation intent*. None of those three names exists on disk
+>   today; their surfaces ship inside `federation-product-exchange-service`
+>   (verify against [`services-and-ports.md`](../services-and-ports.md)).
+>
+> Treat this ADR as the *historical decision* and the linked ADRs +
+> `services-and-ports.md` as the *current state*.
 
 ## Context
 
@@ -86,7 +104,7 @@ the headline groupings are:
 | Target service | Absorbs |
 | --- | --- |
 | `connector-management-service` | `oauth-integration-service` (data side), `virtual-table-service` |
-| `ingestion-replication-service` | `cdc-metadata-service`, `event-streaming-service` |
+| `ingestion-replication-service` | `cdc-metadata-service`, `event-ingestion-replication-service` |
 | `dataset-versioning-service` | `data-asset-catalog-service`, `dataset-quality-service` |
 | `lineage-service` | `workflow-trace-service` |
 | `media-sets-service` | (unchanged; media set transactions and object-store access) |
@@ -131,7 +149,7 @@ Postgres runtime tables.
 | --- | --- |
 | `application-composition-service` | `application-curation-service`, `widget-registry-service` (S8.1.b), `developer-console-service`, `custom-endpoints-service`, `managed-workspace-service` |
 | `notebook-runtime-service` | `document-reporting-service`, `spreadsheet-computation-service` |
-| `sql-bi-gateway-service` | `sql-warehousing-service`, `tabular-analysis-service`, `analytical-logic-service` |
+| `sql-bi-gateway-service` | `sql-bi-gateway-service`, `sql-bi-gateway-service`, `analytical-logic-service` |
 | `ontology-exploratory-analysis-service` | `ontology-timeseries-analytics-service`, `time-series-data-service`, `geospatial-intelligence-service`, `scenario-simulation-service` |
 | `solution-design-service` | (unchanged; static knowledge) |
 
@@ -165,7 +183,7 @@ scaled, paused and restarted without touching the owning service.
 There is no `outbox-relay`: the transactional outbox is relayed by
 Debezium Kafka Connect per ADR-0022.
 
-### Result: 33 ownership boundaries + 3 sinks across five Helm releases.
+### Result: 33 ownership boundaries + 3 sinks across six Helm releases.
 
 The old physical-service target phrase is superseded. The live metric is:
 95 service directories in the repo, 33 target ownership boundaries, and

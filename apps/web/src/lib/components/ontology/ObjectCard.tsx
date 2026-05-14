@@ -12,6 +12,7 @@ interface ObjectCardProps {
   objectType?: ObjectType | null;
   actions?: ObjectCardAction[];
   onClick?: () => void;
+  schemaOnly?: boolean;
 }
 
 const MARKING_TONE: Record<string, { background: string; color: string }> = {
@@ -20,10 +21,12 @@ const MARKING_TONE: Record<string, { background: string; color: string }> = {
   pii: { background: '#831843', color: '#f9a8d4' },
 };
 
-export function ObjectCard({ object, properties = [], objectType = null, actions = [], onClick }: ObjectCardProps) {
+export function ObjectCard({ object, properties = [], objectType = null, actions = [], onClick, schemaOnly = false }: ObjectCardProps) {
   const visible = objectViewVisibleProperties(properties).slice(0, 4);
-  const marking = object.marking ?? 'public';
-  const title = objectViewTitle(object, objectType);
+  const access = object.object_view_access;
+  const valuesRestricted = schemaOnly || Boolean(access && !access.can_view_instances);
+  const marking = valuesRestricted ? 'schema-only' : object.marking ?? 'public';
+  const title = valuesRestricted ? `${objectType?.display_name || objectType?.name || 'Object'} schema` : objectViewTitle(object, objectType);
   const tone = MARKING_TONE[marking] ?? { background: '#1e293b', color: '#cbd5e1' };
 
   return (
@@ -54,17 +57,25 @@ export function ObjectCard({ object, properties = [], objectType = null, actions
         <span style={{ ...tone, padding: '2px 8px', borderRadius: 3, fontSize: 11 }}>{marking}</span>
       </header>
       {objectType && <p style={{ color: '#94a3b8', fontSize: 12, margin: 0 }}>{objectType.display_name || objectType.name}</p>}
+      {valuesRestricted && (
+        <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+          {access?.reason || 'Object values are restricted; showing schema only.'}
+        </p>
+      )}
       <dl style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 4, margin: 0, fontSize: 12 }}>
-        {visible.map((p) => (
-          <div key={p.id} style={{ display: 'flex', gap: 6 }}>
-            <dt style={{ color: '#64748b', minWidth: 90 }}>{p.display_name || p.name}</dt>
-            <dd style={{ margin: 0, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...propertyConditionalStyle(p, object.properties?.[p.name]) }}>
-              {formatPropertyValue(p, object.properties?.[p.name])}
-            </dd>
-          </div>
-        ))}
+        {visible.map((p) => {
+          const propertyRestricted = object.object_security_access?.property_decisions.some((decision) => decision.property_name === p.name && !decision.can_read);
+          return (
+            <div key={p.id} style={{ display: 'flex', gap: 6 }}>
+              <dt style={{ color: '#64748b', minWidth: 90 }}>{p.display_name || p.name}</dt>
+              <dd style={{ margin: 0, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(valuesRestricted || propertyRestricted ? {} : propertyConditionalStyle(p, object.properties?.[p.name])) }}>
+                {valuesRestricted || propertyRestricted ? 'Restricted' : formatPropertyValue(p, object.properties?.[p.name])}
+              </dd>
+            </div>
+          );
+        })}
       </dl>
-      {actions.length > 0 && (
+      {!valuesRestricted && actions.length > 0 && (
         <footer style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {actions.map((a, i) => (
             <button

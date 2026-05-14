@@ -18,10 +18,10 @@ type EvaluatePolicyRequest struct {
 
 // EvaluatePolicy handles POST /api/v1/policy-evaluations.
 //
-// Returns the legacy ABAC EvaluationResult — the same shape the Rust
-// crate emits. Cedar evaluation lives in libs/authz-cedar-go and is
-// wired by services that need write-path gating; this endpoint is for
-// row filtering + restricted-view scoping.
+// Returns the legacy ABAC EvaluationResult. Cedar evaluation lives
+// in libs/authz-cedar-go and is wired by services that need
+// write-path gating; this endpoint is for row filtering +
+// restricted-view scoping.
 func (h *Handlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 	caller, ok := authmw.FromContext(r.Context())
 	if !ok {

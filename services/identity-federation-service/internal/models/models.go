@@ -1,8 +1,6 @@
-// Package models holds wire types for identity-federation-service.
-//
-// Field names + JSON tags preserved 1:1 with the Rust crate's
-// `models::user::User` and request/response types. Future slices add
-// session, role, group, permission, policy etc.
+// Package models holds wire types for identity-federation-service:
+// `User` plus request/response types. Future slices add session,
+// role, group, permission, policy etc.
 package models
 
 import (

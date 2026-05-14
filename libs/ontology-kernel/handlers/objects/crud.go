@@ -100,9 +100,8 @@ func forbidden(w http.ResponseWriter, msg string) {
 	writeJSON(w, http.StatusForbidden, errBody(msg))
 }
 
-// repoErrorResponse mirrors `pub(crate) fn repo_error_response`.
-// Logs the error for ops + returns 500 with no body, matching the
-// Rust `StatusCode::INTERNAL_SERVER_ERROR.into_response()` shape.
+// repoErrorResponse logs the error for ops and returns 500 with no
+// body.
 func repoErrorResponse(w http.ResponseWriter, ctx string, err error) {
 	slog.Error("ontology objects handler", slog.String("context", ctx), slog.Any("error", err))
 	w.WriteHeader(http.StatusInternalServerError)

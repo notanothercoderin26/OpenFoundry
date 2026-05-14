@@ -31,17 +31,15 @@ modelling rules), see:
 is the official DataStax umbrella that wraps cass-operator and adds
 first-class CRs for Reaper (anti-entropy repair) and Medusa (backup to
 S3-compatible storage), both of which we need from day one. Stargate is
-**not** enabled — services talk Cassandra-native via the `scylla` Rust
-crate ([ADR-0020](../../../docs/architecture/adr/ADR-0020-cassandra-as-operational-store.md)),
+**not** enabled — services talk Cassandra-native via `gocql/gocql`
+([ADR-0020](../../../docs/architecture/adr/ADR-0020-cassandra-as-operational-store.md)),
 and Stargate's REST/GraphQL surface would be a parallel access path we
 do not want.
 
-> **Note on the Rust driver.** The `scylla` crate is the chosen driver
-> for both ScyllaDB and Apache Cassandra; it speaks CQL natively and
-> outperforms the legacy `cassandra-cpp` bindings without dragging in
-> a C++ build dependency. Naming notwithstanding, the runtime backend
-> is Apache Cassandra per
-> [ADR-0020](../../../docs/architecture/adr/ADR-0020-cassandra-as-operational-store.md).
+> **Note on the CQL driver.** `gocql/gocql` speaks CQL natively against
+> both ScyllaDB and Apache Cassandra. Per
+> [ADR-0020](../../../docs/architecture/adr/ADR-0020-cassandra-as-operational-store.md)
+> the runtime backend is Apache Cassandra.
 
 ## Files
 

@@ -1,102 +1,102 @@
-# 01 — Visión y caso de uso
+# 01 — Vision and use case
 
-## 🎬 Narrativa única (elevator pitch para el cliente)
+## 🎬 Single narrative (elevator pitch for the customer)
 
-> *"Una compañía aérea pierde 50 millones al año por retrasos evitables y por mantenimiento reactivo. La información existe — pero está repartida entre el ERP de mantenimiento, el sistema de operaciones de vuelo, los partes meteorológicos y la cadena de suministro de piezas. OpenFoundry une todo en una sola realidad operacional, permite a los equipos coordinarse en tiempo real y deja que un copiloto de IA proponga acciones concretas. Y todo es open-source, sobre tu propia infraestructura."*
-
----
-
-## 🏢 Vertical y sub-vertical
-
-- **Vertical:** Aviación civil.
-- **Sub-vertical:** **Operaciones de flota + MRO (Maintenance, Repair & Overhaul)**.
-- **Análogo Palantir:** Skywise (Airbus) y Foundry MRO solutions.
+> *"An airline loses 50 million per year to preventable delays and reactive maintenance. The information exists — but it is scattered across the maintenance ERP, the flight operations system, weather reports, and the parts supply chain. OpenFoundry brings everything together into a single operational reality, lets teams coordinate in real time, and lets an AI copilot propose concrete actions. And it's all open-source, on your own infrastructure."*
 
 ---
 
-## 👥 Personas (las dos que aparecerán en la demo)
+## 🏢 Vertical and sub-vertical
+
+- **Vertical:** Civil aviation.
+- **Sub-vertical:** **Fleet operations + MRO (Maintenance, Repair & Overhaul)**.
+- **Palantir analogue:** Skywise (Airbus) and Foundry MRO solutions.
+
+---
+
+## 👥 Personas (the two who will appear in the demo)
 
 ### 👩‍💼 Ana — Operations Controller
-- **Rol:** controladora de operaciones en el centro de control de aerolínea.
-- **Día a día:** monitoriza vuelos en curso, detecta riesgos de retraso, decide reasignaciones.
-- **Frustración hoy:** abre 6 herramientas distintas (FlightAware, Sabre, hojas Excel, email del meteorólogo, MRO system, Slack).
-- **Lo que verá en la demo:** dashboard único con vuelos en vivo, alertas predictivas, capacidad de actuar.
+- **Role:** operations controller at the airline's control center.
+- **Day to day:** monitors flights in progress, detects delay risks, decides on reassignments.
+- **Frustration today:** opens 6 different tools (FlightAware, Sabre, Excel sheets, the meteorologist's email, MRO system, Slack).
+- **What she will see in the demo:** a single dashboard with live flights, predictive alerts, and the ability to act.
 
 ### 👨‍🔧 Luis — MRO Maintenance Lead
-- **Rol:** responsable de un hangar de mantenimiento.
-- **Día a día:** prioriza órdenes de trabajo, chequea disponibilidad de piezas, decide qué avión sale a operar.
-- **Frustración hoy:** descubre los defectos repetitivos en una flota 3 meses tarde, cuando alguien escribe un informe.
-- **Lo que verá en la demo:** vista del avión con histórico de defectos, predicción de fallo, tarea creada por IA.
+- **Role:** lead of a maintenance hangar.
+- **Day to day:** prioritizes work orders, checks parts availability, decides which aircraft goes back into service.
+- **Frustration today:** discovers recurring defects in a fleet 3 months late, when someone writes a report.
+- **What he will see in the demo:** aircraft view with defect history, failure prediction, AI-created task.
 
-> Ambos personajes deben tener cuentas reales en Keycloak, con roles diferentes. Más detalle en [`10-seguridad-y-gobierno.md`](10-seguridad-y-gobierno.md).
+> Both characters must have real Keycloak accounts, with different roles. More detail in [`10-seguridad-y-gobierno.md`](10-seguridad-y-gobierno.md).
 
 ---
 
-## 🎯 Casos de uso concretos a demostrar
+## 🎯 Concrete use cases to demonstrate
 
-| ID | Caso de uso | Servicios OpenFoundry implicados | KPI mostrado |
+| ID | Use case | OpenFoundry services involved | KPI shown |
 |----|---|---|---|
-| UC-1 | **Visibilidad unificada de la flota en vivo** (mapa + tabla) | `event-streaming-service`, `geospatial-intelligence-service`, `app-builder-service` | "X vuelos en vuelo, Y aterrizando próx 30 min" |
-| UC-2 | **Predicción de retraso por meteo** | `pipeline-build-service`, `ontology-query-service`, `dataset-quality-service` | "12 vuelos a JFK en riesgo HIGH" |
-| UC-3 | **Detección de defecto recurrente en una flota** | `ontology-query-service`, `analytical-logic-service`, `tabular-analysis-service` | "Defecto X en 7 aviones A320 en 30 días" |
-| UC-4 | **Copiloto AIP responde y actúa** | `ai-application-generation-service`, `mcp-orchestration-service`, `retrieval-context-service`, `ontology-actions-service` | "Tarea creada en 3 segundos" |
-| UC-5 | **Workflow MRO de extremo a extremo** | `workflow-automation-service`, `notification-alerting-service`, `approvals-service` | "SLA 4h cumplido, notificado a Luis" |
-| UC-6 | **Branch de dataset + time travel** ("Foundry-style") | `dataset-versioning-service`, `global-branch-service`, `lineage-service` | "Versión auditable de cada decisión" |
-| UC-7 | **Audit & gobierno** | `audit-compliance-service`, `authorization-policy-service` | "100% acciones trazadas a usuario" |
+| UC-1 | **Unified live fleet visibility** (map + table) | `ingestion-replication-service` (streaming via lib `event-bus-data`), `ontology-exploratory-analysis-service` (geospatial), `application-composition-service` + `apps/web` | "X flights airborne, Y landing in next 30 min" |
+| UC-2 | **Weather-driven delay prediction** | `pipeline-build-service` + `pipeline-runner-spark` (quality checks via lib `pipeline-expression`), `ontology-query-service` | "12 flights to JFK at HIGH risk" |
+| UC-3 | **Recurring defect detection across a fleet** | `ontology-query-service`, `ontology-exploratory-analysis-service`, lib `analytical-logic` (BI expressions) | "Defect X across 7 A320 aircraft in 30 days" |
+| UC-4 | **AIP copilot answers and acts** | `agent-runtime-service` (chat + tools), `retrieval-context-service`, `llm-catalog-service`, `ontology-actions-service` | "Task created in 3 seconds" |
+| UC-5 | **End-to-end MRO workflow** | `workflow-automation-service` (includes sagas and built-in **approvals**), `notification-alerting-service` | "4h SLA met, Luis notified" |
+| UC-6 | **Dataset branch + time travel** ("Foundry-style") | `dataset-versioning-service` (branches + transactions), `code-repository-review-service` (global branching plane), `lineage-service` | "Auditable version of every decision" |
+| UC-7 | **Audit & governance** | `audit-compliance-service`, `authorization-policy-service` (Cedar / ABAC / RBAC) | "100% of actions traced to a user" |
 
 ---
 
-## 📈 KPIs que mostraremos en el cierre
+## 📈 KPIs we will show at the close
 
-Estos números **deben aparecer en un panel** al final de la demo (extraídos de `execution-observability-service` y `telemetry-governance-service`):
+These numbers **must appear on a panel** at the end of the demo (pulled from `telemetry-governance-service` + Grafana dashboards on top of the `observability` lib):
 
-- **Volumen ingerido:** ≥ 1 TB.
-- **Filas analizables:** ≥ 4.000 millones.
-- **Vuelos modelados:** ≥ 50 millones (12 meses BTS + OpenSky).
-- **Aviones en la ontología:** ≥ 30.000 (registros tail-number reales).
-- **Pipelines activos:** ≥ 12.
-- **Latencia de query p95** sobre la ontología: < 2 s.
-- **Latencia ingesta streaming → dashboard:** < 5 s.
-- **Acciones del copiloto trazadas en audit:** 100%.
-- **Cero datos sensibles expuestos.**
-
----
-
-## 🚦 Alcance — qué SÍ y qué NO
-
-### ✅ Sí entra en el PoC
-- Streaming ADS-B (OpenSky) — últimos 6 meses + ventana en vivo durante la demo.
-- Histórico BTS On-Time 2018–2024 (USA).
-- Meteo NOAA HRRR/GFS — últimos 6 meses sobre USA + Europa.
-- Sintético MRO (work orders, parts, defects) generado a partir de los tail numbers reales.
-- 1 idioma de UI (inglés) y 1 zona horaria de referencia (UTC) con conversión por usuario.
-
-### ❌ No entra en el PoC
-- Datos PII reales de pasajeros o tripulación.
-- Integración con sistemas reales del cliente (eso es siguiente fase: piloto).
-- Certificación regulatoria (Part-145, EASA, FAA AC).
-- Multi-tenant complejo — un único tenant `acme-airlines` para la PoC.
-- Mobile app — solo web responsive.
+- **Ingested volume:** ≥ 1 TB.
+- **Analyzable rows:** ≥ 4 billion.
+- **Modeled flights:** ≥ 50 million (12 months BTS + OpenSky).
+- **Aircraft in the ontology:** ≥ 30,000 (real tail-number records).
+- **Active pipelines:** ≥ 12.
+- **Query p95 latency** on the ontology: < 2 s.
+- **Streaming ingest → dashboard latency:** < 5 s.
+- **Copilot actions traced in audit:** 100%.
+- **Zero sensitive data exposed.**
 
 ---
 
-## 📅 Línea temporal de un día simulado de la demo
+## 🚦 Scope — what's IN and what's OUT
 
-Para que los datos en vivo "tengan sentido", la demo se ancla en un **"día operacional simulado"**:
+### ✅ In scope for the PoC
+- ADS-B streaming (OpenSky) — last 6 months + a live window during the demo.
+- BTS On-Time history 2018–2024 (USA).
+- NOAA HRRR/GFS weather — last 6 months over USA + Europe.
+- Synthetic MRO data (work orders, parts, defects) generated from real tail numbers.
+- 1 UI language (English) and 1 reference time zone (UTC) with per-user conversion.
 
-- **T0 = momento de la demo.**
-- Entre **T0-7 días y T0** ingestamos datos batch (BTS + NOAA + sintético).
-- Durante la demo conectamos **stream OpenSky en vivo** — el cliente ve aviones reales moviéndose.
-- El copiloto razona sobre "hoy" usando el corte estable batch + el stream.
+### ❌ Out of scope for the PoC
+- Real PII data of passengers or crew.
+- Integration with the customer's real systems (that is the next phase: pilot).
+- Regulatory certification (Part-145, EASA, FAA AC).
+- Complex multi-tenancy — a single `acme-airlines` tenant for the PoC.
+- Mobile app — only responsive web.
 
 ---
 
-## ✅ Acciones concretas (cuando se ejecute la PoC)
+## 📅 Timeline of a simulated demo day
 
-1. Confirmar con el cliente que la vertical aviación le encaja (si es banca o salud, hay que rehacer 03 y 05).
-2. Crear los dos usuarios `ana@acme-airlines.demo` y `luis@acme-airlines.demo` con roles distintos.
-3. Definir los **3 mensajes que el cliente debe llevarse a casa** (escribirlos en una sola frase). Sugeridos:
-   - *"OpenFoundry conecta datos heterogéneos a escala TB en una ontología viva."*
-   - *"Convierte insights en acción mediante workflows y copiloto IA."*
-   - *"Es open-source, self-hosted y auditable — sin lock-in."*
-4. Validar el rango de fechas del "día simulado" 48h antes de la demo.
+So that the live data "makes sense", the demo is anchored to a **"simulated operational day"**:
+
+- **T0 = the moment of the demo.**
+- Between **T0-7 days and T0** we ingest batch data (BTS + NOAA + synthetic).
+- During the demo we connect the **live OpenSky stream** — the customer sees real aircraft moving.
+- The copilot reasons about "today" using the stable batch cut + the stream.
+
+---
+
+## ✅ Concrete actions (when the PoC is executed)
+
+1. Confirm with the customer that the aviation vertical fits them (if it's banking or healthcare, 03 and 05 need to be redone).
+2. Create the two users `ana@acme-airlines.demo` and `luis@acme-airlines.demo` with different roles.
+3. Define the **3 messages the customer must take home** (write them in a single sentence). Suggested:
+   - *"OpenFoundry connects heterogeneous data at TB scale into a living ontology."*
+   - *"It turns insights into action through workflows and an AI copilot."*
+   - *"It is open-source, self-hosted, and auditable — no lock-in."*
+4. Validate the date range for the "simulated day" 48h before the demo.

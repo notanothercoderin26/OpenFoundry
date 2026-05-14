@@ -1,29 +1,13 @@
 package authmw
 
-// layer.go ports libs/auth-middleware/src/layer.rs.
+// layer.go exposes the auth wiring under two named aliases that callers
+// expect to find — AuthLayer + AuthUser + AuthUser{From,Must}Context —
+// so handlers don't have to mentally remap the API surface.
 //
-// The Rust crate exposes its auth wiring via two symbols:
-//
-//   * fn auth_layer — the async tower::Layer / axum from_fn middleware
-//     that extracts a Bearer JWT, validates it, stashes Claims in
-//     request extensions, and returns 401 on failure.
-//   * struct AuthUser(pub Claims) + FromRequestParts impl — the typed
-//     extractor handlers use to pull authenticated identity off a
-//     request.
-//
-// Go has no axum-flavoured FromRequestParts; the idiomatic shape is
-// the chi-compatible func(http.Handler) http.Handler middleware
-// (already in middleware.go) plus context helpers. This file
-// provides the named aliases services translating from Rust expect
-// to find — AuthLayer + AuthUser + AuthUser{From,Must}Context — so
-// callers don't have to mentally re-map the API.
-//
-// Behaviourally, AuthLayer(cfg) is identical to Middleware(cfg).
-// Wire-format differences are limited to the response body strings:
-// Go uses lower-case "missing bearer token" / "authentication
-// required" while Rust uses "missing Bearer token" / "not
-// authenticated". Both return 401; tests below assert on the Go
-// strings.
+// AuthLayer(cfg) is identical to Middleware(cfg). Both return 401 on
+// missing/invalid tokens with the response body strings "missing
+// bearer token" / "authentication required"; tests below assert on
+// those strings.
 
 import (
 	"context"
@@ -33,8 +17,7 @@ import (
 // AuthUser is the typed wrapper around an authenticated *Claims.
 // Use AuthUserFromContext or AuthUserFromRequest to extract it
 // after the auth middleware has run; on missing claims both helpers
-// return ok=false (the Rust side returns 401 directly via
-// FromRequestParts).
+// return ok=false.
 type AuthUser struct {
 	Claims *Claims
 }

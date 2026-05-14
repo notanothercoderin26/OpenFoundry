@@ -1,9 +1,7 @@
 // Package models holds wire types for audit-compliance-service.
 //
-// The Rust crate is `fn main() {}` (S8 / B15) so the Go port becomes
-// canonical. Three absorbed sub-modules: audit ledger + retention
-// policies + sds (sensitive-data scanning) + lineage_deletion + saga
-// audit log.
+// Absorbed sub-modules: audit ledger + retention policies + sds
+// (sensitive-data scanning) + lineage_deletion + saga audit log.
 package models
 
 import (

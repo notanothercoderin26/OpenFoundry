@@ -1,7 +1,6 @@
 // `POST /api/v1/workflows/approvals/{id}/continue` — the legacy
-// "continue after approval" route. Pre-S8 it proxied to a separate
-// approvals-service; post-S8 the state machine lives in this crate
-// and the route applies the decision in-process.
+// "continue after approval" route. The state machine lives in this
+// service; the route applies the decision in-process.
 
 package handlers
 

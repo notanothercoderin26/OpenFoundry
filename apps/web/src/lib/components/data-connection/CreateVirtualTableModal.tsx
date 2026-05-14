@@ -9,8 +9,10 @@ import {
   type IncompatibleSourceError,
   type Locator,
   type RegisterVirtualTableRequest,
+  type SchemaColumn,
   type TableType,
   type VirtualTable,
+  type VirtualTablePermissions,
   type VirtualTableProvider,
 } from '@/lib/api/virtual-tables';
 
@@ -39,12 +41,25 @@ function deriveLocator(entry: DiscoveredEntry, prov: VirtualTableProvider): Loca
   return { kind: 'tabular', database: parts[0] ?? '', schema: parts[1] ?? '', table: parts[parts.length - 1] ?? entry.display_name };
 }
 
+function defaultLocator(prov: VirtualTableProvider): Locator {
+  if (prov === 'AMAZON_S3' || prov === 'AZURE_ABFS' || prov === 'GCS') {
+    return { kind: 'file', bucket: '', prefix: '', format: 'parquet' };
+  }
+  if (prov === 'FOUNDRY_ICEBERG') {
+    return { kind: 'iceberg', catalog: '', namespace: 'default', table: '' };
+  }
+  return { kind: 'tabular', database: '', schema: '', table: '' };
+}
+
 export function CreateVirtualTableModal({ open, sourceRid, provider, entry, onClose, onCreated }: Props) {
   const [projectRid, setProjectRid] = useState('');
   const [parentFolderRid, setParentFolderRid] = useState('');
   const [name, setName] = useState('');
   const [tableType, setTableType] = useState<TableType>('TABLE');
   const [locatorJson, setLocatorJson] = useState('{}');
+  const [schemaJson, setSchemaJson] = useState('[]');
+  const [owner, setOwner] = useState('');
+  const [permissionsJson, setPermissionsJson] = useState('{\n  "owners": [],\n  "readers": [],\n  "writers": [],\n  "admins": []\n}');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [remediation, setRemediation] = useState<string | null>(null);
@@ -54,8 +69,12 @@ export function CreateVirtualTableModal({ open, sourceRid, provider, entry, onCl
       setName(entry.display_name);
       setTableType(entry.inferred_table_type ?? 'OTHER');
       setLocatorJson(JSON.stringify(deriveLocator(entry, provider), null, 2));
+    } else if (open) {
+      setName('');
+      setTableType('TABLE');
+      setLocatorJson(JSON.stringify(defaultLocator(provider), null, 2));
     }
-  }, [entry, provider]);
+  }, [entry, open, provider]);
 
   if (!open) return null;
 
@@ -65,6 +84,12 @@ export function CreateVirtualTableModal({ open, sourceRid, provider, entry, onCl
     let locator: Locator;
     try { locator = JSON.parse(locatorJson) as Locator; }
     catch { setError('Locator JSON is not valid'); return; }
+    let schema: SchemaColumn[];
+    try { schema = JSON.parse(schemaJson) as SchemaColumn[]; }
+    catch { setError('Schema JSON is not valid'); return; }
+    let permissions: VirtualTablePermissions;
+    try { permissions = JSON.parse(permissionsJson) as VirtualTablePermissions; }
+    catch { setError('Permissions JSON is not valid'); return; }
     setBusy(true);
     setError(null);
     setRemediation(null);
@@ -75,6 +100,10 @@ export function CreateVirtualTableModal({ open, sourceRid, provider, entry, onCl
         name: name.trim() || undefined,
         locator,
         table_type: tableType,
+        schema_inferred: schema,
+        capabilities: defaultCapabilities(provider, tableType),
+        owner: owner.trim() || undefined,
+        permissions,
       };
       const table = await virtualTables.registerVirtualTable(sourceRid, body);
       onCreated?.(table);
@@ -118,6 +147,15 @@ export function CreateVirtualTableModal({ open, sourceRid, provider, entry, onCl
         </Field>
         <Field label="Locator (JSON)" full>
           <textarea value={locatorJson} onChange={(e) => setLocatorJson(e.target.value)} rows={6} style={{ ...inputStyle, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }} />
+        </Field>
+        <Field label="Owner">
+          <input type="text" value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="team or user id" style={inputStyle} />
+        </Field>
+        <Field label="Schema columns (JSON)" full>
+          <textarea value={schemaJson} onChange={(e) => setSchemaJson(e.target.value)} rows={4} style={{ ...inputStyle, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }} />
+        </Field>
+        <Field label="Permissions (JSON)" full>
+          <textarea value={permissionsJson} onChange={(e) => setPermissionsJson(e.target.value)} rows={5} style={{ ...inputStyle, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }} />
         </Field>
 
         <section style={fullColStyle}>

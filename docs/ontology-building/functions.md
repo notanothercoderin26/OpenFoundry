@@ -17,7 +17,7 @@ In other words, functions are not only helpers. They are the place where semanti
 
 ## OpenFoundry's current function model
 
-OpenFoundry already exposes a concrete package model through `services/ontology-service/src/models/function_package.rs`.
+OpenFoundry already exposes a concrete package model through `services/ontology-actions-service/internal/models/function_package.go` (function metadata is currently hosted inside `ontology-actions-service`).
 
 Each function package currently has:
 
@@ -30,7 +30,7 @@ Each function package currently has:
 - `entrypoint`
 - `capabilities`
 
-The package lifecycle is implemented in `services/ontology-service/src/handlers/functions.rs`, with endpoints for:
+The package lifecycle is implemented in `services/ontology-actions-service/internal/handlers/functions.go`, with endpoints for:
 
 - create
 - list
@@ -134,8 +134,8 @@ This makes function authoring more productized in two ways:
 
 The current CLI scaffolds include:
 
-- `cargo run -p of-cli -- project init customer-triage --template function-typescript --output packages`
-- `cargo run -p of-cli -- project init anomaly-diagnostics --template function-python --output packages`
+- `go run ./tools/of-cli project init customer-triage --template function-typescript --output packages`
+- `go run ./tools/of-cli project init anomaly-diagnostics --template function-python --output packages`
 
 That is still lighter than a full remote repository product, but it is no longer accurate to say that OpenFoundry only has ad hoc snippets plus SDK generation.
 
@@ -150,9 +150,9 @@ OpenFoundry already supports this pattern in two complementary ways:
 
 The integration path lives across:
 
-- `services/ontology-service/src/handlers/actions.rs`
-- `services/ontology-service/src/handlers/functions.rs`
-- `services/ontology-service/src/domain/function_runtime.rs`
+- `services/ontology-actions-service/internal/handlers/actions.go`
+- `services/ontology-actions-service/internal/handlers/functions.go`
+- `services/ontology-actions-service/internal/domain/function_runtime.go`
 
 This is the right direction because it allows the platform to keep one consistent policy surface for:
 
@@ -175,8 +175,8 @@ Functions do not live in isolation.
 
 The repo suggests a broader programmable platform around them:
 
-- `services/ontology-service/src/domain/search/*`
-- `services/ai-service`
+- `services/ontology-query-service/internal/domain/search/`
+- `services/agent-runtime-service` + `services/retrieval-context-service`
 - `tools/of-cli`
 - `sdks/`
 
@@ -204,11 +204,11 @@ For OpenFoundry, a good function workflow would be:
 
 The core implementation signals today are:
 
-- `services/ontology-service/src/models/function_package.rs`
-- `services/ontology-service/src/handlers/functions.rs`
-- `services/ontology-service/src/domain/function_runtime.rs`
-- `services/ai-service`
-- `tools/of-cli/src/main.rs`
+- `services/ontology-actions-service/internal/models/function_package.go`
+- `services/ontology-actions-service/internal/handlers/functions.go`
+- `services/ontology-actions-service/internal/domain/function_runtime.go` (delegates Python execution to `libs/python-sidecar`)
+- `services/agent-runtime-service` + `services/retrieval-context-service`
+- `tools/of-cli/main.go`
 
 The CLI is also relevant because it already contains contract-generation commands for:
 

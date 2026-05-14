@@ -31,7 +31,7 @@ import { Glyph } from '@/lib/components/ui/Glyph';
 import { PipelineCanvas } from '@/lib/components/pipeline/PipelineCanvas';
 import { NodePreviewPanel } from '@/lib/components/pipeline/NodePreviewPanel';
 import { PipelineNodeList } from '@/lib/components/pipeline/PipelineNodeList';
-import { AddFoundryDataDialog } from '@/lib/components/pipeline/AddFoundryDataDialog';
+import { AddFoundryDataDialog, type AddFoundryDataItem } from '@/lib/components/pipeline/AddFoundryDataDialog';
 import { TransformStackEditor } from '@/lib/components/pipeline/TransformStackEditor';
 import { composeTransformStackSql, type TransformStack } from '@/lib/components/pipeline/transformStack';
 import { JoinEditor } from '@/lib/components/pipeline/JoinEditor';
@@ -40,7 +40,8 @@ import { UnionEditor } from '@/lib/components/pipeline/UnionEditor';
 import { composeUnionSql, newUnionDraft, type UnionDraft } from '@/lib/components/pipeline/unionDraft';
 import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/OutputDrawer';
 import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
-import { previewDataset, type Dataset } from '@/lib/api/datasets';
+import { previewDataset } from '@/lib/api/datasets';
+import { virtualTableExternalReference, type VirtualTable } from '@/lib/api/virtual-tables';
 
 function parseJson<T>(value: string, fallback: T): T {
   try {
@@ -55,6 +56,12 @@ type PipelineOutputConfig = {
   object_type_id?: string;
   object_type_name?: string;
   primary_key?: string;
+  source_rid?: string;
+  provider?: string;
+  table_type?: string;
+  external_reference?: unknown;
+  locator?: unknown;
+  capabilities?: unknown;
 };
 
 function outputConfigForNode(node?: PipelineNode): PipelineOutputConfig {
@@ -69,6 +76,52 @@ function isPipelineObjectOutput(node?: PipelineNode): node is PipelineNode {
   if (!node) return false;
   const output = outputConfigForNode(node);
   return output.kind === 'object_type' || node.transform_type.toLowerCase().includes('object');
+}
+
+function stringRecordValue(record: Record<string, unknown> | null | undefined, key: string): string {
+  const value = record?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function virtualTableProvider(table: VirtualTable): string {
+  return stringRecordValue(table.properties, 'provider') || stringRecordValue(table.properties?.source as Record<string, unknown> | undefined, 'provider');
+}
+
+function virtualTableReference(table: VirtualTable): unknown {
+  return table.properties?.external_reference ?? table.locator;
+}
+
+function safeExternalTableName(label: string): string {
+  return label.replace(/[^a-zA-Z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 64) || 'PIPELINE_OUTPUT';
+}
+
+function virtualTableConfigFromNode(node?: PipelineNode | null): PipelineOutputConfig | null {
+  if (!node || typeof node.config !== 'object' || node.config === null) return null;
+  const config = node.config as Record<string, unknown>;
+  const output = config._output;
+  const raw = typeof output === 'object' && output !== null ? (output as Record<string, unknown>) : config;
+  const kind = typeof raw.kind === 'string' ? raw.kind : '';
+  if (kind !== 'virtual_table' && config.source_kind !== 'virtual_table' && !config.virtual_table_rid && !node.transform_type.toLowerCase().includes('virtual_table')) {
+    return null;
+  }
+  return raw as PipelineOutputConfig;
+}
+
+function virtualTableOutputReference(sourceConfig: PipelineOutputConfig | null, displayName: string): Record<string, unknown> {
+  const reference = (sourceConfig?.external_reference ?? sourceConfig?.locator) as Record<string, unknown> | undefined;
+  if (reference && typeof reference === 'object' && !Array.isArray(reference)) {
+    const kind = typeof reference.kind === 'string' ? reference.kind : 'tabular';
+    if (kind === 'tabular') {
+      return {
+        kind,
+        database: typeof reference.database === 'string' ? reference.database : '',
+        schema: typeof reference.schema === 'string' ? reference.schema : '',
+        table: safeExternalTableName(displayName),
+      };
+    }
+    return { ...reference, table: safeExternalTableName(displayName) };
+  }
+  return { kind: 'tabular', database: '', schema: '', table: safeExternalTableName(displayName) };
 }
 
 export function PipelineEditPage() {
@@ -129,6 +182,23 @@ export function PipelineEditPage() {
 
   function currentNodes(): PipelineNode[] {
     return pipelineNodesFromDAG(currentDAG());
+  }
+
+  function findUpstreamVirtualTableConfig(source: PipelineNode, allNodes: PipelineNode[]): PipelineOutputConfig | null {
+    const byID = new Map(allNodes.map((node) => [node.id, node]));
+    const seen = new Set<string>();
+    const queue = [source.id];
+    while (queue.length > 0) {
+      const nodeID = queue.shift()!;
+      if (seen.has(nodeID)) continue;
+      seen.add(nodeID);
+      const node = byID.get(nodeID);
+      if (!node) continue;
+      const cfg = virtualTableConfigFromNode(node);
+      if (cfg) return cfg;
+      queue.push(...node.depends_on);
+    }
+    return null;
   }
 
   function setPipelineNodes(nodes: PipelineNode[]) {
@@ -204,7 +274,7 @@ export function PipelineEditPage() {
   const [aipMessage, setAipMessage] = useState('');
 
   function handleAddOutput(source: PipelineNode, kind: 'dataset' | 'object_type' | 'link_type' | 'time_series' | 'virtual_table') {
-    if (kind !== 'dataset' && kind !== 'object_type' && kind !== 'link_type') return;
+    if (kind === 'time_series') return;
     const existing = currentNodes();
     const stamp = new Date().toLocaleString('en-US', {
       weekday: 'short',
@@ -215,7 +285,13 @@ export function PipelineEditPage() {
       minute: '2-digit',
       second: '2-digit',
     });
-    const displayName = kind === 'object_type' ? `New object type ${stamp}` : kind === 'link_type' ? `New link type ${stamp}` : `New dataset ${stamp}`;
+    const displayName = kind === 'object_type'
+      ? `New object type ${stamp}`
+      : kind === 'link_type'
+        ? `New link type ${stamp}`
+        : kind === 'virtual_table'
+          ? `New virtual table ${stamp}`
+          : `New dataset ${stamp}`;
     const sourceConfig = source.config as { _stack?: { blocks?: unknown[] }; _join?: unknown; _union?: unknown } | undefined;
     const totalColumns = (() => {
       // Best-effort estimate without running the engine.
@@ -226,6 +302,7 @@ export function PipelineEditPage() {
     const newId = makeNodeId('output');
     const targetDatasetId = crypto.randomUUID();
     const datasetRID = `ri.foundry.main.dataset.${targetDatasetId}`;
+    const virtualTableRID = `ri.foundry.main.virtual-table.${targetDatasetId}`;
     const targetObjectTypeId = crypto.randomUUID();
     const targetLinkTypeId = crypto.randomUUID();
     const objectTypeName = `${source.label || source.id} object`.replace(/[^a-zA-Z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'PipelineObject';
@@ -244,55 +321,73 @@ export function PipelineEditPage() {
     const dependsOn = kind === 'link_type'
       ? Array.from(new Set([source.id, sourceObjectOutput?.id, targetObjectOutput?.id].filter(Boolean) as string[]))
       : [source.id];
+    const upstreamVirtualTable = kind === 'virtual_table' ? findUpstreamVirtualTableConfig(source, existing) : null;
+    const outputConfig = kind === 'virtual_table' ? {
+      kind,
+      virtual_table_rid: virtualTableRID,
+      name: displayName,
+      display_name: displayName,
+      source_rid: upstreamVirtualTable?.source_rid ?? '',
+      provider: upstreamVirtualTable?.provider ?? '',
+      table_type: upstreamVirtualTable?.table_type ?? '',
+      external_reference: virtualTableOutputReference(upstreamVirtualTable, displayName),
+      locator: virtualTableOutputReference(upstreamVirtualTable, displayName),
+      write_mode: 'SNAPSHOT',
+      orchestration: 'openfoundry',
+      storage: 'external',
+      capabilities: upstreamVirtualTable?.capabilities,
+      columns_total: totalColumns,
+      columns_mapped: totalColumns,
+    } : {
+      kind,
+      dataset_id: targetDatasetId,
+      dataset_rid: datasetRID,
+      dataset_name: displayName,
+      display_name: displayName,
+      branch: 'main',
+      write_mode: 'SNAPSHOT',
+      file_format: 'PARQUET',
+      logical_path: 'part-00000.ndjson',
+      ...(kind === 'object_type' ? {
+        object_type_id: targetObjectTypeId,
+        object_type_name: objectTypeName,
+        plural_display_name: `${displayName}s`,
+        primary_key: 'id',
+        icon: 'cube',
+        color: '#2d72d2',
+        editable: true,
+        allow_edits: true,
+        property_mapping: [
+          { source_field: 'id', target_property: 'id', property_type: 'string', display_name: 'ID', required: true, unique_constraint: true },
+        ],
+      } : kind === 'link_type' ? {
+        link_type_id: targetLinkTypeId,
+        link_type_name: linkTypeName,
+        link_display_name: displayName,
+        cardinality: 'many_to_many',
+        source_object_node_id: sourceObjectOutput?.id || '',
+        target_object_node_id: targetObjectOutput?.id || '',
+        source_object_type_id: sourceObjectTypeId,
+        target_object_type_id: targetObjectTypeIdForLink,
+        source_primary_key: sourcePrimaryKey,
+        target_primary_key: targetPrimaryKey,
+        source_key_column: sourcePrimaryKey,
+        target_key_column: targetPrimaryKey,
+        tenant: 'default',
+      } : {}),
+      columns_total: totalColumns,
+      columns_mapped: totalColumns,
+    };
     const newNode: PipelineNode = {
       id: newId,
       label: displayName,
-      transform_type: kind === 'object_type' ? 'output_object_type' : kind === 'link_type' ? 'output_link_type' : 'output_dataset',
+      transform_type: kind === 'object_type' ? 'output_object_type' : kind === 'link_type' ? 'output_link_type' : kind === 'virtual_table' ? 'output_virtual_table' : 'output_dataset',
       config: {
-        _output: {
-          kind,
-          dataset_id: targetDatasetId,
-          dataset_rid: datasetRID,
-          dataset_name: displayName,
-          display_name: displayName,
-          branch: 'main',
-          write_mode: 'SNAPSHOT',
-          file_format: 'PARQUET',
-          logical_path: 'part-00000.ndjson',
-          ...(kind === 'object_type' ? {
-            object_type_id: targetObjectTypeId,
-            object_type_name: objectTypeName,
-            plural_display_name: `${displayName}s`,
-            primary_key: 'id',
-            icon: 'cube',
-            color: '#2d72d2',
-            editable: true,
-            allow_edits: true,
-            property_mapping: [
-              { source_field: 'id', target_property: 'id', property_type: 'string', display_name: 'ID', required: true, unique_constraint: true },
-            ],
-          } : kind === 'link_type' ? {
-            link_type_id: targetLinkTypeId,
-            link_type_name: linkTypeName,
-            link_display_name: displayName,
-            cardinality: 'many_to_many',
-            source_object_node_id: sourceObjectOutput?.id || '',
-            target_object_node_id: targetObjectOutput?.id || '',
-            source_object_type_id: sourceObjectTypeId,
-            target_object_type_id: targetObjectTypeIdForLink,
-            source_primary_key: sourcePrimaryKey,
-            target_primary_key: targetPrimaryKey,
-            source_key_column: sourcePrimaryKey,
-            target_key_column: targetPrimaryKey,
-            tenant: 'default',
-          } : {}),
-          columns_total: totalColumns,
-          columns_mapped: totalColumns,
-        },
+        _output: outputConfig,
       },
       depends_on: dependsOn,
       input_dataset_ids: [],
-      output_dataset_id: targetDatasetId,
+      output_dataset_id: kind === 'virtual_table' ? null : targetDatasetId,
     };
     setPipelineNodes([...existing, newNode]);
     setOutputDraft({
@@ -434,19 +529,49 @@ export function PipelineEditPage() {
     return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
   }
 
-  function handleAddDatasets(datasets: Dataset[]) {
-    if (datasets.length === 0) return;
+  function handleAddData(items: AddFoundryDataItem[]) {
+    if (items.length === 0) return;
     const existing = currentNodes();
     const startsEmpty = isPipelineEmpty(existing);
     const baseNodes: PipelineNode[] = startsEmpty ? [] : [...existing];
-    for (const dataset of datasets) {
+    for (const item of items) {
+      if (item.kind === 'dataset') {
+        const dataset = item.dataset;
+        baseNodes.push({
+          id: makeNodeId('source'),
+          label: `Read ${dataset.name}`,
+          transform_type: 'external',
+          config: { source_kind: 'dataset', dataset_id: dataset.id, dataset_name: dataset.name },
+          depends_on: [],
+          input_dataset_ids: [dataset.id],
+          output_dataset_id: null,
+        });
+        continue;
+      }
+      const table = item.virtualTable;
       baseNodes.push({
         id: makeNodeId('source'),
-        label: `Read ${dataset.name}`,
-        transform_type: 'external',
-        config: { source_kind: 'dataset', dataset_id: dataset.id, dataset_name: dataset.name },
+        label: `Read ${table.name}`,
+        transform_type: 'virtual_table_input',
+        config: {
+          source_kind: 'virtual_table',
+          virtual_table_rid: table.rid,
+          virtual_table_name: table.name,
+          source_rid: table.source_rid,
+          provider: virtualTableProvider(table),
+          table_type: table.table_type,
+          external_reference: virtualTableReference(table),
+          locator: table.locator,
+          columns: table.schema_inferred.map((column) => column.name),
+          capabilities: table.capabilities,
+          host_application: 'pipeline_builder',
+          pipeline_type: 'BATCH',
+          read_mode: 'direct',
+          selector: virtualTableExternalReference(table),
+          pushdown_engine: table.capabilities.compute_pushdown,
+        },
         depends_on: [],
-        input_dataset_ids: [dataset.id],
+        input_dataset_ids: [],
         output_dataset_id: null,
       });
     }
@@ -1036,7 +1161,7 @@ export function PipelineEditPage() {
       <AddFoundryDataDialog
         open={addDataOpen}
         onClose={() => setAddDataOpen(false)}
-        onAdd={handleAddDatasets}
+        onAdd={handleAddData}
       />
 
       <TransformStackEditor
@@ -1092,7 +1217,7 @@ export function PipelineEditPage() {
         open={deployOpen}
         pipelineId={pipeline?.id ?? null}
         outputs={parsedNodes
-          .filter((node) => node.transform_type === 'output_dataset')
+          .filter((node) => node.transform_type.startsWith('output_') || Boolean(outputConfigForNode(node).kind))
           .map((node) => ({ id: node.id, label: node.label }))}
         lastDeploymentLabel={runs.length > 0 ? new Date(runs[0].started_at).toLocaleString() : 'None'}
         onClose={() => setDeployOpen(false)}

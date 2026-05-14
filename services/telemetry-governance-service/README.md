@@ -61,8 +61,8 @@ OTEL_TRACES_EXPORTER=none ./bin/telemetry-governance-service
 
 ## TODO — streaming monitor surface (deferred)
 
-The Rust crate under `monitoring_rules/streaming_*` (~1000 LOC) ports
-in a follow-up iteration. Surface it adds:
+The streaming monitor surface (`monitoring_rules/streaming_*`, ~1000 LOC)
+lands in a follow-up iteration. Surface it adds:
 
 - Tables: `monitoring_views`, `monitor_rules`, `monitor_evaluations`
   (typed schema, not the generic payload-jsonb shape).

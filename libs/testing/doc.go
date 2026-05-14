@@ -1,6 +1,6 @@
 // Package testingx hosts shared test utilities for OpenFoundry Go services.
 //
-// Mirrors the Rust `libs/testing` crate. Four families of helpers:
+// Four families of helpers:
 //
 //   - containers — ephemeral Postgres via testcontainers-go.
 //     Migration application is left to the caller; this package only
@@ -8,11 +8,9 @@
 //   - fixtures   — deterministic JWT issuance and SQL seed helpers
 //     (datasets, branches, transactions, markings).
 //   - mocks      — net/http/httptest wrappers for stubbing neighbour
-//     services (lineage, retention, audit, catalog) — the Go analogue
-//     of the Rust crate's wiremock helpers.
+//     services (lineage, retention, audit, catalog).
 //   - cassandra  — single-node `cassandra:5.0` container plus a
-//     connected gocql session, mirrors the Rust `cassandra` module
-//     gated by the `it-cassandra` feature.
+//     connected gocql session (build tag `it-cassandra`).
 //
 // All helpers are intentionally permissive (panic / t.Fatal on misuse)
 // — they are test-only.

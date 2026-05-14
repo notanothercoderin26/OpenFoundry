@@ -1,89 +1,89 @@
-# 🛫 PoC OpenFoundry — Aviación / MRO
+# 🛫 OpenFoundry PoC — Aviation / MRO
 
-> **Estado:** documentación preparada. La PoC **no se ejecuta todavía** — esperamos a que el MVP de OpenFoundry alcance un nivel viable.
+> **Status:** documentation ready. The PoC **is not being executed yet** — we are waiting for the OpenFoundry MVP to reach a viable level.
 >
-> **Vertical elegida:** Aviación civil (operaciones de vuelo + mantenimiento MRO + meteorología + cadena de suministro de piezas).
+> **Chosen vertical:** Civil aviation (flight operations + MRO maintenance + meteorology + parts supply chain).
 >
-> **Cliente objetivo:** organización con flota o infraestructura aeronáutica que hoy reconozca el caso "Skywise / Palantir Foundry" y quiera una alternativa open-source y self-hosted.
+> **Target customer:** an organization with an aircraft fleet or aviation infrastructure that already recognizes the "Skywise / Palantir Foundry" use case and wants an open-source, self-hosted alternative.
 
 ---
 
-## 🎯 Objetivo de la PoC
+## 🎯 PoC objective
 
-Demostrar a un cliente, en una sesión de **45–60 minutos**, que OpenFoundry puede:
+Demonstrate to a customer, in a **45–60 minute** session, that OpenFoundry can:
 
-1. **Ingerir** datos heterogéneos reales (streaming + batch + ficheros) a escala (**≥ 1 TB**).
-2. **Modelar** una ontología operacional (`Flight`, `Aircraft`, `Airport`, `MaintenanceEvent`, `WeatherObservation`, `Part`, `Crew`).
-3. **Construir pipelines** versionados con **lineage** end-to-end y **calidad** automatizada.
-4. **Visualizar** la operación en un dashboard tipo *Quiver* y una app tipo *Workshop*.
-5. **Razonar con IA** mediante un copiloto (AIP-like) que consulte la ontología y dispare acciones.
-6. **Coordinar** con workflows: convertir un insight en una tarea asignada, con SLA y notificación.
-7. **Gobernar** con RBAC, audit log, *branches* de datasets y *time travel*.
+1. **Ingest** heterogeneous real-world data (streaming + batch + files) at scale (**≥ 1 TB**).
+2. **Model** an operational ontology (`Flight`, `Aircraft`, `Airport`, `MaintenanceEvent`, `WeatherObservation`, `Part`, `Crew`).
+3. **Build** versioned pipelines with end-to-end **lineage** and automated **quality** checks.
+4. **Visualize** operations in a *Quiver*-style dashboard and a *Workshop*-style app.
+5. **Reason with AI** through an (AIP-like) copilot that queries the ontology and triggers actions.
+6. **Coordinate** through workflows: turn an insight into an assigned task, with SLA and notification.
+7. **Govern** with RBAC, audit log, dataset *branches* and *time travel*.
 
-El **mensaje único** para el cliente: *"todo lo que hoy hace Foundry, en abierto, sobre tu propia infraestructura, sin lock-in."*
+The **single message** for the customer: *"everything Foundry does today, in the open, on your own infrastructure, with no lock-in."*
 
 ---
 
-## 📚 Índice de documentos
+## 📚 Document index
 
-| # | Documento | Propósito |
+| # | Document | Purpose |
 |---|---|---|
-| 01 | [`01-vision-y-caso-de-uso.md`](01-vision-y-caso-de-uso.md) | Vertical, personas, KPIs de negocio, alcance |
-| 02 | [`02-arquitectura-y-servicios.md`](02-arquitectura-y-servicios.md) | Qué microservicios encender de los 95 (subset de ~12) |
-| 03 | [`03-datasets-y-fuentes-de-datos.md`](03-datasets-y-fuentes-de-datos.md) | Cómo conseguir ≥ 1 TB de datos reales y legales |
-| 04 | [`04-infraestructura-y-despliegue.md`](04-infraestructura-y-despliegue.md) | Hardware, cloud, despliegue con compose/k8s |
-| 05 | [`05-ontologia-aviacion.md`](05-ontologia-aviacion.md) | Entidades, propiedades, relaciones, acciones |
-| 06 | [`06-pipelines-y-transformaciones.md`](06-pipelines-y-transformaciones.md) | Pipelines batch + streaming, calidad, lineage |
-| 07 | [`07-dashboards-y-app-workshop.md`](07-dashboards-y-app-workshop.md) | UI: dashboard operacional + app Workshop |
-| 08 | [`08-aip-copiloto-prompts.md`](08-aip-copiloto-prompts.md) | Prompts exactos del copiloto y *system prompts* |
-| 09 | [`09-workflows-y-acciones.md`](09-workflows-y-acciones.md) | Workflows, acciones, notificaciones |
-| 10 | [`10-seguridad-y-gobierno.md`](10-seguridad-y-gobierno.md) | RBAC/ABAC, audit, branches, retención |
-| 11 | [`11-guion-demo.md`](11-guion-demo.md) | Guion minuto a minuto de la sesión con el cliente |
-| 12 | [`12-checklist-preparacion.md`](12-checklist-preparacion.md) | Checklist accionable T-30, T-7, T-1, T-0 |
-| 13 | [`13-riesgos-y-plan-b.md`](13-riesgos-y-plan-b.md) | Riesgos, fallos posibles, plan B grabado |
+| 01 | [`01-vision-y-caso-de-uso.md`](01-vision-y-caso-de-uso.md) | Vertical, personas, business KPIs, scope |
+| 02 | [`02-arquitectura-y-servicios.md`](02-arquitectura-y-servicios.md) | Which microservices to spin up from the 42 real ones (~15 subset) |
+| 03 | [`03-datasets-y-fuentes-de-datos.md`](03-datasets-y-fuentes-de-datos.md) | How to obtain ≥ 1 TB of real, legal data |
+| 04 | [`04-infraestructura-y-despliegue.md`](04-infraestructura-y-despliegue.md) | Hardware, cloud, deployment with compose/k8s |
+| 05 | [`05-ontologia-aviacion.md`](05-ontologia-aviacion.md) | Entities, properties, relationships, actions |
+| 06 | [`06-pipelines-y-transformaciones.md`](06-pipelines-y-transformaciones.md) | Batch + streaming pipelines, quality, lineage |
+| 07 | [`07-dashboards-y-app-workshop.md`](07-dashboards-y-app-workshop.md) | UI: operational dashboard + Workshop app |
+| 08 | [`08-aip-copiloto-prompts.md`](08-aip-copiloto-prompts.md) | Exact copilot prompts and *system prompts* |
+| 09 | [`09-workflows-y-acciones.md`](09-workflows-y-acciones.md) | Workflows, actions, notifications |
+| 10 | [`10-seguridad-y-gobierno.md`](10-seguridad-y-gobierno.md) | RBAC/ABAC, audit, branches, retention |
+| 11 | [`11-guion-demo.md`](11-guion-demo.md) | Minute-by-minute script for the customer session |
+| 12 | [`12-checklist-preparacion.md`](12-checklist-preparacion.md) | Actionable checklist at T-30, T-7, T-1, T-0 |
+| 13 | [`13-riesgos-y-plan-b.md`](13-riesgos-y-plan-b.md) | Risks, possible failures, recorded plan B |
 
 ---
 
-## 🧭 Cómo usar esta documentación
+## 🧭 How to use this documentation
 
-1. **Cuando el MVP esté listo**, lee los documentos en orden 01 → 13.
-2. Cada documento es **autocontenido** y tiene una sección "Acciones concretas" al final.
-3. Los **prompts literales** para el copiloto, para los pipelines y para los `curl` de los servicios están en bloques de código copy-paste.
-4. Antes de la demo, completa íntegramente [`12-checklist-preparacion.md`](12-checklist-preparacion.md).
-5. Si algo falla en directo, sigue [`13-riesgos-y-plan-b.md`](13-riesgos-y-plan-b.md).
+1. **When the MVP is ready**, read the documents in order 01 → 13.
+2. Each document is **self-contained** and has a "Concrete actions" section at the end.
+3. The **literal prompts** for the copilot, the pipelines, and the service `curl` calls are in copy-paste code blocks.
+4. Before the demo, fully complete [`12-checklist-preparacion.md`](12-checklist-preparacion.md).
+5. If something fails live, follow [`13-riesgos-y-plan-b.md`](13-riesgos-y-plan-b.md).
 
 ---
 
-## ⏱️ Estimación de esfuerzo (orientativa, depende del MVP)
+## ⏱️ Effort estimate (indicative, depends on the MVP)
 
-| Bloque | Esfuerzo |
+| Block | Effort |
 |---|---|
-| Provisión de infra y descarga de datasets | 3–5 días |
-| Modelar ontología y cargar datos en pipelines | 4–7 días |
-| Construir dashboard + Workshop app | 3–5 días |
-| Integrar copiloto AIP y validar prompts | 3 días |
-| Ensayos end-to-end + grabación plan B | 2 días |
-| **Total realista** | **~3 semanas** de trabajo enfocado de 1 ingeniero senior |
+| Infra provisioning and dataset download | 3–5 days |
+| Modeling the ontology and loading data through pipelines | 4–7 days |
+| Building the dashboard + Workshop app | 3–5 days |
+| Integrating the AIP copilot and validating prompts | 3 days |
+| End-to-end rehearsals + plan B recording | 2 days |
+| **Realistic total** | **~3 weeks** of focused work by 1 senior engineer |
 
 ---
 
-## 📌 Decisiones ya tomadas
+## 📌 Decisions already made
 
-- **Vertical:** Aviación / MRO (caso *Airbus Skywise* análogo).
-- **Datos:** combinación de fuentes públicas (OpenSky + NOAA + BTS) + sintético controlado para mantenimiento.
-- **Volumen objetivo:** 1.0–1.5 TB en almacenamiento de objetos, ~4.000 millones de filas analizables.
-- **Storage:** S3-compatible (MinIO en local, S3 en cloud), formato **Apache Iceberg** o **Delta Lake**.
-- **Cómputo:** Spark 3.5 o Apache DataFusion para batch; Kafka/Redpanda para streaming.
-- **LLM del copiloto:** dos modos — **Ollama (Llama 3.1 70B)** local para demo offline, **Azure OpenAI GPT-4o** para demo online.
-- **Frontend:** `apps/web` del repo + extensiones específicas para la app de aviación.
+- **Vertical:** Aviation / MRO (analogous to the *Airbus Skywise* case).
+- **Data:** combination of public sources (OpenSky + NOAA + BTS) + controlled synthetic data for maintenance.
+- **Target volume:** 1.0–1.5 TB in object storage, ~4 billion analyzable rows.
+- **Storage:** S3-compatible (MinIO locally, S3 in cloud), **Apache Iceberg** or **Delta Lake** format.
+- **Compute:** Spark 3.5 or Apache DataFusion for batch; Kafka/Redpanda for streaming.
+- **Copilot LLM:** two modes — **Ollama (Llama 3.1 70B)** local for offline demo, **Azure OpenAI GPT-4o** for online demo.
+- **Frontend:** `apps/web` from the repo + specific extensions for the aviation app.
 
 ---
 
-## 🚧 Lo que **no** hace esta PoC
+## 🚧 What this PoC does **not** do
 
-Para ser honestos con el cliente:
+To be honest with the customer:
 
-- No reemplaza un sistema de mantenimiento certificado (AMOS, TRAX, etc.).
-- No pretende ser EASA Part-145 compliant — es prueba de plataforma.
-- No demuestra los 95 microservicios; sólo el subset documentado en [`02-arquitectura-y-servicios.md`](02-arquitectura-y-servicios.md).
-- No usa datos del cliente — usa fuentes públicas. La fase siguiente sería un *piloto* con sus datos.
+- It does not replace a certified maintenance system (AMOS, TRAX, etc.).
+- It does not aim to be EASA Part-145 compliant — it is a platform proof.
+- It does not demonstrate all 42 available microservices; only the subset documented in [`02-arquitectura-y-servicios.md`](02-arquitectura-y-servicios.md).
+- It does not use customer data — it uses public sources. The next phase would be a *pilot* with their data.

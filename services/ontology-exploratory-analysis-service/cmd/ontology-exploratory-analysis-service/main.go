@@ -1,8 +1,7 @@
 // Command ontology-exploratory-analysis-service is the consolidated
 // exploratory-analysis plane.
 //
-// Per docs/architecture/service-consolidation-map.md this crate is the
-// *target* of four pending merges:
+// This service is the *target* of four pending merges:
 //   - ontology-timeseries-analytics-service
 //   - time-series-data-service
 //   - geospatial-intelligence-service (S8 / ADR-0030 — absorbed)

@@ -118,9 +118,9 @@ No exception is approved in this pack.
 S1:
 
 ```bash
-kubectl apply -f infra/k8s/bench/ontology-bench-namespace.yaml
-kubectl apply -f infra/k8s/bench/ontology-bench-credentials.yaml
-kubectl apply -f infra/k8s/bench/ontology-bench-seed-job.yaml
+kubectl apply -f infra/helm/bench/ontology-bench-namespace.yaml
+kubectl apply -f infra/helm/bench/ontology-bench-credentials.yaml
+kubectl apply -f infra/helm/bench/ontology-bench-seed-job.yaml
 kubectl -n openfoundry-bench create job --from=cronjob/ontology-bench-k6 ontology-bench-k6-$(date +%Y%m%d-%H%M)
 benchmarks/ontology/scripts/run-s1-baseline.sh
 ```

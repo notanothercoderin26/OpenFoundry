@@ -23,9 +23,9 @@ At the base layer, the repo already has JWT-backed claims and role or permission
 
 The strongest primitives are in:
 
-- `libs/auth-middleware/src/claims.rs`
-- `libs/auth-middleware/src/rbac.rs`
-- `services/auth-service/src/domain/rbac.rs`
+- `libs/auth-middleware/claims.go`
+- `libs/auth-middleware/rbac.go`
+- `services/authorization-policy-service/internal/domain/rbac.go`
 
 This is the coarse-grained layer that answers questions such as:
 
@@ -37,7 +37,7 @@ This is the coarse-grained layer that answers questions such as:
 
 The next layer is more interesting for ontology use cases.
 
-`services/auth-service/src/domain/abac.rs` already evaluates policies against:
+`services/authorization-policy-service/internal/domain/abac.go` already evaluates policies against:
 
 - subject attributes
 - resource attributes
@@ -61,7 +61,7 @@ That is already the vocabulary of a serious object-aware policy engine.
 
 Restricted views are the main shaping mechanism visible in the current repo.
 
-`services/auth-service/src/handlers/restricted_views.rs` supports managed definitions with:
+`services/authorization-policy-service/internal/handlers/restricted_views.go` supports managed definitions with:
 
 - conditions
 - row filters
@@ -86,13 +86,13 @@ OpenFoundry already applies policy at action time through:
 - guest-session restrictions
 - classification clearance checks
 
-These rules are enforced in `services/ontology-service/src/handlers/actions.rs`.
+These rules are enforced in `services/ontology-actions-service/internal/handlers/actions.go`.
 
 That is exactly where ontology permissioning becomes operational: not only can a user see an object, but they may or may not be allowed to change it in a particular way.
 
 ## Object-set enforcement
 
-`services/ontology-service/src/domain/object_sets.rs` adds another useful layer.
+`services/ontology-query-service/internal/domain/object_sets.go` adds another useful layer.
 
 Object sets can already carry policy requiring:
 
@@ -107,12 +107,12 @@ This matters because object sets often become the unit of handoff between applic
 
 The most relevant repository signals are:
 
-- `services/auth-service/src/domain/rbac.rs`
-- `services/auth-service/src/domain/abac.rs`
-- `services/auth-service/src/handlers/restricted_views.rs`
-- `services/auth-service/src/handlers/policy_mgmt.rs`
-- `services/ontology-service/src/handlers/actions.rs`
-- `services/ontology-service/src/domain/object_sets.rs`
+- `services/authorization-policy-service/internal/domain/rbac.go`
+- `services/authorization-policy-service/internal/domain/abac.go`
+- `services/authorization-policy-service/internal/handlers/restricted_views.go`
+- `services/authorization-policy-service/internal/handlers/policy_mgmt.go`
+- `services/ontology-actions-service/internal/handlers/actions.go`
+- `services/ontology-query-service/internal/domain/object_sets.go`
 
 Together, these files suggest that OpenFoundry already understands permissioning as a layered concern rather than as a single boolean check.
 

@@ -99,7 +99,7 @@ func BootPostgres(ctx context.Context, t *testing.T) *PostgresHarness {
 }
 
 // MustExec is a tiny helper for setting up schema in tests. Panics
-// on failure — matches the Rust crate's permissive style.
+// on failure (permissive test-helper style).
 func (h *PostgresHarness) MustExec(ctx context.Context, sql string) {
 	if _, err := h.Pool.Exec(ctx, sql); err != nil {
 		panic(fmt.Errorf("MustExec: %w", err))

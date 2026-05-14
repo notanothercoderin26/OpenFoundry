@@ -1,11 +1,10 @@
 // Package config resolves ontology-exploratory-analysis-service env config.
 //
-// The Go binary mounts the absorbed geospatial API and keeps the remaining
-// service-consolidation domains behind explicit handler wiring. It also ships
-// the migrations for the four service-consolidation merges that this crate is
-// the *target* of (per docs/architecture/service-consolidation-map.md):
-// ontology-timeseries-analytics, time-series-data, geospatial-intelligence,
-// scenario-simulation → ontology-exploratory-analysis.
+// The binary mounts the absorbed geospatial API and keeps the
+// remaining service-consolidation domains behind explicit handler
+// wiring. Ships the migrations for the four consolidations targeting
+// this service: ontology-timeseries-analytics, time-series-data,
+// geospatial-intelligence, scenario-simulation → ontology-exploratory-analysis.
 package config
 
 import (

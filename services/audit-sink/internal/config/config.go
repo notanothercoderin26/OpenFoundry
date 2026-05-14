@@ -1,8 +1,8 @@
 // Package config resolves audit-sink configuration from the operator-
 // facing environment contract.
 //
-// Variable names match the Rust crate verbatim so a single Helm
-// values.yaml drives both implementations during cutover.
+// Variable names are pinned so a single Helm values.yaml drives
+// every audit-sink deployment.
 package config
 
 import (

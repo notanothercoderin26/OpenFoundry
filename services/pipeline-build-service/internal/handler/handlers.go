@@ -1,11 +1,11 @@
 // Package handler hosts the HTTP handlers for pipeline-build-service.
 //
-// Status: every URL the Rust crate exposes is mounted with the same
-// path / verb. Handlers either execute repository/runtime-backed work or
-// return explicit machine-readable configuration errors when a production
-// adapter has not been wired; see the README for the full port-status breakdown.
+// Handlers either execute repository/runtime-backed work or return
+// explicit machine-readable configuration errors when a production
+// adapter has not been wired; see the README for the full status
+// breakdown.
 //
-// What IS ported 1:1 in this binary:
+// What lives in this binary:
 //
 //   - Models (build, job, pipeline, run) — `internal/models`
 //   - Job lifecycle state machine — `internal/domain/joblifecycle`
@@ -728,8 +728,8 @@ func actorIDFromRequest(r *http.Request) *uuid.UUID {
 // Pipeline runs (legacy run table; coexists with the new builds table).
 // Implemented in data_integration.go.
 
-// SparkApplication-backed runs (FASE 3 / Tarea 3.4). When kube_client
-// is unavailable the Rust crate returns 503; we mirror that shape.
+// SparkApplication-backed runs (FASE 3 / Tarea 3.4). Returns 503 when
+// kube_client is unavailable.
 func ListSparkRuns(w http.ResponseWriter, r *http.Request) {
 	repo, ok := requireSparkSubmissionRepository(w, "ListSparkRuns requires DATABASE_URL-backed pipeline_run_submissions wiring")
 	if !ok {

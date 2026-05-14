@@ -266,6 +266,8 @@ export function GlobalBranchingPage() {
                   <option value="dataset">dataset</option>
                   <option value="pipeline">pipeline</option>
                   <option value="ontology">ontology</option>
+                  <option value="object_view_tabs">object_view_tabs</option>
+                  <option value="object_view_module">object_view_module</option>
                   <option value="code_repo">code_repo</option>
                 </select>
                 <input

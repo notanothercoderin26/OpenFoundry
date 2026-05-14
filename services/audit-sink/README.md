@@ -11,7 +11,7 @@ everything `edge-gateway-service` and `libs/audit-trail` publish.
 the Iceberg append and the commit replays the batch on restart;
 downstream dedup (Iceberg primary key by `event_id`, or an
 `idempotency.Store` if one is wired in) handles duplicates. Same
-trade-off the Rust crate makes — see ADR-0022 § Consumer-side contract.
+trade-off — see ADR-0022 § Consumer-side contract.
 
 ## Writer backends
 
@@ -22,11 +22,11 @@ trade-off the Rust crate makes — see ADR-0022 § Consumer-side contract.
 | `IcebergWriter`  | (default — when JSONL path is unset) | Production path via the OpenFoundry Iceberg table-writer adapter |
 | `JSONLWriter`    | `AUDIT_SINK_JSONL_PATH` set          | Explicit dev/staging fallback for local observability |
 
-The Go Iceberg writer now mirrors the Rust contract (`of_audit.events`,
-`day(at)`, `at ASC`, and one durable append per flushed batch). Because
-`apache/iceberg-go` still does not expose a stable end-to-end writer
-matching Rust's `append_record_batches`, the production path is an
-explicit HTTP adapter at `ICEBERG_CATALOG_URL/openfoundry/iceberg/v1/append`.
+The Iceberg writer follows the canonical contract (`of_audit.events`,
+`day(at)`, `at ASC`, and one durable append per flushed batch).
+Because `apache/iceberg-go` still does not expose a stable end-to-end
+writer for batched appends, the production path is an explicit HTTP
+adapter at `ICEBERG_CATALOG_URL/openfoundry/iceberg/v1/append`.
 That adapter is responsible for writing Parquet data files and committing
 the Iceberg snapshot atomically. It fails loudly: empty batches,
 missing tables, schema mismatches, and commit failures all return typed
@@ -35,8 +35,8 @@ set.
 
 ## Configuration
 
-Operator-facing env contract — names match the Rust crate exactly so a
-single Helm `values.yaml` drives both implementations during cutover.
+Operator-facing env contract — variable names are pinned so a single
+Helm `values.yaml` drives every audit-sink deployment.
 
 | Variable                            | Required | Purpose                                   |
 | ----------------------------------- | :------: | ----------------------------------------- |

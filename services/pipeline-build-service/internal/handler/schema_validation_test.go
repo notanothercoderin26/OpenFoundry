@@ -117,6 +117,36 @@ func TestStrictSchemaValidationReportsTableDrivenErrors(t *testing.T) {
 			ir:   linkOutputValidationIR(`"one_to_many"`, `"source_id"`, `"target_id"`, `"missing_object"`, `"target_object"`),
 			code: "missing_link_source_object",
 		},
+		{
+			name: "virtual table input without pipeline builder compute",
+			ir: models.NewPipelineIRFromNodes([]models.PipelineNode{
+				{ID: "vt", TransformType: "virtual_table_input", Config: json.RawMessage(`{"source_kind":"virtual_table","virtual_table_rid":"ri.foundry.main.virtual-table.orders","columns":["ORDER_ID"],"host_application":"pipeline_builder","pipeline_type":"BATCH","capabilities":{"read":true,"foundry_compute":{"pipeline_builder_spark":false}}}`)},
+			}),
+			code: "virtual_table_pipeline_builder_not_supported",
+		},
+		{
+			name: "virtual table output to read-only source",
+			ir: models.NewPipelineIRFromNodes([]models.PipelineNode{
+				{ID: "source", TransformType: "external", Config: json.RawMessage(`{"rows":[{"ORDER_ID":"100"}]}`)},
+				{ID: "vt_output", TransformType: "output_virtual_table", DependsOn: []string{"source"}, Config: json.RawMessage(`{"_output":{"kind":"virtual_table","source_rid":"ri.source.snowflake","external_reference":{"kind":"tabular","database":"FINANCE","schema":"PUBLIC","table":"ORDERS_OUT"},"capabilities":{"write":false,"foundry_compute":{"pipeline_builder_spark":true}}}}`)},
+			}),
+			code: "virtual_table_output_write_not_supported",
+		},
+		{
+			name: "virtual table with legacy external systems decorator",
+			ir: models.NewPipelineIRFromNodes([]models.PipelineNode{
+				{ID: "vt", TransformType: "virtual_table_input", Config: json.RawMessage(`{"source_kind":"virtual_table","virtual_table_rid":"ri.foundry.main.virtual-table.orders","columns":["ORDER_ID"],"capabilities":{"read":true,"foundry_compute":{"pipeline_builder_spark":true}}}`)},
+				{ID: "python", TransformType: "python", DependsOn: []string{"vt"}, Config: json.RawMessage(`{"source":"from transforms.api import use_external_systems\n@use_external_systems()\ndef compute(ctx):\n    return []"}`)},
+			}),
+			code: "virtual_table_use_external_systems_incompatible",
+		},
+		{
+			name: "virtual table input in streaming pipeline",
+			ir: models.NewPipelineIRFromNodes([]models.PipelineNode{
+				{ID: "vt", TransformType: "virtual_table_input", Config: json.RawMessage(`{"source_kind":"virtual_table","virtual_table_rid":"ri.foundry.main.virtual-table.orders","columns":["ORDER_ID"],"pipeline_type":"STREAMING","capabilities":{"read":true,"foundry_compute":{"pipeline_builder_spark":true}}}`)},
+			}),
+			code: "virtual_table_pipeline_type_not_supported",
+		},
 	}
 
 	for _, tc := range tests {
@@ -155,6 +185,17 @@ func TestStrictSchemaValidationAcceptsGeospatialLogicalTypes(t *testing.T) {
 
 	report := validatePipelineIRStrict("test", ir.Normalize())
 	require.True(t, report.AllValid, "expected no strict schema errors, got %#v", report.Errors)
+}
+
+func TestStrictSchemaValidationAcceptsVirtualTablePipelineInputAndOutput(t *testing.T) {
+	ir := models.NewPipelineIRFromNodes([]models.PipelineNode{
+		{ID: "vt", TransformType: "virtual_table_input", Config: json.RawMessage(`{"source_kind":"virtual_table","virtual_table_rid":"ri.foundry.main.virtual-table.orders","source_rid":"ri.source.snowflake","columns":["ORDER_ID","AMOUNT"],"host_application":"pipeline_builder","pipeline_type":"BATCH","capabilities":{"read":true,"write":true,"foundry_compute":{"pipeline_builder_spark":true}}}`)},
+		{ID: "select", TransformType: "select", DependsOn: []string{"vt"}, Config: json.RawMessage(`{"columns":["ORDER_ID"]}`)},
+		{ID: "vt_output", TransformType: "output_virtual_table", DependsOn: []string{"select"}, Config: json.RawMessage(`{"_output":{"kind":"virtual_table","source_rid":"ri.source.snowflake","external_reference":{"kind":"tabular","database":"FINANCE","schema":"PUBLIC","table":"ORDERS_OUT"},"storage":"external","orchestration":"openfoundry","capabilities":{"write":true,"foundry_compute":{"pipeline_builder_spark":true}}}}`)},
+	})
+
+	report := validatePipelineIRStrict("test", ir.Normalize())
+	require.True(t, report.AllValid, "expected virtual table workflow to validate, got %#v", report.Errors)
 }
 
 func TestStrictSchemaValidationGPXParseProducesTrailSchema(t *testing.T) {

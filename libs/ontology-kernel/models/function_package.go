@@ -31,11 +31,10 @@ func ParseFunctionPackageVersion(version string) (string, error) {
 	return v, nil
 }
 
-// semverShallowOK is a deliberately small port of `semver::Version::parse`.
-// It accepts `MAJOR.MINOR.PATCH` with optional `-prerelease` and `+build`
-// suffixes; identifiers are restricted to `[0-9A-Za-z-]+` and dot-separated.
-// The Rust crate is more permissive in error messages than in shape, so
-// matching the shape is enough for wire-compat tests.
+// semverShallowOK is a deliberately small semver check. It accepts
+// `MAJOR.MINOR.PATCH` with optional `-prerelease` and `+build`
+// suffixes; identifiers are restricted to `[0-9A-Za-z-]+` and
+// dot-separated. The shape match is enough for wire-compat tests.
 func semverShallowOK(s string) bool {
 	if s == "" {
 		return false

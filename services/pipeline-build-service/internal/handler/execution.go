@@ -500,6 +500,14 @@ type outputDatasetConfig struct {
 	TargetKeyColumn     string                 `json:"target_key_column,omitempty"`
 	ForeignKeyColumn    string                 `json:"foreign_key_column,omitempty"`
 	Tenant              string                 `json:"tenant,omitempty"`
+	VirtualTableRID     string                 `json:"virtual_table_rid,omitempty"`
+	SourceRID           string                 `json:"source_rid,omitempty"`
+	Provider            string                 `json:"provider,omitempty"`
+	TableType           string                 `json:"table_type,omitempty"`
+	Locator             json.RawMessage        `json:"locator,omitempty"`
+	ExternalReference   json.RawMessage        `json:"external_reference,omitempty"`
+	Orchestration       string                 `json:"orchestration,omitempty"`
+	Storage             string                 `json:"storage,omitempty"`
 }
 
 type outputPropertyConfig struct {
@@ -527,42 +535,50 @@ func outputTransactionsForPipelineNode(pipelineID uuid.UUID, runID uuid.UUID, no
 		sourceNodeID = node.DependsOn[0]
 	}
 	tx := executor.OutputTransaction{
-		DatasetRID:             outputRID,
-		TransactionRID:         "pipeline-run:" + runID.String() + ":" + node.ID,
-		DatasetName:            firstNonEmpty(cfg.DatasetName, cfg.DisplayName, cfg.Name, node.Label),
-		Branch:                 firstNonEmpty(cfg.Branch, "main"),
-		WriteMode:              firstNonEmpty(cfg.WriteMode, "SNAPSHOT"),
-		FileFormat:             firstNonEmpty(cfg.FileFormat, "PARQUET"),
-		LogicalPath:            cfg.LogicalPath,
-		OutputKind:             outputKindForNode(node, cfg),
-		OutputNodeID:           node.ID,
-		SourceNodeID:           sourceNodeID,
-		PipelineRID:            pipelineID.String(),
-		InputDatasetRIDs:       upstreamInputDatasetRIDs(nodes, node.ID),
-		CreateIfMissing:        true,
-		ObjectTypeID:           outputObjectTypeIDForPipelineNode(pipelineID, node, cfg),
-		ObjectTypeName:         firstNonEmpty(cfg.ObjectTypeName, cfg.Name, cfg.DisplayName, node.Label),
-		ObjectTypeDisplayName:  firstNonEmpty(cfg.DisplayName, cfg.ObjectTypeName, cfg.Name, node.Label),
-		ObjectTypePluralName:   firstNonEmpty(cfg.PluralDisplay, cfg.PluralName),
-		ObjectTypePrimaryKey:   outputPrimaryKeyFromConfig(cfg),
-		ObjectTypeIcon:         cfg.Icon,
-		ObjectTypeColor:        cfg.Color,
-		ObjectTypeEditable:     cfg.AllowEdits || cfg.Editable,
-		ObjectPropertyMappings: outputPropertyMappingsFromConfig(cfg),
-		LinkTypeID:             outputLinkTypeIDForPipelineNode(pipelineID, node, cfg),
-		LinkTypeName:           firstNonEmpty(cfg.LinkTypeName, cfg.Name, cfg.DisplayName, node.Label),
-		LinkTypeDisplayName:    firstNonEmpty(cfg.LinkDisplayName, cfg.DisplayName, cfg.LinkTypeName, cfg.Name, node.Label),
-		LinkTypeDescription:    cfg.LinkDescription,
-		LinkTypeCardinality:    normaliseLinkCardinality(cfg.Cardinality),
-		LinkSourceObjectTypeID: outputLinkObjectTypeIDForPipelineNode(pipelineID, nodes, cfg, true),
-		LinkTargetObjectTypeID: outputLinkObjectTypeIDForPipelineNode(pipelineID, nodes, cfg, false),
-		LinkSourceObjectNodeID: firstNonEmpty(cfg.SourceObjectNodeID),
-		LinkTargetObjectNodeID: firstNonEmpty(cfg.TargetObjectNodeID),
-		LinkSourcePrimaryKey:   outputLinkPrimaryKeyForPipelineNode(nodes, cfg, true),
-		LinkTargetPrimaryKey:   outputLinkPrimaryKeyForPipelineNode(nodes, cfg, false),
-		LinkSourceKeyColumn:    outputLinkSourceKeyColumn(cfg),
-		LinkTargetKeyColumn:    outputLinkTargetKeyColumn(cfg),
-		LinkTenant:             firstNonEmpty(cfg.Tenant, "default"),
+		DatasetRID:                outputRID,
+		TransactionRID:            "pipeline-run:" + runID.String() + ":" + node.ID,
+		DatasetName:               firstNonEmpty(cfg.DatasetName, cfg.DisplayName, cfg.Name, node.Label),
+		Branch:                    firstNonEmpty(cfg.Branch, "main"),
+		WriteMode:                 firstNonEmpty(cfg.WriteMode, "SNAPSHOT"),
+		FileFormat:                firstNonEmpty(cfg.FileFormat, "PARQUET"),
+		LogicalPath:               cfg.LogicalPath,
+		OutputKind:                outputKindForNode(node, cfg),
+		OutputNodeID:              node.ID,
+		SourceNodeID:              sourceNodeID,
+		PipelineRID:               pipelineID.String(),
+		InputDatasetRIDs:          upstreamInputDatasetRIDs(nodes, node.ID),
+		CreateIfMissing:           true,
+		ObjectTypeID:              outputObjectTypeIDForPipelineNode(pipelineID, node, cfg),
+		ObjectTypeName:            firstNonEmpty(cfg.ObjectTypeName, cfg.Name, cfg.DisplayName, node.Label),
+		ObjectTypeDisplayName:     firstNonEmpty(cfg.DisplayName, cfg.ObjectTypeName, cfg.Name, node.Label),
+		ObjectTypePluralName:      firstNonEmpty(cfg.PluralDisplay, cfg.PluralName),
+		ObjectTypePrimaryKey:      outputPrimaryKeyFromConfig(cfg),
+		ObjectTypeIcon:            cfg.Icon,
+		ObjectTypeColor:           cfg.Color,
+		ObjectTypeEditable:        cfg.AllowEdits || cfg.Editable,
+		ObjectPropertyMappings:    outputPropertyMappingsFromConfig(cfg),
+		LinkTypeID:                outputLinkTypeIDForPipelineNode(pipelineID, node, cfg),
+		LinkTypeName:              firstNonEmpty(cfg.LinkTypeName, cfg.Name, cfg.DisplayName, node.Label),
+		LinkTypeDisplayName:       firstNonEmpty(cfg.LinkDisplayName, cfg.DisplayName, cfg.LinkTypeName, cfg.Name, node.Label),
+		LinkTypeDescription:       cfg.LinkDescription,
+		LinkTypeCardinality:       normaliseLinkCardinality(cfg.Cardinality),
+		LinkSourceObjectTypeID:    outputLinkObjectTypeIDForPipelineNode(pipelineID, nodes, cfg, true),
+		LinkTargetObjectTypeID:    outputLinkObjectTypeIDForPipelineNode(pipelineID, nodes, cfg, false),
+		LinkSourceObjectNodeID:    firstNonEmpty(cfg.SourceObjectNodeID),
+		LinkTargetObjectNodeID:    firstNonEmpty(cfg.TargetObjectNodeID),
+		LinkSourcePrimaryKey:      outputLinkPrimaryKeyForPipelineNode(nodes, cfg, true),
+		LinkTargetPrimaryKey:      outputLinkPrimaryKeyForPipelineNode(nodes, cfg, false),
+		LinkSourceKeyColumn:       outputLinkSourceKeyColumn(cfg),
+		LinkTargetKeyColumn:       outputLinkTargetKeyColumn(cfg),
+		LinkTenant:                firstNonEmpty(cfg.Tenant, "default"),
+		VirtualTableRID:           firstNonEmpty(cfg.VirtualTableRID, outputRID),
+		VirtualTableSourceRID:     cfg.SourceRID,
+		VirtualTableProvider:      cfg.Provider,
+		VirtualTableType:          cfg.TableType,
+		VirtualTableLocator:       string(cfg.Locator),
+		VirtualTableReference:     string(cfg.ExternalReference),
+		VirtualTableStorage:       firstNonEmpty(cfg.Storage, "external"),
+		VirtualTableOrchestration: firstNonEmpty(cfg.Orchestration, "openfoundry"),
 	}
 	return []executor.OutputTransaction{tx}, outputRID
 }
@@ -570,6 +586,9 @@ func outputTransactionsForPipelineNode(pipelineID uuid.UUID, runID uuid.UUID, no
 func outputKindForNode(node models.PipelineNode, cfg outputDatasetConfig) string {
 	if strings.TrimSpace(cfg.Kind) != "" {
 		return strings.ToLower(strings.TrimSpace(cfg.Kind))
+	}
+	if strings.Contains(strings.ToLower(node.TransformType), "virtual_table") {
+		return "virtual_table"
 	}
 	if strings.Contains(strings.ToLower(node.TransformType), "link") {
 		return "link_type"
@@ -596,10 +615,16 @@ func parseOutputDatasetConfig(raw json.RawMessage) outputDatasetConfig {
 }
 
 func (c outputDatasetConfig) empty() bool {
-	return strings.TrimSpace(c.Kind+c.Name+c.DatasetName+c.DisplayName+c.DatasetID+c.DatasetRID+c.OutputDatasetRID+c.Branch+c.WriteMode+c.FileFormat+c.LogicalPath+c.ObjectTypeID+c.ObjectTypeRID+c.ObjectTypeName+c.PrimaryKey+c.Icon+c.Color+c.LinkTypeID+c.LinkTypeRID+c.LinkTypeName+c.LinkDisplayName+c.Cardinality+c.SourceObjectTypeID+c.SourceObjectTypeRID+c.SourceObjectNodeID+c.TargetObjectTypeID+c.TargetObjectTypeRID+c.TargetObjectNodeID+c.SourceKeyColumn+c.TargetKeyColumn+c.ForeignKeyColumn) == "" && len(c.PrimaryKeys) == 0 && len(c.PropertyMapping) == 0 && len(c.Properties) == 0
+	return strings.TrimSpace(c.Kind+c.Name+c.DatasetName+c.DisplayName+c.DatasetID+c.DatasetRID+c.OutputDatasetRID+c.Branch+c.WriteMode+c.FileFormat+c.LogicalPath+c.ObjectTypeID+c.ObjectTypeRID+c.ObjectTypeName+c.PrimaryKey+c.Icon+c.Color+c.LinkTypeID+c.LinkTypeRID+c.LinkTypeName+c.LinkDisplayName+c.Cardinality+c.SourceObjectTypeID+c.SourceObjectTypeRID+c.SourceObjectNodeID+c.TargetObjectTypeID+c.TargetObjectTypeRID+c.TargetObjectNodeID+c.SourceKeyColumn+c.TargetKeyColumn+c.ForeignKeyColumn+c.VirtualTableRID+c.SourceRID+c.Provider+c.TableType+c.Orchestration+c.Storage) == "" && len(c.PrimaryKeys) == 0 && len(c.PropertyMapping) == 0 && len(c.Properties) == 0 && len(c.Locator) == 0 && len(c.ExternalReference) == 0
 }
 
 func outputDatasetRIDForPipelineNode(pipelineID uuid.UUID, node models.PipelineNode, cfg outputDatasetConfig) string {
+	if outputKindForNode(node, cfg) == "virtual_table" {
+		if strings.TrimSpace(cfg.VirtualTableRID) != "" {
+			return strings.TrimSpace(cfg.VirtualTableRID)
+		}
+		return "ri.foundry.main.virtual-table." + uuid.NewSHA1(uuid.NameSpaceOID, []byte(pipelineID.String()+":"+node.ID+":virtual-table-output")).String()
+	}
 	if strings.TrimSpace(cfg.DatasetRID) != "" {
 		return strings.TrimSpace(cfg.DatasetRID)
 	}

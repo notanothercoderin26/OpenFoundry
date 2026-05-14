@@ -1,11 +1,10 @@
 // Package webauthn wraps github.com/go-webauthn/webauthn for
-// identity-federation-service slice 4.
+// identity-federation-service.
 //
-// Mirrors the Rust crate's `hardening::webauthn::WebAuthnService`
-// surface (register_challenge, register_finish, login_challenge,
-// login_finish, has_credentials). Storage is Postgres in slice 4;
-// the slice-2b Cassandra port mirrors the same Store interface so
-// the swap is a one-line change.
+// Surface: register_challenge, register_finish, login_challenge,
+// login_finish, has_credentials. Storage is Postgres; a Cassandra
+// implementation behind the same Store interface lets the swap be a
+// one-line change.
 package webauthn
 
 import (
@@ -141,8 +140,7 @@ type Service struct {
 	store Store
 	rp    RelyingPartyConfig
 
-	// Challenge TTL — the spec recommends 5 minutes max; the Rust
-	// crate uses 5 too. Configurable for tests.
+	// Challenge TTL — the spec recommends 5 minutes max. Configurable for tests.
 	ChallengeTTL time.Duration
 }
 

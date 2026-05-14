@@ -1,7 +1,5 @@
-// Package config resolves notification-alerting-service configuration.
-//
-// Operator-facing env contract matches the Rust crate so a single Helm
-// values.yaml drives both implementations.
+// Package config resolves notification-alerting-service configuration
+// from the operator-facing env contract.
 package config
 
 import (

@@ -7,6 +7,7 @@ interface InlineEditCellProps {
   objectId: string;
   property: Property;
   value: unknown;
+  disabledReason?: string;
   onUpdated?: (next: unknown) => void;
 }
 
@@ -34,13 +35,13 @@ function parseSubmissionValue(property: Property, raw: string): unknown {
   }
 }
 
-export function InlineEditCell({ typeId, objectId, property, value, onUpdated }: InlineEditCellProps) {
+export function InlineEditCell({ typeId, objectId, property, value, disabledReason = '', onUpdated }: InlineEditCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const editable = Boolean(property.inline_edit_config && property.inline_edit_config.enabled !== false);
+  const editable = Boolean(property.inline_edit_config && property.inline_edit_config.enabled !== false && !disabledReason);
 
   function startEditing() {
     if (!editable) return;
@@ -120,7 +121,7 @@ export function InlineEditCell({ typeId, objectId, property, value, onUpdated }:
         event.stopPropagation();
         startEditing();
       }}
-      title={editable ? 'Double-click to edit' : 'No inline edit configured'}
+      title={disabledReason || (editable ? 'Double-click to edit' : 'No inline edit configured')}
       style={{
         display: 'block',
         width: '100%',

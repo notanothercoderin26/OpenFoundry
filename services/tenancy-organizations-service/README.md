@@ -1,9 +1,8 @@
-# tenancy-organizations-service (Go port)
+# tenancy-organizations-service
 
-Go port of the Rust `services/tenancy-organizations-service` crate. Owns
-organizations, workspace enrollments, and (in follow-up slices) workspaces,
-projects, sharing, trash, favorites, and the resource-resolve / resource-ops
-helpers.
+Owns organizations, workspace enrollments, and (in follow-up slices)
+workspaces, projects, sharing, trash, favorites, and the
+resource-resolve / resource-ops helpers.
 
 ## Foundation slice (this commit)
 
@@ -20,8 +19,8 @@ Endpoints (all under `/api/v1`, JWT-protected):
 
 Plus the standard `/healthz` + `/metrics` foundation surface.
 
-The migration (`internal/repo/migrations/0001_tenancy_organizations_foundation.sql`)
-is copied verbatim from the Rust crate to keep schema parity.
+The schema lives at
+`internal/repo/migrations/0001_tenancy_organizations_foundation.sql`.
 
 ## Configuration
 

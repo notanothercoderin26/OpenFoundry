@@ -11,7 +11,7 @@ Properties define the shape, semantics, and presentation behavior of ontology ob
 
 ## Repository signals
 
-OpenFoundry already has dedicated property handlers and models in `ontology-service`, including route wiring for create, list, update, and delete operations on object-type properties.
+OpenFoundry already has dedicated property handlers and models in `ontology-definition-service`, including route wiring for create, list, update, and delete operations on object-type properties.
 
 ## Why this matters
 

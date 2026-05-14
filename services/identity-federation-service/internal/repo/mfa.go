@@ -64,7 +64,7 @@ func (r *Repo) EnableTOTP(ctx context.Context, userID uuid.UUID, at time.Time) e
 	return err
 }
 
-// DisableTOTP removes the row entirely (Rust crate's behaviour).
+// DisableTOTP removes the row entirely.
 func (r *Repo) DisableTOTP(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.Pool.Exec(ctx, `DELETE FROM user_mfa_totp WHERE user_id = $1`, userID)
 	return err

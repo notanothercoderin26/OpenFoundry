@@ -1,10 +1,8 @@
-// Package productdistribution federation port. This file is the 1:1 Go
-// port of `src/domain/federation.rs` from the Rust
-// federation-product-exchange-service crate.
+// Package productdistribution hosts the federated-query path.
 //
-// The federated-query path is read-only by construction: the SQL must
-// start with `select` or `with`, and any of a fixed list of write-oriented
-// keywords (insert/update/delete/drop/alter/truncate/create/revoke/grant)
+// Read-only by construction: the SQL must start with `select` or
+// `with`, and any of a fixed list of write-oriented keywords
+// (insert/update/delete/drop/alter/truncate/create/revoke/grant)
 // causes the request to be rejected before any rows are produced.
 package productdistribution
 

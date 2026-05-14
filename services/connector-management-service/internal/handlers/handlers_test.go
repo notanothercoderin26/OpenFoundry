@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -254,8 +255,10 @@ func TestListConnectionsRequiresAuth(t *testing.T) {
 }
 
 type testConnectionAdapter struct {
-	result adapters.ConnectionTestResult
-	err    error
+	result      adapters.ConnectionTestResult
+	err         error
+	queryResult *adapters.Result
+	queryErr    error
 }
 
 func (a testConnectionAdapter) TestConnection(_ context.Context, _ json.RawMessage) (adapters.ConnectionTestResult, error) {
@@ -264,7 +267,17 @@ func (a testConnectionAdapter) TestConnection(_ context.Context, _ json.RawMessa
 func (a testConnectionAdapter) DiscoverSources(context.Context, *models.Connection, string) ([]adapters.Source, error) {
 	return nil, adapters.ErrNotImplemented
 }
-func (a testConnectionAdapter) QueryVirtualTable(context.Context, *models.Connection, *adapters.Query, string) (*adapters.Result, error) {
+func (a testConnectionAdapter) QueryVirtualTable(_ context.Context, _ *models.Connection, q *adapters.Query, _ string) (*adapters.Result, error) {
+	if a.queryErr != nil {
+		return nil, a.queryErr
+	}
+	if a.queryResult != nil {
+		out := *a.queryResult
+		if out.Selector == "" && q != nil {
+			out.Selector = q.Selector
+		}
+		return &out, nil
+	}
 	return nil, adapters.ErrNotImplemented
 }
 func (a testConnectionAdapter) StreamArrow(context.Context, *models.Connection, *adapters.Query, string) (adapters.ArrowStream, error) {
@@ -332,20 +345,31 @@ func TestTestConnectionAdapterErrorMarksConnectionError(t *testing.T) {
 type fakeStore struct {
 	connections    []models.Connection
 	syncJobs       map[uuid.UUID][]models.SyncJob
+	exports        map[uuid.UUID][]models.DataExport
 	mediaSyncs     map[uuid.UUID][]models.MediaSetSync
 	runs           map[uuid.UUID][]models.SyncRun
 	links          map[string]models.VirtualTableSourceLink
 	vtables        map[string]models.VirtualTable
+	polls          map[string][]models.PollHistoryRow
 	registrations  map[uuid.UUID][]models.ConnectionRegistration
 	policies       map[uuid.UUID][]models.SourcePolicyBindingResponse
+	credentials    map[uuid.UUID][]models.CredentialResponse
+	codeImports    map[uuid.UUID]models.SourceCodeImport
+	governance     map[uuid.UUID]models.SourceGovernance
+	auditEvents    map[uuid.UUID][]models.SourceGovernanceAuditEvent
 	agents         []models.ConnectorAgent
 	webhookHistory map[uuid.UUID][]models.WebhookHistoryEntry
 	listenerEvents map[uuid.UUID][]models.InboundListenerEvent
+	retryPolicies   map[uuid.UUID]models.SourceRetryPolicy
+	retryFailures   map[uuid.UUID][]models.RetryRecoveryRunSummary
+	mediaSyncRuns   map[uuid.UUID][]models.MediaSetSyncRun
+	deadLetterSinks map[uuid.UUID]models.DeadLetterSink
+	quarantine      map[uuid.UUID][]models.QuarantinedRecord
 }
 
 func newFakeStore(owner uuid.UUID) *fakeStore {
 	conn := models.Connection{ID: uuid.New(), Name: "pg", ConnectorType: "postgresql", Config: json.RawMessage(`{}`), Status: "connected", OwnerID: owner, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
-	return &fakeStore{connections: []models.Connection{conn}, syncJobs: map[uuid.UUID][]models.SyncJob{}, mediaSyncs: map[uuid.UUID][]models.MediaSetSync{}, runs: map[uuid.UUID][]models.SyncRun{}, links: map[string]models.VirtualTableSourceLink{}, vtables: map[string]models.VirtualTable{}, registrations: map[uuid.UUID][]models.ConnectionRegistration{}, policies: map[uuid.UUID][]models.SourcePolicyBindingResponse{}, agents: []models.ConnectorAgent{}, webhookHistory: map[uuid.UUID][]models.WebhookHistoryEntry{}, listenerEvents: map[uuid.UUID][]models.InboundListenerEvent{}}
+	return &fakeStore{connections: []models.Connection{conn}, syncJobs: map[uuid.UUID][]models.SyncJob{}, exports: map[uuid.UUID][]models.DataExport{}, mediaSyncs: map[uuid.UUID][]models.MediaSetSync{}, runs: map[uuid.UUID][]models.SyncRun{}, links: map[string]models.VirtualTableSourceLink{}, vtables: map[string]models.VirtualTable{}, polls: map[string][]models.PollHistoryRow{}, registrations: map[uuid.UUID][]models.ConnectionRegistration{}, policies: map[uuid.UUID][]models.SourcePolicyBindingResponse{}, credentials: map[uuid.UUID][]models.CredentialResponse{}, codeImports: map[uuid.UUID]models.SourceCodeImport{}, governance: map[uuid.UUID]models.SourceGovernance{}, auditEvents: map[uuid.UUID][]models.SourceGovernanceAuditEvent{}, agents: []models.ConnectorAgent{}, webhookHistory: map[uuid.UUID][]models.WebhookHistoryEntry{}, listenerEvents: map[uuid.UUID][]models.InboundListenerEvent{}}
 }
 
 func (f *fakeStore) ListConnections(_ context.Context, ownerID *uuid.UUID) ([]models.Connection, error) {
@@ -361,7 +385,8 @@ func (f *fakeStore) GetConnection(_ context.Context, id uuid.UUID) (*models.Conn
 }
 func (f *fakeStore) GetConnectionForOwner(_ context.Context, id uuid.UUID, ownerID uuid.UUID) (*models.Connection, error) {
 	for i := range f.connections {
-		if f.connections[i].ID == id && f.connections[i].OwnerID == ownerID {
+		allowed, _ := f.CheckSourceRole(context.Background(), id, ownerID, models.SourceRoleView)
+		if f.connections[i].ID == id && allowed {
 			return &f.connections[i], nil
 		}
 	}
@@ -392,6 +417,150 @@ func (f *fakeStore) DeleteConnection(_ context.Context, id uuid.UUID) (bool, err
 	c, _ := f.GetConnection(context.Background(), id)
 	return c != nil, nil
 }
+func (f *fakeStore) CheckSourceRole(_ context.Context, sourceID uuid.UUID, actorID uuid.UUID, role models.SourcePermissionRole) (bool, error) {
+	conn, _ := f.GetConnection(context.Background(), sourceID)
+	if conn == nil {
+		return false, nil
+	}
+	if conn.OwnerID == actorID {
+		return true, nil
+	}
+	now := time.Now().UTC()
+	for _, grant := range f.governance[sourceID].PermissionGrants {
+		if grant.PrincipalID != actorID.String() {
+			continue
+		}
+		if grant.PrincipalType != "" && grant.PrincipalType != "user" && grant.PrincipalType != "service_account" {
+			continue
+		}
+		if grant.ExpiresAt != nil && grant.ExpiresAt.Before(now) {
+			continue
+		}
+		if models.SourceRolesAllow(grant.Roles, role) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+func (f *fakeStore) GetSourceGovernance(ctx context.Context, sourceID uuid.UUID, actorID uuid.UUID) (*models.SourceGovernance, error) {
+	conn, _ := f.GetConnection(ctx, sourceID)
+	if conn == nil {
+		return nil, nil
+	}
+	allowed, _ := f.CheckSourceRole(ctx, sourceID, actorID, models.SourceRoleView)
+	if !allowed {
+		return nil, nil
+	}
+	current := f.governance[sourceID]
+	if current.SourceID == uuid.Nil {
+		current = models.SourceGovernance{SourceID: sourceID, Visibility: models.DefaultSourceVisibilityPolicy()}
+	}
+	current.SourceID = sourceID
+	current.SourceRID = models.SourceRIDForConnection(sourceID)
+	current.OwnerID = conn.OwnerID
+	current.RoleDefinitions = models.SourcePermissionRoleDefinitions()
+	current.Visibility = models.NormalizeSourceVisibilityPolicy(current.Visibility)
+	current.Warnings = models.SourceGovernanceWarnings(current.Visibility)
+	current.AuditEvents = append([]models.SourceGovernanceAuditEvent(nil), f.auditEvents[sourceID]...)
+	current.OutputDatasetPermissions = append([]models.SourceOutputDatasetPermission(nil), current.OutputDatasetPermissions...)
+	if len(current.AuditEvents) > 50 {
+		current.AuditEvents = current.AuditEvents[:50]
+	}
+	if conn.OwnerID == actorID {
+		current.EffectiveRoles = models.AllSourcePermissionRoles()
+	} else {
+		effective := []models.SourcePermissionRole{}
+		now := time.Now().UTC()
+		for _, grant := range current.PermissionGrants {
+			if grant.PrincipalID == actorID.String() && (grant.ExpiresAt == nil || grant.ExpiresAt.After(now)) {
+				effective = append(effective, grant.Roles...)
+			}
+		}
+		current.EffectiveRoles = models.ExpandSourcePermissionRoles(effective)
+	}
+	current.EffectiveRoles = models.NormalizeSourcePermissionRoles(current.EffectiveRoles)
+	current.PermissionGrants = models.NormalizeSourcePermissionGrants(current.PermissionGrants, sourceID, conn.OwnerID, time.Now().UTC())
+	return &current, nil
+}
+func (f *fakeStore) UpdateSourceGovernance(ctx context.Context, sourceID uuid.UUID, actorID uuid.UUID, body *models.UpdateSourceGovernanceRequest) (*models.SourceGovernance, error) {
+	allowed, _ := f.CheckSourceRole(ctx, sourceID, actorID, models.SourceRoleOwner)
+	if !allowed {
+		return nil, nil
+	}
+	conn, _ := f.GetConnection(ctx, sourceID)
+	if conn == nil {
+		return nil, nil
+	}
+	if body == nil {
+		body = &models.UpdateSourceGovernanceRequest{}
+	}
+	now := time.Now().UTC()
+	visibility := models.DefaultSourceVisibilityPolicy()
+	if body.Visibility != nil {
+		visibility = models.NormalizeSourceVisibilityPolicy(*body.Visibility)
+	}
+	current := models.SourceGovernance{
+		SourceID:         sourceID,
+		SourceRID:        models.SourceRIDForConnection(sourceID),
+		OwnerID:          conn.OwnerID,
+		PermissionGrants: models.NormalizeSourcePermissionGrants(body.PermissionGrants, sourceID, actorID, now),
+		Visibility:       visibility,
+	}
+	f.governance[sourceID] = current
+	_, _ = f.RecordSourceGovernanceAudit(ctx, models.RecordSourceGovernanceAuditRequest{
+		SourceID:  sourceID,
+		ActorID:   &actorID,
+		EventType: "permission_change",
+		Action:    "update_source_governance",
+		Result:    "succeeded",
+		Roles:     []models.SourcePermissionRole{models.SourceRoleOwner},
+		Message:   "Source governance updated",
+		Metadata:  map[string]any{"grant_count": len(current.PermissionGrants), "reason": strings.TrimSpace(body.Reason)},
+	})
+	return f.GetSourceGovernance(ctx, sourceID, actorID)
+}
+func (f *fakeStore) ListSourceGovernanceAudit(ctx context.Context, sourceID uuid.UUID, actorID uuid.UUID, limit int) ([]models.SourceGovernanceAuditEvent, error) {
+	allowed, _ := f.CheckSourceRole(ctx, sourceID, actorID, models.SourceRoleView)
+	if !allowed {
+		return []models.SourceGovernanceAuditEvent{}, nil
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	items := append([]models.SourceGovernanceAuditEvent(nil), f.auditEvents[sourceID]...)
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+func (f *fakeStore) RecordSourceGovernanceAudit(ctx context.Context, body models.RecordSourceGovernanceAuditRequest) (*models.SourceGovernanceAuditEvent, error) {
+	if conn, _ := f.GetConnection(ctx, body.SourceID); conn == nil {
+		return nil, nil
+	}
+	body = models.NormalizeSourceGovernanceAuditRequest(body)
+	event := models.SourceGovernanceAuditEvent{
+		ID:                    uuid.New(),
+		SourceID:              body.SourceID,
+		ActorID:               body.ActorID,
+		EventType:             body.EventType,
+		Action:                body.Action,
+		Result:                body.Result,
+		PrincipalID:           body.PrincipalID,
+		PrincipalType:         body.PrincipalType,
+		Roles:                 body.Roles,
+		Capability:            body.Capability,
+		JobRID:                body.JobRID,
+		DownstreamResourceRID: body.DownstreamResourceRID,
+		Message:               body.Message,
+		Metadata:              body.Metadata,
+		CreatedAt:             time.Now().UTC(),
+	}
+	if event.Metadata == nil {
+		event.Metadata = map[string]any{}
+	}
+	f.auditEvents[body.SourceID] = append([]models.SourceGovernanceAuditEvent{event}, f.auditEvents[body.SourceID]...)
+	return &event, nil
+}
 func (f *fakeStore) ListSyncJobs(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID) ([]models.SyncJob, error) {
 	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
 		return []models.SyncJob{}, nil
@@ -412,10 +581,28 @@ func (f *fakeStore) GetSyncJob(_ context.Context, id uuid.UUID, ownerID uuid.UUI
 	return nil, nil
 }
 func (f *fakeStore) CreateSyncJob(_ context.Context, body *models.CreateSyncJobRequest, ownerID uuid.UUID) (*models.SyncJob, error) {
-	if c, _ := f.GetConnectionForOwner(context.Background(), body.SourceID, ownerID); c == nil {
+	allowed, _ := f.CheckSourceRole(context.Background(), body.SourceID, ownerID, models.SourceRoleSyncCreate)
+	if !allowed {
 		return nil, nil
 	}
-	j := models.SyncJob{ID: uuid.New(), SourceID: body.SourceID, OutputDatasetID: body.OutputDatasetID, FileGlob: body.FileGlob, ScheduleCron: body.ScheduleCron, CreatedAt: time.Now().UTC()}
+	j := models.SyncJob{
+		ID:              uuid.New(),
+		SourceID:        body.SourceID,
+		CapabilityType:  valueOr(body.CapabilityType, "batch_sync"),
+		OutputKind:      valueOr(body.OutputKind, "dataset"),
+		OutputDatasetID: body.OutputDatasetID,
+		OutputStreamID:  body.OutputStreamID,
+		SourceSelector:  body.SourceSelector,
+		SourceTable:     body.SourceTable,
+		SourceTopic:     body.SourceTopic,
+		Schema:          body.Schema,
+		WriteMode:       body.WriteMode,
+		TransactionMode: body.TransactionMode,
+		CdcSync:         body.CdcSync,
+		FileGlob:        body.FileGlob,
+		ScheduleCron:    body.ScheduleCron,
+		CreatedAt:       time.Now().UTC(),
+	}
 	f.syncJobs[body.SourceID] = append([]models.SyncJob{j}, f.syncJobs[body.SourceID]...)
 	return &j, nil
 }
@@ -427,7 +614,13 @@ func (f *fakeStore) UpdateSyncJob(_ context.Context, id uuid.UUID, body *models.
 		for i := range jobs {
 			if jobs[i].ID == id {
 				if body.OutputDatasetID != nil {
-					jobs[i].OutputDatasetID = *body.OutputDatasetID
+					jobs[i].OutputDatasetID = body.OutputDatasetID
+				}
+				if body.OutputStreamID != nil {
+					jobs[i].OutputStreamID = body.OutputStreamID
+				}
+				if body.CdcSync != nil {
+					jobs[i].CdcSync = body.CdcSync
 				}
 				if body.FileGlob != nil {
 					jobs[i].FileGlob = body.FileGlob
@@ -457,6 +650,336 @@ func (f *fakeStore) RunSyncJob(_ context.Context, id uuid.UUID, ownerID uuid.UUI
 }
 func (f *fakeStore) ListSyncRuns(_ context.Context, syncID uuid.UUID, _ uuid.UUID) ([]models.SyncRun, error) {
 	return f.runs[syncID], nil
+}
+func (f *fakeStore) ListDataExports(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID) ([]models.DataExport, error) {
+	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
+		return []models.DataExport{}, nil
+	}
+	return f.exports[sourceID], nil
+}
+func (f *fakeStore) GetDataExport(_ context.Context, id uuid.UUID, ownerID uuid.UUID) (*models.DataExport, error) {
+	for source, exports := range f.exports {
+		if c, _ := f.GetConnectionForOwner(context.Background(), source, ownerID); c == nil {
+			continue
+		}
+		for i := range exports {
+			if exports[i].ID == id {
+				return &exports[i], nil
+			}
+		}
+	}
+	return nil, nil
+}
+func (f *fakeStore) CreateDataExport(_ context.Context, body *models.CreateDataExportRequest, ownerID uuid.UUID) (*models.DataExport, error) {
+	allowed, _ := f.CheckSourceRole(context.Background(), body.SourceID, ownerID, models.SourceRoleExportCreate)
+	if !allowed {
+		return nil, nil
+	}
+	models.NormalizeCreateDataExportRequest(body)
+	now := time.Now().UTC()
+	status := models.DataExportStatusDraft
+	if body.ScheduleCron != nil {
+		status = models.DataExportStatusScheduled
+	}
+	createdBy := ownerID
+	history := []models.DataExportHistoryEntry{{
+		ID:        uuid.New(),
+		Action:    "created",
+		Status:    string(status),
+		CreatedAt: now,
+	}}
+	export := models.DataExport{
+		ID:               uuid.New(),
+		SourceID:         body.SourceID,
+		Name:             body.Name,
+		ExportType:       body.ExportType,
+		ExportMode:       body.ExportMode,
+		InputDatasetID:   body.InputDatasetID,
+		InputDatasetRID:  body.InputDatasetRID,
+		InputStreamID:    body.InputStreamID,
+		DestinationPath:  body.DestinationPath,
+		DestinationTable: body.DestinationTable,
+		DestinationTopic: body.DestinationTopic,
+		ScheduleCron:     body.ScheduleCron,
+		StartBehavior:    body.StartBehavior,
+		StopBehavior:     body.StopBehavior,
+		ExportControls:   body.ExportControls,
+		Config:           body.Config,
+		FileExport:       body.FileExport,
+		TableExport:      body.TableExport,
+		StreamingExport:  body.StreamingExport,
+		Status:           status,
+		Health:           models.DefaultDataExportHealth(),
+		History:          history,
+		CreatedBy:        &createdBy,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	export.Schedule = models.DataExportScheduleFor(export.ID, export.Name, export.ExportType, export.ScheduleCron, export.LastRunAt)
+	f.exports[body.SourceID] = append([]models.DataExport{export}, f.exports[body.SourceID]...)
+	return &export, nil
+}
+
+func decorateFakeDataExportBuildHistory(export models.DataExport, entry *models.DataExportHistoryEntry, triggeredAt time.Time) {
+	buildID := models.NewDataExportBuildID()
+	reportURL := models.DataExportBuildReportURL(buildID)
+	entry.BuildID = &buildID
+	entry.BuildReportURL = &reportURL
+	entry.RetryAttempts = models.DataExportRetryAttempts(export.Config)
+	if entry.Metadata == nil {
+		entry.Metadata = map[string]any{}
+	}
+	entry.Metadata["build_id"] = buildID
+	entry.Metadata["build_report_url"] = reportURL
+	entry.Metadata["retry_attempts"] = entry.RetryAttempts
+	entry.Metadata["build_system"] = "data-integration-build-schedules"
+	schedule := models.DataExportScheduleFor(export.ID, export.Name, export.ExportType, export.ScheduleCron, &triggeredAt)
+	if schedule != nil {
+		entry.ScheduleTriggered = true
+		entry.Metadata["triggered_by"] = "schedule"
+		entry.Metadata["schedule"] = schedule
+		entry.Metadata["schedule_rid"] = schedule.RID
+		return
+	}
+	entry.Metadata["triggered_by"] = "manual"
+}
+
+func (f *fakeStore) UpdateDataExport(_ context.Context, id uuid.UUID, body *models.UpdateDataExportRequest, ownerID uuid.UUID) (*models.DataExport, error) {
+	for source, exports := range f.exports {
+		if c, _ := f.GetConnectionForOwner(context.Background(), source, ownerID); c == nil {
+			continue
+		}
+		for i := range exports {
+			if exports[i].ID == id {
+				if body.Name != nil {
+					exports[i].Name = strings.TrimSpace(*body.Name)
+				}
+				if body.ExportMode != nil {
+					exports[i].ExportMode = *body.ExportMode
+				}
+				if body.ScheduleCron != nil {
+					exports[i].ScheduleCron = body.ScheduleCron
+				}
+				if body.StartBehavior != nil {
+					exports[i].StartBehavior = strings.TrimSpace(*body.StartBehavior)
+				}
+				if body.StopBehavior != nil {
+					exports[i].StopBehavior = strings.TrimSpace(*body.StopBehavior)
+				}
+				if body.ExportControls != nil {
+					exports[i].ExportControls = *body.ExportControls
+				}
+				if len(body.Config) > 0 {
+					exports[i].Config = body.Config
+				}
+				if body.FileExport != nil {
+					exports[i].FileExport = body.FileExport
+				}
+				if body.TableExport != nil {
+					exports[i].TableExport = body.TableExport
+				}
+				if body.StreamingExport != nil {
+					exports[i].StreamingExport = body.StreamingExport
+				}
+				exports[i].UpdatedAt = time.Now().UTC()
+				exports[i].Schedule = models.DataExportScheduleFor(exports[i].ID, exports[i].Name, exports[i].ExportType, exports[i].ScheduleCron, exports[i].LastRunAt)
+				f.exports[source] = exports
+				return &exports[i], nil
+			}
+		}
+	}
+	return nil, nil
+}
+func (f *fakeStore) RunDataExport(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (*models.DataExport, error) {
+	current, _ := f.GetDataExport(ctx, id, ownerID)
+	if current != nil && current.ExportType == models.DataExportTypeFile {
+		settings := models.DefaultFileExportSettings(valueOr(current.DestinationPath, ""), current.ExportMode)
+		if current.FileExport != nil {
+			settings = *current.FileExport
+		}
+		now := time.Now().UTC()
+		plan := models.BuildFileExportRunPlan(settings, valueOr(current.DestinationPath, ""), now)
+		settings.LastSuccessfulAt = &now
+		settings.LastSuccessfulTransactionID = plan.LastExportedTransactionID
+		settings.FullReexportRequested = false
+		for source, exports := range f.exports {
+			for i := range exports {
+				if exports[i].ID == id {
+					msg := fmt.Sprintf("File export completed: %d file(s) written, %d skipped, %d bytes", plan.FilesWritten, plan.FilesSkipped, plan.BytesWritten)
+					exports[i].Status = models.DataExportStatusSucceeded
+					exports[i].Health = models.DataExportHealth{State: models.DataExportHealthHealthy, Message: &msg, LastCheckedAt: &now}
+					exports[i].FileExport = &settings
+					exports[i].LastRunAt = &now
+					entry := models.DataExportHistoryEntry{
+						ID:                         uuid.New(),
+						Action:                     "run",
+						Status:                     string(models.DataExportStatusSucceeded),
+						Message:                    &msg,
+						FilesWritten:               plan.FilesWritten,
+						FilesSkipped:               plan.FilesSkipped,
+						BytesWritten:               plan.BytesWritten,
+						HighWatermarkTransactionID: plan.LastExportedTransactionID,
+						FullReexport:               plan.FullReexport,
+						CreatedAt:                  now,
+					}
+					decorateFakeDataExportBuildHistory(exports[i], &entry, now)
+					exports[i].Schedule = models.DataExportScheduleFor(exports[i].ID, exports[i].Name, exports[i].ExportType, exports[i].ScheduleCron, exports[i].LastRunAt)
+					exports[i].History = append([]models.DataExportHistoryEntry{entry}, exports[i].History...)
+					f.exports[source] = exports
+					return &exports[i], nil
+				}
+			}
+		}
+	}
+	if current != nil && current.ExportType == models.DataExportTypeTable {
+		settings := models.DefaultTableExportSettings(current.ExportMode)
+		if current.TableExport != nil {
+			settings = *current.TableExport
+		}
+		now := time.Now().UTC()
+		plan := models.BuildTableExportRunPlan(settings, current.ExportMode, now)
+		settings.LastSuccessfulAt = &now
+		for source, exports := range f.exports {
+			for i := range exports {
+				if exports[i].ID == id {
+					msg := fmt.Sprintf("Table export completed: %d row(s) written to %s using %s", plan.RowsWritten, valueOr(current.DestinationTable, ""), plan.ResolutionStrategy)
+					exports[i].Status = models.DataExportStatusSucceeded
+					exports[i].Health = models.DataExportHealth{State: models.DataExportHealthHealthy, Message: &msg, LastCheckedAt: &now}
+					exports[i].TableExport = &settings
+					exports[i].LastRunAt = &now
+					entry := models.DataExportHistoryEntry{
+						ID:                uuid.New(),
+						Action:            "run",
+						Status:            string(models.DataExportStatusSucceeded),
+						Message:           &msg,
+						RowsWritten:       plan.RowsWritten,
+						TruncatePerformed: plan.TruncatePerformed,
+						Metadata: map[string]any{
+							"export_type":         "table",
+							"resolution_strategy": plan.ResolutionStrategy,
+						},
+						CreatedAt: now,
+					}
+					decorateFakeDataExportBuildHistory(exports[i], &entry, now)
+					exports[i].Schedule = models.DataExportScheduleFor(exports[i].ID, exports[i].Name, exports[i].ExportType, exports[i].ScheduleCron, exports[i].LastRunAt)
+					exports[i].History = append([]models.DataExportHistoryEntry{entry}, exports[i].History...)
+					f.exports[source] = exports
+					return &exports[i], nil
+				}
+			}
+		}
+	}
+	return f.transitionExport(ctx, id, ownerID, models.DataExportStatusSucceeded, models.DataExportHealthHealthy, "run")
+}
+func (f *fakeStore) StartDataExport(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (*models.DataExport, error) {
+	current, _ := f.GetDataExport(ctx, id, ownerID)
+	if current != nil && current.ExportType == models.DataExportTypeStreaming {
+		return f.setStreamingExportState(ctx, id, ownerID, true)
+	}
+	return f.transitionExport(ctx, id, ownerID, models.DataExportStatusRunning, models.DataExportHealthRunning, "started")
+}
+func (f *fakeStore) StopDataExport(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (*models.DataExport, error) {
+	current, _ := f.GetDataExport(ctx, id, ownerID)
+	if current != nil && current.ExportType == models.DataExportTypeStreaming {
+		return f.setStreamingExportState(ctx, id, ownerID, false)
+	}
+	return f.transitionExport(ctx, id, ownerID, models.DataExportStatusStopped, models.DataExportHealthHealthy, "stopped")
+}
+func (f *fakeStore) setStreamingExportState(_ context.Context, id uuid.UUID, ownerID uuid.UUID, running bool) (*models.DataExport, error) {
+	now := time.Now().UTC()
+	for source, exports := range f.exports {
+		if c, _ := f.GetConnectionForOwner(context.Background(), source, ownerID); c == nil {
+			continue
+		}
+		for i := range exports {
+			if exports[i].ID == id {
+				settings := models.DefaultStreamingExportSettings(exports[i].ScheduleCron != nil)
+				if exports[i].StreamingExport != nil {
+					settings = *exports[i].StreamingExport
+				}
+				models.NormalizeStreamingExportSettings(&settings, exports[i].ScheduleCron != nil)
+				status := models.DataExportStatusStopped
+				health := models.DataExportHealthHealthy
+				action := "stopped"
+				msg := "Streaming export stopped"
+				entry := models.DataExportHistoryEntry{ID: uuid.New(), Action: action, Status: string(status), Message: &msg, CreatedAt: now}
+				if running {
+					plan := models.BuildStreamingExportStartPlan(settings, false, now)
+					status = models.DataExportStatusRunning
+					health = models.DataExportHealthRunning
+					action = "started"
+					msg = "Streaming export started"
+					if plan.EffectiveStartOffset != nil {
+						msg = fmt.Sprintf("Streaming export started from offset %s", *plan.EffectiveStartOffset)
+					}
+					settings.LastStartedAt = &now
+					entry = models.DataExportHistoryEntry{
+						ID:                 uuid.New(),
+						Action:             action,
+						Status:             string(status),
+						Message:            &msg,
+						LastExportedOffset: plan.EffectiveStartOffset,
+						ReplayBehavior:     plan.ReplayBehavior,
+						Metadata: map[string]any{
+							"export_type":                  "streaming",
+							"restart_from_previous_offset": plan.RestartFromPreviousOffset,
+							"warnings":                     plan.Warnings,
+						},
+						StartedAt: &now,
+						CreatedAt: now,
+					}
+				} else {
+					records := int64(0)
+					if settings.RecordsExportedEstimate != nil && *settings.RecordsExportedEstimate > 0 {
+						records = *settings.RecordsExportedEstimate
+					}
+					offset := models.AdvanceStreamingExportOffset(settings)
+					settings.LastExportedOffset = offset
+					settings.LastStoppedAt = &now
+					entry.RecordsExported = records
+					entry.LastExportedOffset = offset
+					entry.ReplayBehavior = settings.ReplayBehavior
+					entry.FinishedAt = &now
+				}
+				models.NormalizeStreamingExportSettings(&settings, exports[i].ScheduleCron != nil)
+				exports[i].Status = status
+				exports[i].Health = models.DataExportHealth{State: health, Message: &msg, LastCheckedAt: &now}
+				exports[i].StreamingExport = &settings
+				if running {
+					exports[i].LastRunAt = &now
+				}
+				exports[i].History = append([]models.DataExportHistoryEntry{entry}, exports[i].History...)
+				exports[i].Schedule = models.DataExportScheduleFor(exports[i].ID, exports[i].Name, exports[i].ExportType, exports[i].ScheduleCron, exports[i].LastRunAt)
+				exports[i].UpdatedAt = now
+				f.exports[source] = exports
+				return &exports[i], nil
+			}
+		}
+	}
+	return nil, nil
+}
+func (f *fakeStore) transitionExport(_ context.Context, id uuid.UUID, ownerID uuid.UUID, status models.DataExportStatus, health models.DataExportHealthState, action string) (*models.DataExport, error) {
+	now := time.Now().UTC()
+	for source, exports := range f.exports {
+		if c, _ := f.GetConnectionForOwner(context.Background(), source, ownerID); c == nil {
+			continue
+		}
+		for i := range exports {
+			if exports[i].ID == id {
+				exports[i].Status = status
+				exports[i].Health = models.DataExportHealth{State: health, LastCheckedAt: &now}
+				if status == models.DataExportStatusRunning || status == models.DataExportStatusSucceeded {
+					exports[i].LastRunAt = &now
+				}
+				exports[i].History = append([]models.DataExportHistoryEntry{{ID: uuid.New(), Action: action, Status: string(status), CreatedAt: now}}, exports[i].History...)
+				exports[i].Schedule = models.DataExportScheduleFor(exports[i].ID, exports[i].Name, exports[i].ExportType, exports[i].ScheduleCron, exports[i].LastRunAt)
+				exports[i].UpdatedAt = now
+				f.exports[source] = exports
+				return &exports[i], nil
+			}
+		}
+	}
+	return nil, nil
 }
 func (f *fakeStore) CompleteSyncRun(_ context.Context, runID uuid.UUID, _ uuid.UUID, status string, bytesWritten int64, filesWritten int64, errMsg *string, ingestJobID *string, datasetVersionID *uuid.UUID, contentHash *string) (*models.SyncRun, error) {
 	for syncID, runs := range f.runs {
@@ -500,16 +1023,20 @@ func (f *fakeStore) RecordDatasetVersionOnRun(_ context.Context, runID uuid.UUID
 	return nil
 }
 func (f *fakeStore) ListCredentials(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID) ([]models.CredentialResponse, error) {
-	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
+	allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleCodeImport)
+	if !allowed {
 		return []models.CredentialResponse{}, nil
 	}
-	return []models.CredentialResponse{}, nil
+	return append([]models.CredentialResponse(nil), f.credentials[sourceID]...), nil
 }
 func (f *fakeStore) SetCredential(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID, kind string, _ []byte, fingerprint string) (*models.CredentialResponse, error) {
-	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
+	allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleEdit)
+	if !allowed {
 		return nil, nil
 	}
-	return &models.CredentialResponse{ID: uuid.New(), SourceID: sourceID, Kind: kind, Fingerprint: fingerprint, CreatedAt: time.Now().UTC()}, nil
+	credential := models.CredentialResponse{ID: uuid.New(), SourceID: sourceID, Kind: kind, Fingerprint: fingerprint, CreatedAt: time.Now().UTC()}
+	f.credentials[sourceID] = append([]models.CredentialResponse{credential}, f.credentials[sourceID]...)
+	return &credential, nil
 }
 func (f *fakeStore) ListConnectorAgents(_ context.Context, ownerID uuid.UUID) ([]models.ConnectorAgent, error) {
 	out := []models.ConnectorAgent{}
@@ -529,12 +1056,20 @@ func (f *fakeStore) RegisterConnectorAgent(_ context.Context, body *models.Regis
 			f.agents[i].Status = "online"
 			f.agents[i].Capabilities = body.Capabilities
 			f.agents[i].Metadata = body.Metadata
+			f.agents[i].Version = body.Version
+			f.agents[i].Environment = body.Environment
+			f.agents[i].Host = body.Host
+			f.agents[i].ConnectedSources = body.ConnectedSources
+			f.agents[i].SupportedConnectorCapabilities = body.SupportedConnectorCapabilities
+			f.agents[i].AssignedProxyPolicies = body.AssignedProxyPolicies
+			f.agents[i].ConnectionFailures = body.ConnectionFailures
 			f.agents[i].LastHeartbeatAt = &now
 			f.agents[i].UpdatedAt = now
+			f.agents[i] = models.NormalizeConnectorAgent(f.agents[i])
 			return &f.agents[i], nil
 		}
 	}
-	agent := models.ConnectorAgent{ID: uuid.New(), Name: body.Name, AgentURL: body.AgentURL, OwnerID: ownerID, Status: "online", Capabilities: body.Capabilities, Metadata: body.Metadata, LastHeartbeatAt: &now, CreatedAt: now, UpdatedAt: now}
+	agent := models.NormalizeConnectorAgent(models.ConnectorAgent{ID: uuid.New(), Name: body.Name, AgentURL: body.AgentURL, Version: body.Version, Environment: body.Environment, Host: body.Host, OwnerID: ownerID, Status: "online", Capabilities: body.Capabilities, Metadata: body.Metadata, ConnectedSources: body.ConnectedSources, SupportedConnectorCapabilities: body.SupportedConnectorCapabilities, AssignedProxyPolicies: body.AssignedProxyPolicies, ConnectionFailures: body.ConnectionFailures, LastHeartbeatAt: &now, CreatedAt: now, UpdatedAt: now})
 	f.agents = append([]models.ConnectorAgent{agent}, f.agents...)
 	return &f.agents[0], nil
 }
@@ -545,8 +1080,30 @@ func (f *fakeStore) HeartbeatConnectorAgent(_ context.Context, id uuid.UUID, bod
 			f.agents[i].Status = "online"
 			f.agents[i].Capabilities = body.Capabilities
 			f.agents[i].Metadata = body.Metadata
+			if body.Version != "" {
+				f.agents[i].Version = body.Version
+			}
+			if body.Environment != "" {
+				f.agents[i].Environment = body.Environment
+			}
+			if body.Host != "" {
+				f.agents[i].Host = body.Host
+			}
+			if body.ConnectedSources != nil {
+				f.agents[i].ConnectedSources = body.ConnectedSources
+			}
+			if body.SupportedConnectorCapabilities != nil {
+				f.agents[i].SupportedConnectorCapabilities = body.SupportedConnectorCapabilities
+			}
+			if body.AssignedProxyPolicies != nil {
+				f.agents[i].AssignedProxyPolicies = body.AssignedProxyPolicies
+			}
+			if body.ConnectionFailures != nil {
+				f.agents[i].ConnectionFailures = body.ConnectionFailures
+			}
 			f.agents[i].LastHeartbeatAt = &now
 			f.agents[i].UpdatedAt = now
+			f.agents[i] = models.NormalizeConnectorAgent(f.agents[i])
 			return &f.agents[i], nil
 		}
 	}
@@ -568,7 +1125,8 @@ func (f *fakeStore) ListSourcePolicies(_ context.Context, sourceID uuid.UUID, ow
 	return append([]models.SourcePolicyBindingResponse(nil), f.policies[sourceID]...), nil
 }
 func (f *fakeStore) AttachPolicy(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID, policyID uuid.UUID, kind string) (*models.SourcePolicyBindingResponse, error) {
-	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
+	allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleEdit)
+	if !allowed {
 		return nil, nil
 	}
 	binding := models.SourcePolicyBindingResponse{SourceID: sourceID, PolicyID: policyID, Kind: kind}
@@ -584,7 +1142,8 @@ func (f *fakeStore) AttachPolicy(_ context.Context, sourceID uuid.UUID, ownerID 
 	return &binding, nil
 }
 func (f *fakeStore) DetachPolicy(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID, policyID uuid.UUID) (bool, error) {
-	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
+	allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleEdit)
+	if !allowed {
 		return false, nil
 	}
 	items := f.policies[sourceID]
@@ -597,13 +1156,171 @@ func (f *fakeStore) DetachPolicy(_ context.Context, sourceID uuid.UUID, ownerID 
 	return false, nil
 }
 
+func (f *fakeStore) GetSourceCodeImport(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID) (*models.SourceCodeImport, error) {
+	conn, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID)
+	if conn == nil {
+		return nil, nil
+	}
+	importSettings := f.sourceCodeImportFor(conn)
+	return &importSettings, nil
+}
+
+func (f *fakeStore) UpdateSourceCodeImport(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID, body *models.UpdateSourceCodeImportRequest) (*models.SourceCodeImport, error) {
+	allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleCodeImport)
+	if !allowed {
+		return nil, nil
+	}
+	conn, _ := f.GetConnection(context.Background(), sourceID)
+	if conn == nil {
+		return nil, nil
+	}
+	current := f.sourceCodeImportFor(conn)
+	if body.Enabled != nil {
+		current.Enabled = *body.Enabled
+	}
+	if body.FriendlyName != nil {
+		current.FriendlyName = strings.TrimSpace(*body.FriendlyName)
+	}
+	if current.FriendlyName == "" {
+		current.FriendlyName = conn.Name
+	}
+	if body.PythonIdentifier != nil {
+		current.PythonIdentifier = models.PythonIdentifier(*body.PythonIdentifier, current.FriendlyName)
+	}
+	if current.PythonIdentifier == "" {
+		current.PythonIdentifier = models.PythonIdentifier(current.FriendlyName, conn.Name)
+	}
+	if body.CodeRepositories != nil {
+		current.CodeRepositories = models.NormalizeCodeRepositories(body.CodeRepositories, current.PythonIdentifier)
+	}
+	if body.ExportControls != nil {
+		current.ExportControls = models.NormalizeExportControls(*body.ExportControls)
+	}
+	current.UpdatedAt = time.Now().UTC()
+	current.GeneratedBinding = models.SourceBindingSnippet(current.SourceRID, current.FriendlyName, current.PythonIdentifier)
+	current.ExternalTransformPatterns = models.ExternalTransformPatternsForSource(current.SourceRID, current.FriendlyName, current.PythonIdentifier, current.ExportControls)
+	current.ComputeModuleAlternatives = models.ComputeModuleAlternativesForSource(current.SourceRID, current.FriendlyName, current.PythonIdentifier)
+	current.BuildStartResolution = f.sourceCodeImportResolution(conn, current, nil)
+	current.Warnings = current.BuildStartResolution.Warnings
+	f.codeImports[sourceID] = current
+	return &current, nil
+}
+
+func (f *fakeStore) ResolveSourceCodeImportBuildStart(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID, body *models.ResolveSourceCodeImportBuildRequest) (*models.SourceCodeImportBuildResolution, error) {
+	allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleCodeImport)
+	if !allowed {
+		return nil, nil
+	}
+	conn, _ := f.GetConnection(context.Background(), sourceID)
+	if conn == nil {
+		return nil, nil
+	}
+	current := f.sourceCodeImportFor(conn)
+	if !current.Enabled {
+		return nil, fmt.Errorf("source is not approved for code imports")
+	}
+	resolution := f.sourceCodeImportResolution(conn, current, body)
+	return &resolution, nil
+}
+
+func (f *fakeStore) sourceCodeImportFor(conn *models.Connection) models.SourceCodeImport {
+	if current, ok := f.codeImports[conn.ID]; ok {
+		current.ExternalTransformPatterns = models.ExternalTransformPatternsForSource(current.SourceRID, current.FriendlyName, current.PythonIdentifier, current.ExportControls)
+		current.ComputeModuleAlternatives = models.ComputeModuleAlternativesForSource(current.SourceRID, current.FriendlyName, current.PythonIdentifier)
+		current.BuildStartResolution = f.sourceCodeImportResolution(conn, current, nil)
+		current.Warnings = current.BuildStartResolution.Warnings
+		return current
+	}
+	sourceRID := models.SourceRIDForConnection(conn.ID)
+	friendlyName := conn.Name
+	pythonIdentifier := models.PythonIdentifier(friendlyName, conn.ConnectorType)
+	binding := models.SourceBindingSnippet(sourceRID, friendlyName, pythonIdentifier)
+	current := models.SourceCodeImport{
+		SourceID:                  conn.ID,
+		SourceRID:                 sourceRID,
+		SourceName:                conn.Name,
+		ConnectorType:             conn.ConnectorType,
+		FriendlyName:              friendlyName,
+		PythonIdentifier:          pythonIdentifier,
+		GeneratedBinding:          binding,
+		CodeRepositories:          []models.CodeRepositorySourceImport{},
+		ExportControls:            models.NormalizeExportControls(models.ExportControls{}),
+		ExternalTransformPatterns: models.ExternalTransformPatternsForSource(sourceRID, friendlyName, pythonIdentifier, models.ExportControls{}),
+		ComputeModuleAlternatives: models.ComputeModuleAlternativesForSource(sourceRID, friendlyName, pythonIdentifier),
+		CreatedAt:                 conn.CreatedAt,
+		UpdatedAt:                 conn.UpdatedAt,
+	}
+	current.BuildStartResolution = f.sourceCodeImportResolution(conn, current, nil)
+	current.Warnings = current.BuildStartResolution.Warnings
+	return current
+}
+
+func (f *fakeStore) sourceCodeImportResolution(conn *models.Connection, current models.SourceCodeImport, body *models.ResolveSourceCodeImportBuildRequest) models.SourceCodeImportBuildResolution {
+	credentials := []models.SourceCredentialBinding{}
+	for _, credential := range f.credentials[conn.ID] {
+		credentials = append(credentials, models.SourceCredentialBinding{CredentialID: credential.ID, Kind: credential.Kind, Fingerprint: credential.Fingerprint, CreatedAt: credential.CreatedAt})
+	}
+	egress := []models.SourceEgressPolicyBinding{}
+	for _, policy := range f.policies[conn.ID] {
+		egress = append(egress, models.SourceEgressPolicyBinding{PolicyID: policy.PolicyID, Kind: policy.Kind})
+	}
+	hash := sha256.Sum256(conn.Config)
+	usesFoundryInputs := false
+	foundryInputs := []models.SourceCodeImportFoundryInput{}
+	if body != nil {
+		foundryInputs = body.FoundryInputs
+		if body.UsesFoundryInputs != nil {
+			usesFoundryInputs = *body.UsesFoundryInputs
+		}
+	}
+	exportPolicyDecision := models.ResolveSourceCodeImportExportPolicy(current.ExportControls, usesFoundryInputs, foundryInputs)
+	resolution := models.SourceCodeImportBuildResolution{
+		SourceID:              conn.ID,
+		SourceRID:             current.SourceRID,
+		SourceName:            conn.Name,
+		ConnectorType:         conn.ConnectorType,
+		PythonIdentifier:      current.PythonIdentifier,
+		FriendlyName:          current.FriendlyName,
+		ResolvedAt:            time.Now().UTC(),
+		SourceUpdatedAt:       conn.UpdatedAt,
+		ConfigHash:            fmt.Sprintf("sha256:%x", hash[:]),
+		CredentialBindings:    credentials,
+		EgressPolicyBindings:  egress,
+		ExportControls:        current.ExportControls,
+		ExportPolicyDecision:  exportPolicyDecision,
+		UsesLiveConfiguration: true,
+		NoCodeChangeRequired:  true,
+		GeneratedBinding:      models.SourceBindingSnippet(current.SourceRID, current.FriendlyName, current.PythonIdentifier),
+		Warnings:              models.SourceCodeImportWarnings(current.Enabled, credentials, egress, current.ExportControls, exportPolicyDecision),
+	}
+	if body != nil {
+		resolution.RepositoryRID = body.RepositoryRID
+		resolution.BuildRID = body.BuildRID
+		resolution.Branch = body.Branch
+	}
+	return resolution
+}
+
 func (f *fakeStore) EnableVirtualTableSource(_ context.Context, sourceRID string, body *models.EnableVirtualTableSourceRequest) (*models.VirtualTableSourceLink, error) {
 	if body.Provider == "" {
 		return nil, assert.AnError
 	}
-	l := models.VirtualTableSourceLink{SourceRID: sourceRID, Provider: body.Provider, VirtualTablesEnabled: true, ExportControls: []byte(`{}`), AutoRegisterTagFilters: []byte(`[]`), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	l := models.VirtualTableSourceLink{SourceRID: sourceRID, Provider: body.Provider, VirtualTablesEnabled: true, ExportControls: []byte(`{}`), AutoRegisterTagFilters: []byte(`[]`), AutoRegisterFolderMirrorKind: "NESTED", AutoRegisterTableTagFilters: []string{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	f.links[sourceRID] = l
 	return &l, nil
+}
+func (f *fakeStore) DiscoverVirtualTableCatalog(_ context.Context, sourceRID string, path string) ([]models.DiscoveredEntry, error) {
+	if _, ok := f.links[sourceRID]; !ok {
+		return nil, nil
+	}
+	tableType := "TABLE"
+	if path == "" {
+		return []models.DiscoveredEntry{{DisplayName: "analytics", Path: "analytics", Kind: "database", Registrable: false}}, nil
+	}
+	if path == "analytics" {
+		return []models.DiscoveredEntry{{DisplayName: "public", Path: "analytics/public", Kind: "schema", Registrable: false}}, nil
+	}
+	return []models.DiscoveredEntry{{DisplayName: "orders", Path: "analytics/public/orders", Kind: "table", Registrable: true, InferredTableType: &tableType}}, nil
 }
 func (f *fakeStore) CreateVirtualTable(_ context.Context, sourceRID string, actorID string, body *models.CreateVirtualTableRequest) (*models.VirtualTable, error) {
 	if _, ok := f.links[sourceRID]; !ok {
@@ -619,14 +1336,111 @@ func (f *fakeStore) CreateVirtualTable(_ context.Context, sourceRID string, acto
 	}
 	rid := "ri.foundry.main.virtual-table." + uuid.NewString()
 	creator := actorID
-	v := models.VirtualTable{ID: uuid.New(), RID: rid, SourceRID: sourceRID, ProjectRID: body.ProjectRID, Name: name, Locator: loc, TableType: body.TableType, SchemaInferred: []byte(`[]`), Capabilities: []byte(`{}`), Markings: body.Markings, Properties: []byte(`{}`), CreatedBy: &creator, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	schema := body.SchemaInferred
+	if len(schema) == 0 {
+		schema = []byte(`[]`)
+	}
+	capabilities := body.Capabilities
+	if len(capabilities) == 0 {
+		capabilities = []byte(`{}`)
+	}
+	properties := body.Properties
+	if len(properties) == 0 {
+		properties = []byte(`{}`)
+	}
+	var props map[string]any
+	if err := json.Unmarshal(properties, &props); err != nil {
+		props = map[string]any{}
+	}
+	if props == nil {
+		props = map[string]any{}
+	}
+	link := f.links[sourceRID]
+	props["provider"] = link.Provider
+	props["display_name"] = name
+	props["external_reference"] = json.RawMessage(loc)
+	props["save_location"] = map[string]any{"project_rid": body.ProjectRID, "parent_folder_rid": body.ParentFolderRID}
+	props["source"] = map[string]any{"source_rid": sourceRID, "provider": link.Provider}
+	props["schema"] = json.RawMessage(schema)
+	owner := actorID
+	if body.Owner != nil && strings.TrimSpace(*body.Owner) != "" {
+		owner = strings.TrimSpace(*body.Owner)
+	}
+	props["owner"] = owner
+	if len(body.Permissions) > 0 {
+		props["permissions"] = json.RawMessage(body.Permissions)
+	} else {
+		props["permissions"] = map[string]any{"owners": []string{owner}, "readers": []string{}, "writers": []string{}, "admins": []string{}}
+	}
+	properties, _ = json.Marshal(props)
+	v := models.VirtualTable{ID: uuid.New(), RID: rid, SourceRID: sourceRID, ProjectRID: body.ProjectRID, Name: name, Locator: loc, TableType: body.TableType, SchemaInferred: schema, Capabilities: capabilities, Markings: body.Markings, Properties: properties, CreatedBy: &creator, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	f.vtables[rid] = v
 	return &v, nil
 }
-func (f *fakeStore) ListVirtualTables(_ context.Context, ownerID string, project, source string, _ int) ([]models.VirtualTable, error) {
+func (f *fakeStore) BulkRegisterVirtualTables(ctx context.Context, sourceRID string, actorID string, body *models.VirtualTableBulkRegisterRequest) (*models.VirtualTableBulkRegisterResponse, error) {
+	if _, ok := f.links[sourceRID]; !ok {
+		return nil, nil
+	}
+	out := &models.VirtualTableBulkRegisterResponse{Registered: []models.VirtualTable{}, Errors: []models.VirtualTableBulkError{}}
+	for i := range body.Entries {
+		entry := body.Entries[i]
+		if entry.ProjectRID == "" {
+			entry.ProjectRID = body.ProjectRID
+		}
+		if entry.Locator.Kind != "tabular" {
+			out.Errors = append(out.Errors, models.VirtualTableBulkError{Name: entry.Locator.DefaultDisplayName(), Error: "bulk registration requires tabular locators"})
+			continue
+		}
+		created, err := f.CreateVirtualTable(ctx, sourceRID, actorID, &entry)
+		if err != nil {
+			out.Errors = append(out.Errors, models.VirtualTableBulkError{Name: entry.Locator.DefaultDisplayName(), Error: err.Error()})
+			continue
+		}
+		out.Registered = append(out.Registered, *created)
+	}
+	return out, nil
+}
+func (f *fakeStore) EnableVirtualTableAutoRegistration(_ context.Context, sourceRID string, body *models.EnableAutoRegistrationRequest) (*models.VirtualTableSourceLink, error) {
+	link, ok := f.links[sourceRID]
+	if !ok {
+		return nil, nil
+	}
+	if strings.TrimSpace(body.ProjectName) == "" {
+		return nil, assert.AnError
+	}
+	projectRID := "ri.foundry.main.project." + strings.ToLower(strings.ReplaceAll(body.ProjectName, " ", "-"))
+	interval := int32(body.PollIntervalSeconds)
+	layout := body.FolderMirrorKind
+	if layout == "" {
+		layout = "NESTED"
+	}
+	link.AutoRegisterEnabled = true
+	link.AutoRegisterProjectRID = &projectRID
+	link.AutoRegisterIntervalSeconds = &interval
+	link.AutoRegisterFolderMirrorKind = layout
+	link.AutoRegisterTableTagFilters = body.TableTagFilters
+	f.links[sourceRID] = link
+	return &link, nil
+}
+func (f *fakeStore) DisableVirtualTableAutoRegistration(_ context.Context, sourceRID string) error {
+	link, ok := f.links[sourceRID]
+	if ok {
+		link.AutoRegisterEnabled = false
+		f.links[sourceRID] = link
+	}
+	return nil
+}
+func (f *fakeStore) ScanVirtualTableAutoRegistrationNow(_ context.Context, sourceRID string) (*models.AutoRegistrationScanSummary, error) {
+	link, ok := f.links[sourceRID]
+	if !ok || !link.AutoRegisterEnabled {
+		return nil, nil
+	}
+	return &models.AutoRegistrationScanSummary{}, nil
+}
+func (f *fakeStore) ListVirtualTables(_ context.Context, ownerID string, project, source, name, tableType string, _ int) ([]models.VirtualTable, error) {
 	out := []models.VirtualTable{}
 	for _, v := range f.vtables {
-		if v.CreatedBy != nil && *v.CreatedBy == ownerID && (project == "" || v.ProjectRID == project) && (source == "" || v.SourceRID == source) {
+		if v.CreatedBy != nil && *v.CreatedBy == ownerID && (project == "" || v.ProjectRID == project) && (source == "" || v.SourceRID == source) && (name == "" || strings.Contains(strings.ToLower(v.Name), strings.ToLower(name))) && (tableType == "" || v.TableType == tableType) {
 			out = append(out, v)
 		}
 	}
@@ -638,6 +1452,103 @@ func (f *fakeStore) GetVirtualTable(_ context.Context, rid string, ownerID strin
 		return nil, nil
 	}
 	return &v, nil
+}
+func (f *fakeStore) SetVirtualTableUpdateDetection(_ context.Context, rid string, ownerID string, body *models.UpdateDetectionToggle) (*models.VirtualTable, error) {
+	v, ok := f.vtables[rid]
+	if !ok || v.CreatedBy == nil || *v.CreatedBy != ownerID {
+		return nil, nil
+	}
+	interval := int32(body.IntervalSeconds)
+	v.UpdateDetectionEnabled = body.Enabled
+	if body.Enabled {
+		v.UpdateDetectionIntervalSeconds = &interval
+		next := time.Now().UTC()
+		v.UpdateDetectionNextPollAt = &next
+	} else {
+		v.UpdateDetectionIntervalSeconds = nil
+		v.UpdateDetectionNextPollAt = nil
+	}
+	v.UpdatedAt = time.Now().UTC()
+	f.vtables[rid] = v
+	return &v, nil
+}
+func (f *fakeStore) PollVirtualTableUpdateDetection(_ context.Context, rid string, ownerID string) (*models.PollResult, error) {
+	v, ok := f.vtables[rid]
+	if !ok || v.CreatedBy == nil || *v.CreatedBy != ownerID {
+		return nil, nil
+	}
+	previous := v.LastObservedVersion
+	observed := fakeObservedVersion(v)
+	outcome := models.PollOutcomePotentialUpdate
+	change := true
+	if observed != nil {
+		switch {
+		case previous == nil:
+			outcome = models.PollOutcomeInitial
+		case *previous == *observed:
+			outcome = models.PollOutcomeUnchanged
+			change = false
+		default:
+			outcome = models.PollOutcomeChanged
+		}
+	}
+	now := time.Now().UTC()
+	v.LastObservedVersion = observed
+	v.LastPolledAt = &now
+	f.vtables[rid] = v
+	history := models.PollHistoryRow{ID: uuid.New(), VirtualTableID: v.ID, PolledAt: now, ObservedVersion: observed, ChangeDetected: change, LatencyMS: 1}
+	f.polls[rid] = append([]models.PollHistoryRow{history}, f.polls[rid]...)
+	builds := fakeDownstreamBuilds(v, outcome)
+	return &models.PollResult{VirtualTableRID: rid, Outcome: outcome, ObservedVersion: observed, PreviousVersion: previous, LatencyMS: 1, ChangeDetected: change, EventEmitted: outcome != models.PollOutcomeUnchanged, DownstreamBuilds: builds}, nil
+}
+func (f *fakeStore) ListVirtualTableUpdateDetectionHistory(_ context.Context, rid string, ownerID string, limit int) ([]models.PollHistoryRow, error) {
+	v, ok := f.vtables[rid]
+	if !ok || v.CreatedBy == nil || *v.CreatedBy != ownerID {
+		return nil, nil
+	}
+	items := append([]models.PollHistoryRow(nil), f.polls[rid]...)
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+func (f *fakeStore) GetVirtualTableLineage(_ context.Context, rid string, ownerID string) (*models.VirtualTableLineageResponse, error) {
+	v, ok := f.vtables[rid]
+	if !ok || v.CreatedBy == nil || *v.CreatedBy != ownerID {
+		return nil, nil
+	}
+	pipelineRID := "ri.foundry.main.pipeline." + v.ID.String()
+	datasetRID := "ri.foundry.main.dataset." + v.ID.String()
+	objectRID := "ri.ontology.main.object-type." + strings.ToLower(strings.ReplaceAll(v.Name, " ", "-"))
+	nodes := []models.VirtualTableLineageNode{
+		{RID: v.SourceRID, Kind: "source", DisplayName: "Source " + v.SourceRID, Status: "active"},
+		{RID: v.RID, Kind: "virtual_table", DisplayName: v.Name, Status: "active"},
+		{RID: pipelineRID, Kind: "pipeline", DisplayName: v.Name + " pipeline", Status: "listening"},
+		{RID: datasetRID, Kind: "dataset", DisplayName: v.Name + " dataset output", Status: "materialized"},
+		{RID: objectRID, Kind: "object_type", DisplayName: v.Name + " object output", Status: "indexed"},
+	}
+	outcome := models.PollOutcomeInitial
+	if len(f.polls[rid]) > 0 {
+		if f.polls[rid][0].ChangeDetected {
+			outcome = models.PollOutcomeChanged
+		} else {
+			outcome = models.PollOutcomeUnchanged
+		}
+	}
+	return &models.VirtualTableLineageResponse{
+		VirtualTableRID:        v.RID,
+		SourceRID:              v.SourceRID,
+		UpdateDetectionEnabled: v.UpdateDetectionEnabled,
+		LastObservedVersion:    v.LastObservedVersion,
+		Nodes:                  nodes,
+		Edges: []models.VirtualTableLineageEdge{
+			{FromRID: v.SourceRID, ToRID: v.RID, Kind: "backs"},
+			{FromRID: v.RID, ToRID: pipelineRID, Kind: "pipeline_input"},
+			{FromRID: pipelineRID, ToRID: datasetRID, Kind: "writes_dataset"},
+			{FromRID: datasetRID, ToRID: objectRID, Kind: "indexes_object"},
+		},
+		DownstreamBuilds: fakeDownstreamBuilds(v, outcome),
+	}, nil
 }
 
 func (f *fakeStore) ListRegistrations(_ context.Context, sourceID uuid.UUID) ([]models.ConnectionRegistration, error) {
@@ -783,6 +1694,14 @@ func cloneTestRawMessage(raw json.RawMessage) json.RawMessage {
 	}
 	return append(json.RawMessage(nil), raw...)
 }
+
+func valueOr(ptr *string, fallback string) string {
+	if ptr == nil || strings.TrimSpace(*ptr) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(*ptr)
+}
+
 func (f *fakeStore) ListIcebergNamespaces(_ context.Context) ([]models.Connection, error) {
 	out := []models.Connection{}
 	for _, c := range f.connections {
@@ -837,7 +1756,8 @@ func (f *fakeStore) GetMediaSetSync(_ context.Context, id uuid.UUID, ownerID uui
 	return nil, nil
 }
 func (f *fakeStore) CreateMediaSetSync(_ context.Context, sourceID uuid.UUID, body *models.CreateMediaSetSyncRequest, ownerID uuid.UUID) (*models.MediaSetSync, error) {
-	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
+	allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleSyncCreate)
+	if !allowed {
 		return nil, nil
 	}
 	m := models.MediaSetSync{ID: uuid.New(), SourceID: sourceID, Kind: body.Kind, TargetMediaSetRID: body.TargetMediaSetRID, Subfolder: strings.Trim(body.Subfolder, "/"), Filters: body.Filters, ScheduleCron: body.ScheduleCron, CreatedAt: time.Now().UTC()}
@@ -846,7 +1766,8 @@ func (f *fakeStore) CreateMediaSetSync(_ context.Context, sourceID uuid.UUID, bo
 }
 func (f *fakeStore) UpdateMediaSetSync(_ context.Context, id uuid.UUID, body *models.UpdateMediaSetSyncRequest, ownerID uuid.UUID) (*models.MediaSetSync, error) {
 	for source, syncs := range f.mediaSyncs {
-		if c, _ := f.GetConnectionForOwner(context.Background(), source, ownerID); c == nil {
+		allowed, _ := f.CheckSourceRole(context.Background(), source, ownerID, models.SourceRoleEdit)
+		if !allowed {
 			continue
 		}
 		for i := range syncs {
@@ -874,6 +1795,198 @@ func (f *fakeStore) UpdateMediaSetSync(_ context.Context, id uuid.UUID, body *mo
 	return nil, nil
 }
 
+// SDC.40 — minimal in-memory retry policy + failure store for handler tests.
+func (f *fakeStore) GetSourceRetryPolicy(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID) (*models.SourceRetryPolicy, error) {
+	if allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleView); !allowed {
+		return nil, nil
+	}
+	if f.retryPolicies == nil {
+		return nil, nil
+	}
+	policy, ok := f.retryPolicies[sourceID]
+	if !ok {
+		return nil, nil
+	}
+	return &policy, nil
+}
+
+func (f *fakeStore) UpsertSourceRetryPolicy(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID, actorID *string, policy models.SourceRetryPolicy) (*models.SourceRetryPolicy, error) {
+	if allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleEdit); !allowed {
+		return nil, nil
+	}
+	now := time.Now().UTC()
+	normalized := models.NormalizeSourceRetryPolicy(policy, sourceID, now)
+	normalized.UpdatedBy = actorID
+	normalized.UpdatedAt = now
+	if f.retryPolicies == nil {
+		f.retryPolicies = map[uuid.UUID]models.SourceRetryPolicy{}
+	}
+	f.retryPolicies[sourceID] = normalized
+	return &normalized, nil
+}
+
+func (f *fakeStore) ListSyncRunFailuresForSource(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID, limit int) ([]models.RetryRecoveryRunSummary, error) {
+	if allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleView); !allowed {
+		return nil, nil
+	}
+	if f.retryFailures == nil {
+		return nil, nil
+	}
+	failures := f.retryFailures[sourceID]
+	if limit > 0 && len(failures) > limit {
+		failures = failures[:limit]
+	}
+	return failures, nil
+}
+
+func (f *fakeStore) RecordMediaSetSyncRun(_ context.Context, syncID uuid.UUID, ownerID uuid.UUID, run models.MediaSetSyncRun) (*models.MediaSetSyncRun, error) {
+	// Find owning source via the in-memory media sync map.
+	var sourceID uuid.UUID
+	for src, syncs := range f.mediaSyncs {
+		for _, sync := range syncs {
+			if sync.ID == syncID {
+				sourceID = src
+				break
+			}
+		}
+	}
+	if sourceID != uuid.Nil {
+		if allowed, _ := f.CheckSourceRole(context.Background(), sourceID, ownerID, models.SourceRoleUse); !allowed {
+			return nil, nil
+		}
+	}
+	run.ID = uuid.New()
+	run.SyncDefID = syncID
+	if f.mediaSyncRuns == nil {
+		f.mediaSyncRuns = map[uuid.UUID][]models.MediaSetSyncRun{}
+	}
+	f.mediaSyncRuns[syncID] = append([]models.MediaSetSyncRun{run}, f.mediaSyncRuns[syncID]...)
+	return &run, nil
+}
+
+func (f *fakeStore) ListMediaSetSyncRuns(_ context.Context, syncID uuid.UUID, _ uuid.UUID, limit int) ([]models.MediaSetSyncRun, error) {
+	if f.mediaSyncRuns == nil {
+		return []models.MediaSetSyncRun{}, nil
+	}
+	runs := f.mediaSyncRuns[syncID]
+	if limit > 0 && len(runs) > limit {
+		runs = runs[:limit]
+	}
+	return runs, nil
+}
+
+func (f *fakeStore) MediaSetSyncUsageForSource(_ context.Context, sourceID uuid.UUID, _ uuid.UUID) (map[uuid.UUID]models.MediaSetSyncUsageSummary, error) {
+	out := map[uuid.UUID]models.MediaSetSyncUsageSummary{}
+	syncs := f.mediaSyncs[sourceID]
+	for _, sync := range syncs {
+		runs := f.mediaSyncRuns[sync.ID]
+		if len(runs) == 0 {
+			continue
+		}
+		summary := models.MediaSetSyncUsageSummary{SyncDefID: sync.ID, RunCount: uint32(len(runs))}
+		for _, run := range runs {
+			summary.TotalAcceptedFiles += uint64(run.AcceptedFiles)
+			summary.TotalBytesAccepted += run.BytesAccepted
+			summary.TotalDispatchErrors += uint64(run.DispatchErrors)
+			summary.TotalSchemaMismatch += uint64(run.SchemaMismatched)
+		}
+		latest := runs[0]
+		summary.LastRunAt = &latest.StartedAt
+		s := latest.Status
+		summary.LastStatus = &s
+		summary.LastErrorMessage = latest.ErrorMessage
+		out[sync.ID] = summary
+	}
+	return out, nil
+}
+
+// SDC.47 — minimal in-memory dead-letter sink + quarantine record store for handler tests.
+func (f *fakeStore) GetDeadLetterSink(_ context.Context, syncDefID uuid.UUID, _ uuid.UUID) (*models.DeadLetterSink, error) {
+	if f.deadLetterSinks == nil {
+		return nil, nil
+	}
+	sink, ok := f.deadLetterSinks[syncDefID]
+	if !ok {
+		return nil, nil
+	}
+	return &sink, nil
+}
+
+func (f *fakeStore) UpsertDeadLetterSink(_ context.Context, syncDefID uuid.UUID, _ uuid.UUID, actorID *string, req models.UpdateDeadLetterSinkRequest) (*models.DeadLetterSink, error) {
+	now := time.Now().UTC()
+	sink := models.DeadLetterSink{
+		SyncDefID:      syncDefID,
+		Kind:           req.Kind,
+		TargetRID:      strings.TrimSpace(req.TargetRID),
+		RetentionDays:  req.RetentionDays,
+		RedactionRules: req.RedactionRules,
+		UpdatedBy:      actorID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if f.deadLetterSinks == nil {
+		f.deadLetterSinks = map[uuid.UUID]models.DeadLetterSink{}
+	}
+	f.deadLetterSinks[syncDefID] = sink
+	return &sink, nil
+}
+
+func (f *fakeStore) RecordQuarantinedRecord(_ context.Context, syncDefID uuid.UUID, _ uuid.UUID, body models.RecordQuarantineRequest, sink models.DeadLetterSink, recordedAt time.Time) (*models.QuarantinedRecord, error) {
+	redactedPayload, redactedHeaders := models.ApplyDeadLetterRedaction(body.Payload, body.Headers, sink.RedactionRules)
+	record := models.QuarantinedRecord{
+		ID:              uuid.New(),
+		SyncDefID:       syncDefID,
+		RunID:           body.RunID,
+		FailureCategory: body.FailureCategory,
+		ErrorMessage:    body.ErrorMessage,
+		RecordKey:       body.RecordKey,
+		RedactedPayload: redactedPayload,
+		RedactedHeaders: redactedHeaders,
+		RecordedAt:      recordedAt,
+		ExpiresAt:       models.QuarantineExpiryFor(sink, recordedAt),
+	}
+	if f.quarantine == nil {
+		f.quarantine = map[uuid.UUID][]models.QuarantinedRecord{}
+	}
+	f.quarantine[syncDefID] = append([]models.QuarantinedRecord{record}, f.quarantine[syncDefID]...)
+	return &record, nil
+}
+
+func (f *fakeStore) ListQuarantinedRecords(_ context.Context, syncDefID uuid.UUID, _ uuid.UUID, category models.QuarantineFailureCategory, limit int) ([]models.QuarantinedRecord, error) {
+	records := f.quarantine[syncDefID]
+	if category != "" {
+		filtered := make([]models.QuarantinedRecord, 0)
+		for _, r := range records {
+			if r.FailureCategory == category {
+				filtered = append(filtered, r)
+			}
+		}
+		records = filtered
+	}
+	if limit > 0 && len(records) > limit {
+		records = records[:limit]
+	}
+	return records, nil
+}
+
+func (f *fakeStore) MarkQuarantinedRecordsForReplay(_ context.Context, syncDefID uuid.UUID, _ uuid.UUID, actorID *string, recordIDs []uuid.UUID, now time.Time) (int, error) {
+	wanted := map[uuid.UUID]bool{}
+	for _, id := range recordIDs {
+		wanted[id] = true
+	}
+	records := f.quarantine[syncDefID]
+	count := 0
+	for i := range records {
+		if wanted[records[i].ID] && records[i].ExpiresAt.After(now) {
+			records[i].ReplayRequestedAt = &now
+			records[i].ReplayRequestedBy = actorID
+			count++
+		}
+	}
+	f.quarantine[syncDefID] = records
+	return count, nil
+}
+
 type fakeRuntime struct {
 	report *models.MediaSetSyncExecutionReport
 	err    error
@@ -899,6 +2012,58 @@ func withRouteParam(req *http.Request, key, val string) *http.Request {
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 }
 
+func readRawProperty(t *testing.T, raw json.RawMessage, key string) json.RawMessage {
+	t.Helper()
+	var props map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &props))
+	value, ok := props[key]
+	require.True(t, ok, "missing property %s", key)
+	return value
+}
+
+func readStringProperty(t *testing.T, raw json.RawMessage, key string) string {
+	t.Helper()
+	var value string
+	require.NoError(t, json.Unmarshal(readRawProperty(t, raw, key), &value))
+	return value
+}
+
+func fakeObservedVersion(v models.VirtualTable) *string {
+	var caps models.Capabilities
+	_ = json.Unmarshal(v.Capabilities, &caps)
+	if !caps.Versioning {
+		return nil
+	}
+	var props map[string]json.RawMessage
+	if json.Unmarshal(v.Properties, &props) == nil {
+		if raw, ok := props["source_version"]; ok {
+			var value string
+			if json.Unmarshal(raw, &value) == nil && strings.TrimSpace(value) != "" {
+				return &value
+			}
+		}
+	}
+	value := "sha256:" + v.ID.String()
+	return &value
+}
+
+func fakeDownstreamBuilds(v models.VirtualTable, outcome models.PollOutcome) []models.VirtualTableDownstreamBuildPlan {
+	action := "triggered"
+	reason := "source-side update detected"
+	if outcome == models.PollOutcomeUnchanged {
+		action = "skipped"
+		reason = "observed source version is unchanged"
+	}
+	if outcome == models.PollOutcomePotentialUpdate {
+		reason = "source does not expose a comparable version; conservative update event emitted"
+	}
+	return []models.VirtualTableDownstreamBuildPlan{
+		{TargetRID: "ri.foundry.main.pipeline." + v.ID.String(), TargetKind: "pipeline", DisplayName: v.Name + " pipeline", Action: action, Reason: reason},
+		{TargetRID: "ri.foundry.main.dataset." + v.ID.String(), TargetKind: "dataset", DisplayName: v.Name + " dataset output", Action: action, Reason: reason},
+		{TargetRID: "ri.ontology.main.object-type." + strings.ToLower(strings.ReplaceAll(v.Name, " ", "-")), TargetKind: "object_type", DisplayName: v.Name + " object output", Action: action, Reason: reason},
+	}
+}
+
 func listenerHMAC(secret, payload string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(payload))
@@ -909,14 +2074,32 @@ func TestConnectorAgentHandlersRegisterHeartbeatAndDelete(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
 	h := &handlers.Handlers{Repo: store}
+	sourceID := store.connections[0].ID
+	policyID := uuid.New()
 
-	req := authedReq(http.MethodPost, "/agents", `{"name":"Edge bridge","agent_url":"https://agent.local:8443","capabilities":{"connectors":["postgres"]},"metadata":{"region":"eu"}}`, owner)
+	req := authedReq(http.MethodPost, "/agents", fmt.Sprintf(`{
+		"name":"Edge bridge",
+		"agent_url":"https://agent.local:8443",
+		"version":"1.2.3",
+		"environment":"prod",
+		"host":"edge-01.internal",
+		"capabilities":{"connectors":["postgres"],"connector_capabilities":{"postgres":["batch_sync","cdc_sync"]}},
+		"metadata":{"region":"eu"},
+		"connected_sources":[{"source_id":%q,"source_name":"Postgres warehouse","connector_type":"postgres","status":"connected"}],
+		"assigned_proxy_policies":[{"policy_id":%q,"source_id":%q,"policy_name":"warehouse proxy","proxy_mode":"http_connect","status":"active"}]
+	}`, sourceID.String(), policyID.String(), sourceID.String()), owner)
 	rec := httptest.NewRecorder()
 	h.RegisterConnectorAgent(rec, req)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	var created models.ConnectorAgent
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 	require.Equal(t, "online", created.Status)
+	require.Equal(t, "1.2.3", created.Version)
+	require.Equal(t, "prod", created.Environment)
+	require.Equal(t, "edge-01.internal", created.Host)
+	require.Len(t, created.ConnectedSources, 1)
+	require.Len(t, created.AssignedProxyPolicies, 1)
+	require.Equal(t, "healthy", created.Health.State)
 	require.NotNil(t, created.LastHeartbeatAt)
 
 	req = authedReq(http.MethodGet, "/agents", ``, owner)
@@ -927,11 +2110,22 @@ func TestConnectorAgentHandlersRegisterHeartbeatAndDelete(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed))
 	require.Len(t, listed.Items, 1)
 
-	req = withRouteParam(authedReq(http.MethodPost, "/agents/"+created.ID.String()+"/heartbeat", `{"capabilities":{"connectors":["postgres","mysql"]},"metadata":{"region":"eu"}}`, owner), "id", created.ID.String())
+	req = withRouteParam(authedReq(http.MethodPost, "/agents/"+created.ID.String()+"/heartbeat", fmt.Sprintf(`{
+		"version":"1.2.4",
+		"capabilities":{"connectors":["postgres","mysql"]},
+		"metadata":{"region":"eu"},
+		"connection_failures":[{"source_id":%q,"source_name":"Postgres warehouse","policy_id":%q,"code":"agent_proxy_403","message":"Proxy rejected host outside source configuration","retryable":false}]
+	}`, sourceID.String(), policyID.String()), owner), "id", created.ID.String())
 	rec = httptest.NewRecorder()
 	h.HeartbeatConnectorAgent(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.Contains(t, rec.Body.String(), "mysql")
+	var heartbeat models.ConnectorAgent
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &heartbeat))
+	require.Equal(t, "1.2.4", heartbeat.Version)
+	require.Equal(t, "error", heartbeat.Health.State)
+	require.Contains(t, heartbeat.Health.Message, "Proxy rejected")
+	require.Len(t, heartbeat.ConnectionFailures, 1)
 
 	req = withRouteParam(authedReq(http.MethodDelete, "/agents/"+created.ID.String(), ``, owner), "id", created.ID.String())
 	rec = httptest.NewRecorder()
@@ -1019,6 +2213,432 @@ func TestAttachPolicyRejectsEdgeCases(t *testing.T) {
 	}
 }
 
+func TestSourceGovernanceRolesVisibilityAndAudit(t *testing.T) {
+	owner := uuid.New()
+	worker := uuid.New()
+	viewer := uuid.New()
+	store := newFakeStore(owner)
+	sourceID := store.connections[0].ID
+	h := &handlers.Handlers{Repo: store}
+
+	body := fmt.Sprintf(`{
+		"reason":"delegate governed sync creation",
+		"permission_grants":[
+			{"principal_id":%q,"principal_type":"service_account","principal_name":"pipeline-bot","roles":["source_view","source_use","sync_create"],"reason":"pipeline owner"},
+			{"principal_id":%q,"principal_type":"user","principal_name":"read-only viewer","roles":["source_view"]}
+		],
+		"visibility":{
+			"source_visibility_roles":["source_view","source_edit","source_owner"],
+			"credential_visibility_roles":["code_import","source_edit","source_owner"],
+			"external_sample_visibility_roles":["source_use","source_edit","source_owner"],
+			"output_dataset_permission_roles":["dataset:view","dataset:edit"],
+			"credential_values_visible":true,
+			"external_samples_persisted":true,
+			"output_dataset_permissions_enforced":true,
+			"output_dataset_permission_system":"openfoundry_datasets"
+		}
+	}`, worker.String(), viewer.String())
+	req := withRouteParam(authedReq(http.MethodPatch, "/sources/"+sourceID.String()+"/permissions", body, owner), "id", sourceID.String())
+	rec := httptest.NewRecorder()
+	h.UpdateSourceGovernance(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var updated models.SourceGovernance
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.Len(t, updated.RoleDefinitions, len(models.AllSourcePermissionRoles()))
+	require.Len(t, updated.PermissionGrants, 2)
+	assert.False(t, updated.Visibility.CredentialValuesVisible)
+	assert.False(t, updated.Visibility.ExternalSamplesPersisted)
+	assert.True(t, updated.Visibility.OutputDatasetPermissionsEnforced)
+	assert.False(t, models.SourceRoleListContains(updated.Visibility.CredentialVisibilityRoles, models.SourceRoleView))
+	assert.False(t, models.SourceRoleListContains(updated.Visibility.ExternalSampleVisibilityRoles, models.SourceRoleView))
+
+	req = withRouteParam(authedReq(http.MethodGet, "/sources/"+sourceID.String()+"/permissions", "", worker), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.GetSourceGovernance(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var workerView models.SourceGovernance
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &workerView))
+	assert.True(t, sourceRoleSet(workerView.EffectiveRoles)[models.SourceRoleView])
+	assert.True(t, sourceRoleSet(workerView.EffectiveRoles)[models.SourceRoleUse])
+	assert.True(t, sourceRoleSet(workerView.EffectiveRoles)[models.SourceRoleSyncCreate])
+	assert.False(t, sourceRoleSet(workerView.EffectiveRoles)[models.SourceRoleCodeImport])
+
+	store.credentials[sourceID] = []models.CredentialResponse{{ID: uuid.New(), SourceID: sourceID, Kind: "api_key", Fingerprint: "sha256:redacted", CreatedAt: time.Now().UTC()}}
+	req = withRouteParam(authedReq(http.MethodGet, "/sources/"+sourceID.String()+"/credentials", "", viewer), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.ListCredentials(rec, req)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "code_import")
+
+	outputDataset := uuid.New()
+	req = authedReq(http.MethodPost, "/syncs", fmt.Sprintf(`{"source_id":%q,"output_dataset_id":%q}`, sourceID.String(), outputDataset.String()), worker)
+	rec = httptest.NewRecorder()
+	h.CreateSyncJob(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var syncJob models.SyncJob
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &syncJob))
+	assert.Equal(t, sourceID, syncJob.SourceID)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/connections/"+sourceID.String()+"/test", "", worker), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.TestConnection(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = withRouteParam(authedReq(http.MethodGet, "/sources/"+sourceID.String()+"/audit?limit=10", "", owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.ListSourceGovernanceAudit(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var audit models.ListResponse[models.SourceGovernanceAuditEvent]
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &audit))
+	actions := map[string]bool{}
+	for _, event := range audit.Items {
+		actions[event.Action] = true
+	}
+	assert.True(t, actions["update_source_governance"])
+	assert.True(t, actions["sync_created"])
+	assert.True(t, actions["connection_tested"])
+}
+
+func TestGetSourceHealthAggregatesDataConnectionFailures(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	sourceID := store.connections[0].ID
+	now := time.Now().UTC()
+	store.connections[0].Status = "error"
+	store.connections[0].Config = json.RawMessage(`{"worker":"agent"}`)
+	expired := now.Add(-1 * time.Hour)
+	store.credentials[sourceID] = []models.CredentialResponse{{
+		ID:               uuid.New(),
+		SourceID:         sourceID,
+		Kind:             "api_key",
+		Fingerprint:      "sha256:redacted",
+		ValidationStatus: "failed",
+		LastValidatedAt:  &now,
+		ExpiresAt:        &expired,
+		CreatedAt:        now.Add(-24 * time.Hour),
+	}}
+	heartbeat := now.Add(-5 * time.Minute)
+	store.agents = []models.ConnectorAgent{{
+		ID:               uuid.New(),
+		Name:             "edge",
+		OwnerID:          owner,
+		Status:           "online",
+		Capabilities:     json.RawMessage(`{}`),
+		Metadata:         json.RawMessage(`{}`),
+		ConnectedSources: []models.AgentConnectedSource{{SourceID: sourceID, SourceName: "pg", ConnectorType: "postgresql", Status: "connected"}},
+		ConnectionFailures: []models.AgentConnectionFailure{{
+			SourceID:   sourceID,
+			Code:       "agent_proxy_403",
+			Message:    "Proxy rejected host",
+			Retryable:  false,
+			OccurredAt: &now,
+		}},
+		LastHeartbeatAt: &heartbeat,
+	}}
+	streamID := "ri.foundry.main.stream.orders"
+	sourceTable := "orders"
+	syncID := uuid.New()
+	schedule := "0 * * * *"
+	store.syncJobs[sourceID] = []models.SyncJob{{
+		ID:             syncID,
+		SourceID:       sourceID,
+		CapabilityType: "cdc_sync",
+		OutputKind:     "stream",
+		OutputStreamID: &streamID,
+		SourceTable:    &sourceTable,
+		ScheduleCron:   &schedule,
+		CdcSync: &models.CdcSyncSettings{
+			InputKind:                "relational_connector",
+			SourceTable:              "orders",
+			PrimaryKeyColumns:        []string{},
+			OrderingColumn:           "",
+			OutputStreamID:           &streamID,
+			OutputStreamLocation:     "",
+			StartPosition:            "initial_snapshot",
+			SourceDatabaseCDCEnabled: false,
+			SourceTableCDCEnabled:    false,
+		},
+		CreatedAt: now.Add(-48 * time.Hour),
+	}}
+	runErr := "checkpoint failed"
+	store.runs[syncID] = []models.SyncRun{{
+		ID:        uuid.New(),
+		SyncDefID: syncID,
+		Status:    "failed",
+		StartedAt: now.Add(-2 * time.Hour),
+		Error:     &runErr,
+	}}
+	exportErr := "destination column UPDATED_AT type mismatch"
+	destinationTable := "public.orders"
+	store.exports[sourceID] = []models.DataExport{{
+		ID:               uuid.New(),
+		SourceID:         sourceID,
+		Name:             "orders export",
+		ExportType:       models.DataExportTypeTable,
+		ExportMode:       models.DataExportModeTableMirror,
+		DestinationTable: &destinationTable,
+		ScheduleCron:     &schedule,
+		Status:           models.DataExportStatusFailed,
+		Health:           models.DataExportHealth{State: models.DataExportHealthError, Message: &exportErr, LastCheckedAt: &now},
+		TableExport: &models.TableExportSettings{
+			ValidationIssues: []models.TableExportValidationIssue{{Code: "type_mismatch", Severity: "error", Message: exportErr}},
+		},
+		History:   []models.DataExportHistoryEntry{{ID: uuid.New(), Status: "failed", ErrorMessage: &exportErr, CreatedAt: now}},
+		CreatedAt: now.Add(-24 * time.Hour),
+		UpdatedAt: now,
+	}}
+	webhookErr := "upstream timeout"
+	store.webhookHistory[sourceID] = []models.WebhookHistoryEntry{{
+		ID:                 uuid.New(),
+		SourceID:           sourceID,
+		UserID:             owner,
+		Status:             "failed",
+		Error:              &webhookErr,
+		StartedAt:          now.Add(-5 * time.Minute),
+		FinishedAt:         now.Add(-4 * time.Minute),
+		RetentionExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt:          now.Add(-5 * time.Minute),
+	}}
+	ownerString := owner.String()
+	store.vtables["ri.foundry.main.virtual-table.orders"] = models.VirtualTable{
+		ID:                                 uuid.New(),
+		RID:                                "ri.foundry.main.virtual-table.orders",
+		SourceRID:                          models.SourceRIDForConnection(sourceID),
+		ProjectRID:                         "ri.foundry.main.project.analytics",
+		Name:                               "orders",
+		UpdateDetectionEnabled:             true,
+		UpdateDetectionConsecutiveFailures: 3,
+		CreatedBy:                          &ownerString,
+		CreatedAt:                          now.Add(-24 * time.Hour),
+		UpdatedAt:                          now,
+	}
+	h := &handlers.Handlers{Repo: store}
+
+	req := withRouteParam(authedReq(http.MethodGet, "/sources/"+sourceID.String()+"/health", "", owner), "id", sourceID.String())
+	rec := httptest.NewRecorder()
+	h.GetSourceHealth(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var summary models.DataConnectionHealthSummary
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &summary))
+	require.Equal(t, models.DataConnectionHealthCritical, summary.State)
+	codes := map[string]bool{}
+	for _, check := range summary.Checks {
+		codes[check.Code] = true
+	}
+	for _, code := range []string{
+		"source_status",
+		"agent_health",
+		"network_policy_missing",
+		"credential_expired",
+		"credential_validation_failed",
+		"sync_recent_failure",
+		"stream_checkpoint_failure",
+		"cdc_metadata_invalid",
+		"export_recent_failure",
+		"destination_schema_mismatch",
+		"webhook_recent_failures",
+		"virtual_table_update_detection_failed",
+	} {
+		assert.True(t, codes[code], "expected health code %s", code)
+	}
+	assert.GreaterOrEqual(t, summary.Counts.Critical, 8)
+	assert.Contains(t, summary.Surfaces, models.DataConnectionHealthSurfaceCDC)
+	assert.Contains(t, summary.Surfaces, models.DataConnectionHealthSurfaceSchedule)
+}
+
+func sourceRoleSet(roles []models.SourcePermissionRole) map[models.SourcePermissionRole]bool {
+	out := map[models.SourcePermissionRole]bool{}
+	for _, role := range roles {
+		out[role] = true
+	}
+	return out
+}
+
+func TestSourceCodeImportHandlersGenerateBindingsAndResolveLiveBuildStart(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	sourceID := store.connections[0].ID
+	h := &handlers.Handlers{Repo: store}
+
+	req := withRouteParam(authedReq(http.MethodGet, "/sources/"+sourceID.String()+"/code-imports", "", owner), "id", sourceID.String())
+	rec := httptest.NewRecorder()
+	h.GetSourceCodeImport(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var initial models.SourceCodeImport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initial))
+	require.False(t, initial.Enabled)
+	require.Equal(t, models.SourceRIDForConnection(sourceID), initial.SourceRID)
+	require.Contains(t, initial.GeneratedBinding.CodeSnippet, `Source("`+models.SourceRIDForConnection(sourceID)+`")`)
+	require.Contains(t, initial.GeneratedBinding.SourcePanelURL, sourceID.String())
+
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+sourceID.String()+"/code-imports:resolve-build-start", `{}`, owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.ResolveSourceCodeImportBuildStart(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "not approved")
+
+	_, err := store.SetCredential(context.Background(), sourceID, owner, "api_key", []byte("secret"), "sha256:credential")
+	require.NoError(t, err)
+	policyID := uuid.New()
+	_, err = store.AttachPolicy(context.Background(), sourceID, owner, policyID, "agent_proxy")
+	require.NoError(t, err)
+
+	body := `{
+		"enabled": true,
+		"friendly_name": "Warehouse Orders",
+		"python_identifier": "orders_source",
+		"code_repositories": [{
+			"repository_rid": "ri.code.repo.orders",
+			"repository_name": "Orders transforms",
+			"file_path": "transforms/orders.py",
+			"imported_name": "orders_source"
+		}],
+		"export_controls": {
+			"allowed_markings": ["public"],
+			"allowed_organizations": ["operations"]
+		}
+	}`
+	req = withRouteParam(authedReq(http.MethodPatch, "/sources/"+sourceID.String()+"/code-imports", body, owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.UpdateSourceCodeImport(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var updated models.SourceCodeImport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.True(t, updated.Enabled)
+	require.Equal(t, "Warehouse Orders", updated.FriendlyName)
+	require.Equal(t, "orders_source", updated.PythonIdentifier)
+	require.Len(t, updated.CodeRepositories, 1)
+	require.Equal(t, "Orders transforms · transforms/orders.py", updated.CodeRepositories[0].RenderedDisplay)
+	require.Equal(t, "/code-repos/ri.code.repo.orders", updated.CodeRepositories[0].RenderedLink)
+	require.False(t, updated.ExportControls.AllowFoundryInputs)
+	require.Contains(t, updated.GeneratedBinding.CodeSnippet, "def compute(orders_source")
+	require.Contains(t, updated.GeneratedBinding.CodeSnippet, `orders_source=Source("`+models.SourceRIDForConnection(sourceID)+`")`)
+	require.NotEmpty(t, updated.ExternalTransformPatterns)
+	alternatives := map[string]bool{}
+	examples := map[string]bool{}
+	for _, pattern := range updated.ExternalTransformPatterns {
+		require.Contains(t, pattern.CodeSnippet, models.SourceRIDForConnection(sourceID), pattern.ID)
+		for _, alt := range pattern.AlternativeFor {
+			alternatives[alt] = true
+		}
+		examples[pattern.ExampleKind] = true
+	}
+	for _, alt := range []string{"batch_sync", "file_export", "table_batch_sync", "table_export", "media_sync_handoff", "virtual_table_registration", "virtual_media_registration"} {
+		assert.True(t, alternatives[alt], "missing external transform alternative %s", alt)
+	}
+	for _, example := range []string{"rest_api", "database", "buffered_parquet", "csv_export", "lightweight_transform", "agent_proxy"} {
+		assert.True(t, examples[example], "missing external transform example %s", example)
+	}
+	require.NotEmpty(t, updated.ComputeModuleAlternatives)
+	computeAlternatives := map[string]bool{}
+	computeBlockers := map[string]bool{}
+	for _, alternative := range updated.ComputeModuleAlternatives {
+		require.Equal(t, "blocked", alternative.Status)
+		require.Equal(t, "long_running_compute_module", alternative.RuntimeKind)
+		require.Contains(t, alternative.CodeSketch, models.SourceRIDForConnection(sourceID), alternative.ID)
+		computeAlternatives[alternative.AlternativeFor] = true
+		for _, blocker := range alternative.Blockers {
+			computeBlockers[blocker] = true
+		}
+	}
+	for _, alt := range []string{"streaming_sync", "streaming_export", "cdc_sync", "webhook"} {
+		assert.True(t, computeAlternatives[alt], "missing compute module alternative %s", alt)
+	}
+	for _, blocker := range []string{"compute_module_runtime", "compute_module_deployment_contract", "compute_module_source_import_contract"} {
+		assert.True(t, computeBlockers[blocker], "missing compute module blocker %s", blocker)
+	}
+
+	newConfig := json.RawMessage(`{"host":"new.example.com","port":443}`)
+	_, err = store.UpdateConnection(context.Background(), sourceID, &models.UpdateConnectionRequest{Config: newConfig})
+	require.NoError(t, err)
+	expectedHash := sha256.Sum256(newConfig)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+sourceID.String()+"/code-imports:resolve-build-start", `{"repository_rid":"ri.code.repo.orders","build_rid":"ri.build.1","branch":"main"}`, owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.ResolveSourceCodeImportBuildStart(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var resolved models.SourceCodeImportBuildResolution
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resolved))
+	require.Equal(t, "ri.code.repo.orders", *resolved.RepositoryRID)
+	require.Equal(t, "main", *resolved.Branch)
+	require.Equal(t, fmt.Sprintf("sha256:%x", expectedHash[:]), resolved.ConfigHash)
+	require.Len(t, resolved.CredentialBindings, 1)
+	require.Equal(t, "sha256:credential", resolved.CredentialBindings[0].Fingerprint)
+	require.Len(t, resolved.EgressPolicyBindings, 1)
+	require.Equal(t, policyID, resolved.EgressPolicyBindings[0].PolicyID)
+	require.Equal(t, []string{"public"}, resolved.ExportControls.AllowedMarkings)
+	require.Equal(t, "not_applicable", resolved.ExportPolicyDecision.Status)
+	require.True(t, resolved.ExportPolicyDecision.BuildAllowed)
+	require.True(t, resolved.UsesLiveConfiguration)
+	require.True(t, resolved.NoCodeChangeRequired)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+sourceID.String()+"/code-imports:resolve-build-start", `{
+		"repository_rid":"ri.code.repo.orders",
+		"uses_foundry_inputs": true,
+		"foundry_inputs": [{
+			"rid": "ri.foundry.main.dataset.orders",
+			"display_name": "Orders dataset",
+			"resource_type": "dataset",
+			"markings": ["public"],
+			"organizations": ["operations"]
+		}]
+	}`, owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.ResolveSourceCodeImportBuildStart(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resolved))
+	require.Equal(t, "blocked", resolved.ExportPolicyDecision.Status)
+	require.False(t, resolved.ExportPolicyDecision.BuildAllowed)
+	require.True(t, resolved.ExportPolicyDecision.OwnerApprovalRequired)
+	assert.Contains(t, warningCodes(resolved.ExportPolicyDecision.BlockingReasons), "source-export-controls-disabled")
+
+	originalSnippet := resolved.GeneratedBinding.CodeSnippet
+	req = withRouteParam(authedReq(http.MethodPatch, "/sources/"+sourceID.String()+"/code-imports", `{"export_controls":{"allow_foundry_inputs":true,"allowed_markings":["restricted"],"allowed_organizations":["operations"]}}`, owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.UpdateSourceCodeImport(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+sourceID.String()+"/code-imports:resolve-build-start", `{
+		"uses_foundry_inputs": true,
+		"foundry_inputs": [{
+			"rid": "ri.foundry.main.dataset.orders",
+			"display_name": "Orders dataset",
+			"resource_type": "dataset",
+			"markings": ["public"],
+			"organizations": ["operations"]
+		}]
+	}`, owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.ResolveSourceCodeImportBuildStart(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resolved))
+	require.Equal(t, "blocked", resolved.ExportPolicyDecision.Status)
+	require.False(t, resolved.ExportPolicyDecision.BuildAllowed)
+	assert.Contains(t, warningCodes(resolved.ExportPolicyDecision.BlockingReasons), "source-export-controls-marking-denied")
+
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+sourceID.String()+"/code-imports:resolve-build-start", `{
+		"uses_foundry_inputs": true,
+		"foundry_inputs": [{
+			"rid": "ri.foundry.main.dataset.orders",
+			"display_name": "Orders dataset",
+			"resource_type": "dataset",
+			"markings": ["restricted"],
+			"organizations": ["operations"]
+		}]
+	}`, owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.ResolveSourceCodeImportBuildStart(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resolved))
+	require.Equal(t, []string{"restricted"}, resolved.ExportControls.AllowedMarkings)
+	require.True(t, resolved.ExportControls.AllowFoundryInputs)
+	require.Equal(t, "allowed", resolved.ExportPolicyDecision.Status)
+	require.True(t, resolved.ExportPolicyDecision.BuildAllowed)
+	require.Equal(t, originalSnippet, resolved.GeneratedBinding.CodeSnippet)
+	require.True(t, resolved.NoCodeChangeRequired)
+}
+
 func TestCreateListGetUpdateSyncJobAndRun(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
@@ -1057,6 +2677,428 @@ func TestCreateListGetUpdateSyncJobAndRun(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "running")
 }
 
+func warningCodes(warnings []models.SourceCodeImportWarning) []string {
+	codes := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		codes = append(codes, warning.Code)
+	}
+	return codes
+}
+
+func TestCreateListRunDataExportResource(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+	body := `{
+		"name":"Orders table export",
+		"export_type":"table",
+		"input_dataset_rid":"ri.foundry.main.dataset.orders",
+		"destination_table":"public.orders_export",
+		"schedule_cron":"0 * * * *",
+		"export_controls":{"allowed_markings":["public"],"allowed_organizations":["operations"]},
+		"config":{"batch_size":1000,"retry_attempts":2},
+		"table_export":{
+			"input_parquet_backed":true,
+			"destination_table_exists":true,
+			"truncate_permission":true,
+			"row_count_estimate":2,
+			"dataset_schema":[
+				{"name":"ORDER_ID","foundry_type":"BIGINT","external_type":"BIGINT","nullable":false},
+				{"name":"UPDATED_AT","foundry_type":"TIMESTAMP","external_type":"TIMESTAMP","nullable":true}
+			],
+			"destination_schema":[
+				{"name":"ORDER_ID","foundry_type":"BIGINT","external_type":"BIGINT","nullable":false},
+				{"name":"UPDATED_AT","foundry_type":"TIMESTAMP","external_type":"TIMESTAMP","nullable":true}
+			]
+		}
+	}`
+	req := withRouteParam(authedReq(http.MethodPost, "/sources/"+source.String()+"/exports", body, owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.CreateDataExport(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	assert.Equal(t, models.DataExportTypeTable, created.ExportType)
+	assert.Equal(t, models.DataExportModeTableMirror, created.ExportMode)
+	assert.Equal(t, models.DataExportStatusScheduled, created.Status)
+	require.NotNil(t, created.Schedule)
+	assert.Equal(t, "0 * * * *", created.Schedule.Cron)
+	assert.Equal(t, "data-integration-build-schedules", created.Schedule.BuildSystem)
+	assert.Equal(t, "scheduled", created.StartBehavior)
+	require.NotNil(t, created.DestinationTable)
+	assert.Equal(t, "public.orders_export", *created.DestinationTable)
+	assert.Equal(t, []string{"public"}, created.ExportControls.AllowedMarkings)
+	require.NotNil(t, created.TableExport)
+	assert.True(t, created.TableExport.ExactColumnMatch)
+
+	req = withRouteParam(authedReq(http.MethodGet, "/sources/"+source.String()+"/exports", "", owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.ListDataExports(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var list []models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	require.Len(t, list, 1)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/exports/"+created.ID.String()+"/run", "", owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.RunDataExport(rec, req)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	var ran models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ran))
+	assert.Equal(t, models.DataExportStatusSucceeded, ran.Status)
+	assert.Equal(t, models.DataExportHealthHealthy, ran.Health.State)
+	require.NotEmpty(t, ran.History)
+	assert.Equal(t, "run", ran.History[0].Action)
+	assert.EqualValues(t, 2, ran.History[0].RowsWritten)
+	assert.True(t, ran.History[0].TruncatePerformed)
+	assert.True(t, ran.History[0].ScheduleTriggered)
+	assert.EqualValues(t, 2, ran.History[0].RetryAttempts)
+	require.NotNil(t, ran.History[0].BuildID)
+	require.NotNil(t, ran.History[0].BuildReportURL)
+	assert.Contains(t, *ran.History[0].BuildReportURL, "/builds/")
+}
+
+func TestStreamingDataExportUsesStartStop(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "kafka"
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+	body := `{
+		"name":"Telemetry stream export",
+		"export_type":"streaming",
+		"input_stream_id":"stream://telemetry",
+		"destination_topic":"ops.telemetry",
+		"schedule_cron":"*/5 * * * *",
+		"start_behavior":"start_immediately",
+		"stop_behavior":"manual",
+		"streaming_export":{
+			"replay_behavior":"export_replayed_records",
+			"start_offset":"previous_export_offset",
+			"last_exported_offset":"42",
+			"schedule_restart_enabled":true,
+			"records_exported_estimate":3,
+			"replayed_records_detected":true
+		}
+	}`
+	req := withRouteParam(authedReq(http.MethodPost, "/sources/"+source.String()+"/exports", body, owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.CreateDataExport(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	assert.Equal(t, models.DataExportModeStreamingContinuous, created.ExportMode)
+	assert.Equal(t, models.DataExportStatusScheduled, created.Status)
+	require.NotNil(t, created.StreamingExport)
+	assert.True(t, created.StreamingExport.RestartFromPreviousOffset)
+	assert.Equal(t, "export_replayed_records", created.StreamingExport.ReplayBehavior)
+	assert.Equal(t, "replay_duplicate_risk", created.StreamingExport.Warnings[0].Code)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/exports/"+created.ID.String()+"/run", "", owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.RunDataExport(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "start/stop")
+
+	req = withRouteParam(authedReq(http.MethodPost, "/exports/"+created.ID.String()+"/start", "", owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.StartDataExport(rec, req)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"running"`)
+	var started models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started))
+	require.NotEmpty(t, started.History)
+	assert.Equal(t, "started", started.History[0].Action)
+	require.NotNil(t, started.History[0].LastExportedOffset)
+	assert.Equal(t, "42", *started.History[0].LastExportedOffset)
+	require.NotNil(t, started.StreamingExport)
+	require.NotNil(t, started.StreamingExport.LastStartedAt)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/exports/"+created.ID.String()+"/stop", "", owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.StopDataExport(rec, req)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"stopped"`)
+	var stopped models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopped))
+	require.NotNil(t, stopped.StreamingExport)
+	require.NotNil(t, stopped.StreamingExport.LastExportedOffset)
+	assert.Equal(t, "45", *stopped.StreamingExport.LastExportedOffset)
+	assert.EqualValues(t, 3, stopped.History[0].RecordsExported)
+}
+
+func TestCreateDataExportValidatesConnectorAndDestination(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+
+	req := withRouteParam(authedReq(http.MethodPost, "/sources/"+source.String()+"/exports", `{"export_type":"file","input_dataset_rid":"ri.dataset.orders","destination_path":"s3://bucket/orders"}`, owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.CreateDataExport(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "connector does not support file_export")
+
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+source.String()+"/exports", `{"export_type":"table","input_dataset_rid":"ri.dataset.orders"}`, owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.CreateDataExport(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "destination_table required")
+
+	store.connections[0].ConnectorType = "kafka"
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+source.String()+"/exports", `{
+		"export_type":"streaming",
+		"input_stream_id":"stream://orders",
+		"destination_topic":"orders.out",
+		"streaming_export":{"replay_behavior":"skip_replayed_records","start_offset":"explicit"}
+	}`, owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.CreateDataExport(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "start_offset_value")
+}
+
+func TestTableDataExportValidatesSchemaModesAndTruncate(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+	validSettings := `"table_export":{
+		"input_parquet_backed":true,
+		"destination_table_exists":true,
+		"truncate_permission":true,
+		"row_count_estimate":5,
+		"dataset_schema":[
+			{"name":"ORDER_ID","foundry_type":"BIGINT","external_type":"BIGINT","nullable":false},
+			{"name":"AMOUNT","foundry_type":"DECIMAL","external_type":"NUMERIC","nullable":true}
+		],
+		"destination_schema":[
+			{"name":"ORDER_ID","foundry_type":"BIGINT","external_type":"BIGINT","nullable":false},
+			{"name":"AMOUNT","foundry_type":"DECIMAL","external_type":"NUMERIC","nullable":true}
+		]
+	}`
+
+	req := withRouteParam(authedReq(http.MethodPost, "/sources/"+source.String()+"/exports", `{
+		"export_type":"table",
+		"export_mode":"full_snapshot",
+		"input_dataset_rid":"ri.dataset.orders",
+		"destination_table":"public.orders_export",
+		`+strings.Replace(validSettings, `"truncate_permission":true,`, `"truncate_permission":false,`, 1)+`
+	}`, owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.CreateDataExport(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NotNil(t, created.TableExport)
+	assert.False(t, created.TableExport.TruncatePermission)
+	assert.Empty(t, created.TableExport.ValidationIssues)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/exports/"+created.ID.String()+"/run", "", owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.RunDataExport(rec, req)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	var ran models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ran))
+	assert.EqualValues(t, 5, ran.History[0].RowsWritten)
+	assert.False(t, ran.History[0].TruncatePerformed)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+source.String()+"/exports", `{
+		"export_type":"table",
+		"export_mode":"mirror",
+		"input_dataset_rid":"ri.dataset.orders",
+		"destination_table":"public.orders_export",
+		`+strings.Replace(validSettings, `"truncate_permission":true,`, `"truncate_permission":false,`, 1)+`
+	}`, owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.CreateDataExport(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "truncate_permission")
+
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+source.String()+"/exports", `{
+		"export_type":"table",
+		"input_dataset_rid":"ri.dataset.orders",
+		"destination_table":"public.orders_export",
+		"table_export":{
+			"input_parquet_backed":true,
+			"destination_table_exists":true,
+			"truncate_permission":true,
+			"dataset_schema":[{"name":"ORDER_ID","foundry_type":"ARRAY<STRING>","external_type":"ARRAY","nullable":false}],
+			"destination_schema":[{"name":"order_id","foundry_type":"BIGINT","external_type":"BIGINT","nullable":false}]
+		}
+	}`, owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.CreateDataExport(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "nested")
+	assert.Contains(t, rec.Body.String(), "exactly match")
+}
+
+func TestFileDataExportTracksModifiedFilesOverwriteAndFullReexport(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "s3"
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+	body := `{
+		"name":"Raw orders files",
+		"export_type":"file",
+		"input_dataset_rid":"ri.foundry.main.dataset.orders-raw",
+		"destination_path":"s3://exports-bucket/foundry/orders",
+		"file_export":{
+			"overwrite_behavior":"overwrite_existing",
+			"destination_subfolder":"orders",
+			"source_files":[
+				{"path":"part-000.parquet","size_bytes":128,"modified_at":"2026-05-13T00:00:00Z","transaction_id":"tx-1"},
+				{"path":"part-001.parquet","size_bytes":256,"modified_at":"2026-05-13T00:01:00Z","transaction_id":"tx-2"}
+			]
+		}
+	}`
+	req := withRouteParam(authedReq(http.MethodPost, "/sources/"+source.String()+"/exports", body, owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.CreateDataExport(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NotNil(t, created.FileExport)
+	assert.Equal(t, "modified_since_last_success", created.FileExport.IncrementalPolicy)
+	assert.Equal(t, "overwrite_existing", created.FileExport.OverwriteBehavior)
+	assert.NotEmpty(t, created.FileExport.DestinationSubfolderGuidance)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/exports/"+created.ID.String()+"/run", "", owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.RunDataExport(rec, req)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	var firstRun models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstRun))
+	require.NotEmpty(t, firstRun.History)
+	assert.EqualValues(t, 2, firstRun.History[0].FilesWritten)
+	assert.EqualValues(t, 384, firstRun.History[0].BytesWritten)
+	require.NotNil(t, firstRun.FileExport)
+	require.NotNil(t, firstRun.FileExport.LastSuccessfulTransactionID)
+	assert.Equal(t, "tx-2", *firstRun.FileExport.LastSuccessfulTransactionID)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/exports/"+created.ID.String()+"/run", "", owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.RunDataExport(rec, req)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	var secondRun models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &secondRun))
+	assert.EqualValues(t, 0, secondRun.History[0].FilesWritten)
+	assert.EqualValues(t, 2, secondRun.History[0].FilesSkipped)
+
+	req = withRouteParam(authedReq(http.MethodPatch, "/exports/"+created.ID.String(), `{"file_export":{"overwrite_behavior":"overwrite_existing","full_reexport_requested":true,"source_files":[{"path":"part-000.parquet","size_bytes":128,"modified_at":"2026-05-13T00:00:00Z","transaction_id":"tx-1"},{"path":"part-001.parquet","size_bytes":256,"modified_at":"2026-05-13T00:01:00Z","transaction_id":"tx-2"}]}}`, owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.UpdateDataExport(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = withRouteParam(authedReq(http.MethodPost, "/exports/"+created.ID.String()+"/run", "", owner), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.RunDataExport(rec, req)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	var fullRun models.DataExport
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fullRun))
+	assert.EqualValues(t, 2, fullRun.History[0].FilesWritten)
+	assert.True(t, fullRun.History[0].FullReexport)
+	require.NotNil(t, fullRun.FileExport)
+	assert.False(t, fullRun.FileExport.FullReexportRequested)
+}
+
+func TestCreateCdcSyncJobCapturesChangelogMetadata(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+	body := `{
+		"source_id":"` + source.String() + `",
+		"capability_type":"cdc_sync",
+		"output_kind":"stream",
+		"output_stream_id":"stream://orders-cdc",
+		"source_selector":"warehouse.public.orders",
+		"source_table":"orders",
+		"schema":[
+			{"name":"order_id","source_type":"uuid","foundry_type":"String","nullable":false},
+			{"name":"commit_lsn","source_type":"text","foundry_type":"String","nullable":false},
+			{"name":"is_deleted","source_type":"boolean","foundry_type":"Boolean","nullable":false}
+		],
+		"cdc_sync":{
+			"input_kind":"relational_connector",
+			"source_database":"warehouse",
+			"source_schema":"public",
+			"source_table":"orders",
+			"primary_key_columns":["order_id"],
+			"ordering_column":"commit_lsn",
+			"deletion_column":"is_deleted",
+			"output_stream_id":"stream://orders-cdc",
+			"output_stream_location":"stream://orders-cdc",
+			"schema":[
+				{"name":"order_id","source_type":"uuid","foundry_type":"String","nullable":false},
+				{"name":"commit_lsn","source_type":"text","foundry_type":"String","nullable":false},
+				{"name":"is_deleted","source_type":"boolean","foundry_type":"Boolean","nullable":false}
+			],
+			"start_position":"initial_snapshot",
+			"source_database_cdc_enabled":true,
+			"source_table_cdc_enabled":true,
+			"changelog_input_validated":false,
+			"connector_metadata":{"connector_type":"postgresql","snapshot_mode":"initial"}
+		}
+	}`
+	req := authedReq(http.MethodPost, "/syncs", body, owner)
+	rec := httptest.NewRecorder()
+	h.CreateSyncJob(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created models.SyncJob
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	assert.Equal(t, "cdc_sync", created.CapabilityType)
+	assert.Equal(t, "stream", created.OutputKind)
+	require.NotNil(t, created.CdcSync)
+	assert.Equal(t, []string{"order_id"}, created.CdcSync.PrimaryKeyColumns)
+	assert.Equal(t, "commit_lsn", created.CdcSync.OrderingColumn)
+	assert.Nil(t, created.OutputDatasetID)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/syncs/"+created.ID.String()+"/run", "", owner), "sync_id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.RunSyncJob(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "long-running runtime")
+}
+
+func TestCreateCdcSyncJobRequiresSourceChangelogReadiness(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+	body := `{
+		"source_id":"` + source.String() + `",
+		"capability_type":"cdc_sync",
+		"output_kind":"stream",
+		"output_stream_id":"stream://orders-cdc",
+		"cdc_sync":{
+			"input_kind":"relational_connector",
+			"source_table":"orders",
+			"primary_key_columns":["order_id"],
+			"ordering_column":"commit_lsn",
+			"output_stream_location":"stream://orders-cdc",
+			"schema":[
+				{"name":"order_id","source_type":"uuid","foundry_type":"String","nullable":false},
+				{"name":"commit_lsn","source_type":"text","foundry_type":"String","nullable":false}
+			],
+			"start_position":"initial_snapshot",
+			"source_database_cdc_enabled":false,
+			"source_table_cdc_enabled":false,
+			"changelog_input_validated":false,
+			"connector_metadata":{"connector_type":"postgresql"}
+		}
+	}`
+	req := authedReq(http.MethodPost, "/syncs", body, owner)
+	rec := httptest.NewRecorder()
+	h.CreateSyncJob(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "source database must expose changelog data")
+	assert.Contains(t, rec.Body.String(), "source table must expose changelog data")
+}
+
 func TestCreateListGetVirtualTable(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
@@ -1087,6 +3129,274 @@ func TestCreateListGetVirtualTable(t *testing.T) {
 	assert.Equal(t, 200, rec.Code)
 }
 
+func TestVirtualTableRegistrationStoresMetadataAndFilters(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	sourceRID := "ri.foundry.main.source." + uuid.NewString()
+	req := withRouteParam(authedReq("POST", "/sources/enable", `{"provider":"SNOWFLAKE"}`, owner), "source_rid", sourceRID)
+	rec := httptest.NewRecorder()
+	h.EnableVirtualTableSource(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := `{
+		"project_rid":"ri.project.finance",
+		"parent_folder_rid":"ri.compass.main.folder.curated",
+		"name":"Finance Orders",
+		"owner":"finance-platform",
+		"locator":{"kind":"tabular","database":"FINANCE","schema":"PUBLIC","table":"ORDERS"},
+		"table_type":"TABLE",
+		"schema_inferred":[{"name":"ORDER_ID","source_type":"NUMBER","inferred_type":"long","nullable":false}],
+		"capabilities":{"read":true,"write":true,"incremental":true,"versioning":false,"compute_pushdown":"snowpark","snapshot_supported":true,"append_only_supported":true,"foundry_compute":{"python_single_node":true,"python_spark":true,"pipeline_builder_single_node":false,"pipeline_builder_spark":true}},
+		"permissions":{"owners":["finance-platform"],"readers":["finance-analysts"],"writers":[],"admins":[]},
+		"markings":["finance"]
+	}`
+	req = withRouteParam(authedReq("POST", "/sources/virtual-tables", body, owner), "source_rid", sourceRID)
+	rec = httptest.NewRecorder()
+	h.CreateVirtualTable(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var created models.VirtualTable
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	assert.Equal(t, "Finance Orders", created.Name)
+	assert.JSONEq(t, `[{"name":"ORDER_ID","source_type":"NUMBER","inferred_type":"long","nullable":false}]`, string(created.SchemaInferred))
+	assert.JSONEq(t, `{"owners":["finance-platform"],"readers":["finance-analysts"],"writers":[],"admins":[]}`, string(readRawProperty(t, created.Properties, "permissions")))
+	assert.JSONEq(t, `{"kind":"tabular","database":"FINANCE","schema":"PUBLIC","table":"ORDERS"}`, string(readRawProperty(t, created.Properties, "external_reference")))
+	assert.Equal(t, "finance-platform", readStringProperty(t, created.Properties, "owner"))
+
+	req = authedReq("GET", "/virtual-tables?name=finance&type=TABLE", "", owner)
+	rec = httptest.NewRecorder()
+	h.ListVirtualTables(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var list models.ListVirtualTablesResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	require.Len(t, list.Items, 1)
+}
+
+func TestVirtualTableDiscoverBulkAndAutoRegistration(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	sourceRID := "ri.foundry.main.source." + uuid.NewString()
+	req := withRouteParam(authedReq("POST", "/sources/enable", `{"provider":"BIGQUERY"}`, owner), "source_rid", sourceRID)
+	rec := httptest.NewRecorder()
+	h.EnableVirtualTableSource(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	req = withRouteParam(authedReq("GET", "/sources/"+sourceRID+"/virtual-tables/discover?path=analytics/public", "", owner), "source_rid", sourceRID)
+	rec = httptest.NewRecorder()
+	h.DiscoverVirtualTableCatalog(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "orders")
+
+	bulk := `{"project_rid":"ri.project.bulk","entries":[
+		{"locator":{"kind":"tabular","database":"analytics","schema":"public","table":"orders"},"table_type":"TABLE"},
+		{"locator":{"kind":"tabular","database":"analytics","schema":"public","table":"customers"},"table_type":"TABLE"}
+	]}`
+	req = withRouteParam(authedReq("POST", "/sources/"+sourceRID+"/virtual-tables/bulk-register", bulk, owner), "source_rid", sourceRID)
+	rec = httptest.NewRecorder()
+	h.BulkRegisterVirtualTables(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var bulkResponse models.VirtualTableBulkRegisterResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &bulkResponse))
+	require.Len(t, bulkResponse.Registered, 2)
+	require.Empty(t, bulkResponse.Errors)
+
+	auto := `{"project_name":"Warehouse mirror","folder_mirror_kind":"FLAT","table_tag_filters":[],"poll_interval_seconds":3600}`
+	req = withRouteParam(authedReq("POST", "/sources/"+sourceRID+"/auto-registration", auto, owner), "source_rid", sourceRID)
+	rec = httptest.NewRecorder()
+	h.EnableVirtualTableAutoRegistration(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var link models.VirtualTableSourceLink
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &link))
+	assert.True(t, link.AutoRegisterEnabled)
+	assert.Equal(t, "FLAT", link.AutoRegisterFolderMirrorKind)
+
+	req = withRouteParam(authedReq("POST", "/sources/"+sourceRID+"/auto-registration:scan-now", `{}`, owner), "source_rid", sourceRID)
+	rec = httptest.NewRecorder()
+	h.ScanVirtualTableAutoRegistrationNow(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"added":0`)
+
+	req = withRouteParam(authedReq("DELETE", "/sources/"+sourceRID+"/auto-registration", "", owner), "source_rid", sourceRID)
+	rec = httptest.NewRecorder()
+	h.DisableVirtualTableAutoRegistration(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestVirtualTableQueryUsesAdapterAndReportsPushdown(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "bigquery"
+	sourceRID := store.connections[0].ID.String()
+	row := json.RawMessage(`{"ORDER_ID":1,"AMOUNT":42.5}`)
+	registry := adapters.NewRegistry()
+	registry.MustRegister("bigquery", adapters.SingletonFactory(testConnectionAdapter{
+		queryResult: &adapters.Result{
+			Mode:     "zero_copy",
+			Columns:  []string{"ORDER_ID", "AMOUNT"},
+			RowCount: 1,
+			Rows:     []json.RawMessage{row},
+			Metadata: json.RawMessage(`{"adapter":"test_bigquery"}`),
+		},
+	}))
+	h := &handlers.Handlers{Repo: store, AdapterRegistry: registry}
+
+	req := withRouteParam(authedReq("POST", "/sources/enable", `{"provider":"BIGQUERY"}`, owner), "source_rid", sourceRID)
+	rec := httptest.NewRecorder()
+	h.EnableVirtualTableSource(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := `{
+		"project_rid":"ri.project.query",
+		"locator":{"kind":"tabular","database":"analytics","schema":"public","table":"orders"},
+		"table_type":"TABLE",
+		"schema_inferred":[{"name":"ORDER_ID","source_type":"INTEGER","inferred_type":"integer","nullable":false},{"name":"AMOUNT","source_type":"NUMERIC","inferred_type":"decimal","nullable":true}],
+		"capabilities":{"read":true,"write":true,"incremental":true,"versioning":false,"compute_pushdown":"ibis","snapshot_supported":true,"append_only_supported":true,"foundry_compute":{"python_single_node":true,"python_spark":true,"pipeline_builder_single_node":false,"pipeline_builder_spark":true}}
+	}`
+	req = withRouteParam(authedReq("POST", "/sources/virtual-tables", body, owner), "source_rid", sourceRID)
+	rec = httptest.NewRecorder()
+	h.CreateVirtualTable(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var created models.VirtualTable
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	query := `{"columns":["ORDER_ID","AMOUNT"],"filters":["AMOUNT > 10"],"limit":25}`
+	req = withRouteParam(authedReq("POST", "/virtual-tables/"+created.RID+"/query", query, owner), "rid", created.RID)
+	rec = httptest.NewRecorder()
+	h.QueryVirtualTable(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var response models.VirtualTableQueryResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Equal(t, "analytics.public.orders", response.Selector)
+	assert.Equal(t, "source_system", response.ComputeLocation)
+	require.NotNil(t, response.Pushdown)
+	assert.False(t, response.Pushdown.UsesCopiedDataset)
+	assert.True(t, response.Pushdown.DirectQuery)
+	assert.Contains(t, response.Pushdown.PushedOperations, "filter")
+	assert.Empty(t, response.Pushdown.FoundryOperations)
+	require.Len(t, response.Rows, 1)
+	assert.JSONEq(t, `{"ORDER_ID":1,"AMOUNT":42.5}`, string(response.Rows[0]))
+	assert.Contains(t, string(response.Metadata), `"uses_copied_dataset":false`)
+	assert.Contains(t, string(response.Metadata), `"adapter":"test_bigquery"`)
+	assert.NotEmpty(t, response.Limitations)
+}
+
+func TestVirtualTableQueryFallbackExposesUnsupportedLimitations(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	sourceRID := store.connections[0].ID.String()
+	h := &handlers.Handlers{Repo: store, AdapterRegistry: adapters.NewRegistry()}
+
+	req := withRouteParam(authedReq("POST", "/sources/enable", `{"provider":"AMAZON_S3"}`, owner), "source_rid", sourceRID)
+	rec := httptest.NewRecorder()
+	h.EnableVirtualTableSource(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := `{
+		"project_rid":"ri.project.query",
+		"locator":{"kind":"file","bucket":"warehouse","prefix":"orders","format":"parquet"},
+		"table_type":"PARQUET_FILES",
+		"schema_inferred":[{"name":"path","source_type":"STRING","inferred_type":"string","nullable":false}],
+		"capabilities":{"read":true,"write":true,"incremental":false,"versioning":false,"compute_pushdown":null,"snapshot_supported":false,"append_only_supported":false,"foundry_compute":{"python_single_node":false,"python_spark":false,"pipeline_builder_single_node":false,"pipeline_builder_spark":false}}
+	}`
+	req = withRouteParam(authedReq("POST", "/sources/virtual-tables", body, owner), "source_rid", sourceRID)
+	rec = httptest.NewRecorder()
+	h.CreateVirtualTable(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var created models.VirtualTable
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	req = withRouteParam(authedReq("POST", "/virtual-tables/"+created.RID+"/query", `{"requires_foundry_compute":true,"limit":2}`, owner), "rid", created.RID)
+	rec = httptest.NewRecorder()
+	h.QueryVirtualTable(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var response models.VirtualTableQueryResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Equal(t, "openfoundry", response.ComputeLocation)
+	require.NotNil(t, response.Pushdown)
+	assert.False(t, response.Pushdown.UsesCopiedDataset)
+	require.Len(t, response.Rows, 2)
+	bodyText := rec.Body.String()
+	assert.Contains(t, bodyText, "openfoundry_compute_usage")
+	assert.Contains(t, bodyText, "virtual_table_adapter_unavailable")
+	assert.Contains(t, bodyText, `"direct_query":true`)
+}
+
+func TestVirtualTableUpdateDetectionSkipsUnchangedDownstreamBuildsAndShowsLineage(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	sourceRID := "ri.foundry.main.source." + uuid.NewString()
+	req := withRouteParam(authedReq("POST", "/sources/enable", `{"provider":"DATABRICKS"}`, owner), "source_rid", sourceRID)
+	rec := httptest.NewRecorder()
+	h.EnableVirtualTableSource(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := `{
+		"project_rid":"ri.project.lineage",
+		"name":"Orders VT",
+		"locator":{"kind":"tabular","database":"main","schema":"sales","table":"orders"},
+		"table_type":"MANAGED_DELTA",
+		"schema_inferred":[{"name":"ORDER_ID","source_type":"BIGINT","inferred_type":"long","nullable":false}],
+		"capabilities":{"read":true,"write":false,"incremental":true,"versioning":true,"compute_pushdown":"pyspark","snapshot_supported":true,"append_only_supported":true,"foundry_compute":{"python_single_node":true,"python_spark":true,"pipeline_builder_single_node":false,"pipeline_builder_spark":true}},
+		"properties":{"source_version":"delta-version-7"}
+	}`
+	req = withRouteParam(authedReq("POST", "/sources/virtual-tables", body, owner), "source_rid", sourceRID)
+	rec = httptest.NewRecorder()
+	h.CreateVirtualTable(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var created models.VirtualTable
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	req = withRouteParam(authedReq("PATCH", "/virtual-tables/"+created.RID+"/update-detection", `{"enabled":true,"interval_seconds":3600}`, owner), "rid", created.RID)
+	rec = httptest.NewRecorder()
+	h.SetVirtualTableUpdateDetection(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var updated models.VirtualTable
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	assert.True(t, updated.UpdateDetectionEnabled)
+
+	req = withRouteParam(authedReq("POST", "/virtual-tables/"+created.RID+"/update-detection:poll-now", `{}`, owner), "rid", created.RID)
+	rec = httptest.NewRecorder()
+	h.PollVirtualTableUpdateDetectionNow(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var first models.PollResult
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+	assert.Equal(t, models.PollOutcomeInitial, first.Outcome)
+	assert.True(t, first.EventEmitted)
+	require.NotEmpty(t, first.DownstreamBuilds)
+	assert.Equal(t, "triggered", first.DownstreamBuilds[0].Action)
+
+	req = withRouteParam(authedReq("POST", "/virtual-tables/"+created.RID+"/update-detection:poll-now", `{}`, owner), "rid", created.RID)
+	rec = httptest.NewRecorder()
+	h.PollVirtualTableUpdateDetectionNow(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var second models.PollResult
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &second))
+	assert.Equal(t, models.PollOutcomeUnchanged, second.Outcome)
+	assert.False(t, second.EventEmitted)
+	require.NotEmpty(t, second.DownstreamBuilds)
+	assert.Equal(t, "skipped", second.DownstreamBuilds[0].Action)
+	assert.Contains(t, second.DownstreamBuilds[0].Reason, "unchanged")
+
+	req = withRouteParam(authedReq("GET", "/virtual-tables/"+created.RID+"/update-detection/history", "", owner), "rid", created.RID)
+	rec = httptest.NewRecorder()
+	h.ListVirtualTableUpdateDetectionHistory(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "delta-version-7")
+
+	req = withRouteParam(authedReq("GET", "/virtual-tables/"+created.RID+"/lineage", "", owner), "rid", created.RID)
+	rec = httptest.NewRecorder()
+	h.GetVirtualTableLineage(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var lineage models.VirtualTableLineageResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lineage))
+	assert.True(t, lineage.UpdateDetectionEnabled)
+	require.NotEmpty(t, lineage.DownstreamBuilds)
+	assert.Equal(t, "skipped", lineage.DownstreamBuilds[0].Action)
+	assert.Contains(t, rec.Body.String(), "pipeline")
+	assert.Contains(t, rec.Body.String(), "dataset")
+	assert.Contains(t, rec.Body.String(), "object_type")
+}
+
 func TestSyncAndVirtualValidationErrors(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
@@ -1108,7 +3418,7 @@ func TestSyncAndVirtualAuthTenantIsolation(t *testing.T) {
 	h := &handlers.Handlers{Repo: store}
 	source := store.connections[0].ID
 	out := uuid.New()
-	created, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: source, OutputDatasetID: out}, owner)
+	created, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: source, OutputDatasetID: &out}, owner)
 	require.NoError(t, err)
 	req := withRouteParam(authedReq("GET", "/syncs/"+created.ID.String(), "", intruder), "sync_id", created.ID.String())
 	rec := httptest.NewRecorder()
@@ -1123,6 +3433,7 @@ func TestSyncAndVirtualAuthTenantIsolation(t *testing.T) {
 func TestCreateListGetUpdateMediaSetSync(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "s3" // SDC.41: media sync requires a supported connector
 	h := &handlers.Handlers{Repo: store}
 	source := store.connections[0].ID
 	body := `{"kind":"MEDIA_SET_SYNC","target_media_set_rid":"ri.foundry.main.media_set.` + uuid.NewString() + `","subfolder":"images","filters":{"path_glob":"*.png","file_size_limit":1024},"schedule_cron":"0 * * * *"}`
@@ -1139,7 +3450,7 @@ func TestCreateListGetUpdateMediaSetSync(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.ListMediaSetSyncs(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
-	var list []models.MediaSetSync
+	var list []models.MediaSetSyncWithUsage
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
 	require.Len(t, list, 1)
 
@@ -1184,6 +3495,7 @@ func TestMediaSetSyncAuthTenantIsolation(t *testing.T) {
 	owner := uuid.New()
 	intruder := uuid.New()
 	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "s3"
 	h := &handlers.Handlers{Repo: store}
 	source := store.connections[0].ID
 	created, err := store.CreateMediaSetSync(context.Background(), source, &models.CreateMediaSetSyncRequest{Kind: models.MediaSetSyncKindCopy, TargetMediaSetRID: "ri.foundry.main.media_set." + uuid.NewString()}, owner)
@@ -1204,6 +3516,96 @@ func TestMediaSetSyncAuthTenantIsolation(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.CreateMediaSetSync(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestCreateMediaSetSyncRejectsUnsupportedConnector(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	// default connector is postgresql which is not media-sync supported
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+	body := `{"kind":"MEDIA_SET_SYNC","target_media_set_rid":"ri.foundry.main.media_set.` + uuid.NewString() + `","subfolder":"images"}`
+	req := withRouteParam(authedReq("POST", "/sources/"+source.String()+"/media-set-syncs", body, owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.CreateMediaSetSync(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "connector does not support media set sync")
+	assert.Contains(t, rec.Body.String(), "postgresql")
+}
+
+func TestRunMediaSetSyncPersistsHistoryAndListsRuns(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "s3"
+	source := store.connections[0].ID
+	created, err := store.CreateMediaSetSync(context.Background(), source, &models.CreateMediaSetSyncRequest{
+		Kind: models.MediaSetSyncKindCopy, TargetMediaSetRID: "ri.foundry.main.media_set." + uuid.NewString(),
+	}, owner)
+	require.NoError(t, err)
+	runtime := &fakeRuntime{report: &models.MediaSetSyncExecutionReport{
+		Stats:      models.SyncStats{Accepted: 2, Skipped: 1, SchemaMismatched: 0},
+		Dispatched: 2,
+	}}
+	h := &handlers.Handlers{Repo: store, MediaSetRuntime: runtime}
+
+	runBody := `{"source_files":[{"path":"a.png","size_bytes":100,"mime_type":"image/png"},{"path":"b.png","size_bytes":200,"mime_type":"image/png"}]}`
+	req := withRouteParam(authedReq("POST", "/media-set-syncs/"+created.ID.String()+"/run", runBody, owner), "sync_id", created.ID.String())
+	rec := httptest.NewRecorder()
+	h.RunMediaSetSync(rec, req)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	// History endpoint surfaces the persisted run.
+	req = withRouteParam(authedReq("GET", "/media-set-syncs/"+created.ID.String()+"/runs", "", owner), "sync_id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.ListMediaSetSyncRuns(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var history models.ListResponse[models.MediaSetSyncRun]
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &history))
+	require.Len(t, history.Items, 1)
+	assert.Equal(t, models.MediaSetSyncRunStatusSucceeded, history.Items[0].Status)
+	assert.ElementsMatch(t, []string{"a.png", "b.png"}, history.Items[0].SelectedPaths)
+	assert.Equal(t, uint32(2), history.Items[0].AcceptedFiles)
+
+	// Listing media set syncs now exposes the usage rollup.
+	req = withRouteParam(authedReq("GET", "/sources/"+source.String()+"/media-set-syncs", "", owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.ListMediaSetSyncs(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var list []models.MediaSetSyncWithUsage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	require.Len(t, list, 1)
+	require.NotNil(t, list[0].Usage)
+	assert.Equal(t, uint32(1), list[0].Usage.RunCount)
+}
+
+func TestRunMediaSetSyncRecordsFailedRunOnRuntimeError(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "s3"
+	source := store.connections[0].ID
+	created, err := store.CreateMediaSetSync(context.Background(), source, &models.CreateMediaSetSyncRequest{
+		Kind: models.MediaSetSyncKindCopy, TargetMediaSetRID: "ri.foundry.main.media_set." + uuid.NewString(),
+	}, owner)
+	require.NoError(t, err)
+	rt := &fakeRuntime{err: &handlers.RuntimeError{Kind: handlers.RuntimeDispatch, Msg: "media-sets-service unavailable"}}
+	h := &handlers.Handlers{Repo: store, MediaSetRuntime: rt}
+
+	req := withRouteParam(authedReq("POST", "/media-set-syncs/"+created.ID.String()+"/run", `{"source_files":[{"path":"a.png","size_bytes":10,"mime_type":"image/png"}]}`, owner), "sync_id", created.ID.String())
+	rec := httptest.NewRecorder()
+	h.RunMediaSetSync(rec, req)
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+
+	// The failed run is still persisted with the runtime error.
+	req = withRouteParam(authedReq("GET", "/media-set-syncs/"+created.ID.String()+"/runs", "", owner), "sync_id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.ListMediaSetSyncRuns(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var history models.ListResponse[models.MediaSetSyncRun]
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &history))
+	require.Len(t, history.Items, 1)
+	assert.Equal(t, models.MediaSetSyncRunStatusFailed, history.Items[0].Status)
+	require.NotNil(t, history.Items[0].ErrorMessage)
+	assert.Contains(t, *history.Items[0].ErrorMessage, "media-sets-service unavailable")
 }
 
 func TestRunMediaSetSyncRuntimeErrorMapping(t *testing.T) {
@@ -1725,7 +4127,8 @@ func (f *fakeDatasetVersioningPort) Register(_ context.Context, req cmruntime.Da
 func TestRunSyncJobDispatchesIngestionAndRegistersDatasetVersion(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
-	job, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: store.connections[0].ID, OutputDatasetID: uuid.New()}, owner)
+	output := uuid.New()
+	job, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: store.connections[0].ID, OutputDatasetID: &output}, owner)
 	require.NoError(t, err)
 	ingestion := &fakeIngestionPort{result: cmruntime.IngestionResult{RowsWritten: 7, Payload: []byte(`{"rows":7}`)}}
 	versionID := uuid.New()
@@ -1747,7 +4150,8 @@ func TestRunSyncJobDispatchesIngestionAndRegistersDatasetVersion(t *testing.T) {
 	require.Len(t, ingestion.requests, 1)
 	assert.Equal(t, job.ID, ingestion.requests[0].SyncDefID)
 	require.Len(t, versions.requests, 1)
-	assert.Equal(t, job.OutputDatasetID, versions.requests[0].OutputDatasetID)
+	require.NotNil(t, job.OutputDatasetID)
+	assert.Equal(t, *job.OutputDatasetID, versions.requests[0].OutputDatasetID)
 	assert.Equal(t, *run.ContentHash, versions.requests[0].ContentHash)
 
 	req = withRouteParam(authedReq(http.MethodGet, "/syncs/"+job.ID.String()+"/runs", "", owner), "sync_id", job.ID.String())
@@ -1763,7 +4167,8 @@ func TestRunSyncJobDispatchesIngestionAndRegistersDatasetVersion(t *testing.T) {
 func TestRunSyncJobReusesDatasetVersionForSameContentHash(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
-	job, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: store.connections[0].ID, OutputDatasetID: uuid.New()}, owner)
+	output := uuid.New()
+	job, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: store.connections[0].ID, OutputDatasetID: &output}, owner)
 	require.NoError(t, err)
 	payload := []byte(`stable-payload`)
 	ingestion := &fakeIngestionPort{result: cmruntime.IngestionResult{Payload: payload, BytesWritten: int64(len(payload)), FilesWritten: 1}}
@@ -1782,4 +4187,307 @@ func TestRunSyncJobReusesDatasetVersionForSameContentHash(t *testing.T) {
 	require.NotNil(t, runs[0].DatasetVersionID)
 	require.NotNil(t, runs[1].DatasetVersionID)
 	assert.Equal(t, *runs[0].DatasetVersionID, *runs[1].DatasetVersionID)
+}
+
+func TestGetVirtualMediaHandoffReportsBlockedDescriptor(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "s3"
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+
+	req := withRouteParam(authedReq("GET", "/sources/"+source.String()+"/virtual-media-handoff", "", owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.GetVirtualMediaHandoff(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var descriptor models.VirtualMediaHandoffDescriptor
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descriptor))
+	assert.Equal(t, "blocked", descriptor.Status)
+	assert.NotEmpty(t, descriptor.BlockedReason)
+	require.Len(t, descriptor.Handoffs, 3)
+	for _, handoff := range descriptor.Handoffs {
+		assert.Equal(t, "blocked", handoff.Status)
+		assert.Contains(t, handoff.Blockers, "media_sets_virtual_item_semantics")
+	}
+	assert.NotEmpty(t, descriptor.Delegation.Schema)
+}
+
+func TestDeadLetterSinkAndQuarantineRoundtrip(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "postgresql"
+	source := store.connections[0].ID
+	output := uuid.New()
+	syncJob, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: source, OutputDatasetID: &output}, owner)
+	require.NoError(t, err)
+	h := &handlers.Handlers{Repo: store}
+
+	// 1. Update the dead-letter sink with a redaction rule.
+	putBody := `{"kind":"dataset","target_rid":"ri.datasets.main.dlq-` + syncJob.ID.String() + `","retention_days":7,"redaction_rules":[{"field":"email","replacement":"[REDACTED]"}]}`
+	req := withRouteParam(authedReq("PUT", "/syncs/"+syncJob.ID.String()+"/dead-letter", putBody, owner), "sync_id", syncJob.ID.String())
+	rec := httptest.NewRecorder()
+	h.UpdateDeadLetterSink(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	// 2. GET returns the persisted sink.
+	getReq := withRouteParam(authedReq("GET", "/syncs/"+syncJob.ID.String()+"/dead-letter", "", owner), "sync_id", syncJob.ID.String())
+	getRec := httptest.NewRecorder()
+	h.GetDeadLetterSink(getRec, getReq)
+	require.Equal(t, http.StatusOK, getRec.Code)
+	var sink models.DeadLetterSink
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &sink))
+	assert.Equal(t, models.DeadLetterSinkKindDataset, sink.Kind)
+	assert.Equal(t, 7, sink.RetentionDays)
+	require.Len(t, sink.RedactionRules, 1)
+
+	// 3. Record a quarantine entry and verify redaction is applied.
+	recordBody := `{"failure_category":"schema_validation","error_message":"missing field email","payload":{"id":"abc","email":"user@example.com"}}`
+	recReq := withRouteParam(authedReq("POST", "/syncs/"+syncJob.ID.String()+"/quarantine", recordBody, owner), "sync_id", syncJob.ID.String())
+	recRec := httptest.NewRecorder()
+	h.RecordQuarantinedRecord(recRec, recReq)
+	require.Equal(t, http.StatusCreated, recRec.Code, recRec.Body.String())
+	var record models.QuarantinedRecord
+	require.NoError(t, json.Unmarshal(recRec.Body.Bytes(), &record))
+	assert.Equal(t, "[REDACTED]", record.RedactedPayload["email"], "email should be redacted: %+v", record.RedactedPayload)
+	assert.Equal(t, models.QuarantineFailureSchemaValidation, record.FailureCategory)
+
+	// 4. List quarantine returns summary with by-category counts.
+	listReq := withRouteParam(authedReq("GET", "/syncs/"+syncJob.ID.String()+"/quarantine", "", owner), "sync_id", syncJob.ID.String())
+	listRec := httptest.NewRecorder()
+	h.ListQuarantinedRecords(listRec, listReq)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	var summary models.QuarantineSummary
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &summary))
+	assert.Equal(t, 1, summary.Total)
+	assert.Equal(t, 1, summary.ByCategory[models.QuarantineFailureSchemaValidation])
+
+	// 5. Replay marks the record as pending replay.
+	replayBody := `{"record_ids":["` + record.ID.String() + `"],"reason":"schema fix shipped"}`
+	replayReq := withRouteParam(authedReq("POST", "/syncs/"+syncJob.ID.String()+"/quarantine:replay", replayBody, owner), "sync_id", syncJob.ID.String())
+	replayRec := httptest.NewRecorder()
+	h.ReplayQuarantinedRecords(replayRec, replayReq)
+	require.Equal(t, http.StatusAccepted, replayRec.Code, replayRec.Body.String())
+	var plan models.QuarantineReplayPlan
+	require.NoError(t, json.Unmarshal(replayRec.Body.Bytes(), &plan))
+	assert.Equal(t, 1, plan.RecordsMatched)
+	assert.Empty(t, plan.BlockingReasons)
+}
+
+func TestRecordQuarantineRequiresErrorMessage(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	source := store.connections[0].ID
+	output := uuid.New()
+	syncJob, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: source, OutputDatasetID: &output}, owner)
+	require.NoError(t, err)
+	h := &handlers.Handlers{Repo: store}
+
+	req := withRouteParam(authedReq("POST", "/syncs/"+syncJob.ID.String()+"/quarantine", `{"payload":{}}`, owner), "sync_id", syncJob.ID.String())
+	rec := httptest.NewRecorder()
+	h.RecordQuarantinedRecord(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestUpdateDeadLetterSinkRejectsInvalidPayload(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	source := store.connections[0].ID
+	output := uuid.New()
+	syncJob, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: source, OutputDatasetID: &output}, owner)
+	require.NoError(t, err)
+	h := &handlers.Handlers{Repo: store}
+
+	body := `{"kind":"queue","target_rid":"not-a-rid","retention_days":999}`
+	req := withRouteParam(authedReq("PUT", "/syncs/"+syncJob.ID.String()+"/dead-letter", body, owner), "sync_id", syncJob.ID.String())
+	rec := httptest.NewRecorder()
+	h.UpdateDeadLetterSink(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "kind must be dataset or stream")
+}
+
+func TestComputeStreamReplayPlanRequiresAckForActiveExport(t *testing.T) {
+	owner := uuid.New()
+	h := &handlers.Handlers{}
+	body := `{
+		"stream_id": "stream-1",
+		"reason": "Drain after schema fix",
+		"from_offset": 100,
+		"to_offset": 200,
+		"earliest_offset": 0,
+		"latest_offset": 500,
+		"exports": [{"export_id": "exp-1", "status": "running"}],
+		"consumers": [{"consumer_id": "c1", "idempotency_mode": "duplicate_tolerant"}]
+	}`
+	req := authedReq("POST", "/streams/replay-plan:compute", body, owner)
+	rec := httptest.NewRecorder()
+	h.ComputeStreamReplayPlan(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var plan models.StreamReplayPlan
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &plan))
+	assert.Equal(t, "blocked", plan.Status)
+	assert.True(t, plan.ConfirmationRequired)
+	assert.Contains(t, plan.AcknowledgementsMissing, "ack_streaming_export_exp-1")
+	require.NotNil(t, plan.EstimatedRecords)
+	assert.Equal(t, int64(101), *plan.EstimatedRecords)
+}
+
+func TestComputeStreamReplayPlanRejectsMissingStreamID(t *testing.T) {
+	owner := uuid.New()
+	h := &handlers.Handlers{}
+	req := authedReq("POST", "/streams/replay-plan:compute", `{"reason":"x"}`, owner)
+	rec := httptest.NewRecorder()
+	h.ComputeStreamReplayPlan(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "stream_id")
+}
+
+func TestComputeStreamMetricsSnapshotReturnsRatesAndBreakdowns(t *testing.T) {
+	owner := uuid.New()
+	h := &handlers.Handlers{}
+	body := `{
+		"stream_id": "stream-1",
+		"stream_name": "events",
+		"window": "1m",
+		"ingested_records": 600,
+		"ingested_bytes": 6000,
+		"consumed_records": 300,
+		"consumed_bytes": 3000,
+		"stream_lag_records": 200,
+		"hot_buffer_records": 1000,
+		"consumers": [
+			{"id": "c1", "name": "consumer-1", "lag": 50, "records_read": 60},
+			{"id": "c2", "name": "consumer-2", "lag": 200, "records_read": 240}
+		],
+		"streaming_exports": [
+			{"export_id": "e1", "duplicate_risk": true, "records_exported": 300, "bytes_exported": 3000}
+		]
+	}`
+	req := authedReq("POST", "/streams/metrics:compute", body, owner)
+	rec := httptest.NewRecorder()
+	h.ComputeStreamMetricsSnapshot(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var snapshot models.StreamMetricsSnapshot
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &snapshot))
+	assert.Equal(t, "stream-1", snapshot.StreamID)
+	assert.Equal(t, float64(10), snapshot.Ingestion.RecordsPerSecond)
+	assert.Equal(t, float64(5), snapshot.Consumption.RecordsPerSecond)
+	require.Len(t, snapshot.Consumers, 2)
+	assert.Equal(t, "c2", snapshot.Consumers[0].ConsumerID, "consumers sort by lag desc")
+	require.Len(t, snapshot.StreamingExports, 1)
+	assert.True(t, snapshot.StreamingExports[0].DuplicateRisk)
+	assert.NotEmpty(t, snapshot.Warnings, "duplicate risk export should emit a warning")
+}
+
+func TestComputeStreamMetricsSnapshotRejectsMissingStreamID(t *testing.T) {
+	owner := uuid.New()
+	h := &handlers.Handlers{}
+	req := authedReq("POST", "/streams/metrics:compute", `{"window":"1m"}`, owner)
+	rec := httptest.NewRecorder()
+	h.ComputeStreamMetricsSnapshot(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "stream_id")
+}
+
+func TestListConnectorCapabilityPacksReturnsAllFamilies(t *testing.T) {
+	h := &handlers.Handlers{}
+	req := httptest.NewRequest("GET", "/data-connection/capability-packs", nil)
+	rec := httptest.NewRecorder()
+	h.ListConnectorCapabilityPacks(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp models.ListResponse[models.ConnectorCapabilityPack]
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	connectorTypes := map[string]bool{}
+	for _, pack := range resp.Items {
+		connectorTypes[pack.ConnectorType] = true
+	}
+	for _, required := range []string{"postgresql", "kafka", "s3", "snowflake", "rest_api", "foundry_to_foundry"} {
+		assert.True(t, connectorTypes[required], "missing %s pack", required)
+	}
+}
+
+func TestGetConnectorCapabilityPack(t *testing.T) {
+	h := &handlers.Handlers{}
+	req := withRouteParam(httptest.NewRequest("GET", "/data-connection/capability-packs/postgresql", nil), "connector_type", "postgresql")
+	rec := httptest.NewRecorder()
+	h.GetConnectorCapabilityPack(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var pack models.ConnectorCapabilityPack
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pack))
+	assert.Equal(t, "postgresql", pack.ConnectorType)
+	assert.True(t, pack.Capabilities.CdcSync)
+	assert.Equal(t, "relational_connector", pack.CdcInputKind)
+}
+
+func TestGetConnectorCapabilityPackUnknownConnector(t *testing.T) {
+	h := &handlers.Handlers{}
+	req := withRouteParam(httptest.NewRequest("GET", "/data-connection/capability-packs/does-not-exist", nil), "connector_type", "does-not-exist")
+	rec := httptest.NewRecorder()
+	h.GetConnectorCapabilityPack(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestGetListenerInboundDescriptorReportsBlockedAggregate(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+
+	req := withRouteParam(authedReq("GET", "/sources/"+source.String()+"/listener-descriptor", "", owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.GetListenerInboundDescriptor(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var descriptor models.ListenerInboundDescriptor
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descriptor))
+	assert.Equal(t, "blocked", descriptor.Status)
+	require.Len(t, descriptor.Capabilities, 4)
+	assert.NotEmpty(t, descriptor.BlockedReason)
+	assert.NotEmpty(t, descriptor.AvailableSurfaces)
+	assert.Equal(t, "listener", descriptor.Recommendation.Kind)
+	facets := map[models.ListenerInboundFacet]bool{}
+	for _, c := range descriptor.Capabilities {
+		facets[c.Facet] = true
+	}
+	for _, expected := range []models.ListenerInboundFacet{
+		models.ListenerInboundFacetSchemaMapping,
+		models.ListenerInboundFacetAuthStrategy,
+		models.ListenerInboundFacetReplayIdempotency,
+		models.ListenerInboundFacetDeadLetter,
+	} {
+		assert.Truef(t, facets[expected], "missing facet %s", expected)
+	}
+}
+
+func TestGetListenerInboundDescriptorRequiresAuth(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+
+	req := withRouteParam(httptest.NewRequest("GET", "/sources/"+source.String()+"/listener-descriptor", nil), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.GetListenerInboundDescriptor(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestGetVirtualMediaHandoffReportsNotSupportedForOtherConnectors(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner) // default connector is postgresql
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+
+	req := withRouteParam(authedReq("GET", "/sources/"+source.String()+"/virtual-media-handoff", "", owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.GetVirtualMediaHandoff(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descriptor models.VirtualMediaHandoffDescriptor
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descriptor))
+	assert.Equal(t, "not_supported", descriptor.Status)
+	assert.Empty(t, descriptor.Handoffs)
 }

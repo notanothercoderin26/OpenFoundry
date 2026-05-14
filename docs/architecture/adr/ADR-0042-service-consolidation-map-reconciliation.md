@@ -112,7 +112,7 @@ batch-apply loop, it is **not** a `sink` (the existing label for
 without re-coupling the coordinator and the writer. It stays as its
 own ownership boundary, mirroring how `ingestion-replication-service`
 is kept distinct from its downstream `audit-sink` /
-`event-streaming-service` consumers.
+`event-ingestion-replication-service` consumers.
 
 ## Consequences
 
@@ -124,7 +124,7 @@ is kept distinct from its downstream `audit-sink` /
     (36 keep + 56 merge + 3 delete + 3 sink + 1 image = 99).
 * The aggregate metric is now
   **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image
-  across 5 Helm releases**.
+  across 6 Helm releases**.
 * ADR-0030's body (which references "95 dirs / 33 boundaries") is
   preserved as the historical record of the original consolidation
   decision. This ADR is the authoritative amendment to those numbers

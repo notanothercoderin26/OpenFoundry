@@ -13,8 +13,9 @@ import {
 } from '@/lib/api/ontology';
 import { CytoscapeCanvas } from '@/lib/components/CytoscapeCanvas';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
+import { calculateLogicMetrics, type LogicRunHistoryRecord } from '@/lib/logic/blocks';
 
-type LineageNodeKind = 'object_type' | 'action' | 'workshop';
+type LineageNodeKind = 'object_type' | 'action' | 'workshop' | 'logic';
 
 interface LineageNode {
   id: string;
@@ -32,7 +33,39 @@ const NODE_KIND_META: Record<LineageNodeKind, { label: string; color: string; ic
   object_type: { label: 'Object type', color: '#c9d8f1', icon: 'cube' },
   action: { label: 'Action', color: '#e5d6b6', icon: 'pencil' },
   workshop: { label: 'Workshop application', color: '#dccff0', icon: 'app' },
+  logic: { label: 'Logic execution', color: '#cde8dc', icon: 'graph' },
 };
+
+const LOGIC_LINEAGE_NODE: LineageNode = {
+  id: 'logic:customer-triage',
+  kind: 'logic',
+  label: 'Customer triage Logic',
+  ref_id: 'logic.customer-triage',
+};
+
+function lineageLogicRun(
+  id: string,
+  status: 'succeeded' | 'failed',
+  minutesAgo: number,
+  durationMs: number,
+  invocationSurface: string,
+  errorMessage?: string,
+): LogicRunHistoryRecord {
+  const now = new Date();
+  const started = new Date(now.getTime() - minutesAgo * 60 * 1000);
+  return {
+    id,
+    actorId: 'lineage-viewer',
+    actorName: 'Lineage viewer',
+    executionMode: 'project_scoped',
+    status,
+    invocationSurface,
+    startedAtIso: started.toISOString(),
+    retentionExpiresAtIso: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    durationMs,
+    errorMessage,
+  };
+}
 
 const STYLESHEET: StylesheetStyle[] = [
   {
@@ -116,7 +149,7 @@ export function WorkflowLineagePage() {
   const [actions, setActions] = useState<ActionType[]>([]);
   const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
   const [propertiesByType, setPropertiesByType] = useState<Record<string, Property[]>>({});
-  const [activeKinds, setActiveKinds] = useState<Set<LineageNodeKind>>(new Set(['object_type', 'action', 'workshop']));
+  const [activeKinds, setActiveKinds] = useState<Set<LineageNodeKind>>(new Set(['object_type', 'action', 'workshop', 'logic']));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [entitySearch, setEntitySearch] = useState('');
   const [entitiesOpen, setEntitiesOpen] = useState(true);
@@ -221,11 +254,21 @@ export function WorkflowLineagePage() {
       }
     }
 
+    nodes.push(LOGIC_LINEAGE_NODE);
+    const firstActionId = Array.from(includedActionIds)[0];
+    const firstAppId = Array.from(includedAppIds)[0];
+    if (firstActionId) {
+      edges.push({ source: `action:${firstActionId}`, target: LOGIC_LINEAGE_NODE.id });
+    }
+    if (firstAppId) {
+      edges.push({ source: LOGIC_LINEAGE_NODE.id, target: `app:${firstAppId}` });
+    }
+
     return { nodes, edges };
   }, [apps, actions, objectTypes, focusApp]);
 
   const counts: Record<LineageNodeKind, number> = useMemo(() => {
-    const totals: Record<LineageNodeKind, number> = { object_type: 0, action: 0, workshop: 0 };
+    const totals: Record<LineageNodeKind, number> = { object_type: 0, action: 0, workshop: 0, logic: 0 };
     for (const node of nodes) totals[node.kind] += 1;
     return totals;
   }, [nodes]);
@@ -321,7 +364,7 @@ export function WorkflowLineagePage() {
                 </div>
               ) : null}
             </div>
-            {(['object_type', 'action', 'workshop'] as LineageNodeKind[]).map((kind) => {
+            {(['object_type', 'action', 'logic', 'workshop'] as LineageNodeKind[]).map((kind) => {
               const active = activeKinds.has(kind);
               const meta = NODE_KIND_META[kind];
               return (
@@ -461,6 +504,15 @@ function SelectionDetails({
   const action = node.kind === 'action' ? actions.find((entry) => entry.id === node.ref_id) ?? null : null;
   const app = node.kind === 'workshop' ? apps.find((entry) => entry.id === node.ref_id) ?? null : null;
   const properties = objectType ? propertiesByType[objectType.id] ?? [] : [];
+  const logicMetrics = useMemo(
+    () => calculateLogicMetrics([
+      lineageLogicRun('logic-lineage-run-1', 'succeeded', 12, 118, 'workshop'),
+      lineageLogicRun('logic-lineage-run-2', 'succeeded', 64, 154, 'action_workflow'),
+      lineageLogicRun('logic-lineage-run-3', 'failed', 93, 242, 'automate', 'Model provider timeout'),
+      lineageLogicRun('logic-lineage-run-4', 'succeeded', 280, 133, 'logic_function'),
+    ], '24h'),
+    [],
+  );
 
   function findUsages(propertyName: string): UsageHit[] {
     if (!objectType) return [];
@@ -577,8 +629,50 @@ function SelectionDetails({
             })}
           </>
         ) : null}
+
+        {node.kind === 'logic' ? (
+          <>
+            <SelectionRow label="RID" value={node.ref_id} />
+            <SelectionRow label="Surface" value="published Logic function" />
+            <p style={{ margin: '14px 0 6px', fontSize: 12, fontWeight: 600 }}>Execution metrics</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <MetricTile label="Succeeded" value={String(logicMetrics.successCount)} />
+              <MetricTile label="Failed" value={String(logicMetrics.failureCount)} />
+              <MetricTile label="P95" value={logicMetrics.p95DurationMs === null ? '—' : `${logicMetrics.p95DurationMs} ms`} />
+              <MetricTile label="Runs" value={String(logicMetrics.recentRuns.length)} />
+            </div>
+            <p style={{ margin: '14px 0 6px', fontSize: 12, fontWeight: 600 }}>Failure categories</p>
+            {logicMetrics.failureCategories.length === 0 ? (
+              <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>No failures in the current window.</p>
+            ) : logicMetrics.failureCategories.map((category) => (
+              <div key={category.category} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '5px 0', fontSize: 12 }}>
+                <span>{category.category.replaceAll('_', ' ')}</span>
+                <strong>{category.count}</strong>
+              </div>
+            ))}
+            <p style={{ margin: '14px 0 6px', fontSize: 12, fontWeight: 600 }}>Recent runs</p>
+            <div style={{ display: 'grid', gap: 4 }}>
+              {logicMetrics.recentRuns.map((run) => (
+                <div key={run.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, padding: '6px 8px', border: '1px solid var(--border-subtle)', borderRadius: 4, fontSize: 12 }}>
+                  <span>{run.invocationSurface}</span>
+                  <span>{run.status} · {run.durationMs} ms</span>
+                </div>
+              ))}
+            </div>
+            <p className="of-text-muted" style={{ margin: '10px 0 0', fontSize: 12 }}>Metrics require viewer permission and use retained Logic execution logs.</p>
+          </>
+        ) : null}
       </div>
     </aside>
+  );
+}
+
+function MetricTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 4, padding: 8 }}>
+      <p className="of-text-muted" style={{ margin: 0, fontSize: 11 }}>{label}</p>
+      <strong style={{ fontSize: 16 }}>{value}</strong>
+    </div>
   );
 }
 

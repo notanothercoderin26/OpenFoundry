@@ -21,8 +21,8 @@ import (
 
 // Logical DefinitionStore kinds used by this repository.
 const (
-	ObjectSetKind        = "object_set"
-	ObjectSetParentKind  = "object_type"
+	ObjectSetKind       = "object_set"
+	ObjectSetParentKind = "object_type"
 )
 
 // ObjectSetListQuery mirrors `struct ObjectSetListQuery`.
@@ -123,6 +123,45 @@ func ObjectSetDefinitionFromRecord(record storageabstraction.DefinitionRecord) (
 	if err := readJSON(raw, "policy", &def.Policy); err != nil {
 		return def, err
 	}
+	def.Kind = optString(raw, "kind")
+	if def.Kind == "" {
+		def.Kind = "exploration"
+	}
+	if err := readJSON(raw, "query_state", &def.QueryState); err != nil {
+		return def, err
+	}
+	if len(def.QueryState) == 0 || string(def.QueryState) == "null" {
+		def.QueryState = json.RawMessage("{}")
+	}
+	if err := readJSON(raw, "layout", &def.Layout); err != nil {
+		return def, err
+	}
+	if len(def.Layout) == 0 || string(def.Layout) == "null" {
+		def.Layout = json.RawMessage("{}")
+	}
+	def.Privacy = optString(raw, "privacy")
+	if def.Privacy == "" {
+		def.Privacy = "private"
+	}
+	if v, ok := raw["project_id"]; ok && string(v) != "null" {
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			return def, storageabstraction.Backendf("invalid object set project_id: %s", err)
+		}
+		id, err := uuid.Parse(s)
+		if err != nil {
+			return def, storageabstraction.Backendf("invalid object set project_id: %s", err)
+		}
+		def.ProjectID = &id
+	}
+	def.FolderPath = optString(raw, "folder_path")
+	def.ShareSlug = optString(raw, "share_slug")
+	if err := readJSON(raw, "selected_object_ids", &def.SelectedObjectIDs); err != nil {
+		return def, err
+	}
+	if def.SelectedObjectIDs == nil {
+		def.SelectedObjectIDs = []string{}
+	}
 
 	if v, ok := raw["materialized_snapshot"]; ok && string(v) != "null" {
 		def.MaterializedSnapshot = v
@@ -205,7 +244,8 @@ func ListObjectSets(ctx context.Context, store storageabstraction.DefinitionStor
 		}
 		isOwner := def.OwnerID == query.OwnerID
 		isRestrictedView := query.IncludeRestrictedViews && def.Policy.RequiredRestrictedViewID != nil
-		if isOwner || isRestrictedView {
+		isPublic := query.IncludeRestrictedViews && def.Privacy == "public"
+		if isOwner || isRestrictedView || isPublic {
 			items = append(items, def)
 		}
 	}
@@ -314,4 +354,3 @@ func pickFirst(raw map[string]json.RawMessage, keys ...string) json.RawMessage {
 	}
 	return nil
 }
-

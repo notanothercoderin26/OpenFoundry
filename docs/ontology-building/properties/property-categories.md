@@ -25,6 +25,6 @@ The P3 smoke scenario already exercises state and metric-like properties such as
 
 | Topic | Current | Target |
 | --- | --- | --- |
-| property CRUD | implemented in `ontology-service` | richer UI and metadata vocabulary |
+| property CRUD | implemented in `ontology-definition-service` | richer UI and metadata vocabulary |
 | formatting | implied but not deeply documented | first-class design system for semantic rendering |
 | governance fields | present through markings and auth context | explicit property-level governance model |

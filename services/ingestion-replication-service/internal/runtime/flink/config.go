@@ -11,9 +11,8 @@
 //     the injected RunRecorder so the GetRuntime handler can surface
 //     the canonical KPI vector
 //
-// The Rust source gates deployer.rs + metrics_poller.rs behind the
-// `flink-runtime` cargo feature; here the wiring is always compiled in
-// but is opt-in at runtime — callers that don't construct a Deployer or
+// The deployer + metrics-poller wiring is always compiled in but
+// opt-in at runtime — callers that don't construct a Deployer or
 // a MetricsPollerSupervisor get the legacy SQL-emitter-only behaviour.
 package flink
 

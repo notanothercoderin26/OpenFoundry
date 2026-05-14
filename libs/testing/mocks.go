@@ -83,7 +83,7 @@ func InstallDefaultOK(server *MockServer) {
 // InstallJSON installs a typed JSON `200` response on a specific
 // METHOD path pair. The body is marshalled once at install time and
 // cached; passing an unmarshalable value panics (consistent with the
-// rest of this crate's permissive style).
+// rest of this package's permissive test-helper style).
 func InstallJSON(server *MockServer, httpMethod, route string, body any) {
 	raw, err := json.Marshal(body)
 	if err != nil {

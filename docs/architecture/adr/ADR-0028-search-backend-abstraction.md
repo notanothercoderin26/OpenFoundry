@@ -131,7 +131,7 @@ We adopt the following triad:
 
 - **Production search backend: Vespa.** The Vespa subchart becomes
   **mandatory** in every environment that runs a `prod` profile;
-  the "optional" flag is removed from `infra/k8s/platform/charts/vespa/values.yaml`
+  the "optional" flag is removed from `infra/helm/infra/charts/vespa/values.yaml`
   and from any Helm umbrella that consumes it.
 - **Dev / CI search backend: OpenSearch single-node.** Provisioned
   via `docker compose` and via a Helm release in `dev` / `ci`
@@ -229,7 +229,7 @@ bounded parallelism, retry and visibility
 ## Operational consequences
 
 - Vespa subchart `optional: false` in production overlays.
-- New Helm release `infra/k8s/opensearch/dev/` for the single-node
+- New Helm release `infra/helm/opensearch/dev/` for the single-node
   dev cluster (also used by CI).
 - New `compose.yaml` service `opensearch` (single-node).
 - New workspace crate `libs/search-abstraction` with the trait, the

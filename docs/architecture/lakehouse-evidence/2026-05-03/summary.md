@@ -1,5 +1,11 @@
 # S5 Lakehouse Evidence Summary - 2026-05-03
 
+> **Note**: This evidence snapshot was captured on 2026-05-03 while
+> the lakehouse path was still on the Rust toolchain. The `cargo test`
+> commands below are preserved as historical record; the current Go
+> equivalent is `go test ./services/<svc>/...`. Do not run the cargo
+> commands.
+
 Status: BLOCKED
 Outcome: NOT CLOSED
 
@@ -57,10 +63,10 @@ cargo test -p ontology-indexer --features runtime            PASS
 cargo test -p event-bus-data                                 PASS
 cargo test -p sql-bi-gateway-service trino                   PASS
 GOCACHE=/private/tmp/openfoundry-go-cache go test ./...      PASS
-helm template of-apps-ops infra/k8s/helm/of-apps-ops -f infra/k8s/helm/of-apps-ops/values-prod.yaml       PASS
-helm template of-data-engine infra/k8s/helm/of-data-engine -f infra/k8s/helm/of-data-engine/values-prod.yaml PASS
-helm template of-ml-aip infra/k8s/helm/of-ml-aip -f infra/k8s/helm/of-ml-aip/values-prod.yaml             PASS
-helm template of-ontology infra/k8s/helm/of-ontology -f infra/k8s/helm/of-ontology/values-prod.yaml       PASS
+helm template of-apps-ops infra/helm/apps/of-apps-ops -f infra/helm/apps/of-apps-ops/values-prod.yaml       PASS
+helm template of-data-engine infra/helm/apps/of-data-engine -f infra/helm/apps/of-data-engine/values-prod.yaml PASS
+helm template of-ml-aip infra/helm/apps/of-ml-aip -f infra/helm/apps/of-ml-aip/values-prod.yaml             PASS
+helm template of-ontology infra/helm/apps/of-ontology -f infra/helm/apps/of-ontology/values-prod.yaml       PASS
 rg -n 'NotWired|not_implemented|ErrNotImplemented|todo!|TODO' \
   services/audit-sink/src services/lineage-service/src \
   services/ai-sink/src services/ontology-indexer/src \
@@ -190,7 +196,7 @@ Required checks:
   - Real Mimir TSDB blocks exist for the materialized day.
   - `metrics-aggregation-service-daily` runs from the intended Spark job.
   - Iceberg table `of_metrics_long.service_metrics_daily` exists.
-  - Table schema matches the DDL in `infra/k8s/platform/manifests/trino/views/of_metrics_long.sql`.
+  - Table schema matches the DDL in `infra/helm/infra/manifests/trino/views/of_metrics_long.sql`.
   - Partitioning is day(at).
   - Counts before/after prove materialization or idempotent rewrite with non-zero rows.
   - Trino analytical queries over `v_service_latency_daily` and `v_service_error_rate_daily` return rows.
@@ -199,9 +205,9 @@ Required checks:
 Repo substrate status:
 
   PRESENT AS MANIFESTS/DDL. The repo contains:
-    - `infra/k8s/platform/manifests/spark-jobs/metrics-aggregation-service-daily.yaml`
-    - `infra/k8s/platform/manifests/trino/views/of_metrics_long.sql`
-    - `infra/k8s/platform/manifests/observability/mimir/*`
+    - `infra/helm/infra/manifests/spark-jobs/metrics-aggregation-service-daily.yaml`
+    - `infra/helm/infra/manifests/trino/views/of_metrics_long.sql`
+    - `infra/helm/infra/manifests/observability/mimir/*`
 
 Runtime implementation status:
 

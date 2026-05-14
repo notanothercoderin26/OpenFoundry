@@ -1,11 +1,29 @@
 # Ontology queries inventory (S1.1.a)
 
+> **Reader note (2026-05-14)** — Methodology and file paths in this
+> document were authored against the Rust workspace. After the
+> Rust→Go port the grep below no longer runs as-is (`sqlx` is Rust;
+> the Go equivalent uses `pgx` directly or `sqlc`-generated code) and
+> every `<entity>.rs:<line>` reference is historical. The schema-level
+> conclusions (which Postgres tables are hot, which migrate to
+> Cassandra, the access-pattern groupings) remain valid as design
+> guidance and feed
+> [`ontology-cassandra-tables.md`](./ontology-cassandra-tables.md);
+> the *call-site coordinates* should be re-derived if you need an
+> up-to-date count. Three service names below
+> (`ontology-funnel-service`, `ontology-functions-service`,
+> `ontology-security-service`) refer to surfaces that have since been
+> absorbed into `ontology-actions-service` and the
+> `authorization-policy-service` (see
+> [`services-and-ports.md`](./services-and-ports.md) and
+> [ADR-0030](./adr/ADR-0030-service-consolidation-30-targets.md)).
+
 > **Purpose** — Enumerate every persistent query issued by the 9 ontology
 > services so the Cassandra modeling step (S1.1.b) can design tables by
 > access pattern rather than by entity. This is the source of truth for
 > the Postgres → Cassandra migration of stream **S1**.
 >
-> **Method** — Static grep over the active code:
+> **Method (historical, Rust era)** — Static grep over the active code:
 >
 > ```
 > grep -rEn 'sqlx::query[a-z_]*!|sqlx::query\b|query_as|query_scalar' \
@@ -14,19 +32,32 @@
 >   services/ontology-timeseries-analytics-service/src
 > ```
 >
+> **Go-native equivalent** — to re-derive the inventory today, grep
+> for `pgx`-style call sites + any `sqlc`-generated `Queries` methods:
+>
+> ```
+> grep -rEn 'pool\.Query|pool\.QueryRow|pool\.Exec|tx\.Query|tx\.QueryRow|tx\.Exec' \
+>   libs/ontology-kernel \
+>   services/ontology-exploratory-analysis-service \
+>   services/object-database-service \
+>   services/ontology-query-service \
+>   services/ontology-actions-service
+> ```
+>
 > The other 7 ontology service crates (`object-database`, `ontology-actions`,
 > `ontology-definition`, `ontology-funnel`, `ontology-functions`,
-> `ontology-query`, `ontology-security`) are thin HTTP shells whose
-> handler logic lives in [`libs/ontology-kernel`](../../libs/ontology-kernel)
-> (`src/handlers/*` and `src/domain/*`). They contribute zero direct
-> sqlx call sites at the time of writing — see
-> [Service ↔ kernel mapping](#service--kernel-mapping) below.
+> `ontology-query`, `ontology-security`) were thin HTTP shells whose
+> handler logic lived in [`libs/ontology-kernel`](../../libs/ontology-kernel)
+> (`handlers/*` and `domain/*`). Today, after S8 consolidation, three of those
+> names (`ontology-funnel`, `ontology-functions`, `ontology-security`) no
+> longer have a separate binary — their surfaces ship inside
+> `ontology-actions-service` and `authorization-policy-service`.
 >
 > **Frequency labels** — `hot` (≥10 RPS sustained on the platform hot
 > path — object reads, action writes, indexer ingest), `warm` (1–10 RPS,
 > typical CRUD admin and search), `cold` (<1 RPS, metadata management
 > and one-off jobs). Estimates derived from the existing OpenTelemetry
-> request distribution recorded in `infra/k8s/platform/observability/grafana-dashboards/`
+> request distribution recorded in `infra/helm/infra/observability/grafana-dashboards/`
 > and the operator runbooks under `infra/runbooks/`.
 >
 > **Consistency labels** — `strong` requires the latest committed write
@@ -38,19 +69,20 @@
 
 ## 1. Service ↔ kernel mapping
 
-| Service | Source files (sqlx call sites) |
+| Service (current binary) | Kernel source files (today's Go path) |
 |---|---|
-| `object-database-service` | `libs/ontology-kernel/src/handlers/{objects,bindings,storage}.rs`, `domain/{indexer,graph}.rs` |
-| `ontology-actions-service` | `libs/ontology-kernel/src/handlers/actions.rs` |
-| `ontology-definition-service` | `libs/ontology-kernel/src/handlers/{types,properties,shared_properties,interfaces,link_types}.rs`, `handlers/links.rs` |
-| `ontology-funnel-service` | `libs/ontology-kernel/src/handlers/funnel.rs` |
-| `ontology-functions-service` | `libs/ontology-kernel/src/handlers/functions.rs`, `domain/{function_runtime,function_metrics}.rs` |
-| `ontology-query-service` | `libs/ontology-kernel/src/handlers/{objects,object_sets,search}.rs`, `domain/{traversal,graph,search/*}.rs` |
-| `ontology-security-service` | `libs/ontology-kernel/src/handlers/projects.rs`, `domain/project_access.rs` |
-| `ontology-exploratory-analysis-service` | `services/ontology-exploratory-analysis-service/src/handlers.rs` |
-| `ontology-timeseries-analytics-service` | `services/ontology-timeseries-analytics-service/src/handlers.rs` |
+| `object-database-service` | [`libs/ontology-kernel/handlers/{objects,bindings,storage}`](../../libs/ontology-kernel/handlers/), [`domain/indexer.go`](../../libs/ontology-kernel/domain/indexer.go), [`domain/graph.go`](../../libs/ontology-kernel/domain/graph.go) |
+| `ontology-actions-service` | [`libs/ontology-kernel/handlers/{actions,funnel,functions,rules}`](../../libs/ontology-kernel/handlers/), [`domain/{action_repository.go,function_runtime.go,function_metrics.go,funnel_repository.go,rules.go}`](../../libs/ontology-kernel/domain/) — absorbs former `ontology-funnel-service` + `ontology-functions-service` |
+| `ontology-definition-service` | [`libs/ontology-kernel/handlers/{types,properties,sharedproperties,interfaces,links}`](../../libs/ontology-kernel/handlers/) |
+| `ontology-query-service` | [`libs/ontology-kernel/handlers/{objects,objectsets,search}`](../../libs/ontology-kernel/handlers/), [`domain/{traversal.go,graph.go,search/}`](../../libs/ontology-kernel/domain/) |
+| `authorization-policy-service` | [`libs/ontology-kernel/handlers/projects`](../../libs/ontology-kernel/handlers/projects/), [`domain/project_access.go`](../../libs/ontology-kernel/domain/project_access.go) — absorbs former `ontology-security-service` |
+| `ontology-exploratory-analysis-service` | [`services/ontology-exploratory-analysis-service/internal/`](../../services/ontology-exploratory-analysis-service/internal/) |
 
-Total distinct call sites: **~330** (`sqlx::query*` + `query_as` + `query_scalar`)
+> The previously listed `ontology-funnel-service`, `ontology-functions-service`,
+> `ontology-security-service` and `ontology-timeseries-analytics-service` no
+> longer exist on disk. Their handlers live in the consolidated owners above.
+
+Total distinct call sites: **~330** (Rust-era count — `sqlx::query*` + `query_as` + `query_scalar`)
 distributed across **42 Postgres tables**. The 8 hottest tables
 (`object_instances`, `object_revisions`, `link_instances`, `object_types`,
 `link_types`, `action_executions`, `ontology_funnel_runs`,

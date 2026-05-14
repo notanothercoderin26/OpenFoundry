@@ -359,12 +359,22 @@ CREATE TABLE IF NOT EXISTS ontology_object_sets (
     projections JSONB NOT NULL DEFAULT '[]'::jsonb,
     what_if_label TEXT,
     policy JSONB NOT NULL DEFAULT '{}'::jsonb,
+    kind TEXT NOT NULL DEFAULT 'exploration',
+    query_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+    layout JSONB NOT NULL DEFAULT '{}'::jsonb,
+    privacy TEXT NOT NULL DEFAULT 'private',
+    project_id UUID,
+    folder_path TEXT NOT NULL DEFAULT '',
+    share_slug TEXT NOT NULL DEFAULT '',
+    selected_object_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
     materialized_snapshot JSONB,
     materialized_at TIMESTAMPTZ,
     materialized_row_count INTEGER NOT NULL DEFAULT 0,
     owner_id UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ontology_object_sets_kind_valid CHECK (kind IN ('exploration', 'list')),
+    CONSTRAINT ontology_object_sets_privacy_valid CHECK (privacy IN ('private', 'public'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_ontology_object_sets_owner
@@ -372,6 +382,13 @@ CREATE INDEX IF NOT EXISTS idx_ontology_object_sets_owner
 
 CREATE INDEX IF NOT EXISTS idx_ontology_object_sets_base_type
     ON ontology_object_sets(base_object_type_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ontology_object_sets_privacy
+    ON ontology_object_sets(privacy, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ontology_object_sets_project
+    ON ontology_object_sets(project_id, updated_at DESC)
+    WHERE project_id IS NOT NULL;
 
 -- =====================================================================
 -- Source: migrations/20260426124500_property_inline_edit_config.sql (archived; preserved verbatim below)

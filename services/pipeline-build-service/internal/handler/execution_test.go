@@ -278,6 +278,25 @@ func TestTriggerPipelineRunUsesLightweightRuntimeAndCommitsOutput(t *testing.T) 
 	require.True(t, audit.containsTransition(executor.NodeRunning, executor.NodeCompleted))
 }
 
+func TestOutputTransactionsForVirtualTableOutputKeepExternalMetadata(t *testing.T) {
+	pipelineID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	runID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	nodes := []models.PipelineNode{
+		{ID: "vt", Label: "Orders", TransformType: "virtual_table_input", Config: json.RawMessage(`{"source_kind":"virtual_table","virtual_table_rid":"ri.foundry.main.virtual-table.orders","source_rid":"ri.source.snowflake"}`)},
+		{ID: "out", Label: "Orders out", TransformType: "output_virtual_table", DependsOn: []string{"vt"}, Config: json.RawMessage(`{"_output":{"kind":"virtual_table","virtual_table_rid":"ri.foundry.main.virtual-table.orders_out","source_rid":"ri.source.snowflake","provider":"SNOWFLAKE","table_type":"TABLE","external_reference":{"kind":"tabular","database":"FINANCE","schema":"PUBLIC","table":"ORDERS_OUT"},"storage":"external","orchestration":"openfoundry"}}`)},
+	}
+
+	outputs, rid := outputTransactionsForPipelineNode(pipelineID, runID, nodes[1], nodes)
+	require.Equal(t, "ri.foundry.main.virtual-table.orders_out", rid)
+	require.Len(t, outputs, 1)
+	require.Equal(t, "virtual_table", outputs[0].OutputKind)
+	require.Equal(t, "ri.source.snowflake", outputs[0].VirtualTableSourceRID)
+	require.Equal(t, "SNOWFLAKE", outputs[0].VirtualTableProvider)
+	require.Equal(t, "external", outputs[0].VirtualTableStorage)
+	require.Equal(t, "openfoundry", outputs[0].VirtualTableOrchestration)
+	require.False(t, canCommitDatasetOutput(outputs[0].DatasetRID))
+}
+
 func TestTriggerPipelineRunDistributedPipelineUsesDistributedPort(t *testing.T) {
 	pipelineID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	outputID := uuid.MustParse("66666666-6666-6666-6666-666666666666")

@@ -134,6 +134,14 @@ func buildDefinitionFromCreate(ownerID uuid.UUID, req models.CreateObjectSetRequ
 		Projections:          req.Projections,
 		WhatIfLabel:          req.WhatIfLabel,
 		Policy:               req.Policy,
+		Kind:                 req.Kind,
+		QueryState:           req.QueryState,
+		Layout:               req.Layout,
+		Privacy:              req.Privacy,
+		ProjectID:            req.ProjectID,
+		FolderPath:           req.FolderPath,
+		ShareSlug:            req.ShareSlug,
+		SelectedObjectIDs:    req.SelectedObjectIDs,
 		MaterializedSnapshot: nil,
 		MaterializedAt:       nil,
 		MaterializedRowCount: 0,
@@ -373,6 +381,14 @@ func UpdateObjectSet(state *ontologykernel.AppState) http.HandlerFunc {
 			Projections:          existing.Projections,
 			WhatIfLabel:          existing.WhatIfLabel,
 			Policy:               existing.Policy,
+			Kind:                 existing.Kind,
+			QueryState:           existing.QueryState,
+			Layout:               existing.Layout,
+			Privacy:              existing.Privacy,
+			ProjectID:            existing.ProjectID,
+			FolderPath:           existing.FolderPath,
+			ShareSlug:            existing.ShareSlug,
+			SelectedObjectIDs:    existing.SelectedObjectIDs,
 			MaterializedSnapshot: nil,
 			MaterializedAt:       nil,
 			MaterializedRowCount: 0,
@@ -410,6 +426,30 @@ func UpdateObjectSet(state *ontologykernel.AppState) http.HandlerFunc {
 		}
 		if req.Policy != nil {
 			next.Policy = *req.Policy
+		}
+		if req.Kind != nil {
+			next.Kind = *req.Kind
+		}
+		if req.QueryState != nil {
+			next.QueryState = *req.QueryState
+		}
+		if req.Layout != nil {
+			next.Layout = *req.Layout
+		}
+		if req.Privacy != nil {
+			next.Privacy = *req.Privacy
+		}
+		if req.ProjectID != nil {
+			next.ProjectID = req.ProjectID
+		}
+		if req.FolderPath != nil {
+			next.FolderPath = *req.FolderPath
+		}
+		if req.ShareSlug != nil {
+			next.ShareSlug = *req.ShareSlug
+		}
+		if req.SelectedObjectIDs != nil {
+			next.SelectedObjectIDs = *req.SelectedObjectIDs
 		}
 
 		if err := domain.ValidateObjectSetDefinition(next); err != nil {

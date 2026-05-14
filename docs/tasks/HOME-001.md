@@ -1,42 +1,42 @@
 # HOME-001 — Workspace Home (`/`)
 
-Task pack para construir el home `/` de OpenFoundry visualmente alineado con Compass de Foundry. Hecho para ejecutarse pasito a pasito en una sola sesion: contexto + referencias + spec + tareas atomicas + prompt + DoD.
+Task pack for building OpenFoundry's `/` home, visually aligned with Foundry's Compass. Designed to be executed step by step in a single session: context + references + spec + atomic tasks + prompt + DoD.
 
-## 1. Contexto
+## 1. Context
 
-- **Ruta:** `/`
-- **Componente actual:** [apps/web/src/routes/Home.tsx](../../apps/web/src/routes/Home.tsx) (164 lineas, scaffolding de migracion: header strip + 4 KPI cards + tabla de rutas + Recent + Environment).
-- **Shell padre:** [apps/web/src/lib/components/AppShell.tsx](../../apps/web/src/lib/components/AppShell.tsx), con [Sidebar](../../apps/web/src/lib/components/Sidebar.tsx) y [Topbar](../../apps/web/src/lib/components/Topbar.tsx).
-- **Sistema de tokens:** clases `.of-*` y variables `--*` en [apps/web/src/styles/app.css](../../apps/web/src/styles/app.css). Todo el trabajo debe usar `of-page`, `of-panel`, `of-toolbar`, `of-button`, `of-input`, `of-table`, `of-chip`, `of-heading-xl/lg/md/sm`, `of-eyebrow`, `of-text-muted` y variables `var(--text-strong)`, `var(--border-subtle)`, `var(--status-success)`, etc. **No introducir colores ni espacios hardcodeados nuevos.**
-- **Estado del inventario:** [HOME-001 en el blueprint](../frontend-ui-flow-blueprint.md) lo marca `Parcial / P0` — la pantalla existe pero no replica el patron Compass de Foundry y faltan componentes target (`ResourceTable`, `ActivityPanel`, `QuickActions`).
+- **Route:** `/`
+- **Current component:** [apps/web/src/routes/Home.tsx](../../apps/web/src/routes/Home.tsx) (164 lines, migration scaffolding: header strip + 4 KPI cards + routes table + Recent + Environment).
+- **Parent shell:** [apps/web/src/lib/components/AppShell.tsx](../../apps/web/src/lib/components/AppShell.tsx), with [Sidebar](../../apps/web/src/lib/components/Sidebar.tsx) and [Topbar](../../apps/web/src/lib/components/Topbar.tsx).
+- **Token system:** `.of-*` classes and `--*` variables in [apps/web/src/styles/app.css](../../apps/web/src/styles/app.css). All work must use `of-page`, `of-panel`, `of-toolbar`, `of-button`, `of-input`, `of-table`, `of-chip`, `of-heading-xl/lg/md/sm`, `of-eyebrow`, `of-text-muted` and variables `var(--text-strong)`, `var(--border-subtle)`, `var(--status-success)`, etc. **Do not introduce hardcoded new colors or spacings.**
+- **Inventory status:** [HOME-001 in the blueprint](../frontend-ui-flow-blueprint.md) marks it as `Partial / P0` — the screen exists but does not replicate Foundry's Compass pattern and target components (`ResourceTable`, `ActivityPanel`, `QuickActions`) are missing.
 
-## 2. Referencia Visual
+## 2. Visual Reference
 
-Foundry no tiene una sola "home"; el equivalente mas cercano a `/` es la pantalla **Compass** que mezcla "Data Catalog" con un selector de espacios (Portfolios / Projects / Your files / Shared with you).
+Foundry doesn't have a single "home"; the closest equivalent to `/` is the **Compass** screen, which mixes "Data Catalog" with a space selector (Portfolios / Projects / Your files / Shared with you).
 
-| Captura | Ruta local | Que mirar |
+| Screenshot | Local path | What to look at |
 |---|---|---|
-| Compass Overview | [docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Overview_assets/img_001.png](../../docs_original_palantir_foundry/foundry-docs/Security%20%26%20governance/Applications/Compass/Overview_assets/img_001.png) | Layout completo: rail izquierdo de iconos, top strip, tabs Quick filters, 3 banners promocionales, search + facets, tabla principal con FILE NAME / LAST MODIFIED / TAGS / PORTFOLIO. |
-| Compass Data Catalog | [docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Data Catalog_assets/img_001.png](../../docs_original_palantir_foundry/foundry-docs/Security%20%26%20governance/Applications/Compass/Data%20Catalog_assets/img_001.png) | Patron de header limpio: tabs de espacios arriba, titulo grande + sub-tabs (Collections/Files), accion derecha (Request data + `+ New`), tabla compacta NAME / FILES. |
-| Project navigation panel | [docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Use Project navigation panel_assets/img_001.png](../../docs_original_palantir_foundry/foundry-docs/Security%20%26%20governance/Applications/Compass/Use%20Project%20navigation%20panel_assets/img_001.png) | Para sub-rail de proyecto que reutilizaremos en `PROJECT-002`. Aqui solo informativa. |
+| Compass Overview | [docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Overview_assets/img_001.png](../../docs_original_palantir_foundry/foundry-docs/Security%20%26%20governance/Applications/Compass/Overview_assets/img_001.png) | Full layout: left icon rail, top strip, Quick filters tabs, 3 promotional banners, search + facets, main table with FILE NAME / LAST MODIFIED / TAGS / PORTFOLIO. |
+| Compass Data Catalog | [docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Data Catalog_assets/img_001.png](../../docs_original_palantir_foundry/foundry-docs/Security%20%26%20governance/Applications/Compass/Data%20Catalog_assets/img_001.png) | Clean header pattern: space tabs on top, large title + sub-tabs (Collections/Files), right-side action (Request data + `+ New`), compact NAME / FILES table. |
+| Project navigation panel | [docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Use Project navigation panel_assets/img_001.png](../../docs_original_palantir_foundry/foundry-docs/Security%20%26%20governance/Applications/Compass/Use%20Project%20navigation%20panel_assets/img_001.png) | For the project sub-rail we'll reuse in `PROJECT-002`. Informational only here. |
 
-**Lectura de patrones (lo que tomamos para `/`):**
+**Pattern reading (what we take for `/`):**
 
-1. **Header de espacios** (top strip): tabs horizontales `Portfolios | Projects | Your files | Shared with you` con iconos. Sin gradientes, fondo blanco, separador inferior `1px solid var(--border-subtle)`. Boton `Manage spaces ⚙️` en extremo derecho.
-2. **Title row**: H1 grande (titulo de la vista) + sub-tabs `Collections | Files` en linea + cluster de acciones en la derecha (`Request data` secundario + `+ New` primario verde).
-3. **Filters rail izquierdo** (en Overview): bloque colapsable Filters > Types > Status > Portfolios > Projects > Tags > Organizations.
-4. **Banner row** (en Overview): 3 cards horizontales para Portfolios / Projects / Promoted items, cada uno con titulo, descripcion corta, link `Apply` y `Hide`.
-5. **Tabla principal**: filas finas con icono+nombre, columnas auxiliares (LAST MODIFIED, TAGS chips, PORTFOLIO chip).
+1. **Spaces header** (top strip): horizontal tabs `Portfolios | Projects | Your files | Shared with you` with icons. No gradients, white background, bottom separator `1px solid var(--border-subtle)`. `Manage spaces ⚙️` button at the right edge.
+2. **Title row**: large H1 (view title) + inline `Collections | Files` sub-tabs + right-side action cluster (`Request data` secondary + `+ New` primary green).
+3. **Left filters rail** (in Overview): collapsible block Filters > Types > Status > Portfolios > Projects > Tags > Organizations.
+4. **Banner row** (in Overview): 3 horizontal cards for Portfolios / Projects / Promoted items, each with a title, short description, `Apply` link and `Hide`.
+5. **Main table**: thin rows with icon+name, auxiliary columns (LAST MODIFIED, TAGS chips, PORTFOLIO chip).
 
-**Adaptacion a OpenFoundry** (los espacios de Foundry no aplican literalmente — somos un workspace generico):
+**Adaptation to OpenFoundry** (Foundry's spaces don't apply literally — we're a generic workspace):
 
-- Tabs de espacios → `Recent | Pinned | Shared with you | Trash` (tabs locales del home, no rail).
-- Sub-tabs Collections/Files → `Resources | Activity` (tabs locales del home).
-- `+ New` primario → menu desplegable con `New project / New dataset / New pipeline / Upload data`.
-- Banners → mantener UNO solo opcional ("Welcome / Quick start") con boton de cerrar; el `Hide` es real.
-- Filters rail izquierdo → NO replicar literal en `/`; eso vive en `/datasets` y `/projects`. En home solo facetas chiquitas en la barra de search.
+- Space tabs → `Recent | Pinned | Shared with you | Trash` (local tabs of the home, not a rail).
+- Collections/Files sub-tabs → `Resources | Activity` (local tabs of the home).
+- Primary `+ New` → dropdown menu with `New project / New dataset / New pipeline / Upload data`.
+- Banners → keep only ONE optional banner ("Welcome / Quick start") with a close button; the `Hide` is real.
+- Left filters rail → DO NOT replicate literally on `/`; that lives in `/datasets` and `/projects`. On home, only small facets inside the search bar.
 
-## 3. Layout Objetivo
+## 3. Target Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -69,97 +69,97 @@ Foundry no tiene una sola "home"; el equivalente mas cercano a `/` es la pantall
 └────────────────┴────────────────────────────────────────────────────────────┘
 ```
 
-Regiones (de arriba abajo):
+Regions (top to bottom):
 
-1. **L0 Spaces strip** — nuevo, dentro del `<section className="of-page">`. Tabs horizontales con borde inferior y un boton derecho `Manage spaces`.
-2. **L1 Title row** — H1 + sub-tabs locales + cluster de acciones derecho (`Request data` secundario + `+ New` primario con menu).
-3. **L2 KPI ribbon** — 4 cards finas con `of-panel`. Reusa lo que ya tiene el Home actual pero ajusta tamanos (numero `var(--text-strong)`, eyebrow arriba).
+1. **L0 Spaces strip** — new, inside the `<section className="of-page">`. Horizontal tabs with a bottom border and a right-side `Manage spaces` button.
+2. **L1 Title row** — H1 + local sub-tabs + right action cluster (`Request data` secondary + `+ New` primary with a menu).
+3. **L2 KPI ribbon** — 4 thin cards with `of-panel`. Reuses what the current Home already has but adjusts sizes (number `var(--text-strong)`, eyebrow on top).
 4. **L3 Two-column grid** —
-   - Columna izquierda (~2/3): card `Resources` con header (titulo + search + menu) y tabla `of-table` compacta.
-   - Columna derecha (~1/3): pila de cards `Activity`, `Quick start`, `Environment`.
-5. **L4 (futuro)** — la fila de banners promocionales de Compass NO se construye en este slice; queda anotada como follow-up.
+   - Left column (~2/3): `Resources` card with header (title + search + menu) and a compact `of-table`.
+   - Right column (~1/3): stack of `Activity`, `Quick start`, `Environment` cards.
+5. **L4 (future)** — the Compass row of promotional banners is NOT built in this slice; noted as a follow-up.
 
-## 4. Plan De Componentes
+## 4. Component Plan
 
-| Componente | Estado | Decision |
+| Component | Status | Decision |
 |---|---|---|
-| `AppShell` / `Sidebar` / `Topbar` | Existe | No tocar en este slice. |
-| `SpacesTab` | NO existe | Inline en `Home.tsx` por ahora — solo 4 tabs estaticos, sin extraer. Cuando se repita en otra pantalla lo extraemos. |
-| `KpiCard` | NO existe | Inline en `Home.tsx`. La forma actual ya es buena, solo ajustar tamano y eyebrow. |
-| `ResourceTable` | NO existe (target en blueprint) | **NO crear el primitivo aqui.** Implementar la tabla del home como JSX local en `Home.tsx` siguiendo `of-table`. La extraccion sale en `DATASET-001` o un task de refactor. |
-| `ActivityList` | NO existe | Inline. Items mock por ahora (icono + accion + timestamp). |
-| `QuickStartCard` | NO existe | Inline. Lista de 3-4 acciones que linkean a `/projects`, `/datasets`, `/pipelines`. |
-| `EnvironmentCard` | Ya existe inline | Reutilizar. |
+| `AppShell` / `Sidebar` / `Topbar` | Exists | Do not touch in this slice. |
+| `SpacesTab` | Does NOT exist | Inline in `Home.tsx` for now — just 4 static tabs, no extraction. We'll extract when it repeats in another screen. |
+| `KpiCard` | Does NOT exist | Inline in `Home.tsx`. The current form is already good, just adjust size and eyebrow. |
+| `ResourceTable` | Does NOT exist (target in the blueprint) | **Do not create the primitive here.** Implement the home table as local JSX in `Home.tsx` following `of-table`. Extraction comes in `DATASET-001` or a refactor task. |
+| `ActivityList` | Does NOT exist | Inline. Mock items for now (icon + action + timestamp). |
+| `QuickStartCard` | Does NOT exist | Inline. List of 3-4 actions linking to `/projects`, `/datasets`, `/pipelines`. |
+| `EnvironmentCard` | Already inline | Reuse. |
 
-Regla: **nada de extraer primitivos compartidos en este slice.** El objetivo es cerrar el `/` visual; los primitivos se extraen cuando aparezcan en la 2da/3ra pantalla.
+Rule: **no shared primitives are to be extracted in this slice.** The goal is to close the `/` visual; primitives are extracted when they appear in the 2nd/3rd screen.
 
-## 5. Tareas Atomicas
+## 5. Atomic Tasks
 
-Cada tarea es lo bastante chica para hacerla en un turno con foco completo.
+Each task is small enough to do in one focused turn.
 
-- [ ] **T1** Quitar el array `MIGRATED_ROUTES` del `Home.tsx` (es debug). Reemplazar por una constante chica `DEFAULT_RESOURCES` con 8-12 entradas mock que reflejen lo que veria un usuario real (proyectos, datasets, pipelines, dashboards).
-- [ ] **T2** Implementar **L0 Spaces strip** con 4 tabs (`Recent`, `Pinned`, `Shared with you`, `Trash`). Tab activa por estado local `useState<'recent'|'pinned'|'shared'|'trash'>('recent')`. Boton `Manage spaces ⚙️` a la derecha (link a `/settings` por ahora). Estilo: borde inferior `1px solid var(--border-subtle)`, padding `8px 0`, gap entre tabs.
-- [ ] **T3** Implementar **L1 Title row**: H1 `Workspace` con `of-heading-xl`, sub-tabs `Resources | Activity` con estado local, y cluster derecho con `Request data` (`of-button`) + `+ New ▾` (`of-button of-button--primary`). El menu del `+ New` puede ser un `<details>` nativo o `position:absolute` simple por ahora; abre lista con `New project`, `New dataset`, `New pipeline`, `Upload data`, cada uno linkeando a la ruta correspondiente.
-- [ ] **T4** Refinar **L2 KPI ribbon**: mantener el grid actual de 4 cards pero subir el numero a `font-size: 28px; font-weight: 600` y agregar microcopy debajo del numero (ej. "↑ 12% week over week" en muted). Mantener `of-eyebrow` arriba.
-- [ ] **T5** Implementar **L3 izquierda — Resources card**: header con titulo + search input + menu de tres puntos (placeholder). Tabla `of-table` con columnas `Name | Path | Owner | Last modified | Status`. Filas vienen de `DEFAULT_RESOURCES`. Status renderiza `of-chip` (success / warning / info segun valor mock). Footer con "1–10 of 56" + paginacion dummy (botones disabled si N=10).
-- [ ] **T6** Implementar **L3 derecha**: tres cards apiladas con `of-panel`:
-  - `Activity` — lista de 4-6 items mock con icono, texto, timestamp relativo. Cada item es flex row con borde top sutil `1px solid var(--border-subtle)`.
+- [ ] **T1** Remove the `MIGRATED_ROUTES` array from `Home.tsx` (debug). Replace with a small `DEFAULT_RESOURCES` constant with 8-12 mock entries reflecting what a real user would see (projects, datasets, pipelines, dashboards).
+- [ ] **T2** Implement **L0 Spaces strip** with 4 tabs (`Recent`, `Pinned`, `Shared with you`, `Trash`). Active tab via local state `useState<'recent'|'pinned'|'shared'|'trash'>('recent')`. `Manage spaces ⚙️` button on the right (linking to `/settings` for now). Styling: bottom border `1px solid var(--border-subtle)`, padding `8px 0`, gap between tabs.
+- [ ] **T3** Implement **L1 Title row**: H1 `Workspace` with `of-heading-xl`, `Resources | Activity` sub-tabs with local state, and right-side cluster with `Request data` (`of-button`) + `+ New ▾` (`of-button of-button--primary`). The `+ New` menu can be a native `<details>` or a simple `position:absolute` for now; it opens a list with `New project`, `New dataset`, `New pipeline`, `Upload data`, each linking to the corresponding route.
+- [ ] **T4** Refine **L2 KPI ribbon**: keep the current 4-card grid but bump the number to `font-size: 28px; font-weight: 600` and add microcopy below the number (e.g. "↑ 12% week over week" in muted). Keep `of-eyebrow` at the top.
+- [ ] **T5** Implement **L3 left — Resources card**: header with title + search input + three-dot menu (placeholder). `of-table` with columns `Name | Path | Owner | Last modified | Status`. Rows come from `DEFAULT_RESOURCES`. Status renders as `of-chip` (success / warning / info depending on mock value). Footer with "1–10 of 56" + dummy pagination (disabled buttons if N=10).
+- [ ] **T6** Implement **L3 right**: three stacked cards with `of-panel`:
+  - `Activity` — list of 4-6 mock items with icon, text, relative timestamp. Each item is a flex row with a subtle top border `1px solid var(--border-subtle)`.
   - `Quick start` — 4 links: New project, New dataset, New pipeline, Browse marketplace.
-  - `Environment` — lo que ya hay (Branch / Ontology / Access / Build health).
-- [ ] **T7** Verificar visualmente: levantar dev server, abrir `/`, comparar con [Compass Overview screenshot](../../docs_original_palantir_foundry/foundry-docs/Security%20%26%20governance/Applications/Compass/Overview_assets/img_001.png) y [Data Catalog screenshot](../../docs_original_palantir_foundry/foundry-docs/Security%20%26%20governance/Applications/Compass/Data%20Catalog_assets/img_001.png). Anotar discrepancias visibles (espaciados, alineaciones, jerarquia tipografica). Iterar T2-T6 hasta cerrar.
+  - `Environment` — what's already there (Branch / Ontology / Access / Build health).
+- [ ] **T7** Visual check: bring up the dev server, open `/`, compare against the [Compass Overview screenshot](../../docs_original_palantir_foundry/foundry-docs/Security%20%26%20governance/Applications/Compass/Overview_assets/img_001.png) and the [Data Catalog screenshot](../../docs_original_palantir_foundry/foundry-docs/Security%20%26%20governance/Applications/Compass/Data%20Catalog_assets/img_001.png). Note visible discrepancies (spacing, alignment, type hierarchy). Iterate T2-T6 until closed.
 
-## 6. Prompt De Implementacion
+## 6. Implementation Prompt
 
-Pegar este prompt en una sesion de Claude Code fresca (o usarlo como guia explicita para la sesion actual):
+Paste this prompt into a fresh Claude Code session (or use it as explicit guidance for the current session):
 
 ```
-Tarea: implementar HOME-001 (workspace home `/`) siguiendo docs/tasks/HOME-001.md.
+Task: implement HOME-001 (workspace home `/`) following docs/tasks/HOME-001.md.
 
-Contexto critico:
-- Archivo: apps/web/src/routes/Home.tsx
-- Sistema de tokens: clases of-* y variables --* en apps/web/src/styles/app.css. NO usar
-  colores hardcodeados, NO inventar nuevos espaciados fuera del token system.
-- Referencias visuales (lee las dos imagenes antes de empezar):
+Critical context:
+- File: apps/web/src/routes/Home.tsx
+- Token system: of-* classes and --* variables in apps/web/src/styles/app.css. DO NOT use
+  hardcoded colors, DO NOT invent new spacings outside the token system.
+- Visual references (read both images before starting):
   - docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Overview_assets/img_001.png
   - docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Data Catalog_assets/img_001.png
-- Layout objetivo: ver seccion "Layout Objetivo" en docs/tasks/HOME-001.md.
+- Target layout: see "Target Layout" section in docs/tasks/HOME-001.md.
 
-Reglas:
-- NO crear nuevos componentes compartidos en este slice. Todo inline en Home.tsx.
-- NO tocar Sidebar, Topbar, AppShell, ni el router.
-- Mock data permitido — nada de fetch real al backend.
-- Usar las clases of-* existentes; si una clase necesaria no existe, agregarla a
-  apps/web/src/styles/app.css siguiendo el patron de las otras (no romper el sistema).
+Rules:
+- DO NOT create new shared components in this slice. Everything inline in Home.tsx.
+- DO NOT touch Sidebar, Topbar, AppShell, or the router.
+- Mock data allowed — no real backend fetches.
+- Use existing of-* classes; if a required class doesn't exist, add it to
+  apps/web/src/styles/app.css following the pattern of the others (don't break the system).
 
-Pasos: ejecutar T1..T7 de docs/tasks/HOME-001.md en orden, marcando cada uno
-completado en el todo list. Despues de T7, levantar dev server y reportar
-discrepancias visibles vs los screenshots.
+Steps: run T1..T7 from docs/tasks/HOME-001.md in order, marking each as
+done in the todo list. After T7, bring up the dev server and report
+visible discrepancies vs the screenshots.
 
-Definicion de hecho: ver seccion "Definition Of Done" del task pack.
+Definition of done: see "Definition Of Done" section of the task pack.
 ```
 
 ## 7. Definition Of Done
 
-- [ ] `/` renderiza las 5 regiones: Spaces strip, Title row, KPI ribbon, Resources card (izq), columna derecha (Activity + Quick start + Environment).
-- [ ] Las 4 tabs de Spaces son clicables y la activa cambia de estilo (no es necesario que carguen contenido distinto en este slice — solo el estilo activo).
-- [ ] Los sub-tabs `Resources | Activity` togglean cual columna izquierda se muestra.
-- [ ] El boton `+ New ▾` abre un menu con 4 acciones que linkean a las rutas correctas.
-- [ ] Cero estilos inline con colores hardcodeados; todo via clases `of-*` y variables `var(--*)`.
-- [ ] Ningun import nuevo de UI library externa. Ningun componente compartido extraido.
-- [ ] El layout no rompe en viewport `1280×800` ni en `1920×1080` (el Foundry real esta pensado para >=1280).
-- [ ] Visual diff vs el screenshot de Compass Data Catalog: jerarquia tipografica y densidad coinciden a ojo (no pixel-perfect, pero "se siente" Foundry).
-- [ ] No hay regresiones en otras rutas: `/datasets`, `/projects`, `/pipelines` siguen montando bajo el mismo shell.
-- [ ] Commit pendiente, mensaje sugerido: `feat(web/home): mirror Compass workspace landing for HOME-001`.
+- [ ] `/` renders the 5 regions: Spaces strip, Title row, KPI ribbon, Resources card (left), right column (Activity + Quick start + Environment).
+- [ ] The 4 Spaces tabs are clickable and the active one changes style (no need to load different content in this slice — only the active style).
+- [ ] The `Resources | Activity` sub-tabs toggle which left column is shown.
+- [ ] The `+ New ▾` button opens a menu with 4 actions linking to the correct routes.
+- [ ] Zero inline styles with hardcoded colors; all via `of-*` classes and `var(--*)` variables.
+- [ ] No new external UI library imports. No shared component extracted.
+- [ ] The layout doesn't break at `1280×800` or `1920×1080` viewports (real Foundry targets >=1280).
+- [ ] Visual diff vs the Compass Data Catalog screenshot: type hierarchy and density match by eye (not pixel-perfect, but "feels" Foundry).
+- [ ] No regressions on other routes: `/datasets`, `/projects`, `/pipelines` still mount under the same shell.
+- [ ] Commit pending, suggested message: `feat(web/home): mirror Compass workspace landing for HOME-001`.
 
-## 8. Follow-ups (no en este slice)
+## 8. Follow-ups (not in this slice)
 
-- **HOME-002**: banner row promocional (Portfolios / Projects / Promoted items) tipo Compass Overview, con `Hide` real en localStorage.
-- **HOME-003**: cuando `Activity` exista en backend (`GET /workspace/recents` ya existe en `workspace.ts`), reemplazar mock por fetch real con loading/empty/error.
-- **HOME-004**: cmd+k command palette — `SEARCH-001` en el inventario.
-- **Refactor extract**: cuando `ResourceTable` se necesite por 3a vez (probablemente `DATASET-001`), extraer del Home + Datasets a `lib/components/ResourceTable.tsx` con prop API que sirva ambos casos.
+- **HOME-002**: promotional banner row (Portfolios / Projects / Promoted items) like Compass Overview, with a real `Hide` in localStorage.
+- **HOME-003**: when `Activity` exists in the backend (`GET /workspace/recents` already exists in `workspace.ts`), replace the mock with a real fetch with loading/empty/error.
+- **HOME-004**: cmd+k command palette — `SEARCH-001` in the inventory.
+- **Refactor extract**: when `ResourceTable` is needed for the 3rd time (probably `DATASET-001`), extract it from Home + Datasets to `lib/components/ResourceTable.tsx` with a prop API that serves both cases.
 
-## 9. Notas Para Otras Sesiones
+## 9. Notes For Other Sessions
 
-- Si el dev server no levanta: `pnpm --filter @openfoundry/web dev` desde la raiz, o ver `apps/web/package.json` para el script real.
-- Si necesitas datos reales de recents para T6: `apps/web/src/lib/api/workspace.ts` exporta `listRecents()`. Pero **en este slice usamos mock** para evitar acoplamiento.
-- Si el spacer entre el Topbar y el inicio del contenido del Home se ve raro: ver `AppShell.tsx` — probablemente esta forzando un `padding-top` que conflicta con la nueva spaces strip. Resolver moviendo la strip dentro del padding existente, NO modificando el AppShell.
+- If the dev server won't come up: `pnpm --filter @openfoundry/web dev` from the root, or check `apps/web/package.json` for the actual script.
+- If you need real recents data for T6: `apps/web/src/lib/api/workspace.ts` exports `listRecents()`. But **in this slice we use mock** to avoid coupling.
+- If the spacer between the Topbar and the start of the Home content looks off: see `AppShell.tsx` — it's probably forcing a `padding-top` that conflicts with the new spaces strip. Resolve by moving the strip inside the existing padding, NOT by modifying AppShell.

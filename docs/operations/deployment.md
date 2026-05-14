@@ -3,7 +3,7 @@
 OpenFoundry currently supports two complementary deployment modes in-repository:
 
 - local developer runtime with Docker-backed infrastructure and host-run services
-- Kubernetes-oriented delivery through the split Helm releases under `infra/k8s/helm/`
+- Kubernetes-oriented delivery through the split Helm releases under `infra/helm/apps/`
 
 ## Local Infrastructure
 
@@ -17,29 +17,29 @@ The Compose stack defines:
   BM25 + vector + filter + ranking search; same engine as production
   (see [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md)
   and `infra/runbooks/vespa.md`)
-- pgvector (extensión sobre PostgreSQL)
+- pgvector (extension on top of PostgreSQL)
 
-> El stack de Compose por defecto **ya no incluye un Iceberg REST
-> Catalog**. Apache Polaris fue retirado del Compose el 2026-04-30
-> (PR #61) y de los charts Helm de OpenFoundry; en Kubernetes el único
-> catálogo soportado es **Lakekeeper** (`infra/k8s/platform/manifests/lakekeeper/`),
-> conforme a
+> The default Compose stack **no longer includes an Iceberg REST
+> Catalog**. Apache Polaris was removed from Compose on 2026-04-30
+> (PR #61) and from the OpenFoundry Helm charts; on Kubernetes the only
+> supported catalog is **Lakekeeper** (`infra/helm/infra/manifests/lakekeeper/`),
+> in line with
 > [ADR-0008](../architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md).
-> Los flujos DX que necesiten un catálogo Iceberg local deben apuntar
-> a un Lakekeeper desplegado fuera del Compose (p. ej. minikube/kind +
-> `infra/k8s/platform/manifests/lakekeeper/`); ningún servicio del workspace lo consume
-> directamente desde el stack Compose.
+> DX flows that need a local Iceberg catalog must point to a Lakekeeper
+> deployed outside of Compose (e.g. minikube/kind +
+> `infra/helm/infra/manifests/lakekeeper/`); no workspace service consumes
+> it directly from the Compose stack.
 
-> Meilisearch ya **no** forma parte del stack DX por defecto. Sigue
-> disponible como demostración de "first-run" bajo el perfil opcional
-> `--profile demo` de `infra/docker-compose.dev.yml`; ningún servicio ni
-> test depende de él (consolidación 2026-04 en
+> Meilisearch is **no** longer part of the default DX stack. It remains
+> available as a "first-run" demo under the optional
+> `--profile demo` of `infra/docker-compose.dev.yml`; no service or
+> test depends on it (2026-04 consolidation in
 > [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md)).
 
-> Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
-> (Apache-2.0). Por ahora pgvector cubre el caso embebido. La búsqueda
-> lexical + vectorial + ranking en producción se concentra en Vespa, no en
-> OpenSearch — ver
+> Qdrant is retired due to an OSS license restriction; future replacement: Vespa
+> (Apache-2.0). For now pgvector covers the embedded case. Lexical + vector +
+> ranking search in production is concentrated in Vespa, not in
+> OpenSearch — see
 > [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md).
 
 Development overrides live in `infra/docker-compose.dev.yml`.
@@ -48,57 +48,59 @@ Development overrides live in `infra/docker-compose.dev.yml`.
 
 Kubernetes delivery is split into two layers:
 
-- `infra/k8s/platform/` owns third-party releases, operator CRs,
+- `infra/helm/infra/` owns third-party releases, operator CRs,
   bootstrap manifests and runtime packages.
-- `infra/k8s/helm/` owns the five OpenFoundry application releases.
+- `infra/helm/apps/` owns the six OpenFoundry application releases (plus
+  the `of-shared` library chart).
 
-The app layer is split into five release-aligned charts:
+The app layer is split into six release-aligned charts:
 
 ```text
-infra/k8s/helm/
+infra/helm/apps/
 ├── of-platform
 ├── of-data-engine
 ├── of-ontology
 ├── of-ml-aip
 ├── of-apps-ops
+├── of-web
 └── of-shared
 ```
 
-Cross-release environment posture lives in `infra/k8s/helm/profiles/`,
+Cross-release environment posture lives in `infra/helm/apps/profiles/`,
 while each release keeps its own `values-{dev,staging,prod}.yaml`.
 Install platform first, then apps:
 
 ```bash
-cd infra/k8s/platform && helmfile -e prod apply
-cd infra/k8s/helm && helmfile -e prod apply
+cd infra/helm/infra && helmfile -e prod apply
+cd infra/helm/apps && helmfile -e prod apply
 ```
 
 The supported render entrypoints are:
 
 ```bash
-cd infra/k8s/platform && helmfile -e prod template --args "--api-versions monitoring.coreos.com/v1/PodMonitor" > /tmp/openfoundry-platform-prod.yaml
-cd infra/k8s/helm && helmfile -e prod template > /tmp/openfoundry-prod.yaml
+cd infra/helm/infra && helmfile -e prod template --args "--api-versions monitoring.coreos.com/v1/PodMonitor" > /tmp/openfoundry-platform-prod.yaml
+cd infra/helm/apps && helmfile -e prod template > /tmp/openfoundry-prod.yaml
 ```
 
 ## Environment Overlays
 
 Shared profiles:
 
-- `infra/k8s/helm/profiles/values-dev.yaml`
-- `infra/k8s/helm/profiles/values-staging.yaml`
-- `infra/k8s/helm/profiles/values-prod.yaml`
-- `infra/k8s/helm/profiles/values-airgap.yaml`
-- `infra/k8s/helm/profiles/values-apollo.yaml`
-- `infra/k8s/helm/profiles/values-multicloud.yaml`
-- `infra/k8s/helm/profiles/values-sovereign-eu.yaml`
+- `infra/helm/apps/profiles/values-dev.yaml`
+- `infra/helm/apps/profiles/values-staging.yaml`
+- `infra/helm/apps/profiles/values-prod.yaml`
+- `infra/helm/apps/profiles/values-airgap.yaml`
+- `infra/helm/apps/profiles/values-apollo.yaml`
+- `infra/helm/apps/profiles/values-multicloud.yaml`
+- `infra/helm/apps/profiles/values-sovereign-eu.yaml`
 
 Per-release overlays:
 
-- `infra/k8s/helm/of-platform/values-{dev,staging,prod}.yaml`
-- `infra/k8s/helm/of-data-engine/values-{dev,staging,prod}.yaml`
-- `infra/k8s/helm/of-ontology/values-{dev,staging,prod}.yaml`
-- `infra/k8s/helm/of-ml-aip/values-{dev,staging,prod}.yaml`
-- `infra/k8s/helm/of-apps-ops/values-{dev,staging,prod}.yaml`
+- `infra/helm/apps/of-platform/values-{dev,staging,prod}.yaml`
+- `infra/helm/apps/of-data-engine/values-{dev,staging,prod}.yaml`
+- `infra/helm/apps/of-ontology/values-{dev,staging,prod}.yaml`
+- `infra/helm/apps/of-ml-aip/values-{dev,staging,prod}.yaml`
+- `infra/helm/apps/of-apps-ops/values-{dev,staging,prod}.yaml`
 
 This layout signals that the repository is designed to support more than one operational profile instead of a single one-size-fits-all manifest.
 
@@ -147,14 +149,14 @@ referenced by `global.existingSecret`:
 ### Development (RustFS)
 
 In dev we run **RustFS** (Apache-2.0, S3-compatible) — not MinIO. The
-shared profile `infra/k8s/helm/profiles/values-dev.yaml` pins
+shared profile `infra/helm/apps/profiles/values-dev.yaml` pins
 `objectStore.backend: rustfs` and endpoint `http://rustfs:9000`.
 Credentials live in the dev secret `open-foundry-dev-env`.
 
 ### Production (Ceph RGW via Rook)
 
 In prod the backend is **Ceph RGW** operated by **Rook** (Apache-2.0). The
-shared profile `infra/k8s/helm/profiles/values-prod.yaml` sets:
+shared profile `infra/helm/apps/profiles/values-prod.yaml` sets:
 
 ```yaml
 objectStore:
@@ -166,7 +168,7 @@ To deploy / re-point production at Ceph:
 
 1. Apply the Rook stack — either via the Terraform module
    `infra/terraform/modules/ceph` (recommended) or by `kubectl apply -f
-   infra/k8s/platform/manifests/rook/`. See `infra/runbooks/ceph.md`.
+   infra/helm/infra/manifests/rook/`. See `infra/runbooks/ceph.md`.
 2. Wait until the `ObjectBucketClaim`s for `openfoundry-datasets`,
    `openfoundry-models`, and `openfoundry-iceberg` reach `Bound`.
 3. Project the OBC credentials and the RGW endpoint into the platform
@@ -188,58 +190,56 @@ To deploy / re-point production at Ceph:
 4. Roll the workloads to pick up the new secret:
 
    ```bash
-   cd infra/k8s/helm && helmfile -e prod apply
+   cd infra/helm/apps && helmfile -e prod apply
    ```
 
 The full E2E procedure (OBC creation, credential extraction, smoke test,
 expansion, disaster recovery) lives in `infra/runbooks/ceph.md`.
 ## Iceberg REST Catalog
 
-OpenFoundry usa **Lakekeeper** como Iceberg REST Catalog en Kubernetes, por
+OpenFoundry uses **Lakekeeper** as the Iceberg REST Catalog on Kubernetes, per
 [ADR-0008](../architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md).
-El antiguo subchart `charts/iceberg-catalog` (Apache Polaris) fue retirado:
-ya no forma parte de los charts Helm de OpenFoundry. La URL del catálogo
-REST en el clúster se publica como `icebergRestCatalog.url` en
-`infra/k8s/helm/profiles/values-{dev,prod}.yaml` y los manifiestos vivos
-están bajo `infra/k8s/platform/manifests/lakekeeper/` (ver `infra/k8s/platform/manifests/lakekeeper/README.md`).
+The former `charts/iceberg-catalog` subchart (Apache Polaris) has been retired:
+it is no longer part of the OpenFoundry Helm charts. The in-cluster REST
+catalog URL is published as `icebergRestCatalog.url` in
+`infra/helm/apps/profiles/values-{dev,prod}.yaml`, and the live manifests
+are under `infra/helm/infra/manifests/lakekeeper/` (see `infra/helm/infra/manifests/lakekeeper/README.md`).
 
 ### Local (Docker Compose)
 
-El stack Compose para desarrollo **ya no levanta** un Iceberg REST Catalog
-propio. Apache Polaris (`apache/polaris` + `apache/polaris-admin-tool`) y
-sus servicios `iceberg-catalog-bootstrap` / `iceberg-catalog` fueron
-eliminados de `infra/docker-compose.yml` el 2026-04-30 para cerrar la
-divergencia compose ↔ Kubernetes que dejaba [ADR-0008](../architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md):
-si Lakekeeper es el único catálogo en producción, exponer Polaris en el
-DX por defecto generaba dependencias accidentales sobre un componente
-retirado.
+The development Compose stack **no longer starts** its own Iceberg REST
+Catalog. Apache Polaris (`apache/polaris` + `apache/polaris-admin-tool`) and
+its `iceberg-catalog-bootstrap` / `iceberg-catalog` services were
+removed from `infra/compose/docker-compose.yml` on 2026-04-30 to close the
+compose ↔ Kubernetes divergence left by [ADR-0008](../architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md):
+if Lakekeeper is the only catalog in production, exposing Polaris in
+DX by default created accidental dependencies on a retired component.
 
-Los servicios que integran con Iceberg leen `ICEBERG_CATALOG_URL` cuando
-se activa el backend Iceberg. En `dataset-versioning-service`, Iceberg es
-el backend por defecto: si `DATASET_WRITER_BACKEND` no está definido, el
-servicio arranca como `iceberg` y falla en arranque si
-`ICEBERG_CATALOG_URL` no está definida. El writer legacy solo se usa
-cuando el backend configurado es explícitamente `legacy`. Para ejercitar
-el camino Iceberg en local,
-apunta esa variable a un Lakekeeper externo accesible desde los
-contenedores.
+Services that integrate with Iceberg read `ICEBERG_CATALOG_URL` when
+the Iceberg backend is enabled. In `dataset-versioning-service`, Iceberg is
+the default backend: if `DATASET_WRITER_BACKEND` is not set, the
+service starts up as `iceberg` and fails on startup if
+`ICEBERG_CATALOG_URL` is not set. The legacy writer is only used
+when the configured backend is explicitly `legacy`. To exercise
+the Iceberg path locally,
+point that variable to an external Lakekeeper reachable from the
+containers.
 
-### Variables de entorno (Compose)
+### Environment variables (Compose)
 
-Sin servicio Polaris en Compose ya no quedan variables propias del
-catálogo en `infra/docker-compose.yml`. La variable relacionada con
-Iceberg es obligatoria para los servicios que arranquen con backend
-Iceberg:
+With no Polaris service in Compose there are no longer any catalog-specific
+variables in `infra/compose/docker-compose.yml`. The Iceberg-related variable
+is required for services that start with the Iceberg backend:
 
-| Variable | Default | Propósito |
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| `ICEBERG_CATALOG_URL` | _unset_ | URL del Iceberg REST Catalog que consumirán los servicios con backend Iceberg. |
-| `OPENFOUNDRY_POSTGRES_EXTRA_DATABASES` | _empty_ | DBs extra opcionales creadas en el primer arranque de Postgres por `infra/local/postgres-init/01-create-databases.sh`. |
+| `ICEBERG_CATALOG_URL` | _unset_ | URL of the Iceberg REST Catalog consumed by services running the Iceberg backend. |
+| `OPENFOUNDRY_POSTGRES_EXTRA_DATABASES` | _empty_ | Optional extra DBs created on the first Postgres startup by `infra/local/postgres-init/01-create-databases.sh`. |
 
 ### Kubernetes
 
-En Kubernetes el catálogo Iceberg lo provee **Lakekeeper** (manifiestos en
-`infra/k8s/platform/manifests/lakekeeper/`). El subchart `charts/iceberg-catalog` (Polaris)
-existió como alternativa interna pero fue retirado por
+On Kubernetes the Iceberg catalog is provided by **Lakekeeper** (manifests in
+`infra/helm/infra/manifests/lakekeeper/`). The `charts/iceberg-catalog` subchart (Polaris)
+existed as an internal alternative but was retired by
 [ADR-0008](../architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md);
-el chart parent ya no lo declara como dependencia.
+the parent chart no longer declares it as a dependency.

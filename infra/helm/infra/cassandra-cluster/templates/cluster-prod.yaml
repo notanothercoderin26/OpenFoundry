@@ -19,8 +19,7 @@
 #   * Reaper runs PER_DC with sub-range parallelism, weekly per
 #     keyspace. Medusa backs up to a Ceph S3 bucket per DC, retention
 #     30 days.
-#   * Stargate disabled. Services use the `scylla` Rust crate over CQL
-#     directly.
+#   * Stargate disabled. Services talk CQL directly via `gocql/gocql`.
 #   * mTLS between nodes and between client and node.
 #
 # Capacity sizing (per pod, baseline; adjust per environment):

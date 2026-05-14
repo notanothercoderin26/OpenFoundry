@@ -24,25 +24,29 @@ type GalleryConnector struct {
 }
 
 type ConnectionEffectiveCapabilities struct {
-	ConnectionID                uuid.UUID      `json:"connection_id"`
-	ConnectorType               string         `json:"connector_type"`
-	Status                      string         `json:"status"`
-	Modes                       []string       `json:"modes"`
-	Workers                     []string       `json:"workers"`
-	SupportsConnectionTesting   bool           `json:"supports_connection_testing"`
-	SupportsDiscovery           bool           `json:"supports_discovery"`
-	SupportsSchemaIntrospection bool           `json:"supports_schema_introspection"`
-	SupportsIncremental         bool           `json:"supports_incremental"`
-	SupportsCDC                 bool           `json:"supports_cdc"`
-	SupportsZeroCopy            bool           `json:"supports_zero_copy"`
-	SupportsPrivateNetworkAgent bool           `json:"supports_private_network_agent"`
-	RequiresPrivateNetworkAgent bool           `json:"requires_private_network_agent"`
-	PrivateNetworkEgressAllowed bool           `json:"private_network_egress_allowed"`
-	AllowedEgressHosts          []string       `json:"allowed_egress_hosts"`
-	ConfigKeys                  []string       `json:"config_keys"`
-	ConfigInferred              ConfigInferred `json:"config_inferred"`
-	PolicyWarnings              []string       `json:"policy_warnings"`
-	FoundryCompute              FoundryCompute `json:"foundry_compute"`
+	ConnectionID                uuid.UUID        `json:"connection_id"`
+	ConnectorType               string           `json:"connector_type"`
+	Status                      string           `json:"status"`
+	Modes                       []string         `json:"modes"`
+	Workers                     []string         `json:"workers"`
+	SupportsConnectionTesting   bool             `json:"supports_connection_testing"`
+	SupportsDiscovery           bool             `json:"supports_discovery"`
+	SupportsSchemaIntrospection bool             `json:"supports_schema_introspection"`
+	SupportsIncremental         bool             `json:"supports_incremental"`
+	SupportsCDC                 bool             `json:"supports_cdc"`
+	SupportsZeroCopy            bool             `json:"supports_zero_copy"`
+	SupportsFileExport          bool             `json:"supports_file_export"`
+	SupportsTableExport         bool             `json:"supports_table_export"`
+	SupportsStreamingExport     bool             `json:"supports_streaming_export"`
+	SupportedExportTypes        []DataExportType `json:"supported_export_types"`
+	SupportsPrivateNetworkAgent bool             `json:"supports_private_network_agent"`
+	RequiresPrivateNetworkAgent bool             `json:"requires_private_network_agent"`
+	PrivateNetworkEgressAllowed bool             `json:"private_network_egress_allowed"`
+	AllowedEgressHosts          []string         `json:"allowed_egress_hosts"`
+	ConfigKeys                  []string         `json:"config_keys"`
+	ConfigInferred              ConfigInferred   `json:"config_inferred"`
+	PolicyWarnings              []string         `json:"policy_warnings"`
+	FoundryCompute              FoundryCompute   `json:"foundry_compute"`
 }
 
 type ConfigInferred struct {
@@ -67,11 +71,12 @@ var availableConnectorTypes = map[string]struct{}{
 // is not missing specialized connectors that are still scaffolded in Rust.
 func ConnectorProfiles() []ConnectorContractProfile {
 	return []ConnectorContractProfile{
-		sqlProfile("postgresql", "PostgreSQL", false),
-		sqlProfile("postgres", "PostgreSQL", false),
+		sqlProfile("postgresql", "PostgreSQL", true),
+		sqlProfile("postgres", "PostgreSQL", true),
 		sqlProfile("mysql", "MySQL", false),
-		sqlProfile("mssql", "Microsoft SQL Server", false),
-		sqlProfile("oracle", "Oracle Database", false),
+		sqlProfile("mssql", "Microsoft SQL Server", true),
+		sqlProfile("oracle", "Oracle Database", true),
+		sqlProfile("db2", "IBM Db2", true),
 		driverProfile("odbc", "ODBC"),
 		driverProfile("jdbc", "JDBC"),
 		warehouseProfile("snowflake", "Snowflake"),

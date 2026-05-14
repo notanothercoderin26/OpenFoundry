@@ -5,6 +5,11 @@ import {
   capabilityChips,
   providerLabel,
   tableTypeLabel,
+  virtualTableExternalReference,
+  virtualTableOwner,
+  virtualTablePermissionsLabel,
+  virtualTableSaveLocation,
+  virtualTableSchemaSummary,
   virtualTables,
   type Capabilities,
   type TableType,
@@ -213,7 +218,7 @@ export function VirtualTablesPage() {
           <table data-testid="virtual-tables-grid" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead style={{ background: 'var(--bg-subtle)' }}>
               <tr>
-                {['Name', 'Source', 'Provider', 'Type', 'Capabilities', 'Project', 'Markings', 'Created'].map((h) => (
+                {['Name', 'External table', 'Source', 'Provider', 'Type', 'Schema / capabilities', 'Save location', 'Owner', 'Permissions', 'Created'].map((h) => (
                   <th key={h} style={{ textAlign: 'left', padding: '10px 14px', borderBottom: '1px solid var(--border-default)', fontWeight: 600 }}>
                     {h}
                   </th>
@@ -227,6 +232,9 @@ export function VirtualTablesPage() {
                     <Link to={`/virtual-tables/${encodeURIComponent(row.rid)}`} data-testid="vt-row-link">
                       {row.name}
                     </Link>
+                  </td>
+                  <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-default)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                    {virtualTableExternalReference(row)}
                   </td>
                   <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-default)' }}>
                     <Link
@@ -245,6 +253,7 @@ export function VirtualTablesPage() {
                   </td>
                   <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-default)' }}>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      <span className="of-chip">{virtualTableSchemaSummary(row)}</span>
                       {chips(row.capabilities).map((chip) => (
                         <span key={chip} className="of-chip" data-testid="vt-cap-chip">
                           {chip}
@@ -258,14 +267,13 @@ export function VirtualTablesPage() {
                     </div>
                   </td>
                   <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-default)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                    {row.project_rid}
+                    {virtualTableSaveLocation(row)}
                   </td>
                   <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-default)' }}>
-                    {row.markings.map((marking) => (
-                      <span key={marking} className="of-chip" style={{ marginRight: 4 }}>
-                        {marking}
-                      </span>
-                    ))}
+                    {virtualTableOwner(row) || <span className="of-text-muted">—</span>}
+                  </td>
+                  <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-default)', maxWidth: 260 }}>
+                    {virtualTablePermissionsLabel(row)}
                   </td>
                   <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-default)', fontSize: 11 }}>
                     {new Date(row.created_at).toLocaleDateString()}

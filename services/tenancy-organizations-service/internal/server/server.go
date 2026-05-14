@@ -14,7 +14,6 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
-	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/config"
@@ -23,7 +22,7 @@ import (
 )
 
 // New builds the http.Server for the foundation slice + workspace surface.
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *handlers.ProjectsHandlers, sh *handlers.SpacesHandlers, ws *workspace.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *handlers.ProjectsHandlers, ws *workspace.Handlers, m *observability.Metrics) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -33,13 +32,6 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *ha
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
-
-	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
-	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
-	for _, p := range probes {
-		caps.RegisterDependency(p)
-	}
-	caps.Mount(r)
 
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
@@ -55,7 +47,6 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *ha
 		api.Delete("/enrollments/{id}", h.DeleteEnrollment)
 
 		api.Get("/projects", ph.ListProjects)
-		api.Get("/projects/templates", ph.ListTemplates)
 		api.Post("/projects", ph.CreateProject)
 		api.Get("/projects/{id}", ph.GetProject)
 		api.Patch("/projects/{id}", ph.UpdateProject)
@@ -68,13 +59,6 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *ha
 		api.Get("/projects/{id}/resources", ph.ListProjectResources)
 		api.Post("/projects/{id}/resources", ph.BindProjectResource)
 		api.Delete("/projects/{id}/resources/{kind}/{resource_id}", ph.UnbindProjectResource)
-
-		// Nexus spaces — the gateway forwards `/api/v1/nexus/spaces`
-		// here (see edge-gateway-service router_table.go), and the
-		// frontend hits the same path (apps/web/src/lib/api/nexus.ts).
-		api.Get("/nexus/spaces", sh.ListSpaces)
-		api.Post("/nexus/spaces", sh.CreateSpace)
-		api.Patch("/nexus/spaces/{id}", sh.UpdateSpace)
 
 		api.Route("/workspace", func(wr chi.Router) {
 			wr.Get("/favorites", ws.ListFavorites)
@@ -93,19 +77,8 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *ha
 			wr.Post("/resources/{kind}/{id}/duplicate", ws.DuplicateResource)
 			wr.Delete("/resources/{kind}/{id}", ws.SoftDeleteResource)
 			wr.Post("/resources/batch", ws.BatchApply)
-			wr.Get("/trash", ws.ListTrash)
-			wr.Post("/resources/{kind}/{id}/restore", ws.RestoreResource)
-			wr.Delete("/resources/{kind}/{id}/purge", ws.PurgeResource)
 		})
 	})
-
-	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
-		IDPrefix:  "tenancy",
-		AuthPaths: []string{"/api/v1"},
-		Tags:      []string{"tenancy"},
-	}); err != nil {
-		panic("tenancy-organizations-service: capability ingest failed: " + err.Error())
-	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{

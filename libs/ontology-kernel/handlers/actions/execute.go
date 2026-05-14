@@ -2342,9 +2342,9 @@ func loadAndAuthorizeTarget(
 	return obj, nil
 }
 
-// ensureActionTargetPermission mirrors
-// `pub(crate) fn ensure_action_target_permission`. When the policy
-// declares allowed_markings, the target's marking must intersect.
+// ensureActionTargetPermission checks the target's marking against
+// the action's allowed_markings policy. When the policy declares
+// allowed_markings, the target's marking must intersect.
 func ensureActionTargetPermission(action models.ActionType, target *domain.ObjectInstance) error {
 	if len(action.AuthorizationPolicy.AllowedMarkings) == 0 {
 		return nil

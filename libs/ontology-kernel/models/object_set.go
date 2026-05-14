@@ -11,10 +11,10 @@ import (
 // `struct ObjectSetPolicy`. `allowed_markings` and `deny_guest_sessions`
 // are `#[serde(default)]`.
 type ObjectSetPolicy struct {
-	AllowedMarkings           []string   `json:"allowed_markings"`
-	MinimumClearance          *string    `json:"minimum_clearance"`
-	DenyGuestSessions         bool       `json:"deny_guest_sessions"`
-	RequiredRestrictedViewID  *uuid.UUID `json:"required_restricted_view_id"`
+	AllowedMarkings          []string   `json:"allowed_markings"`
+	MinimumClearance         *string    `json:"minimum_clearance"`
+	DenyGuestSessions        bool       `json:"deny_guest_sessions"`
+	RequiredRestrictedViewID *uuid.UUID `json:"required_restricted_view_id"`
 }
 
 // UnmarshalJSON applies the Rust `#[serde(default)]` defaults — empty
@@ -52,10 +52,10 @@ type ObjectSetFilter struct {
 
 // ObjectSetTraversal mirrors `struct ObjectSetTraversal`.
 type ObjectSetTraversal struct {
-	Direction           string     `json:"direction"`
-	LinkTypeID          *uuid.UUID `json:"link_type_id"`
-	TargetObjectTypeID  *uuid.UUID `json:"target_object_type_id"`
-	MaxHops             int32      `json:"max_hops"`
+	Direction          string     `json:"direction"`
+	LinkTypeID         *uuid.UUID `json:"link_type_id"`
+	TargetObjectTypeID *uuid.UUID `json:"target_object_type_id"`
+	MaxHops            int32      `json:"max_hops"`
 }
 
 // ObjectSetJoin mirrors `struct ObjectSetJoin`.
@@ -78,6 +78,14 @@ type ObjectSetDefinition struct {
 	Projections          []string             `json:"projections"`
 	WhatIfLabel          *string              `json:"what_if_label"`
 	Policy               ObjectSetPolicy      `json:"policy"`
+	Kind                 string               `json:"kind"`
+	QueryState           json.RawMessage      `json:"query_state"`
+	Layout               json.RawMessage      `json:"layout"`
+	Privacy              string               `json:"privacy"`
+	ProjectID            *uuid.UUID           `json:"project_id"`
+	FolderPath           string               `json:"folder_path"`
+	ShareSlug            string               `json:"share_slug"`
+	SelectedObjectIDs    []string             `json:"selected_object_ids"`
 	MaterializedSnapshot json.RawMessage      `json:"materialized_snapshot"`
 	MaterializedAt       *time.Time           `json:"materialized_at"`
 	MaterializedRowCount int32                `json:"materialized_row_count"`
@@ -90,15 +98,23 @@ type ObjectSetDefinition struct {
 // fields `description`, `filters`, `traversals`, `projections`, `policy`
 // are `#[serde(default)]` in Rust.
 type CreateObjectSetRequest struct {
-	Name             string               `json:"name"`
-	Description      string               `json:"description"`
-	BaseObjectTypeID uuid.UUID            `json:"base_object_type_id"`
-	Filters          []ObjectSetFilter    `json:"filters"`
-	Traversals       []ObjectSetTraversal `json:"traversals"`
-	Join             *ObjectSetJoin       `json:"join,omitempty"`
-	Projections      []string             `json:"projections"`
-	WhatIfLabel      *string              `json:"what_if_label,omitempty"`
-	Policy           ObjectSetPolicy      `json:"policy"`
+	Name              string               `json:"name"`
+	Description       string               `json:"description"`
+	BaseObjectTypeID  uuid.UUID            `json:"base_object_type_id"`
+	Filters           []ObjectSetFilter    `json:"filters"`
+	Traversals        []ObjectSetTraversal `json:"traversals"`
+	Join              *ObjectSetJoin       `json:"join,omitempty"`
+	Projections       []string             `json:"projections"`
+	WhatIfLabel       *string              `json:"what_if_label,omitempty"`
+	Policy            ObjectSetPolicy      `json:"policy"`
+	Kind              string               `json:"kind"`
+	QueryState        json.RawMessage      `json:"query_state"`
+	Layout            json.RawMessage      `json:"layout"`
+	Privacy           string               `json:"privacy"`
+	ProjectID         *uuid.UUID           `json:"project_id,omitempty"`
+	FolderPath        string               `json:"folder_path"`
+	ShareSlug         string               `json:"share_slug"`
+	SelectedObjectIDs []string             `json:"selected_object_ids"`
 }
 
 // UnmarshalJSON applies Rust `#[serde(default)]` defaults.
@@ -121,20 +137,46 @@ func (r *CreateObjectSetRequest) UnmarshalJSON(b []byte) error {
 	if r.Policy.AllowedMarkings == nil {
 		r.Policy.AllowedMarkings = []string{}
 	}
+	if r.Kind == "" {
+		r.Kind = "exploration"
+	}
+	if len(r.QueryState) == 0 || string(r.QueryState) == "null" {
+		r.QueryState = json.RawMessage("{}")
+	}
+	if len(r.Layout) == 0 || string(r.Layout) == "null" {
+		r.Layout = json.RawMessage("{}")
+	}
+	if r.Privacy == "" {
+		r.Privacy = "private"
+	}
+	if r.FolderPath == "" {
+		r.FolderPath = "/home/Explorations"
+	}
+	if r.SelectedObjectIDs == nil {
+		r.SelectedObjectIDs = []string{}
+	}
 	return nil
 }
 
 // UpdateObjectSetRequest mirrors `struct UpdateObjectSetRequest`.
 type UpdateObjectSetRequest struct {
-	Name             *string               `json:"name,omitempty"`
-	Description      *string               `json:"description,omitempty"`
-	BaseObjectTypeID *uuid.UUID            `json:"base_object_type_id,omitempty"`
-	Filters          *[]ObjectSetFilter    `json:"filters,omitempty"`
-	Traversals       *[]ObjectSetTraversal `json:"traversals,omitempty"`
-	Join             *ObjectSetJoin        `json:"join,omitempty"`
-	Projections      *[]string             `json:"projections,omitempty"`
-	WhatIfLabel      *string               `json:"what_if_label,omitempty"`
-	Policy           *ObjectSetPolicy      `json:"policy,omitempty"`
+	Name              *string               `json:"name,omitempty"`
+	Description       *string               `json:"description,omitempty"`
+	BaseObjectTypeID  *uuid.UUID            `json:"base_object_type_id,omitempty"`
+	Filters           *[]ObjectSetFilter    `json:"filters,omitempty"`
+	Traversals        *[]ObjectSetTraversal `json:"traversals,omitempty"`
+	Join              *ObjectSetJoin        `json:"join,omitempty"`
+	Projections       *[]string             `json:"projections,omitempty"`
+	WhatIfLabel       *string               `json:"what_if_label,omitempty"`
+	Policy            *ObjectSetPolicy      `json:"policy,omitempty"`
+	Kind              *string               `json:"kind,omitempty"`
+	QueryState        *json.RawMessage      `json:"query_state,omitempty"`
+	Layout            *json.RawMessage      `json:"layout,omitempty"`
+	Privacy           *string               `json:"privacy,omitempty"`
+	ProjectID         *uuid.UUID            `json:"project_id,omitempty"`
+	FolderPath        *string               `json:"folder_path,omitempty"`
+	ShareSlug         *string               `json:"share_slug,omitempty"`
+	SelectedObjectIDs *[]string             `json:"selected_object_ids,omitempty"`
 }
 
 // EvaluateObjectSetRequest mirrors `struct EvaluateObjectSetRequest`.

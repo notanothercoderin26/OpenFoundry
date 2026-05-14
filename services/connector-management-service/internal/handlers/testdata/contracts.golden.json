@@ -25,7 +25,7 @@
           "zero_copy"
         ],
         "supports_incremental": true,
-        "supports_cdc": false,
+        "supports_cdc": true,
         "supports_zero_copy": true
       },
       "observability": {
@@ -47,8 +47,8 @@
         ]
       },
       "certification": {
-        "level": "advanced",
-        "runtime_depth": "batch_incremental_zero_copy",
+        "level": "certified",
+        "runtime_depth": "batch_incremental_cdc_zero_copy",
         "auth": "certified",
         "observability": "advanced",
         "schema_evolution": "advanced",
@@ -84,7 +84,7 @@
           "zero_copy"
         ],
         "supports_incremental": true,
-        "supports_cdc": false,
+        "supports_cdc": true,
         "supports_zero_copy": true
       },
       "observability": {
@@ -106,8 +106,8 @@
         ]
       },
       "certification": {
-        "level": "advanced",
-        "runtime_depth": "batch_incremental_zero_copy",
+        "level": "certified",
+        "runtime_depth": "batch_incremental_cdc_zero_copy",
         "auth": "certified",
         "observability": "advanced",
         "schema_evolution": "advanced",
@@ -202,7 +202,7 @@
           "zero_copy"
         ],
         "supports_incremental": true,
-        "supports_cdc": false,
+        "supports_cdc": true,
         "supports_zero_copy": true
       },
       "observability": {
@@ -224,8 +224,8 @@
         ]
       },
       "certification": {
-        "level": "advanced",
-        "runtime_depth": "batch_incremental_zero_copy",
+        "level": "certified",
+        "runtime_depth": "batch_incremental_cdc_zero_copy",
         "auth": "certified",
         "observability": "advanced",
         "schema_evolution": "advanced",
@@ -261,7 +261,7 @@
           "zero_copy"
         ],
         "supports_incremental": true,
-        "supports_cdc": false,
+        "supports_cdc": true,
         "supports_zero_copy": true
       },
       "observability": {
@@ -283,8 +283,67 @@
         ]
       },
       "certification": {
-        "level": "advanced",
-        "runtime_depth": "batch_incremental_zero_copy",
+        "level": "certified",
+        "runtime_depth": "batch_incremental_cdc_zero_copy",
+        "auth": "certified",
+        "observability": "advanced",
+        "schema_evolution": "advanced",
+        "performance_posture": "advanced",
+        "failure_handling": "advanced"
+      },
+      "notes": [
+        "Shared SQL connector contract with validation, discovery and virtual tables."
+      ]
+    },
+    {
+      "connector_type": "db2",
+      "display_name": "IBM Db2",
+      "template_family": "sql_tabular",
+      "auth": {
+        "strategy": "username_password",
+        "secret_fields": [
+          "user",
+          "password"
+        ],
+        "supports_oauth": false,
+        "supports_private_network_agent": false
+      },
+      "testing": {
+        "supports_connection_testing": true,
+        "supports_discovery": true,
+        "supports_schema_introspection": true
+      },
+      "sync": {
+        "modes": [
+          "batch",
+          "incremental",
+          "zero_copy"
+        ],
+        "supports_incremental": true,
+        "supports_cdc": true,
+        "supports_zero_copy": true
+      },
+      "observability": {
+        "retries": true,
+        "status_tracking": true,
+        "source_signatures": true
+      },
+      "builder": {
+        "scaffold_kind": "sql_connector",
+        "reusable_components": [
+          "connection_testing",
+          "schema_introspection",
+          "virtual_tables",
+          "bulk_registration"
+        ],
+        "example_targets": [
+          "postgresql",
+          "mysql"
+        ]
+      },
+      "certification": {
+        "level": "certified",
+        "runtime_depth": "batch_incremental_cdc_zero_copy",
         "auth": "certified",
         "observability": "advanced",
         "schema_evolution": "advanced",
@@ -1912,8 +1971,8 @@
     }
   ],
   "certification_summary": {
-    "certified_connectors": 3,
-    "advanced_connectors": 30,
+    "certified_connectors": 8,
+    "advanced_connectors": 26,
     "connectors_needing_hardening": 0,
     "template_families": [
       "bi_semantic",

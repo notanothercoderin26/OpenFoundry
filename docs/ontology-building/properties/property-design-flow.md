@@ -15,9 +15,9 @@ Property design should follow a repeatable path instead of ad hoc field creation
 ```text
 semantic designer
   -> object type design
-  -> property CRUD in ontology-service
-  -> object creation and mutation flows
-  -> query/search/application consumption
+  -> property CRUD in ontology-definition-service
+  -> object creation and mutation flows (via ontology-actions-service, persisted by object-database-service)
+  -> query/search/application consumption (via ontology-query-service)
 ```
 
 ## Why this matters

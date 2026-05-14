@@ -1,32 +1,32 @@
-# 10 — Seguridad y gobierno
+# 10 — Security and governance
 
-> Para un cliente enterprise (especialmente en aviación) **la primera pregunta que harán** después del "wow" es: *"¿es esto seguro y auditable?"*. Este documento prepara la respuesta.
+> For an enterprise customer (especially in aviation), **the first question they will ask** after the "wow" is: *"is this secure and auditable?"*. This document prepares the answer.
 
 ---
 
-## 👥 Usuarios y roles para la demo
+## 👥 Users and roles for the demo
 
-Crear en Keycloak (realm `openfoundry-poc`):
+Create in Keycloak (realm `openfoundry-poc`):
 
-| Usuario | Email | Rol(es) | Pantalla por defecto |
+| User | Email | Role(s) | Default screen |
 |---|---|---|---|
 | Ana Morales | `ana@acme-airlines.demo` | `ops-controller` | Operations Live |
 | Luis García | `luis@acme-airlines.demo` | `mro-lead` | Fleet Health |
-| Marta Ríos | `marta@acme-airlines.demo` | `duty-manager` | Operations Live (con inbox aprobaciones) |
-| Diego Ruiz | `diego@acme-airlines.demo` | `mro-engineer` | tarea asignada (vista limitada) |
-| Admin | `admin@acme-airlines.demo` | `platform-admin` | reservado para reset |
+| Marta Ríos | `marta@acme-airlines.demo` | `duty-manager` | Operations Live (with approvals inbox) |
+| Diego Ruiz | `diego@acme-airlines.demo` | `mro-engineer` | assigned task (restricted view) |
+| Admin | `admin@acme-airlines.demo` | `platform-admin` | reserved for reset |
 
-Contraseñas: gestionadas por sopa, **nunca en el repo**. Generadas con `pwgen 24 1`.
+Passwords: managed by sops, **never in the repo**. Generated with `pwgen 24 1`.
 
 ---
 
-## 🛡️ Política RBAC (resumen)
+## 🛡️ RBAC policy (summary)
 
-Matriz de permisos sobre acciones de la ontología:
+Permission matrix over ontology actions:
 
-| Acción | ops-controller | mro-lead | mro-engineer | duty-manager | platform-admin |
+| Action | ops-controller | mro-lead | mro-engineer | duty-manager | platform-admin |
 |---|:---:|:---:|:---:|:---:|:---:|
-| Read all objects | ✅ | ✅ | ⚠ (solo asignados) | ✅ | ✅ |
+| Read all objects | ✅ | ✅ | ⚠ (assigned only) | ✅ | ✅ |
 | `acknowledge-delay-risk` | ✅ | ⛔ | ⛔ | ✅ | ✅ |
 | `flag-aircraft-for-inspection` | ⛔ | ✅ | ⛔ | ✅ | ✅ |
 | `assign-maintenance-event` | ⛔ | ✅ | ⛔ | ✅ | ✅ |
@@ -35,7 +35,7 @@ Matriz de permisos sobre acciones de la ontología:
 | Manage ontology definitions | ⛔ | ⛔ | ⛔ | ⛔ | ✅ |
 | Branch datasets | ⛔ | ⛔ | ⛔ | ⛔ | ✅ |
 
-Definir como YAML en `authorization-policy-service`:
+Define as YAML in `authorization-policy-service` (Cedar engine, ABAC + RBAC; see libs `authz-cedar-go` and `auth-middleware`):
 
 ```yaml
 policy:
@@ -65,13 +65,13 @@ policy:
         - { resource: "*", verbs: ["*"] }
 ```
 
-> **ABAC además de RBAC**: notar la regla del `mro-engineer` que filtra por `assigned_engineer_id={{user.id}}` — esto es atributo del recurso, no solo rol. Lo mostramos en la demo.
+> **ABAC in addition to RBAC**: note the `mro-engineer` rule that filters by `assigned_engineer_id={{user.id}}` — this is a resource attribute, not just a role. We showcase this in the demo.
 
 ---
 
-## 📜 Audit log — qué se registra
+## 📜 Audit log — what is recorded
 
-`audit-compliance-service` captura **toda** acción de escritura y, opcionalmente, lecturas a recursos sensibles. Cada entry contiene:
+`audit-compliance-service` captures **every** write action and, optionally, reads to sensitive resources. Each entry contains:
 
 ```json
 {
@@ -90,71 +90,72 @@ policy:
 }
 ```
 
-**Inmutabilidad:** los audit entries se replican a S3 con object-lock (mode `COMPLIANCE`, retención 7 años). Mostrar al cliente los buckets con políticas.
+**Immutability:** audit entries are replicated to S3 with object-lock (mode `COMPLIANCE`, 7-year retention). Show the customer the buckets with policies.
 
 ---
 
-## 🔐 Datos sensibles
+## 🔐 Sensitive data
 
-Para la PoC **no hay PII** (solo tail numbers, callsigns, ATA codes). Pero demostramos la capacidad:
-- En el catálogo, etiquetar campos con `pii: true / quasi_pii: true / public: true`.
-- `cipher-service` puede aplicar **field-level encryption** o tokenización.
-- `data-asset-catalog-service` muestra etiquetas y permite consultas "find all PII assets".
-
----
-
-## 🌳 Branches y *time travel* (gobernanza de cambios en datos)
-
-Demostrar:
-1. Branch `feat/risk-model-v2` desde `main` (acción de `mro-lead`+).
-2. Cambio (reentreno modelo).
-3. Diff visual (filas afectadas, métricas comparadas).
-4. Merge → audit entry: quién aprobó, cuándo, qué cambió.
-5. Rollback al snapshot anterior (time travel) en un click.
+For the PoC there is **no PII** (only tail numbers, callsigns, ATA codes). But we demonstrate the capability:
+- In the Iceberg catalog (served by `iceberg-catalog-service`) and in `dataset-versioning-service`, tag columns with `pii: true / quasi_pii: true / public: true`.
+- The `media-scanner` lib (Sensitive Data Scanner) scans media/blobs for PII patterns.
+- **Roadmap**: field-level encryption / tokenization is not implemented as a dedicated service today; when needed it will run as a step prior to the sink in `ingestion-replication-service` (capability pending).
+- The "find all PII assets" search is performed from `apps/web` (`/search`, `/datasets`) and `ontology-query-service`.
 
 ---
 
-## 🔑 Identidad federada
+## 🌳 Branches and *time travel* (governance of data changes)
 
-`identity-federation-service` con OIDC contra Keycloak. **SAML pendiente** según el roadmap; documentar al cliente que se planifica para la fase post-PoC si lo necesitan.
-
----
-
-## 🔒 Aislamiento de red
-
-Para la demo cloud:
-- VPC privada, subnets privadas para servicios internos.
-- ALB público solo para UI + Keycloak.
-- Egress controlado (allowlist: opensky, S3 NOAA, transtats.bts.gov, Azure OpenAI).
-- TLS termination en ALB con cert ACM/Let's Encrypt.
+Demonstrate:
+1. Branch `feat/risk-model-v2` from `main` (`mro-lead`+ action).
+2. Change (model retraining).
+3. Visual diff (rows affected, metrics compared).
+4. Merge → audit entry: who approved, when, what changed.
+5. One-click rollback to the previous snapshot (time travel).
 
 ---
 
-## 🧯 Plan de respuesta si algo "se filtra" en la demo
+## 🔑 Federated identity
 
-(Improbable pero por si acaso)
-- Tenemos `kill-switch.sh` que apaga `apps/web` y muestra una página estática "maintenance".
-- El presentador tiene este script en una pestaña abierta del terminal.
+`identity-federation-service` with OIDC against Keycloak. The service already covers auth, MFA, WebAuthn, OIDC, SAML, RBAC and SCIM (it is one of the services flagged as **security-critical** in `CLAUDE.md`). Sessions live inside `identity-federation-service` itself + the `auth-middleware` lib (there is no separate `session-governance-service`). The tenant model and workspace enrollments are managed by `tenancy-organizations-service`.
 
 ---
 
-## 📋 Compliance — qué decir al cliente
+## 🔒 Network isolation
 
-OpenFoundry **no es** EASA Part-145 ni SOC2 hoy (la PoC no lo certifica). Pero **es compatible** con esos frameworks porque:
-- Audit inmutable y exportable a SIEM.
-- RBAC + ABAC granular.
-- Encryption at rest (KMS-backed) y in transit (TLS 1.3).
-- Lineage end-to-end (clave para auditorías regulatorias).
-- Branches y aprobaciones para cambios controlados (clave para Part-145).
-- Self-hosted: el cliente mantiene el control de los datos.
+For the cloud demo:
+- Private VPC, private subnets for internal services.
+- Public ALB only for UI + Keycloak.
+- Controlled egress (allowlist: opensky, S3 NOAA, transtats.bts.gov, Azure OpenAI).
+- TLS termination at the ALB with ACM/Let's Encrypt cert.
 
 ---
 
-## ✅ Acciones concretas (cuando se ejecute la PoC)
+## 🧯 Response plan if something "leaks" during the demo
 
-1. Crear realm `openfoundry-poc` en Keycloak con los 5 usuarios.
-2. Cargar la policy YAML en `authorization-policy-service`.
-3. Activar audit en todos los servicios del subset (config global).
-4. Configurar S3 object-lock COMPLIANCE para el bucket de audit.
-5. Probar matriz RBAC con cada usuario antes del ensayo (script `tools/poc-aviation/test_rbac.sh`).
-6. Tener `kill-switch.sh` preparado y probado.
+(Unlikely but just in case)
+- We have `kill-switch.sh` which shuts down `apps/web` and serves a static "maintenance" page.
+- The presenter has this script in an open terminal tab.
+
+---
+
+## 📋 Compliance — what to tell the customer
+
+OpenFoundry **is not** EASA Part-145 or SOC2 today (the PoC does not certify it). But **it is compatible** with those frameworks because:
+- Immutable audit, exportable to SIEM.
+- Granular RBAC + ABAC.
+- Encryption at rest (KMS-backed) and in transit (TLS 1.3).
+- End-to-end lineage (key for regulatory audits).
+- Branches and approvals for controlled changes (key for Part-145).
+- Self-hosted: the customer retains control of their data.
+
+---
+
+## ✅ Concrete actions (when the PoC is executed)
+
+1. Create realm `openfoundry-poc` in Keycloak with the 5 users.
+2. Load the YAML policy into `authorization-policy-service`.
+3. Enable audit on every service in the subset (global config).
+4. Configure S3 object-lock COMPLIANCE for the audit bucket.
+5. Test the RBAC matrix with each user before the dry-run (script `tools/poc-aviation/test_rbac.sh`).
+6. Have `kill-switch.sh` ready and tested.

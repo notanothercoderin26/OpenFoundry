@@ -85,10 +85,9 @@ func classifyScope(mode string, rootNeighborCount, sensitiveObjects, boundaryCro
 	}
 }
 
-// SummarizeGraph mirrors `pub(crate) fn summarize_graph`. Pure logic
-// over the assembled node + edge slices; emits the [GraphSummary]
-// shape consumed by the front-end. Exported so handlers / tests can
-// drive it directly.
+// SummarizeGraph runs pure logic over the assembled node + edge
+// slices and emits the [GraphSummary] shape consumed by the
+// front-end. Exported so handlers / tests can drive it directly.
 func SummarizeGraph(mode string, nodes []models.GraphNode, edges []models.GraphEdge) models.GraphSummary {
 	nodeKinds := map[string]int{}
 	edgeKinds := map[string]int{}

@@ -521,7 +521,15 @@ export function PipelineCanvas({
                         }}
                       />
                       <AddOutputMenuItem disabled glyph={<NewTimeSeriesGlyph />} label="New time series sync" />
-                      <AddOutputMenuItem disabled glyph={<NewVirtualTableGlyph />} label="New virtual table" />
+                      <AddOutputMenuItem
+                        enabled
+                        glyph={<NewVirtualTableGlyph />}
+                        label="New virtual table"
+                        onClick={() => {
+                          setAddOutputMenuOpen(false);
+                          onAddOutput?.(selectedNode, 'virtual_table');
+                        }}
+                      />
                     </div>
                   ) : null}
                 </div>

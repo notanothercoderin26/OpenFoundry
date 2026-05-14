@@ -1,34 +1,34 @@
 # OpenFoundry — Smoke & Chaos
 
-Esta carpeta agrupa los **scenarios de smoke** del data plane y la **suite
-de chaos** que valida sus propiedades no-SPOF.
+This folder groups the data plane **smoke scenarios** and the **chaos
+suite** that validates their non-SPOF properties.
 
-## Estructura
+## Structure
 
 ```
 smoke/
-├── scenarios/              # JSON consumidos por `of-cli smoke run`
+├── scenarios/              # JSON consumed by `of-cli smoke run`
 │   ├── p0-critical-path.json
 │   ├── p2-runtime-critical-path.json
 │   ├── p3-semantic-governance-critical-path.json
 │   ├── p4-developer-platform-critical-path.json
 │   ├── p5-ai-ml-critical-path.json
 │   └── p6-analytics-enterprise-critical-path.json
-├── results/                # Salida (uno por scenario, sobreescrita)
-│   └── chaos/              # Salida de la suite de chaos (chaos__scenario.json)
+├── results/                # Output (one per scenario, overwritten)
+│   └── chaos/              # Chaos suite output (chaos__scenario.json)
 ├── fixtures/
-└── chaos/                  # Suite de chaos del data plane
+└── chaos/                  # Data plane chaos suite
     ├── lib/common.sh
     ├── kill-one-mon.sh                 # Rook-Ceph mon
     ├── kill-one-kafka-broker.sh        # Strimzi Kafka
     ├── kill-one-nats-node.sh           # NATS
     ├── kill-pg-primary.sh              # CNPG failover
-    └── run.sh                          # Orquestador
+    └── run.sh                          # Orchestrator
 ```
 
-## Ejecutar un scenario individual
+## Run a single scenario
 
-El runner actual es el CLI Go en `tools/of-cli`. Desde la raíz del repo:
+The current runner is the Go CLI at `tools/of-cli`. From the repo root:
 
 ```bash
 go run ./tools/of-cli -- smoke run \
@@ -36,7 +36,7 @@ go run ./tools/of-cli -- smoke run \
   --output   smoke/results/p2-runtime-critical-path.json
 ```
 
-Para acelerar ejecuciones repetidas, compila el binario una vez:
+To speed up repeated runs, compile the binary once:
 
 ```bash
 mkdir -p bin
@@ -46,52 +46,52 @@ go build -trimpath -o bin/of ./tools/of-cli
   --output   smoke/results/<file>.json
 ```
 
-El `justfile` de la raíz es solo un shim sobre `make`; no contiene recipes
-`just smoke-*` actuales. Si una página las menciona, trátala como stale.
+The root `justfile` is just a shim over `make`; it contains no
+current `just smoke-*` recipes. If a page mentions them, treat it as stale.
 
-## Suite de chaos
+## Chaos suite
 
-La suite valida las propiedades no-SPOF del data plane: por cada capa
-(Ceph mon, Kafka, NATS, Postgres primary) mata 1 pod, espera a que el
-cluster vuelva a verde, y luego
-ejecuta los scenarios `p2..p6`. Falla si **cualquier** scenario falla
-bajo **cualquier** chaos.
+The suite validates the non-SPOF properties of the data plane: for
+each layer (Ceph mon, Kafka, NATS, Postgres primary) it kills 1 pod,
+waits for the cluster to go back to green, and then runs scenarios
+`p2..p6`. It fails if **any** scenario fails under **any** chaos.
 
 ### CI
 
-Está atada a `.github/workflows/chaos-smoke.yml`, que se ejecuta:
+It is wired into `.github/workflows/chaos-smoke.yml`, which runs:
 
-- En `workflow_dispatch` (manual; opcionalmente con el secret de
-  repo/org `CHAOS_KUBECONFIG` para inyectar el kubeconfig del cluster
-  destino — si no está, se asume que el runner ya lo tiene configurado).
+- On `workflow_dispatch` (manual; optionally with the
+  `CHAOS_KUBECONFIG` repo/org secret to inject the target cluster's
+  kubeconfig — if absent, the runner is assumed to already have it
+  configured).
 - Nightly (`cron: "17 4 * * *"`).
 
-**No** corre en cada PR (es cara).
+It does **not** run on every PR (it's expensive).
 
 ### Local — kind
 
 ```bash
-# 1. Cluster local
+# 1. Local cluster
 kind create cluster --name openfoundry-chaos
 
-# 2. Instala los operadores y CRs del DP que se vayan a probar.
-#    Mínimo:
+# 2. Install the DP operators and CRs you intend to test.
+#    Minimum:
 #      - Strimzi  + Kafka  (infra/k8s/platform/manifests/strimzi/)
 #      - Rook     + Ceph   (infra/k8s/platform/manifests/rook/)
 #      - CloudNativePG + Cluster (infra/k8s/platform/manifests/cnpg/)
-#      - NATS Helm chart en ns `nats`
-#    Ver READMEs en cada subcarpeta de infra/k8s/.
+#      - NATS Helm chart in ns `nats`
+#    See the READMEs in each infra/k8s/ subfolder.
 
-# 3. Lanza el edge gateway / servicios del CP en otra terminal (o port-forwards
-#    contra el cluster) de forma que `http://127.0.0.1:8080` sirva el
-#    `edge-gateway-service` esperado por los scenarios (ver smoke/scenarios/*.json).
+# 3. Launch the edge gateway / CP services in another terminal (or port-forwards
+#    against the cluster) so that `http://127.0.0.1:8080` serves the
+#    `edge-gateway-service` expected by the scenarios (see smoke/scenarios/*.json).
 
-# 4. Compila el CLI una vez.
+# 4. Compile the CLI once.
 mkdir -p bin
 go build -trimpath -o bin/of ./tools/of-cli
 export OF_CLI="$PWD/bin/of"
 
-# 5. Corre la suite completa.
+# 5. Run the full suite.
 ./smoke/chaos/run.sh
 ```
 
@@ -99,41 +99,41 @@ export OF_CLI="$PWD/bin/of"
 
 ```bash
 k3d cluster create openfoundry-chaos --agents 3
-# resto idéntico al flujo de kind.
+# rest identical to the kind flow.
 ```
 
-### Variables de entorno útiles
+### Useful environment variables
 
-| Variable                  | Default                | Descripción                                                    |
+| Variable                  | Default                | Description                                                    |
 |---------------------------|------------------------|----------------------------------------------------------------|
-| `OF_CLI`                  | `go run ./tools/of-cli --` | Cómo invocar el runner. Pon una ruta a binario para acelerar.  |
-| `CHAOS_RESULTS_DIR`       | `smoke/results/chaos`  | Dónde escribir los JSON de salida de cada combinación.         |
-| `CHAOS_WAIT_TIMEOUT`      | `600s`                 | Timeout máximo de `kubectl wait` tras matar un pod.            |
-| `CHAOS_DRY_RUN`           | `0`                    | `1` ⇒ no toca el cluster (para validar la lógica del script).  |
-| `ROOK_CEPH_NAMESPACE`     | `rook-ceph`            | NS del CephCluster.                                            |
-| `KAFKA_NAMESPACE`         | `kafka`                | NS del Kafka Strimzi.                                          |
-| `KAFKA_CLUSTER`           | `openfoundry`          | Nombre del CR `Kafka`.                                         |
-| `KAFKA_POOL`              | `kafka`                | Nombre del `KafkaNodePool`.                                    |
-| `NATS_NAMESPACE`          | `nats`                 | NS del cluster NATS.                                           |
-| `NATS_SELECTOR`           | `app.kubernetes.io/name=nats` | Selector de pods NATS.                                  |
-| `PG_NAMESPACE`            | `default`              | NS del CNPG `Cluster`.                                         |
-| `PG_CLUSTER`              | `openfoundry-pg`       | Nombre del `Cluster` CNPG.                                     |
+| `OF_CLI`                  | `go run ./tools/of-cli --` | How to invoke the runner. Set to a binary path to speed it up. |
+| `CHAOS_RESULTS_DIR`       | `smoke/results/chaos`  | Where to write the JSON output of each combination.            |
+| `CHAOS_WAIT_TIMEOUT`      | `600s`                 | Maximum `kubectl wait` timeout after killing a pod.            |
+| `CHAOS_DRY_RUN`           | `0`                    | `1` ⇒ do not touch the cluster (to validate script logic).     |
+| `ROOK_CEPH_NAMESPACE`     | `rook-ceph`            | NS of the CephCluster.                                         |
+| `KAFKA_NAMESPACE`         | `kafka`                | NS of the Strimzi Kafka.                                       |
+| `KAFKA_CLUSTER`           | `openfoundry`          | Name of the `Kafka` CR.                                        |
+| `KAFKA_POOL`              | `kafka`                | Name of the `KafkaNodePool`.                                   |
+| `NATS_NAMESPACE`          | `nats`                 | NS of the NATS cluster.                                        |
+| `NATS_SELECTOR`           | `app.kubernetes.io/name=nats` | NATS pod selector.                                      |
+| `PG_NAMESPACE`            | `default`              | NS of the CNPG `Cluster`.                                      |
+| `PG_CLUSTER`              | `openfoundry-pg`       | Name of the CNPG `Cluster`.                                    |
 
-### Lanzar un único experimento
+### Launch a single experiment
 
-Cualquier `kill-*.sh` se puede ejecutar de forma aislada:
+Any `kill-*.sh` script can be run in isolation:
 
 ```bash
 ./smoke/chaos/kill-one-kafka-broker.sh
 ```
 
-…y luego ejecuta un scenario con `go run ./tools/of-cli -- smoke run
---scenario <file> --output <file>` para validar manualmente.
+…then run a scenario with `go run ./tools/of-cli -- smoke run
+--scenario <file> --output <file>` to validate manually.
 
-## Validación de los scripts
+## Script validation
 
 ```bash
 shellcheck smoke/chaos/*.sh smoke/chaos/lib/*.sh
-# Si tienes actionlint instalado:
+# If you have actionlint installed:
 actionlint .github/workflows/chaos-smoke.yml
 ```

@@ -18,10 +18,9 @@ func (e *ErrNotFound) Error() string {
 	return fmt.Sprintf("analytical expression %s not found", e.ID)
 }
 
-// ErrDatabase wraps any other database failure. Mirrors
-// RepoError::Database on the Rust side and lets callers match on a
-// small, stable surface without leaking the full pgx error tree across
-// crate boundaries.
+// ErrDatabase wraps any other database failure. Lets callers match
+// on a small, stable surface without leaking the full pgx error tree
+// across package boundaries.
 type ErrDatabase struct{ Cause error }
 
 func (e *ErrDatabase) Error() string { return "analytical-logic repo: " + e.Cause.Error() }

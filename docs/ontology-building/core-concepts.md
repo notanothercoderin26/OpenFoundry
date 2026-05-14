@@ -18,7 +18,7 @@ These concepts are already visible in the repo:
 - `proto/ontology/object.proto`
 - `proto/ontology/action.proto`
 - `proto/ontology/ontology.proto`
-- `services/ontology-service`
+- the ontology service split (`ontology-definition-service`, `ontology-query-service`, `ontology-actions-service`, `object-database-service`, `ontology-indexer`, `ontology-exploratory-analysis-service`)
 - P3 smoke scenarios for semantic and governance flows
 
 ## Design goal

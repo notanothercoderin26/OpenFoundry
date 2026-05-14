@@ -5,7 +5,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Metric names — pinned to match the Rust crate. Rename = dashboard break.
+// Metric names — pinned constants. Rename = dashboard break.
 const (
 	MetricLagSeconds   = "ai_sink_lag_seconds"
 	MetricRecordsTotal = "ai_sink_records_total"

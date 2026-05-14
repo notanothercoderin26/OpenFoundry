@@ -10,7 +10,7 @@
 D1.1.2 covers the streaming subsystem and aims at functional parity
 with Palantir Foundry's "Data connectivity & integration → Streams"
 documentation set. The work is split across six blocks (P1–P6) that
-reused a single Postgres-backed control plane (`event-streaming-service`)
+reused a single Postgres-backed control plane (`event-ingestion-replication-service`)
 with optional Kafka + Flink runtime backends.
 
 This ADR captures the resulting architecture so future contributors
@@ -19,7 +19,7 @@ and the verification surface.
 
 ## Decision
 
-We ship a **single control plane** (`event-streaming-service`) plus
+We ship a **single control plane** (`event-ingestion-replication-service`) plus
 **three companion services** that own well-defined slices:
 
 * `monitoring-rules-service` — rule evaluator + scheduler (P4).
@@ -96,7 +96,7 @@ so callers cannot silently degrade to `AT_LEAST_ONCE`.
 
 ## Verification
 
-* `cargo test -p event-streaming-service`: 69 lib tests + 30+
+* `cargo test -p event-ingestion-replication-service`: 69 lib tests + 30+
   integration tests (kinesis/pubsub/preview/profiles/monitors/reset
   view/streaming-config/stateful/schema-bridge).
 * `cargo test -p monitoring-rules-service`: evaluator + dedup

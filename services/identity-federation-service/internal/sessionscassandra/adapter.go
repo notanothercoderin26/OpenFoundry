@@ -26,7 +26,7 @@ import (
 // here so a typo at wiring time is a compile error.
 const Keyspace = "auth_runtime"
 
-// TTL constants — match the Rust crate verbatim. Renaming here without
+// TTL constants — must match the keyspace DDL. Renaming here without
 // updating the DDL re-creates rows with a different TTL.
 const (
 	UserSessionTTL  = 1800              // 30 min sliding
@@ -118,7 +118,7 @@ func (a *Adapter) RecordSession(ctx context.Context, r SessionRecord) error {
 }
 
 // TouchSession refreshes last_seen_at + extends the TTL another 30
-// min. The Rust crate calls this on every authenticated request.
+// min. Called on every authenticated request.
 func (a *Adapter) TouchSession(ctx context.Context, userID string, sessionID uuid.UUID, at time.Time) error {
 	hourBucket := at.Truncate(time.Hour)
 	q := a.Session.Query(

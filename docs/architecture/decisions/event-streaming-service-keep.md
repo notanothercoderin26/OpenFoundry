@@ -1,4 +1,4 @@
-# Decision: keep `event-streaming-service` (S5.5)
+# Decision: keep `event-ingestion-replication-service` (S5.5)
 
 - **Date:** 2025-S5 (week 12)
 - **Verdict:** **KEEP** — with scope reduction.
@@ -7,13 +7,13 @@
 
 ## Question
 
-> "Validar si `event-streaming-service` legacy sigue cumpliendo
+> "Validar si `event-ingestion-replication-service` legacy sigue cumpliendo
 > función única o ha sido reemplazado por audit-sink + lineage-sink +
 > ontology-indexer."
 
 ## Function catalogue
 
-`event-streaming-service` exposes three distinct, in-use surfaces:
+`event-ingestion-replication-service` exposes three distinct, in-use surfaces:
 
 | # | Surface | Port | Replaces? |
 |---|---------|------|-----------|
@@ -33,7 +33,7 @@ consumers**:
 None of these accept an inbound publish from a producer; none route
 between subjects; none expose a streaming `Subscribe` RPC. The two
 surfaces are complementary — a sink replaces the bespoke "write to
-storage" path that used to live inside `event-streaming-service`,
+storage" path that used to live inside `event-ingestion-replication-service`,
 **not** the Publish/Subscribe ingress.
 
 ## Coverage gap analysis
@@ -47,7 +47,7 @@ storage" path that used to live inside `event-streaming-service`,
 
 ## Decision
 
-**KEEP** `event-streaming-service`, with the following scope
+**KEEP** `event-ingestion-replication-service`, with the following scope
 reduction (executed in a follow-up PR — out of S5.5 scope):
 
 1. Remove the now-dead direct storage backends from the routing table — those paths are
@@ -58,7 +58,7 @@ reduction (executed in a follow-up PR — out of S5.5 scope):
 
 ## Conditions to revisit (decommission criteria)
 
-`event-streaming-service` becomes a candidate for decommission when
+`event-ingestion-replication-service` becomes a candidate for decommission when
 **all four** of the following are true:
 
 1. 100% of internal producers use `libs/event-bus-data` directly

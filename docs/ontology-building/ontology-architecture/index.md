@@ -55,17 +55,21 @@ The read plane serves all hot query paths exclusively from pre-computed read mod
 
 Read models are refreshed asynchronously by consumers reading from the `write_outbox` stream.
 
-## The seven ontology services
+## The ontology services
 
-| Service | Port | Responsibility |
-| --- | --- | --- |
-| `ontology-definition-service` | 50103 | Control plane: schema, governance, definitions |
-| `object-database-service` | 50104 | Write authority: objects, links, revisions, outbox |
-| `ontology-query-service` | 50105 | Serving: search, graph, views, KNN, object sets |
-| `ontology-actions-service` | 50106 | Mutations: action validation, planning, execution |
-| `ontology-funnel-service` | 50107 | Ingestion: batch funnel runs, health, backfills |
-| `ontology-functions-service` | 50108 | Function runtime: TypeScript / Python sandbox |
-| `ontology-security-service` | 50109 | Security: policy compilation, visibility pushdown |
+| Service | Port | Responsibility | Status |
+| --- | --- | --- | --- |
+| `ontology-definition-service` | 50103 | Control plane: schema, governance, definitions | ✅ shipped |
+| `object-database-service` | 50104 | Write authority: objects, links, revisions, outbox | ✅ shipped |
+| `ontology-query-service` | 50105 | Serving: search, graph, views, KNN, object sets | ✅ shipped |
+| `ontology-actions-service` | 50106 | Mutations: action validation, planning, execution (also currently hosts funnels and function metadata) | ✅ shipped |
+| `ontology-indexer` | n/a (worker) | Kafka worker projecting ontology changes into the search backend | ✅ shipped |
+| `ontology-exploratory-analysis-service` | n/a | Time-series, geospatial, scenarios | ✅ shipped |
+| Funnel runtime | 50107 (target) | Batch funnel runs, health, backfills | 📐 currently inside `ontology-actions-service` + `ingestion-replication-service`; a dedicated binary is a target split |
+| Functions runtime | 50108 (target) | TypeScript / Python sandbox | 📐 currently inside `ontology-actions-service` + lib `python-sidecar`; a dedicated binary is a target split |
+| Authorization policy | 50109 (target) | Policy compilation, visibility pushdown | ✅ shipped as platform-wide `authorization-policy-service` (Cedar engine + `libs/authz-cedar-go`) |
+
+> The "funnel", "functions" and "security" rows above were originally planned as dedicated `ontology-funnel-service` / `ontology-functions-service` / `ontology-security-service` binaries. Those splits have **not landed** in the Go monorepo; their capabilities are consolidated as noted. The CQRS planes below describe the **target architecture** and remain accurate at the boundary level.
 
 ## Write path
 
@@ -85,7 +89,7 @@ NATS JetStream (write_outbox relay)
     |        object_view_projection, object_set_membership,
     |        funnel_health_projection)
     |
-    +--> ontology-security-service bundle invalidation consumer
+    +--> authorization-policy-service bundle invalidation consumer
 ```
 
 ## Read path
@@ -105,14 +109,14 @@ gateway -> ontology-query-service
     +--> object_view_projection        (enriched object view)
     +--> object_set_membership         (object-set serving)
     |
-    +--> policy_visibility_projection  (security pushdown, compiled by ontology-security-service)
+    +--> policy_visibility_projection  (security pushdown, compiled by authorization-policy-service)
 ```
 
 Fallback: when a request requires read-your-own-write consistency, `ontology-query-service` may perform a targeted point-read against `object-database-service` for the specific object ID.
 
 ## Security path
 
-`ontology-security-service` (port 50109) compiles access policies into `policy_bundle` snapshots and expands them into `policy_visibility_projection` rows.  Query and action services consume these projections as SQL predicates, eliminating the need to fetch objects before filtering.
+`authorization-policy-service` (the platform-wide Cedar decision point) compiles access policies into `policy_bundle` snapshots and expands them into `policy_visibility_projection` rows. Query and action services consume these projections as SQL predicates, eliminating the need to fetch objects before filtering. The bundle distribution pattern is documented in [security-governance / Policy bundles in-process](../../security-governance/policy-bundles.md).
 
 Policy bundles are versioned and distributed to cells.  Each cell applies the latest local bundle without a synchronous call to the security service.
 
@@ -133,12 +137,12 @@ Everything else (search, graph, KNN, object views, object-set serving, neighbors
 Each deployment cell contains a complete ontology stack:
 
 - `edge-gateway-service`
-- `object-database-service` with Postgres HA managed by CloudNativePG (CNPG) — see [ADR-0010](../../architecture/adr/ADR-0010-cnpg-postgres-operator.md)
-- `ontology-query-service` with local Redis HA and read replicas
-- `ontology-actions-service`
-- `ontology-security-service`
-- `ontology-funnel-service`
-- `ontology-functions-service`
+- `object-database-service` (today backed by Cassandra/Scylla in the active deployment; Postgres HA via CloudNativePG remains an option per [ADR-0010](../../architecture/adr/ADR-0010-cnpg-postgres-operator.md))
+- `ontology-query-service` with local cache and read replicas
+- `ontology-actions-service` (also hosts funnels and function metadata until those split out)
+- `authorization-policy-service` (platform-wide; bundle distributed per cell)
+- `ontology-indexer` (Kafka worker → search backend)
+- `ontology-exploratory-analysis-service`
 - local NATS JetStream (3-node cluster)
 
 `ontology-definition-service` operates as a regional/global control plane and distributes `schema_bundle` and `policy_bundle` snapshots to each cell.

@@ -1,12 +1,10 @@
-// Definition + read-model trait surfaces of the storage-abstraction
-// crate. These mirror `pub trait DefinitionStore` and
-// `pub trait ReadModelStore` (plus their supporting Kind / Id /
-// Record / Query value objects) in
-// `libs/storage-abstraction/src/repositories.rs`.
+// Definition + read-model interfaces for the storage-abstraction
+// package: DefinitionStore and ReadModelStore (plus their supporting
+// Kind / Id / Record / Query value objects).
 //
 // Production wiring keeps declarative ontology definitions in
 // PostgreSQL and warm runtime projections in a search/read-model
-// plane; the kernel handlers depend on these traits rather than
+// plane; the kernel handlers depend on these interfaces rather than
 // embedding raw SQL — see the `domain/*_repository.go` adapters in
 // ontology-kernel.
 

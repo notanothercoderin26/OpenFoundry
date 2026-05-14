@@ -1,6 +1,6 @@
 # Datasets — Retention
 
-Retention policies decide which dataset files (and which database rows) the platform may delete, and when. Owned end-to-end by `lineage-deletion-service`; `data-asset-catalog-service` and `dataset-versioning-service` only mark candidates and surface metrics.
+Retention policies decide which dataset files (and which database rows) the platform may delete, and when. Owned end-to-end by the **lineage-deletion subsystem inside `audit-compliance-service`** (package `internal/lineagedeletion`); `iceberg-catalog-service` and `dataset-versioning-service` only mark candidates and surface metrics.
 
 ## Built-in policies
 
@@ -11,14 +11,14 @@ The only system policy currently shipped. Sweeps file paths staged by transactio
 1. List `dataset_transactions` with `status = 'ABORTED'` whose age exceeds the policy's grace period (default: 24 h).
 2. For each, enumerate the staged paths (`ADD` ops never visible in any committed view).
 3. Issue object-store deletes via `storage-abstraction`.
-4. Emit a `retention.delete` audit record per file (see `services/lineage-deletion-service/src/domain/audit_emitter.rs`).
+4. Emit a `retention.delete` audit record per file (see `services/audit-compliance-service/internal/lineagedeletion/deletion.go`, exported `EmitRetentionDelete`).
 5. Increment `dataset_retention_files_deleted_total` and `dataset_retention_bytes_freed_total`.
 
-The job runs as part of the lineage-deletion-service scheduler. Manual re-runs are exposed via `POST /v1/retention/jobs/aborted-transactions:run` (admin-only).
+The job runs as part of the `audit-compliance-service` lineage-deletion scheduler. Manual re-runs are exposed via `POST /v1/retention/jobs/aborted-transactions:run` (admin-only).
 
 ## Custom policies
 
-Custom retention policies (e.g. "delete dataset files >365 d for projects in finance/test") are declared as `retention_policies` rows. The lineage-deletion-service evaluator reads them, materialises a candidate set, and applies the same delete + audit + metric pipeline.
+Custom retention policies (e.g. "delete dataset files >365 d for projects in finance/test") are declared as `retention_policies` rows. The lineage-deletion evaluator (inside `audit-compliance-service`) reads them, materialises a candidate set, and applies the same delete + audit + metric pipeline.
 
 > Today only `DELETE_ABORTED_TRANSACTIONS` ships out of the box; custom-policy authoring is documented separately in [security-governance/index.md](../../security-governance/index.md).
 
@@ -30,7 +30,7 @@ Custom retention policies (e.g. "delete dataset files >365 d for projects in fin
 
 ## Audit
 
-The retention pipeline emits structured `tracing::info!(target = "audit", …)` events that the `audit-compliance` collector ingests:
+The retention pipeline emits structured slog events (via the shared `libs/observability` logger) on the `audit` channel that the same `audit-compliance-service` collector ingests (the emitter and collector live in the same binary, but the event surface is identical to the cross-service path):
 
 * `retention.delete` — one per file removed, with `dataset_rid`, `path`, `bytes`, `reason` (e.g. `aborted_transaction`).
 * `retention.policy.update` — when a custom policy is mutated.
@@ -45,7 +45,7 @@ The retention pipeline emits structured `tracing::info!(target = "audit", …)` 
 
 ## Operational notes
 
-* The catalog and versioning services do **not** delete files themselves; they only update DB rows and emit events. Every physical delete is owned by `lineage-deletion-service` so there is exactly one place to reason about object-store consistency.
+* The catalog and versioning services do **not** delete files themselves; they only update DB rows and emit events. Every physical delete is owned by the lineage-deletion subsystem in `audit-compliance-service` so there is exactly one place to reason about object-store consistency.
 * Aborted transactions whose files are still being deleted appear as `status = 'ABORTED'` rows; metric drift between commit/abort counts and the retention deletion rate is the canonical signal that the deletion job has fallen behind.
 
 ## See also

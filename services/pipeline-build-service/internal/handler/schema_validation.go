@@ -249,6 +249,7 @@ func validatePipelineIRStrictWithSchemas(pipelineID string, ir models.PipelineIR
 		visit(node.ID)
 	}
 	validateLinkOutputReferences(ir, schemas, &report)
+	validateVirtualTableWorkflowReferences(ir, &report)
 	report.AllValid = len(report.Errors) == 0
 	if report.Nodes == nil {
 		report.Nodes = []pipelineStrictNodeReport{}
@@ -265,6 +266,7 @@ func validateStrictNode(node models.PipelineIRNode, deps []pipelineStrictSchema,
 	kind := normaliseTableTransform(node.TransformType)
 	switch kind {
 	case "input":
+		validateVirtualTableInputNode(node, report)
 		return sourceSchemaForNode(node, cfg, report)
 	case "filter":
 		base := requireOneInput(node.ID, kind, deps, report)
@@ -777,6 +779,7 @@ func validateUnionNode(nodeID string, draft runtimeUnionDraft, deps []pipelineSt
 }
 
 func validateOutputNode(nodeID, transformType string, rawConfig json.RawMessage, schema pipelineStrictSchema, report *pipelineStrictValidationReport) {
+	validateVirtualTableOutputNode(nodeID, transformType, rawConfig, report)
 	keys := outputPrimaryKeys(rawConfig)
 	requiresKey := outputRequiresPrimaryKey(transformType, rawConfig)
 	if requiresKey && len(keys) == 0 {
@@ -872,6 +875,9 @@ func outputKindForIRNode(node models.PipelineIRNode, cfg outputDatasetConfig) st
 		return strings.ToLower(strings.TrimSpace(cfg.Kind))
 	}
 	lower := strings.ToLower(node.TransformType)
+	if strings.Contains(lower, "virtual_table") {
+		return "virtual_table"
+	}
 	if strings.Contains(lower, "link") {
 		return "link_type"
 	}

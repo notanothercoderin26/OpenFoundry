@@ -1,7 +1,6 @@
-// Package models holds wire types for sdk-generation-service.
-//
-// JSON shape preserves the Rust crate's `PrimaryItem` / `SecondaryItem`
-// (id / payload / created_at / parent_id) verbatim.
+// Package models holds wire types for sdk-generation-service:
+// PrimaryItem and SecondaryItem (id / payload / created_at /
+// parent_id).
 package models
 
 import (

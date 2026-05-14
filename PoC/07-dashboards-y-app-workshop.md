@@ -1,12 +1,12 @@
-# 07 — Dashboards y Workshop App
+# 07 — Dashboards and Workshop App
 
-> La UI es lo que el cliente ve durante el 70% de la demo. Si los dashboards son pobres, da igual cuán potente sea el backend. Aquí está el diseño de las **3 pantallas** y la **Workshop App** que se construirán en `apps/web` + `app-builder-service`.
+> The UI is what the client sees during 70% of the demo. If the dashboards are poor, it doesn't matter how powerful the backend is. Here is the design of the **3 screens** and the **Workshop App** that will be built in `apps/web` (React 19 + Vite + TypeScript) + `application-composition-service` (composition, pages, widgets, publish runtime — the equivalent of Foundry's App Builder).
 
 ---
 
-## 🖥️ Pantalla 1 — "Operations Live" (dashboard principal)
+## 🖥️ Screen 1 — "Operations Live" (main dashboard)
 
-Vista que ve **Ana (Ops Controller)** al hacer login.
+The view that **Ana (Ops Controller)** sees on login.
 
 ### Layout (16:9, 1920×1080)
 ```
@@ -37,25 +37,25 @@ Vista que ve **Ana (Ops Controller)** al hacer login.
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Widgets y servicios que los alimentan
-| Widget | Servicio | Refresco |
+### Widgets and services that feed them
+| Widget | Service | Refresh |
 |---|---|---|
-| KPIs (4) | `ontology-query-service` (consulta agregada) | 30 s |
-| Live Map | `geospatial-intelligence-service` (tracks) + `event-streaming-service` | 5 s |
-| Weather overlay | tiles desde `silver.weather_by_airport` | 5 min |
+| KPIs (4) | `ontology-query-service` (aggregated query) | 30 s |
+| Live Map | `ontology-exploratory-analysis-service` (tracks + geospatial) + `ingestion-replication-service` (stream) | 5 s |
+| Weather overlay | tiles served by the `geospatial-tiles` lib on top of `silver.weather_by_airport` | 5 min |
 | Risk feed | `ontology-query-service` (top 50 risk_band ≥ HIGH) | 30 s |
-| Top Risk Flights | mismo, con paginación | 30 s |
+| Top Risk Flights | same, with pagination | 30 s |
 
-### Interacciones
-- Click en un avión del mapa → side-panel con detalle del Flight + Aircraft + última observación meteo.
-- Click en una fila de la tabla → abre **Pantalla 3 (Flight Detail)**.
-- Botón en el header **"Ask AIP"** → abre el copiloto en overlay.
+### Interactions
+- Click on an aircraft on the map → side-panel with Flight + Aircraft detail + last weather observation.
+- Click on a table row → opens **Screen 3 (Flight Detail)**.
+- Header button **"Ask AIP"** → opens the copilot in an overlay.
 
 ---
 
-## 🛠️ Pantalla 2 — "Fleet Health" (vista MRO)
+## 🛠️ Screen 2 — "Fleet Health" (MRO view)
 
-Vista que ve **Luis (MRO Lead)** al hacer login.
+The view that **Luis (MRO Lead)** sees on login.
 
 ### Layout
 ```
@@ -82,46 +82,46 @@ Vista que ve **Luis (MRO Lead)** al hacer login.
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Interacciones
-- **Heatmap** click → tabla de los `MaintenanceEvent` que componen esa celda (drill).
-- **Aircraft list ⋮** → menú con acciones de la ontología: `flag-aircraft-for-inspection`, `assign-maintenance-event`.
-- **Parts at risk** click → muestra en qué workflows están reservadas y permite crear `order-part`.
+### Interactions
+- **Heatmap** click → table of the `MaintenanceEvent`s that make up that cell (drill).
+- **Aircraft list ⋮** → menu with ontology actions: `flag-aircraft-for-inspection`, `assign-maintenance-event`.
+- **Parts at risk** click → shows which workflows have reservations on them and allows creating `order-part`.
 
 ---
 
-## 🛩️ Pantalla 3 — "Flight Detail" / "Aircraft Detail"
+## 🛩️ Screen 3 — "Flight Detail" / "Aircraft Detail"
 
-Vista de detalle al hacer click en un objeto de la ontología. Es la **Object View** estilo Foundry.
+Detail view when clicking on an ontology object. It is the Foundry-style **Object View**.
 
-### Estructura (tabs)
-1. **Overview** — propiedades clave, mapa pequeño, riesgo.
-2. **Linked objects** — relaciones de la ontología: aircraft, airports origen/destino, weather observations, maintenance events.
-3. **Timeline** — eventos cronológicos: scheduled departure, ADS-B segments, weather alerts, MRO events.
-4. **Lineage** — embebido del `lineage-service`: de qué pipelines proviene cada propiedad.
-5. **Audit** — quién ha visto/modificado este objeto (de `audit-compliance-service`).
-6. **Actions** — botones de acción (con permisos respetados).
+### Structure (tabs)
+1. **Overview** — key properties, small map, risk.
+2. **Linked objects** — ontology relationships: aircraft, origin/destination airports, weather observations, maintenance events.
+3. **Timeline** — chronological events: scheduled departure, ADS-B segments, weather alerts, MRO events.
+4. **Lineage** — embedded `lineage-service`: which pipelines each property comes from.
+5. **Audit** — who has viewed/modified this object (from `audit-compliance-service`).
+6. **Actions** — action buttons (with permissions respected).
 
 ---
 
 ## 🧱 Workshop App — "MRO Triage Workbench"
 
-> La **Workshop App** equivalente a Foundry Workshop. La construye el operador con `app-builder-service` (low-code) sin tocar código.
+> The **Workshop App** equivalent to Foundry Workshop. The operator builds it with `application-composition-service` (low-code) without touching code.
 
-### Propósito
-Una sola pantalla donde Luis triager los `MaintenanceEvent` críticos de las últimas 24h y decide qué hacer con cada uno.
+### Purpose
+A single screen where Luis triages the critical `MaintenanceEvent`s from the last 24 h and decides what to do with each one.
 
-### Componentes
-| Bloque | Tipo | Datos |
+### Components
+| Block | Type | Data |
 |---|---|---|
-| Filtros (sidebar) | controls (model, severity, ATA chapter, fleet base) | params |
-| Lista de eventos | object-list widget bound a `MaintenanceEvent` filtrado | ontology query |
-| Panel central | object-card del evento seleccionado | ontology |
-| Sub-panel "Aircraft history" | mini-tabla de últimos 10 eventos del mismo tail | ontology graph traversal |
-| Sub-panel "Similar defects in fleet" | tabla de eventos con mismo `defect_code` + modelo | ontology graph traversal |
-| Acciones | botones que invocan `assign-maintenance-event`, `order-part`, `flag-aircraft-for-inspection` | ontology actions |
-| Side widget | "Ask AIP about this aircraft" | copiloto contextual |
+| Filters (sidebar) | controls (model, severity, ATA chapter, fleet base) | params |
+| Event list | object-list widget bound to filtered `MaintenanceEvent` | ontology query |
+| Center panel | object-card of the selected event | ontology |
+| "Aircraft history" sub-panel | mini-table of last 10 events for the same tail | ontology graph traversal |
+| "Similar defects in fleet" sub-panel | table of events with the same `defect_code` + model | ontology graph traversal |
+| Actions | buttons that invoke `assign-maintenance-event`, `order-part`, `flag-aircraft-for-inspection` | ontology actions |
+| Side widget | "Ask AIP about this aircraft" | contextual copilot |
 
-### Configuración exportable (formato `app-builder-service`)
+### Exportable configuration (format of `application-composition-service`)
 ```yaml
 app:
   id: mro-triage-workbench
@@ -170,35 +170,35 @@ app:
       context_objects: [selected_event, selected_event.aircraft]
 ```
 
-> Tarea pendiente: materializar `PoC/assets/apps/mro-triage-workbench.yaml` cuando se implemente.
+> Pending task: materialize `PoC/assets/apps/mro-triage-workbench.yaml` when implementing.
 
 ---
 
-## 🎨 Branding mínimo
+## 🎨 Minimal branding
 
-- Logo `images/logo.png` arriba a la izquierda.
-- Color primario: el del repo (revisar `apps/web` por palette).
-- Branding **opcional** del cliente: poder cargar su logo en `tenancy-organizations-service` y que aparezca en el header.
+- Logo `images/logo.png` at the top left.
+- Primary color: the repo's (check `apps/web` for palette).
+- **Optional** client branding: ability to upload their logo in `tenancy-organizations-service` and have it appear in the header.
 
 ---
 
-## 🚦 Performance objetivo (medirlo)
+## 🚦 Performance target (measure it)
 
-| Pantalla | First contentful paint | Time to interactive |
+| Screen | First contentful paint | Time to interactive |
 |---|---|---|
 | Operations Live | < 1.5 s | < 3 s |
 | Fleet Health | < 1.5 s | < 3 s |
 | Flight Detail | < 1 s | < 2 s |
 | Workshop App | < 2 s | < 4 s |
 
-Si no se cumplen, **cachear en `ontology-query-service`** y precomputar agregaciones.
+If not met, **cache in `ontology-query-service`** and precompute aggregations.
 
 ---
 
-## ✅ Acciones concretas (cuando se ejecute la PoC)
+## ✅ Concrete actions (when the PoC is executed)
 
-1. Diseñar las 3 pantallas en Figma o en el propio `apps/web` antes de implementar.
-2. Implementar componentes reutilizables: `LiveMap`, `KpiCard`, `ObjectCard`, `ObjectList`, `ActionButton`, `CopilotPanel`.
-3. Materializar la Workshop App en `app-builder-service`.
-4. Validar performance con Lighthouse y `k6` (simulando 5 usuarios concurrentes).
-5. Capturar screenshots para el plan B (vídeo de respaldo).
+1. Design the 3 screens in Figma or directly in `apps/web` before implementing.
+2. Implement reusable components: `LiveMap`, `KpiCard`, `ObjectCard`, `ObjectList`, `ActionButton`, `CopilotPanel`.
+3. Materialize the Workshop App in `application-composition-service`.
+4. Validate performance with Lighthouse and `k6` (simulating 5 concurrent users).
+5. Capture screenshots for the plan B (backup video).

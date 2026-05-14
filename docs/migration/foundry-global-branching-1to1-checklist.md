@@ -336,10 +336,13 @@ OpenFoundry canonical IDs.
   - On merge, publish only the selected version target to main and update branch consumers to the stable version.
   - Docs: [Branching functions](https://www.palantir.com/docs/foundry/global-branching/branching-functions/).
 
-- [ ] `GB.34` AIP Logic adapter (`P1`, `todo`)
+- [x] `GB.34` AIP Logic adapter (`P1`, `done`)
   - Add, remove, modify, publish, review, rebase, and merge Logic functions on branches.
   - Support branched Logic functions in branch-aware applications such as Workshop and branch ontology object interactions.
   - Enforce merge requirements: up to date with main, published on branch, publishable state, and no pending approvals.
+  - Added the Logic branch adapter domain layer with branch resource identity, isolated branch versions, branched pre-release publication metadata for branch-aware Workshop/action/object contexts, proposal review state, manual rebase conflicts, merge checks, and merge-to-main version promotion.
+  - Added Logic authoring UI controls for add/edit/publish/review/rebase/merge/remove flows, branch-only availability, merge requirement detail, conflict visibility, and adapter operation history.
+  - Tests cover branch isolation, pre-release scope, approval checks, rebase conflict resolution, removal restrictions, publishability checks, and successful merge publication.
   - Docs: [Branching AIP Logic](https://www.palantir.com/docs/foundry/logic/branching-logic).
 
 - [ ] `GB.35` Object Views adapter (`P1`, `todo`)
@@ -447,6 +450,17 @@ OpenFoundry canonical IDs.
 - [ ] `INV.13` Produce a machine-readable parity matrix sibling JSON after inventory, following the pattern of [foundry-feature-parity-matrix.json](./foundry-feature-parity-matrix.json).
 
 ## Suggested service boundaries
+
+> **Reader note (2026-05-14)** — The services in the table below are
+> *target* decomposition proposals, not a current inventory of
+> binaries. Some have been built under consolidated names after S8
+> (`marketplace-service` → `federation-product-exchange-service`;
+> `approvals-service` → `workflow-automation-service/internal/approvals`;
+> `ontology-security-service` → `authorization-policy-service`;
+> `ai-service` → `agent-runtime-service` + `llm-catalog-service`).
+> Others are not yet implemented. For the canonical list of binaries
+> on disk today, see
+> [`docs/architecture/services-and-ports.md`](../architecture/services-and-ports.md).
 
 | Surface | Responsibilities |
 | --- | --- |

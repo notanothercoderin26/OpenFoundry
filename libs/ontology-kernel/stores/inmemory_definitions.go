@@ -165,8 +165,8 @@ func (s *InMemoryDefinitionStore) Delete(
 	return true, nil
 }
 
-// Count mirrors `DefinitionStore::count`. Reuses the default helper
-// shipped by the storage-abstraction crate.
+// Count implements DefinitionStore.Count by walking the in-memory
+// records under the query's filter.
 func (s *InMemoryDefinitionStore) Count(
 	ctx context.Context,
 	query storageabstraction.DefinitionQuery,

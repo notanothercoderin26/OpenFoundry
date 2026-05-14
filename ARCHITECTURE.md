@@ -7,8 +7,9 @@ links below.
 ## Stack at a glance
 
 - **Backend:** Go (single module rooted at `github.com/openfoundry/openfoundry-go`)
-  with 41 service binaries under [`services/`](services/) and 32 shared
-  packages under [`libs/`](libs/).
+  with 42 service binaries under [`services/`](services/) (plus
+  [`services/template/`](services/template/) as boilerplate) and 33
+  shared packages under [`libs/`](libs/).
 - **Frontend:** React 19 + Vite + TypeScript in [`apps/web/`](apps/web/).
 - **Contracts:** Protobuf in [`proto/`](proto/), Go code generated to
   [`libs/proto-gen/`](libs/proto-gen/) via `buf` (run `make gen`).
@@ -25,7 +26,7 @@ the root [`CLAUDE.md`](CLAUDE.md).
 ## Service grouping
 
 Services are grouped into Helm releases ("ownership boundaries") rather
-than physically merged crates. The current grouping:
+than physically merged binaries. The current grouping:
 
 ```
                 ┌─────────────────────────────┐

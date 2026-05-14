@@ -65,6 +65,14 @@ type tableRuntimeConfig struct {
 	SourceName          string                    `json:"source_name,omitempty"`
 	SourceNameColumn    string                    `json:"source_name_column,omitempty"`
 	FileNameColumn      string                    `json:"file_name_column,omitempty"`
+	SourceKind          string                    `json:"source_kind,omitempty"`
+	VirtualTableRID     string                    `json:"virtual_table_rid,omitempty"`
+	VirtualTableName    string                    `json:"virtual_table_name,omitempty"`
+	SourceRID           string                    `json:"source_rid,omitempty"`
+	Provider            string                    `json:"provider,omitempty"`
+	TableType           string                    `json:"table_type,omitempty"`
+	HostApplication     string                    `json:"host_application,omitempty"`
+	PipelineType        string                    `json:"pipeline_type,omitempty"`
 }
 
 type runtimeTransformStack struct {
@@ -326,7 +334,15 @@ func (cfg tableRuntimeConfig) empty() bool {
 		cfg.TrailNameColumn == "" &&
 		cfg.SourceName == "" &&
 		cfg.SourceNameColumn == "" &&
-		cfg.FileNameColumn == ""
+		cfg.FileNameColumn == "" &&
+		cfg.SourceKind == "" &&
+		cfg.VirtualTableRID == "" &&
+		cfg.VirtualTableName == "" &&
+		cfg.SourceRID == "" &&
+		cfg.Provider == "" &&
+		cfg.TableType == "" &&
+		cfg.HostApplication == "" &&
+		cfg.PipelineType == ""
 }
 
 func (cfg tableRuntimeConfig) inlineRows() []pipelineexpression.Row {
@@ -1119,7 +1135,7 @@ func allBool(values []bool) bool {
 
 func normaliseTableTransform(transformType string) string {
 	switch strings.ToLower(strings.TrimSpace(transformType)) {
-	case "dataset_input", "input", "source", "source_dataset", "table_input", "external":
+	case "dataset_input", "input", "source", "source_dataset", "table_input", "external", "virtual_table_input", "input_virtual_table", "source_virtual_table":
 		return "input"
 	case "filter", "row_filter":
 		return "filter"
@@ -1131,7 +1147,7 @@ func normaliseTableTransform(transformType string) string {
 		return "rename"
 	case "passthrough", "noop":
 		return "passthrough"
-	case "output", "dataset_output", "output_dataset", "table_output", "output_object_type", "object_type_output", "output_link_type", "link_type_output":
+	case "output", "dataset_output", "output_dataset", "table_output", "output_object_type", "object_type_output", "output_link_type", "link_type_output", "output_virtual_table", "virtual_table_output":
 		return "output"
 	case "sql", "structured_sql", "join", "table_join", "union", "union_all", "transform_stack",
 		"geo_join", "geospatial_join", "geometry_join",

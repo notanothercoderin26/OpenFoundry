@@ -1,8 +1,7 @@
 // Package audit emits structured slog events for iceberg-catalog-service.
 //
-// Mirrors the event vocabulary from the Rust `crate::audit` module. Each
-// event carries a stable `audit_event=<name>` attribute that the Foundry
-// audit collector drains into `audit-compliance-service`.
+// Each event carries a stable `audit_event=<name>` attribute that the
+// Foundry audit collector drains into `audit-compliance-service`.
 package audit
 
 import (

@@ -4,10 +4,10 @@ Application development in OpenFoundry is not only about frontend routes. It als
 
 ## Repository signals
 
-- `services/app-builder-service`
-- `apps/web/src/routes/apps`
-- `services/marketplace-service`
-- `services/code-repo-service`
+- `services/application-composition-service` — app composition, pages, widgets, publish runtime
+- `apps/web/src/routes/apps`, `/workshop-editor` — frontend UI (React 19 + Vite)
+- `services/federation-product-exchange-service` — marketplace + product distribution + federation registry (this is the binary that hosts the marketplace surface; older docs called it `marketplace-service`)
+- `services/code-repository-review-service` — embedded code repos and review plane
 
 ## What this capability should cover
 

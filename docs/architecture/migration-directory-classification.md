@@ -1,5 +1,27 @@
 # Migration Directory Classification
 
+> **Historical snapshot — pre-consolidation baseline.** This document was
+> written as the cleanup baseline for the **56 migration roots** that
+> existed *before* the service consolidation tracked by
+> [ADR-0030](./adr/ADR-0030-service-consolidation-30-targets.md) and the
+> Rust → Go monorepo port. Many service directories listed below
+> (e.g. `ai-application-generation-service`, `data-asset-catalog-service`,
+> `marketplace-service`, `mcp-orchestration-service`, `oauth-integration-service`,
+> `scenario-simulation-service`, `checkpoints-purpose-service`,
+> `cipher-service`, `lineage-deletion-service`, `network-boundary-service`,
+> `retention-policy-service`, `sds-service`, `security-governance-service`,
+> `compute-modules-*-service`, `custom-endpoints-service`,
+> `developer-console-service`, `event-ingestion-replication-service`,
+> `execution-observability-service`, `managed-workspace-service`,
+> `monitoring-rules-service`, `pipeline-authoring-service`, `report-service`,
+> `time-series-data-service`, `automation-operations-service`) **no longer
+> exist as standalone binaries** in the current Go monorepo — their
+> migrations have been merged into the consolidated services listed in
+> ADR-0030 and ADR-0042. Cross-references to `*.rs` files reflect the
+> Rust era of the codebase; the Go ports live under
+> `services/<svc>/internal/repo/migrations/`. For the current per-service
+> migration layout consult the live tree.
+
 This catalog is the cleanup baseline for the **56 migration roots**
 called out by the Cassandra/Foundry parity plan. It classifies every
 runtime SQL migration directory into one of the final buckets used by
@@ -62,14 +84,14 @@ chain for it.
 ## `pg-runtime-config`
 
 - `services/agent-runtime-service/migrations`
-- `services/app-builder-service/migrations`
+- `services/application-composition-service/migrations`
 - `services/application-composition-service/migrations`
 - `services/compute-modules-control-plane-service/migrations`
 - `services/compute-modules-runtime-service/migrations`
 - `services/connector-management-service/migrations`
 - `services/custom-endpoints-service/migrations`
 - `services/developer-console-service/migrations`
-- `services/event-streaming-service/migrations`
+- `services/event-ingestion-replication-service/migrations`
   Note: hot runtime tables moved to `legacy-archive`; control-plane DDL remains active.
 - `services/execution-observability-service/migrations`
 - `services/ingestion-replication-service/migrations`
@@ -86,11 +108,11 @@ chain for it.
 - `services/sql-bi-gateway-service/migrations`
   Note: also hosts the `warehouse_*`, `tabular_analysis_*` and
   `analytical_expression*` migrations absorbed from the retired
-  `sql-warehousing-service`, `tabular-analysis-service` and
+  `sql-bi-gateway-service`, `sql-bi-gateway-service` and
   `analytical-logic-service` (S8 consolidation, ADR-0030). The
   `analytical_expressions` schema is also shipped by the internal
-  `libs/analytical-logic` crate so non-gateway consumers can re-apply
-  it locally for tests.
+  `libs/analytical-logic` package so non-gateway consumers can
+  re-apply it locally for tests.
 - `services/time-series-data-service/migrations`
 - `services/workflow-automation-service/migrations`
 
@@ -100,7 +122,7 @@ chain for it.
   Owns `auth_runtime` session state; replaces the archived `scoped_sessions` SQL path.
 - `services/oauth-integration-service/src/pending_auth_cassandra.rs`
   Owns short-lived OAuth pending-auth state; no active SQL migration dir is allowed for that hot path.
-- `services/event-streaming-service/src/domain/runtime_store.rs`
+- `services/event-ingestion-replication-service/src/domain/runtime_store.rs`
   Owns the hot runtime ledger that replaced `streaming_events`, `streaming_checkpoints`,
   `streaming_cold_archives` and `streaming_topology_checkpoints`.
 
@@ -111,7 +133,7 @@ chain for it.
   Active again post-FASE 6 (Foundry-pattern migration): hosts the
   saga state-machine + audit schema (`saga.state`, `saga_audit_log`)
   that replaced Temporal as the authoritative orchestration store.
-- `docs/architecture/legacy-migrations/event-streaming-service/`
+- `docs/architecture/legacy-migrations/event-ingestion-replication-service/`
 - `docs/architecture/legacy-migrations/identity-federation-service/`
 - `docs/architecture/legacy-migrations/object-database-service/`
 - `docs/architecture/legacy-migrations/ontology-actions-service/`

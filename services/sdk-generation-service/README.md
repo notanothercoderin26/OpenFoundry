@@ -1,12 +1,10 @@
-# sdk-generation-service (Go)
+# sdk-generation-service
 
 SDK + OpenAPI contract generation/publication/versioning service.
 
-> The Rust crate at `services/sdk-generation-service/` is currently a
-> substrate-only scaffold (`fn main() {}` — handlers + models + config
-> in place but no server wiring). This Go port wires the actual server
-> + auth + metrics so the documented endpoints can be exercised
-> end-to-end. Wire format preserved 1:1 with the Rust models.
+Today the binary wires server + auth + metrics so the documented
+endpoints can be exercised end-to-end; wire format is pinned via
+the model JSON tags.
 
 ## Endpoints
 

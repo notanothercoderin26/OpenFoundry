@@ -1,7 +1,6 @@
-# notification-alerting-service (Go)
+# notification-alerting-service
 
-Notification inbox + delivery + websocket fan-out. Functional 1:1 with
-the Rust crate.
+Notification inbox + delivery + websocket fan-out.
 
 ## Endpoints
 
@@ -34,7 +33,7 @@ and forwards events the client cares about (filtered by `user_id`).
 
 ## Configuration
 
-Operator-facing env contract — names match the Rust crate:
+Operator-facing env contract:
 
 | Variable                       | Required | Purpose                              |
 | ------------------------------ | :------: | ------------------------------------ |

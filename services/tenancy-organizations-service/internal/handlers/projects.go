@@ -1,12 +1,9 @@
 package handlers
 
-// projects.go ports services/tenancy-organizations-service/src/handlers/projects.rs.
-//
-// The Rust handler exposes the ontology-project CRUD surface plus folder
-// management, membership upserts and resource-binding lifecycle. Slug
-// normalisation, folder-name canonicalisation and error strings are
-// byte-exact with the Rust source so federated callers see identical
-// payloads regardless of which language emitted the response.
+// projects.go exposes the ontology-project CRUD surface plus folder
+// management, membership upserts and resource-binding lifecycle.
+// Slug normalisation, folder-name canonicalisation and error strings
+// are wire-stable so federated callers receive identical payloads.
 //
 // The handler holds a *pgxpool.Pool directly (mirroring the Rust
 // `state.ontology_db` field) instead of going through the foundation
@@ -33,10 +30,9 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/models"
 )
 
-// ProjectsHandlers owns the ontology-project HTTP surface. The Pool is
-// the same shared pgxpool used by the rest of the service — the Rust
-// crate carries a separate `ontology_db` handle, but the Go port runs
-// against a single DATABASE_URL so we reuse the foundation pool.
+// ProjectsHandlers owns the ontology-project HTTP surface. The Pool
+// is the same shared pgxpool used by the rest of the service:
+// projects run against the single DATABASE_URL alongside organizations.
 type ProjectsHandlers struct {
 	Pool *pgxpool.Pool
 }

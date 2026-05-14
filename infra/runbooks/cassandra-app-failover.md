@@ -19,9 +19,9 @@ of-cass-prod (single logical cluster, NetworkTopologyStrategy)
 * Replication factor: `dc1:3, dc2:3, dc3:3, dc-b1:3` on every
   application keyspace ([keyspaces-job.yaml](../k8s/platform/manifests/cassandra/keyspaces-job.yaml)).
 * Application default consistency: `LOCAL_QUORUM` (per ADR-0020 / 0021).
-* Driver: [`scylla`](https://docs.rs/scylla) Rust crate; `local_dc` is
-  configured via `CASSANDRA_LOCAL_DC` environment variable wired into
-  every service's `cassandra-kernel` initialisation.
+* Driver: [`gocql/gocql`](https://github.com/gocql/gocql); `local_dc`
+  is configured via the `CASSANDRA_LOCAL_DC` environment variable
+  wired into every service's `cassandra-kernel` initialisation.
 
 ## When to fail over
 

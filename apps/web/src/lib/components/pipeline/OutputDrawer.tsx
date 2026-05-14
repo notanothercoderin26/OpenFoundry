@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Glyph } from '@/lib/components/ui/Glyph';
 
 export interface OutputDraft {
-  kind?: 'dataset' | 'object_type' | 'link_type';
+  kind?: 'dataset' | 'object_type' | 'link_type' | 'virtual_table';
   display_name: string;
   source_node_id: string;
   source_node_label: string;
@@ -103,7 +103,9 @@ export function OutputDrawer({ open, draft, onClose, onChangeName }: OutputDrawe
               ? 'Object type and backing dataset will be created after first build'
               : draft.kind === 'link_type'
                 ? 'Link type and link rows will be created after first build'
-                : 'Output will be created after first build'}
+                : draft.kind === 'virtual_table'
+                  ? 'Virtual table will be registered after first build; storage remains external'
+                  : 'Output will be created after first build'}
           </p>
         </section>
 

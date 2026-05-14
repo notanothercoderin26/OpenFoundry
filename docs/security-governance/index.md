@@ -4,19 +4,28 @@ This section covers identity, permissions, policy, traceability, and controlled 
 
 ## OpenFoundry mapping
 
-- `services/auth-service`
-- `services/audit-service`
-- gateway auth and audit middleware
-- policy and RBAC contracts in `proto/auth/*`
-- security-oriented smoke and workflow assumptions
+- `services/identity-federation-service` — identity, MFA, WebAuthn, OIDC, SAML, RBAC, SCIM, JWKS rotation
+- `services/authorization-policy-service` — Cedar-backed authorization decision point (ABAC + RBAC + restricted views)
+- `services/audit-compliance-service` — platform audit ledger, retention policies, lineage deletion subsystem
+- `services/audit-sink` — Kafka → Iceberg consumer for the `audit.events.v1` stream
+- `services/tenancy-organizations-service` — organizations, workspace enrollments, multi-tenancy
+- `services/telemetry-governance-service` — telemetry permissions, export policies, monitoring rules
+- `libs/auth-middleware` — HTTP auth middleware (claims, session scope, JWKS verification)
+- `libs/authz-cedar-go` — Cedar policy engine bindings used by `authorization-policy-service`
+- `libs/audit-trail` — structured audit events for the compliance collectors
+- `libs/media-scanner` — Sensitive Data Scanner integration (PII detection)
+- `apps/web/src/routes/audit`, `/auth`, `/control-panel` — security-oriented UIs
+- `proto/auth/*`, `proto/audit/*` — wire contracts (wire-format breakage hits every consumer)
+
+> The `identity-federation-service`, `authorization-policy-service` and `libs/auth-middleware` are designated **security-critical zones** in [`CLAUDE.md`](../../CLAUDE.md): changes there require extra care and explicit human review.
 
 ## Key concerns
 
-- authentication and authorization
-- role and policy models
-- auditability
-- semantic access control
-- environment and deployment governance
+- authentication and federated identity (OIDC, SAML, MFA, WebAuthn, SCIM)
+- role-based, attribute-based and policy-based authorization (Cedar)
+- auditability (immutable ledger + Kafka sink to Iceberg)
+- semantic and row/column-level access control via restricted views
+- environment and deployment governance (tenancy + telemetry policies)
 
 ## Section map
 

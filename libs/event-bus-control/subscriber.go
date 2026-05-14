@@ -9,7 +9,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// Default stream knobs — match the Rust crate's `ensure_stream` impl.
+// Default stream knobs used by EnsureStream when callers don't override.
 const (
 	defaultStreamMaxMessages = 1_000_000
 	defaultStreamMaxAge      = 7 * 24 * time.Hour
@@ -21,7 +21,6 @@ const (
 // Each subject in `subjects` is registered with a `.>` suffix so the
 // stream captures the entire subtree (e.g. `of.datasets.>` matches
 // `of.datasets.created`, `of.datasets.quality.refresh.requested`, …).
-// Same convention as the Rust crate.
 func EnsureStream(ctx context.Context, js jetstream.JetStream, name string, subjects []string) (jetstream.Stream, error) {
 	wildcards := make([]string, len(subjects))
 	for i, s := range subjects {

@@ -20,16 +20,16 @@ Even when a platform does not have one single indexing service, these five conce
 
 The current repository suggests the indexing path is distributed across:
 
-- `services/data-connector`
-- `services/dataset-service`
-- `services/pipeline-service`
-- `services/streaming-service`
-- `services/ontology-service/src/handlers/funnel.rs`
-- `services/ontology-service/src/domain/indexer.rs`
+- `services/connector-management-service`
+- `services/dataset-versioning-service`
+- `services/pipeline-build-service` + `services/pipeline-runner` + `services/pipeline-runner-spark`
+- `services/ingestion-replication-service`
+- `services/ontology-actions-service/internal/handlers/funnels.go` (funnel runtime, currently hosted inside `ontology-actions-service`)
+- `services/ontology-indexer` (Kafka worker that projects ontology changes into the search backend)
 
 The important change is that OpenFoundry now exposes an explicit ontology-facing batch orchestrator.
 
-The funnel surface in `ontology-service` lets builders define:
+The funnel surface, currently hosted inside `ontology-actions-service`, lets builders define:
 
 - a source dataset
 - an optional upstream pipeline
@@ -54,7 +54,7 @@ That matters because ontology indexing rarely stays purely batch forever. Operat
 
 The ontology search path already depends on indexed documents built from ontology-visible objects.
 
-`services/ontology-service/src/domain/search/mod.rs` calls into an indexer that builds search documents scoped to:
+`services/ontology-query-service/internal/domain/search/` calls into the `ontology-indexer` worker that builds search documents scoped to:
 
 - object type
 - search kind
@@ -66,7 +66,7 @@ This means indexing is not only about storage. It is also about shaping data so 
 
 The clearest materialization signal today is in object sets.
 
-`services/ontology-service/src/models/object_set.rs` already includes:
+`services/ontology-query-service/internal/models/object_set.go` already includes:
 
 - `materialized_snapshot`
 - `materialized_at`
@@ -83,7 +83,7 @@ This is exactly the kind of distinction a serious ontology platform needs for re
 
 OpenFoundry now also exposes a dedicated monitoring surface for ontology batch indexing through the funnel abstraction.
 
-At the API level, `ontology-service` can now report:
+At the API level, `ontology-actions-service` (which hosts the funnel runtime) can now report:
 
 - global funnel health across visible sources
 - per-source health summaries

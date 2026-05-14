@@ -16,7 +16,7 @@ The ontology backend already exposes:
 - interface property CRUD
 - attachment and detachment of interfaces to object types
 
-Those capabilities are visible in `services/ontology-service/src/handlers/interfaces.rs` and the route map in `services/ontology-service/src/main.rs`.
+Those capabilities are visible in `services/ontology-definition-service/internal/handlers/interfaces.go` and the route map in `services/ontology-definition-service/cmd/ontology-definition-service/main.go` (chi wiring in `services/ontology-definition-service/internal/server/`).
 
 ## Section map
 

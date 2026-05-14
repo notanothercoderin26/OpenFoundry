@@ -61,7 +61,7 @@ type RateLimitConfig struct {
 	RedisKeyPrefix             string `koanf:"redis_key_prefix"`
 }
 
-// DefaultRateLimit returns the Rust crate's defaults.
+// DefaultRateLimit returns the gateway's standard rate-limit defaults.
 func DefaultRateLimit() RateLimitConfig {
 	return RateLimitConfig{
 		AnonymousRequestsPerMinute: 120,
@@ -141,8 +141,9 @@ type UpstreamURLs struct {
 	TelemetryGovernance       string `koanf:"telemetry_governance_service_url"`
 }
 
-// DefaultUpstreams returns the default localhost ports the Rust crate
-// ships. Production deployments override every field via Helm values.
+// DefaultUpstreams returns the default localhost ports for dev /
+// docker-compose. Production deployments override every field via
+// Helm values.
 func DefaultUpstreams() UpstreamURLs {
 	return UpstreamURLs{
 		IdentityFederation:        "http://localhost:50112",

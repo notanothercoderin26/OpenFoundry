@@ -4,18 +4,33 @@ OpenFoundry treats contracts as first-class repository artifacts.
 
 ## Source Of Truth
 
-The contract source starts in `proto/`, where domains are split into focused folders such as:
+The contract source starts in `proto/`, where domains are split into focused folders. The full set today is:
 
-- `auth`
-- `dataset`
-- `pipeline`
-- `query`
-- `ontology`
-- `workflow`
-- `report`
-- `ai`
-- `ml`
-- `geospatial`
+| Domain | Scope |
+| --- | --- |
+| `ai` | AI / agent runtime, evaluations, guardrails |
+| `app_builder` | Application composition + curation contracts |
+| `audit` | Audit collection envelopes consumed by `audit-compliance-service` and `audit-sink` |
+| `auth` | Identity, authorization, JWT claims |
+| `code_repo` | Repository review, branching, commits |
+| `common` | Cross-domain primitives (pagination, RID, timestamps, error envelope) |
+| `data_integration` | Connector catalogue, sync jobs, virtual tables |
+| `dataset` | Datasets, branches, transactions, files |
+| `fusion` | Entity resolution / fusion |
+| `geospatial` | Geospatial primitives and exploratory analysis |
+| `marketplace` | Marketplace / product exchange / federation |
+| `media_set` | Media sets, media items, transform runtime |
+| `ml` | ML experiments, models, deployments, batch predictions |
+| `nexus` | Nexus / spaces / cross-tenant collaboration |
+| `notebook` | Notebook runtime, cells, reporting surfaces |
+| `notification` | Notification transport, inbox, alerting |
+| `ontology` | Ontology schema, instances, links, actions, queries |
+| `pipeline` | Pipeline definitions, runs, cron triggers |
+| `query` | Edge SQL surface (Flight SQL / saved queries / warehousing / tabular) |
+| `report` | Reporting envelopes consumed by `notebook-runtime-service` |
+| `runtime` | Runtime / orchestration primitives shared across services |
+| `streaming` | Streaming connector control plane |
+| `workflow` | Workflow + approvals + Foundry-pattern saga / automation |
 
 Buf configuration lives alongside them in:
 

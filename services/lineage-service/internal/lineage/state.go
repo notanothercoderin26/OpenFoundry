@@ -1,12 +1,10 @@
-// Package lineage ports `services/lineage-service/src/domain/lineage/mod.rs`
-// 1:1.
+// Package lineage hosts the lineage handler state.
 //
-// The Rust crate exposes a single `AppState` to handlers that holds
-// the pgx pool, the lineage runtime store, the JWT config, the
-// reqwest HTTP client and a fistful of service URLs / S3 knobs. We
-// only carry the fields actually consumed by the lineage code path —
-// the runtime sink (Kafka → Iceberg) lives outside this package and
-// owns its own state.
+// AppState carries only the fields actually consumed by the lineage
+// code path: the pgx pool, the lineage runtime store, the JWT config,
+// the HTTP client and a fistful of service URLs / S3 knobs. The
+// runtime sink (Kafka → Iceberg) lives outside this package and owns
+// its own state.
 package lineage
 
 import (

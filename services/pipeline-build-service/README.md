@@ -33,7 +33,7 @@ unsupported IR versions.
 | Component | Status |
 |---|---|
 | Health (`/health`, `/healthz`) + Prometheus (`/metrics`) | ✅ |
-| Rust route shape | ✅ route-audit reports no `missing`, `501`, or `empty-envelope` states for `pipeline-build-service` |
+| Route surface | ✅ `go run ./tools/route-audit --services pipeline-build-service` reports no `501` or `empty-envelope` states |
 | Build resolution (`CreateBuild`, `DryRunResolve`) | ✅ wired through injected JobSpec, dataset-versioning, lock and build persistence ports |
 | `/api/v1/data-integration` runs/build queue | ✅ backed by the production run repository when `DATABASE_URL` is configured; otherwise explicit `503` configuration errors |
 | `/v1/builds`, `/v1/jobs`, `/v1/job-specs` | ✅ mounted and backed by build/job/log repositories where data access is required |
@@ -53,10 +53,10 @@ unsupported IR versions.
 | Iceberg output client (ADR-0041) | 🟡 config-gated by `FOUNDRY_ICEBERG_CATALOG_URL`; boot warning remains intentional |
 | Legacy pipeline authoring CRUD aliases | ✅ mounted through the repository-backed authoring lifecycle when `DATABASE_URL` is configured; otherwise explicit `503` configuration errors |
 
-Use `openfoundry-go/docs/migration/route-parity-audit.md` as the generated
-source of truth for route-shape parity. Productive handlers either execute real
-repository/runtime work or return a machine-readable configuration error that
-names the missing adapter.
+Run `go run ./tools/route-audit --services pipeline-build-service` to regenerate
+the handler-classification snapshot for this service. Productive handlers either
+execute real repository/runtime work or return a machine-readable configuration
+error that names the missing adapter.
 
 ## Build & run
 

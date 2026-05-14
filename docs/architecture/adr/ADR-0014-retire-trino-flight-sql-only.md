@@ -9,13 +9,13 @@
 - **Related work:**
   - `services/sql-bi-gateway-service/` (Apache Arrow Flight SQL gateway,
     port `50133` Flight SQL gRPC + `50134` HTTP side router)
-  - `services/sql-warehousing-service/` (DataFusion compute pool,
+  - `services/sql-bi-gateway-service/` (DataFusion compute pool,
     Flight SQL P2P, port `50123`)
   - `libs/query-engine/` (DataFusion + `FlightSqlTableProvider`)
   - `libs/auth-middleware/` (JWT decoding + per-tenant quota policy)
-  - `infra/k8s/platform/manifests/lakekeeper/` — lakehouse catalog deployment
+  - `infra/helm/infra/manifests/lakekeeper/` — lakehouse catalog deployment
     addressed via per-statement routing
-  - Deletions: `infra/k8s/platform/manifests/trino/`, `infra/runbooks/trino.md`
+  - Deletions: `infra/helm/infra/manifests/trino/`, `infra/runbooks/trino.md`
 
 ## Context
 
@@ -34,7 +34,7 @@ Six months in, that residual Trino footprint is still expensive:
    recurring source of incidents.
 3. **A second deployment to operate** (Trino coordinator + workers,
    secret rotation, Iceberg catalog properties, Helm values, PDBs) — roughly
-   10 % of `infra/k8s/` purely for an
+   10 % of `infra/helm/` purely for an
    external-facing read path.
 4. **The `sql-bi-gateway-service` was a stub** (`fn main() {}`) that
    only existed to delegate to Trino. It already had partial
@@ -67,7 +67,7 @@ service we already own.
 
    | Catalog prefix             | Backend (per ADR-0009 table)                                                          |
    | -------------------------- | ------------------------------------------------------------------------------------- |
-   | `iceberg.*` / no prefix    | local DataFusion `SessionContext`, optionally delegated to `sql-warehousing-service`  |
+   | `iceberg.*` / no prefix    | local DataFusion `SessionContext`, optionally delegated to `sql-bi-gateway-service`  |
    | `trino.*`                  | Trino via `TRINO_FLIGHT_SQL_URL`                                                      |
    | `vespa.*`                  | Vespa via `VESPA_FLIGHT_SQL_URL`                                                      |
    | `postgres.*` / `postgresql.*` | Postgres via `POSTGRES_FLIGHT_SQL_URL`                                             |
@@ -100,10 +100,10 @@ service we already own.
 6. **Trino is deleted entirely.** The following are removed in this
    ADR's accompanying change-set:
 
-   - `infra/k8s/platform/manifests/trino/` (coordinator, PDB, catalog ConfigMaps, values)
+   - `infra/helm/infra/manifests/trino/` (coordinator, PDB, catalog ConfigMaps, values)
    - `infra/runbooks/trino.md`
-   - All Trino references in `infra/k8s/platform/manifests/flink/maintenance/rewrite-data-files.yaml`,
-     `infra/k8s/platform/observability/prometheus-rules/lakekeeper.yaml`,
+   - All Trino references in `infra/helm/infra/manifests/flink/maintenance/rewrite-data-files.yaml`,
+     `infra/helm/infra/observability/prometheus-rules/lakekeeper.yaml`,
      `docs/architecture/runtime-topology.md`,
      `docs/architecture/services-and-ports.md`,
      `docs/architecture/adr/ADR-0012-data-plane-slos.md`,
@@ -155,7 +155,7 @@ service we already own.
 - **Cross-backend joins are limited to the Iceberg/local DataFusion
   side**: a `JOIN` between, say, `trino.of_lineage.runs` and
   `vespa.documents` is **not** supported. Callers that need such joins
-  must materialise into Iceberg via `sql-warehousing-service` first.
+  must materialise into Iceberg via `sql-bi-gateway-service` first.
   The router selects a single backend per statement (the catalog of
   the first `FROM`/`JOIN`/`UPDATE` target).
 - **`do_put_statement_update` returns `0` for affected-row count.**
@@ -170,7 +170,7 @@ service we already own.
 2. Re-point Tableau / Superset workbooks to the Arrow Flight SQL JDBC
    driver and the new URL; verify the catalog navigator and the
    top-N production dashboards.
-3. Delete the Trino Helm release and the `infra/k8s/platform/manifests/trino/` manifests
+3. Delete the Trino Helm release and the `infra/helm/infra/manifests/trino/` manifests
    once the cut-over has soaked for one error-budget window
    (cf. ADR-0012).
 4. Remove Trino references from runbooks and docs (done in this PR).
@@ -181,7 +181,7 @@ service we already own.
   forwards to Trino.** Would have preserved the zero-engineering
   posture but kept all four costs from §Context (dialect, auth, ops,
   stub gateway). Rejected.
-- **Promote `sql-warehousing-service` to also be the edge BI
+- **Promote `sql-bi-gateway-service` to also be the edge BI
   surface.** Would conflate the internal compute pool (large analytical
   workloads, no per-tenant quotas) with the BI edge (small interactive
   queries, strict per-tenant quotas, audit). The two have different

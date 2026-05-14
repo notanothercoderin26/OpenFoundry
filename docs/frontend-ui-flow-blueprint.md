@@ -1,226 +1,226 @@
 # OpenFoundry Frontend UI Flow Blueprint
 
-Este documento define un mapa funcional del producto, inspirado en las capturas locales de Foundry y aterrizado sobre el frontend actual de `apps/web`. La intencion no es copiar pantalla por pantalla sin criterio, sino construir una especificacion navegable que permita codificar el frontend y despues conectar cada boton, modal, drawer y accion con el backend.
+This document defines a functional product map, inspired by local Foundry screenshots and grounded on the current `apps/web` frontend. The intent is not to copy screen by screen without judgment, but to build a navigable specification that allows us to code the frontend and then connect each button, modal, drawer, and action to the backend.
 
-## Alcance
+## Scope
 
-Fuentes analizadas:
+Sources analyzed:
 
-- Capturas locales en `docs_original_palantir_foundry/foundry-docs`:
-  - 7750 imagenes encontradas.
-  - Se priorizaron capturas con UI de producto real frente a paginas puramente documentales.
-- Router actual: `apps/web/src/router.tsx`.
-- Componentes principales: `AppShell`, `Sidebar`, `Topbar`, `Tabs`, dashboards, datasets, pipelines, ontology, apps, projects, workspace, data connection, builds, workflows y settings.
-- APIs actuales en `apps/web/src/lib/api`, especialmente `datasets.ts`, `pipelines.ts`, `ontology.ts`, `apps.ts`, `workspace.ts`, `data-connection.ts`, `workflows.ts`, `notebooks.ts` y `notepad.ts`.
+- Local screenshots in `docs_original_palantir_foundry/foundry-docs`:
+  - 7750 images found.
+  - Screenshots showing actual product UI were prioritized over purely documentary pages.
+- Current router: `apps/web/src/router.tsx`.
+- Main components: `AppShell`, `Sidebar`, `Topbar`, `Tabs`, dashboards, datasets, pipelines, ontology, apps, projects, workspace, data connection, builds, workflows, and settings.
+- Current APIs in `apps/web/src/lib/api`, especially `datasets.ts`, `pipelines.ts`, `ontology.ts`, `apps.ts`, `workspace.ts`, `data-connection.ts`, `workflows.ts`, `notebooks.ts`, and `notepad.ts`.
 
-Artefactos generados junto a este documento:
+Artifacts generated alongside this document:
 
-- `docs/frontend-ui-flow-map.mmd`: grafo Mermaid con los flujos de producto.
-- `docs/frontend-interaction-matrix.json`: matriz estructurada de pantallas, interacciones y contratos frontend-backend.
+- `docs/frontend-ui-flow-map.mmd`: Mermaid graph of product flows.
+- `docs/frontend-interaction-matrix.json`: structured matrix of screens, interactions, and frontend-backend contracts.
 
-## Lectura De Las Capturas
+## Reading The Screenshots
 
-Las capturas relevantes de Foundry muestran varios patrones consistentes:
+The relevant Foundry screenshots show several consistent patterns:
 
-| Referencia | Uso en blueprint | Observaciones aplicables |
+| Reference | Use in blueprint | Applicable observations |
 |---|---|---|
-| `docs_original_palantir_foundry/foundry-docs/Analytics/Analytical results/Dashboards_assets/img_001.png` | Dashboard runtime | Panel lateral de parametros, barra de override, cards de charts en grilla, filtros que afectan varios boards. |
-| `docs_original_palantir_foundry/foundry-docs/Analytics/Analytical results/Dashboards_assets/img_002.png` | Dashboard editor | Tres zonas: paleta/lista izquierda, canvas central editable, inspector derecho. Acciones: add tab, add section, add text, preview, publish. |
-| `docs_original_palantir_foundry/foundry-docs/Data connectivity & integration/Applications/Dataset Preview/Overview_assets/img_001.png` | Dataset detail | Breadcrumb superior, tabs pegadas, panel de metadatos izquierdo, tabla dominante, acciones SQL preview, analyze, explore pipeline, build. |
-| `docs_original_palantir_foundry/foundry-docs/Data connectivity & integration/Workflows/Building pipelines/Getting started/Create a dataset batch pipeline with Pipeline Builder_assets/img_001.png` | Pipeline builder | Sidebar oscura, toolbar superior densa, tabs Edit/Proposals/History, canvas grande, nodos conectados, targets drawer, save/propose/deploy. |
-| `docs_original_palantir_foundry/foundry-docs/Use case development/Application building/Workshop/Used colors_assets/img_001.png` | Workshop/app builder | Editor visual con panel lateral, toolbar de secciones, canvas central, widgets, estado de version/autosave, preview/publish. |
-| `docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Data Catalog_assets/img_001.png` | Projects/data catalog | Navegacion por portfolios, projects, files, shared, boton New, request data y tabla/lista de recursos. |
-| `docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Use Project navigation panel_assets/img_001.png` | Project detail | Navegacion lateral dentro de un proyecto: cover page, files, autosaved, references, trash, usage, access graph. |
+| `docs_original_palantir_foundry/foundry-docs/Analytics/Analytical results/Dashboards_assets/img_001.png` | Dashboard runtime | Side panel of parameters, override bar, chart cards in a grid, filters that affect multiple boards. |
+| `docs_original_palantir_foundry/foundry-docs/Analytics/Analytical results/Dashboards_assets/img_002.png` | Dashboard editor | Three zones: palette/list on the left, editable central canvas, inspector on the right. Actions: add tab, add section, add text, preview, publish. |
+| `docs_original_palantir_foundry/foundry-docs/Data connectivity & integration/Applications/Dataset Preview/Overview_assets/img_001.png` | Dataset detail | Top breadcrumb, sticky tabs, metadata panel on the left, dominant table, SQL preview / analyze / explore pipeline / build actions. |
+| `docs_original_palantir_foundry/foundry-docs/Data connectivity & integration/Workflows/Building pipelines/Getting started/Create a dataset batch pipeline with Pipeline Builder_assets/img_001.png` | Pipeline builder | Dark sidebar, dense top toolbar, Edit/Proposals/History tabs, large canvas, connected nodes, targets drawer, save/propose/deploy. |
+| `docs_original_palantir_foundry/foundry-docs/Use case development/Application building/Workshop/Used colors_assets/img_001.png` | Workshop/app builder | Visual editor with side panel, section toolbar, central canvas, widgets, version/autosave state, preview/publish. |
+| `docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Data Catalog_assets/img_001.png` | Projects/data catalog | Navigation across portfolios, projects, files, shared, New button, request data, and resource table/list. |
+| `docs_original_palantir_foundry/foundry-docs/Security & governance/Applications/Compass/Use Project navigation panel_assets/img_001.png` | Project detail | Side navigation within a project: cover page, files, autosaved, references, trash, usage, access graph. |
 
-Reglas de producto extraidas:
+Product rules extracted:
 
-- El shell global debe ser permanente: sidebar, topbar, breadcrumbs, branch, estado de build y acciones globales.
-- La navegacion de primer nivel lleva a galerias o listados: projects, datasets, pipelines, apps, ontology, dashboards.
-- Los detalles usan tabs para subventanas: preview/schema/files/history/quality, edit/proposals/history, overview/resources/memberships.
-- Las acciones de configuracion compleja se abren en modal o drawer, no en paginas nuevas.
-- Las acciones mutadoras deben tener estados `idle`, `loading`, `success`, `error`, `empty` y `permission_denied`.
-- La UI debe anticipar permisos, ramas, auditoria y estados async desde el diseno.
+- The global shell must be permanent: sidebar, topbar, breadcrumbs, branch, build status, and global actions.
+- First-level navigation leads to galleries or listings: projects, datasets, pipelines, apps, ontology, dashboards.
+- Details use tabs for sub-views: preview/schema/files/history/quality, edit/proposals/history, overview/resources/memberships.
+- Complex configuration actions open in a modal or drawer, not on new pages.
+- Mutating actions must have `idle`, `loading`, `success`, `error`, `empty`, and `permission_denied` states.
+- The UI must anticipate permissions, branches, audit, and async states from the design stage.
 
-## Modelo Mental Del "Figma Funcional"
+## "Functional Figma" Mental Model
 
-El blueprint usa esta jerarquia:
+The blueprint uses this hierarchy:
 
-| Nivel | Nombre | Ejemplo | Implementacion esperada |
+| Level | Name | Example | Expected implementation |
 |---|---|---|---|
-| L0 | Shell | Sidebar, topbar, branch, command/search | `AppShell`, `Sidebar`, `Topbar`, command palette futura |
-| L1 | Galeria/listado | `/datasets`, `/pipelines`, `/apps`, `/projects` | Resource table, filtros, bulk actions |
-| L2 | Detalle | `/datasets/:id`, `/projects/:projectId`, `/dashboards/:id` | Detail page layout con tabs y panel lateral |
-| L3 | Subvista | Preview, schema, files, runs, config | `TabbedWorkspace` |
-| L4 | Overlay | modal create, drawer inspector, popover actions | `Modal`, `Drawer`, `ContextMenu`, `InspectorPanel` |
-| L5 | Accion backend | save, run, publish, validate, share | Mutation hook con audit, permissions y feedback |
+| L0 | Shell | Sidebar, topbar, branch, command/search | `AppShell`, `Sidebar`, `Topbar`, future command palette |
+| L1 | Gallery/listing | `/datasets`, `/pipelines`, `/apps`, `/projects` | Resource table, filters, bulk actions |
+| L2 | Detail | `/datasets/:id`, `/projects/:projectId`, `/dashboards/:id` | Detail page layout with tabs and side panel |
+| L3 | Sub-view | Preview, schema, files, runs, config | `TabbedWorkspace` |
+| L4 | Overlay | create modal, inspector drawer, actions popover | `Modal`, `Drawer`, `ContextMenu`, `InspectorPanel` |
+| L5 | Backend action | save, run, publish, validate, share | Mutation hook with audit, permissions, and feedback |
 
-## Inventario De Pantallas
+## Screen Inventory
 
-Estado:
+Status:
 
-- Existe: ruta y vista presentes.
-- Parcial: ruta existe pero falta estructura Foundry-like, overlays o contrato completo.
-- Falta: deberia existir como pantalla/subpantalla para cerrar el flujo.
+- Exists: route and view present.
+- Partial: route exists but lacks Foundry-like structure, overlays, or full contract.
+- Missing: should exist as a screen/sub-screen to close the flow.
 
-El frontend real tiene 88 rutas (verificadas leyendo `apps/web/src/router.tsx`). El inventario abajo cubre las 88, con ID estable, ruta exacta, área, screenshot de referencia cuando aplica, componentes principales (de los que ya existen en `apps/web/src/lib/components/**` o `apps/web/src/routes/**` se marca con `~`; los que faltan crear se marcan con `(target)`), estado y prioridad.
+The actual frontend has 88 routes (verified by reading `apps/web/src/router.tsx`). The inventory below covers all 88, with stable ID, exact route, area, reference screenshot when applicable, main components (those already present in `apps/web/src/lib/components/**` or `apps/web/src/routes/**` are marked with `~`; those still to be created are marked `(target)`), status, and priority.
 
-Estado:
+Status:
 
-- Existe: ruta y vista presentes y funcionales.
-- Parcial: ruta existe pero falta estructura Foundry-like, overlays, contrato completo o el shell padre no impone los patrones consistentes (sticky header, tabs, breadcrumbs, save/share contextual, action registry).
-- Falta: deberia existir como pantalla/subpantalla para cerrar el flujo.
+- Exists: route and view present and functional.
+- Partial: route exists but lacks Foundry-like structure, overlays, a full contract, or the parent shell does not enforce consistent patterns (sticky header, tabs, breadcrumbs, contextual save/share, action registry).
+- Missing: should exist as a screen/sub-screen to close the flow.
 
-Importante sobre componentes reutilizables: hoy NO existe un componente compartido `ResourceTable`. Las tablas de `datasets`, `pipelines`, `apps`, `projects`, `data-connection`, `ontology`, `marketplace`, `streaming`, etc. estan implementadas localmente, en general usando markup ad-hoc o utilitarios de `lib/components/ui/`. El blueprint asume un futuro `ResourceTable` extraido y normalizado; mientras no exista, en la columna "Componentes principales" se anota como `(target)`.
+Important note about reusable components: a shared `ResourceTable` component does NOT exist today. The tables for `datasets`, `pipelines`, `apps`, `projects`, `data-connection`, `ontology`, `marketplace`, `streaming`, etc. are implemented locally, generally using ad-hoc markup or utilities from `lib/components/ui/`. The blueprint assumes a future `ResourceTable` that has been extracted and normalized; while it does not exist, the "Main components" column notes it as `(target)`.
 
-| ID | Pantalla | Ruta actual | Area | Referencia visual | Componentes principales | Estado | Prioridad |
+| ID | Screen | Current route | Area | Visual reference | Main components | Status | Priority |
 |---|---|---|---|---|---|---|---|
-| HOME-001 | Workspace home | `/` | core | Compass/Data Catalog | `AppShell` ~, `Sidebar` ~, `Topbar` ~, `ResourceTable (target)`, `ActivityPanel (target)`, `QuickActions (target)` | Parcial | P0 |
-| SEARCH-001 | Global search page | `/search` | core | Compass Quicksearch | `SearchPage` ~, `CommandPalette (target)`, `SearchResults (target)`, `ObjectCard (target)` | Parcial | P0 |
-| AUTH-001 | Auth login | `/auth/login` | security | identity docs | `AuthLayout` ~, `LoginPage` ~ | Existe | P0 |
-| AUTH-002 | Auth register | `/auth/register` | security | identity docs | `RegisterPage` ~ | Existe | P1 |
-| AUTH-003 | Auth MFA | `/auth/mfa` | security | MFA docs | `MfaPage` ~ | Existe | P0 |
-| AUTH-004 | Auth callback | `/auth/callback` | security | SSO callback | `CallbackPage` ~ | Existe | P1 |
-| PROJECT-001 | Projects gallery | `/projects` | projects | Compass Data Catalog | `ProjectsListPage` ~, `Tabs` ~, `CreateProjectModal (target)` | Parcial | P0 |
-| PROJECT-002 | Project detail | `/projects/:projectId` | projects | Compass project nav | `ProjectDetailPage` ~, `FolderTree` ~, `ResourceDetailsPanel` ~, `ShareDialog` ~, `ResourcePermissionsDrawer` ~ | Existe | P0 |
-| PROJECT-003 | Folder detail | `/projects/:projectId/:folderId` | projects | Compass files | `ProjectFolderPage` ~, `BulkActionsToolbar (target)` | Existe | P1 |
-| PROJECT-004 | Resource permissions drawer | overlay | projects/security | Checking permissions | `Drawer` ~, `PrincipalPicker` ~, `AccessGraph` ~, `ResourcePermissionsDrawer` ~ | Existe | P0 |
-| DATASET-001 | Datasets catalog | `/datasets` | datasets | Dataset Preview, Data Catalog | `DatasetsListPage` ~, `Facets (target)`, `UploadModal (target)` | Existe | P0 |
-| DATASET-002 | Dataset detail | `/datasets/:id` | datasets | Dataset Preview | `DatasetDetailPage` ~, `Tabs` ~, `VirtualizedPreviewTable` ~, `MetadataPanel (target)` | Existe | P0 |
-| DATASET-003 | Dataset upload | `/datasets/upload` | datasets | Compass manual upload | `DatasetUploadPage` ~, `FileUpload (target)`, `SchemaInferencePanel (target)` | Existe | P1 |
-| DATASET-004 | Dataset branches | `/datasets/:id/branches` | datasets/branching | Global branching | `DatasetBranchesPage` ~, `BranchGraph (target)`, `CreateBranchDialog (target)` | Existe | P1 |
-| DATASET-005 | Dataset branch detail | `/datasets/:id/branches/:branch` | datasets/branching | Global branching | `DatasetBranchDetailPage` ~, `CompareTab (target)` | Existe | P2 |
-| DATASET-006 | Quality rules drawer | overlay on dataset detail | datasets/quality | Dashboard params/details | `QualityDashboard (target)`, `RuleEditorDrawer (target)` | Parcial | P1 |
-| PIPE-001 | Pipelines gallery | `/pipelines` | pipelines | Pipeline Builder | `PipelinesPage` ~, `CreatePipelineModal (target)`, `RunHistory (target)` | Existe | P0 |
-| PIPE-002 | Pipeline create | `/pipelines/new` | pipelines | Pipeline Builder setup | `PipelineNewPage` ~, `BuildSettings (target)`, `ScheduleConfig (target)` | Existe | P0 |
-| PIPE-003 | Pipeline builder | `/pipelines/:id/edit` | pipelines | Pipeline Builder | `PipelineEditPage` ~, `PipelineCanvas` ~, `NodeConfig` ~, `NodePreviewPanel (target)` | Parcial | P0 |
-| PIPE-004 | Node inspector drawer | overlay on builder | pipelines | Pipeline Builder node detail | `Drawer (target)`, `NodeConfig` ~, `TransformEditor (target)` | Parcial | P0 |
-| PIPE-005 | Pipeline run detail | overlay/tab on `/pipelines/:id/edit` + `/pipelines/:id/runs/:runId` | pipelines/builds | Build detail/logs | `RunLogs` ~, `LiveLogViewer` ~, `LineageView` ~, `PipelineRunDetailDrawer` ~ | Existe | P1 |
-| SCHED-001 | Schedule detail | `/schedules/:rid` | operations | schedule management | `ScheduleDetailPage` ~ | Existe | P1 |
-| SCHED-002 | Build schedules | `/build-schedules` | operations | schedule management | `BuildSchedulesPage` ~, `ScheduleConfig (target)`, `ScheduleDiff (target)` | Existe | P1 |
-| SCHED-003 | Sweep page | `/build-schedules/sweep` | operations | schedule sweep | `SweepPage` ~ | Existe | P2 |
-| BUILD-001 | Builds list | `/builds` | operations | Pipeline run history | `BuildsPage` ~, `StateBadge (target)`, `AbortAction (target)` | Existe | P1 |
-| BUILD-002 | Build detail | `/builds/:rid` | operations | run logs | `BuildDetailPage` ~, `RunLogs` ~, `ArtifactsPanel (target)` | Existe | P1 |
-| DASH-001 | Dashboard gallery | `/dashboards` | analytics | Dashboard editor left list | `DashboardsListPage` ~, `CreateDashboardModal (target)`, `TemplateGallery (target)` | Existe | P0 |
-| DASH-002 | Dashboard runtime/editor | `/dashboards/:id` | analytics | Dashboard runtime/editor | `DashboardDetailPage` ~, `DashboardGrid` ~, `WidgetConfig` ~, `FilterBar (target)` | Parcial | P0 |
-| DASH-003 | Widget config drawer | overlay on dashboard | analytics | Editor right inspector | `WidgetConfig` ~, `QueryPicker (target)`, `ChartSettings (target)` | Parcial | P0 |
-| NOTEBOOK-001 | Notebooks gallery | `/notebooks` | developer | JupyterLab/code workspaces | `NotebooksListPage` ~, `KernelSelector (target)`, `WorkspaceFiles (target)` | Existe | P2 |
-| NOTEBOOK-002 | Notebook detail | `/notebooks/:id` | developer | JupyterLab/code workspaces | `NotebookDetailPage` ~, `CellEditor (target)`, `CellOutput (target)` | Existe | P2 |
-| NOTEPAD-001 | Notepad gallery | `/notepad` | docs/analysis | Notepad doc editor | `NotepadListPage` ~, `Presence (target)` | Existe | P2 |
-| NOTEPAD-002 | Notepad editor | `/notepad/:id` | docs/analysis | Notepad document editor | `NotepadDetailPage` ~, `MonacoEditor` ~, `WidgetEmbeds (target)` | Existe | P2 |
-| APP-001 | Apps/Workshop gallery+builder | `/apps` (`?selected=:id`) | apps | Workshop, Developer Console | `AppsPage` ~, `AppPagesEditor` ~, `WidgetCatalog (target)`, `ThemePanel (target)` | Parcial | P0 |
-| APP-002 | App runtime | `/apps/runtime/:slug` | apps | Workshop preview | `AppRuntimePage` ~, `AppRenderer` ~, `AppWidgetRenderer (target)` | Existe | P1 |
-| APP-003 | Publish app modal | overlay | apps | Workshop publish | `Modal (target)`, `VersionNotes (target)`, `PermissionSummary (target)` | Parcial | P0 |
-| DATA-CONN-001 | Data connection home | `/data-connection` | connectivity | Data source/product admin | `DataConnectionPage` ~, `RemoteCatalogBrowser` ~, `AutoRegistrationCard (target)` | Existe | P0 |
-| DATA-CONN-002 | New source wizard | `/data-connection/new` | connectivity | connector wizard | `NewSourcePage` ~, `CredentialsPanel (target)`, `TestConnection (target)` | Existe | P0 |
-| DATA-CONN-003 | New streaming source | `/data-connection/new/streaming` | connectivity | streaming connector | `NewStreamingSourcePage` ~ | Existe | P1 |
-| DATA-CONN-004 | Source detail | `/data-connection/sources/:id` | connectivity | source detail | `SourceDetailPage` ~, `VirtualTablesTab (target)`, `BulkRegisterDialog (target)` | Existe | P1 |
-| DATA-CONN-005 | Agents | `/data-connection/agents` | connectivity | agent runtime | `AgentsPage` ~ | Existe | P2 |
-| DATA-CONN-006 | Egress policies | `/data-connection/egress-policies` | connectivity | egress | `EgressPoliciesPage` ~ | Existe | P1 |
-| ONT-001 | Ontology home | `/ontology` | ontology | Object table/Object explorer | `OntologyHomePage` ~, `OntologySearch` ~, `ObjectExplorer` ~ | Existe | P0 |
-| ONT-002 | Object type create/list | `/ontology/types` | ontology | Ontology manager | `CreateObjectTypePage` ~, `TypeEditor (target)` | Existe | P0 |
-| ONT-003 | Object type detail | `/ontology/:id` | ontology | Object Table | `ObjectTypeDetailPage` ~, `ObjectExplorer` ~, `PropertyPanel (target)`, `ActionsButtonGroup (target)` | Existe | P0 |
-| ONT-004 | Ontology graph | `/ontology/graph` | ontology | graph/cytoscape | `OntologyGraphPage` ~, `CytoscapeCanvas` ~ | Existe | P1 |
-| ONT-005 | Object sets | `/ontology/object-sets` | ontology | Object sets docs | `ObjectSetsPage` ~, `ObjectSetFilterBuilder (target)` | Existe | P1 |
-| ONT-006 | Object detail drawer | overlay | ontology | Object table side panel | `ObjectDetailDrawer`, `Drawer`, `ObjectCard`, `ActionExecutor`, `InlineEditCell`, `ObjectTimeline` | Existe | P0 |
-| ONT-007 | Ontology design | `/ontology-design` | ontology-admin | Ontology design | `OntologyDesignPage` ~ | Existe | P1 |
-| ONT-008 | Ontology indexing | `/ontology-indexing` | ontology-admin | Indexing | `OntologyIndexingPage` ~ | Existe | P2 |
-| ONT-009 | Ontologies registry | `/ontologies` | ontology-admin | multi-ontology | `OntologiesPage` ~ | Existe | P1 |
-| ONT-010 | Object explorer (legacy/global) | `/object-explorer` | ontology | Object explorer | `ObjectExplorerPage` ~ | Existe | P1 |
-| ONT-011 | Object views | `/object-views` | ontology | Object views | `ObjectViewsPage` ~ | Existe | P2 |
-| ONT-012 | Object monitors | `/object-monitors` | ontology/automation | Monitors | `ObjectMonitorsPage` ~ | Existe | P2 |
-| ONT-013 | Object link types | `/object-link-types` | ontology | Link types | `ObjectLinkTypesPage` ~ | Existe | P2 |
-| ONT-014 | Object databases | `/object-databases` | ontology | OSv2 databases | `ObjectDatabasesPage` ~ | Existe | P2 |
-| ONT-015 | Action types | `/action-types` | ontology | Action types | `ActionTypesPage` ~ | Existe | P1 |
-| ONT-016 | Functions | `/functions` | ontology/dev | Foundry functions | `FunctionsPage` ~ | Existe | P1 |
-| ONT-017 | Foundry rules | `/foundry-rules` | ontology/governance | Rules engine | `FoundryRulesPage` ~ | Existe | P2 |
-| ONT-018 | Interfaces | `/interfaces` | ontology | Interfaces | `InterfacesPage` ~ | Existe | P1 |
-| ONTM-001 | Ontology manager | `/ontology-manager` | ontology-admin | Ontology manager | `OntologyManagerPage` ~ | Existe | P0 |
-| ONTM-002 | Bindings wizard | `/ontology-manager/bindings` | ontology-admin | Dataset binding wizard | `BindingsWizardPage` ~, `SchemaMapper (target)` | Existe | P1 |
-| LINEAGE-001 | Lineage graph | `/lineage` | data/operations | pipeline lineage | `LineagePage` ~, `LineageView (target)`, `GraphView (target)` | Existe | P1 |
-| WF-001 | Workflows | `/workflows` | automation | approvals/workflows | `WorkflowsPage` ~, `WorkflowBuilder (target)`, `ApprovalList (target)` | Existe | P1 |
-| AUDIT-001 | Audit | `/audit` | security/governance | Audit | `AuditPage` ~ | Existe | P1 |
-| QUERIES-001 | Queries | `/queries` | analytics | Saved queries | `QueriesPage` ~ | Existe | P1 |
-| REPORTS-001 | Reports | `/reports` | analytics | Reports | `ReportsPage` ~ | Existe | P2 |
-| MARKET-001 | Marketplace | `/marketplace` | product delivery | Marketplace listings | `MarketplacePage` ~, `MarketplaceBrowser (target)` | Existe | P2 |
-| MARKET-002 | Marketplace product | `/marketplace/:id` | product delivery | Marketplace product | `MarketplaceProductPage` ~, `ListingDetail (target)`, `InstallDialog (target)` | Existe | P2 |
-| STREAM-001 | Streaming list | `/streaming` | streaming | Stream catalogs | `StreamingPage` ~ | Existe | P1 |
-| STREAM-002 | Streaming detail | `/streaming/:id` | streaming | Stream detail | `StreamingDetailPage` ~ | Existe | P1 |
-| VT-001 | Virtual tables | `/virtual-tables` | connectivity | Virtual tables | `VirtualTablesPage` ~ | Existe | P1 |
-| VT-002 | Virtual table detail | `/virtual-tables/:rid` | connectivity | Virtual table detail | `VirtualTableDetailPage` ~ | Existe | P2 |
-| ICE-001 | Iceberg tables | `/iceberg-tables` | connectivity | Iceberg tables | `IcebergTablesPage` ~ | Existe | P1 |
-| ICE-002 | Iceberg table detail | `/iceberg-tables/:id` | connectivity | Iceberg table detail | `IcebergTableDetailPage` ~ | Existe | P2 |
-| MEDIA-001 | Media sets | `/media-sets` | data/media | Media set docs | `MediaSetsPage` ~ | Existe | P2 |
-| MEDIA-002 | Media set detail | `/media-sets/:rid` | data/media | Media set detail | `MediaSetDetailPage` ~ | Existe | P2 |
-| AI-001 | AI platform overview | `/ai` | ai | AIP overview | `AiPage` ~ | Existe | P1 |
-| ML-001 | ML platform | `/ml` | ml | Model Studio | `MlPage` ~ | Existe | P1 |
-| FUSION-001 | Fusion | `/fusion` | data fusion | Fusion app | `FusionPage` ~ | Existe | P2 |
-| NEXUS-001 | Nexus | `/nexus` | federation | Nexus | `NexusPage` ~ | Existe | P2 |
-| CONTOUR-001 | Contour | `/contour` | analytics | Contour | `ContourPage` ~ | Existe | P2 |
-| QUIVER-001 | Quiver | `/quiver` | analytics | Quiver | `QuiverPage` ~ | Existe | P2 |
-| GEO-001 | Geospatial | `/geospatial` | analytics/geo | Geospatial | `GeospatialPage` ~ | Existe | P2 |
-| VERTEX-001 | Vertex | `/vertex` | graph | Vertex | `VertexPage` ~ | Existe | P2 |
-| MACH-001 | Machinery | `/machinery` | automation | Machinery | `MachineryPage` ~ | Existe | P2 |
-| GBR-001 | Global branching | `/global-branching` | branching | Global branching | `GlobalBranchingPage` ~ | Existe | P1 |
-| DSCH-001 | Dynamic scheduling | `/dynamic-scheduling` | operations | Dynamic schedules | `DynamicSchedulingPage` ~ | Existe | P2 |
-| DEV-001 | Developers | `/developers` | developer toolchain | Developer Console | `DevelopersPage` ~, `ApiExplorer (target)`, `SdkToolkit (target)` | Existe | P2 |
-| DEV-002 | Code repos | `/code-repos` | developer toolchain | Code repositories | `CodeReposPage` ~ | Existe | P1 |
-| SETTINGS-001 | Settings | `/settings` | security/admin | security settings | `SettingsPage` ~, `UsersSection (target)`, `RolesSection (target)`, `PoliciesSection (target)`, `ApiKeysSection (target)` | Existe | P0 |
-| CTRL-001 | Control panel | `/control-panel` | admin | platform control | `ControlPanelPage` ~ | Existe | P1 |
-| CTRL-002 | Streaming profiles | `/control-panel/streaming-profiles` | admin/streaming | streaming profiles | `StreamingProfilesPage` ~ | Existe | P2 |
-| CTRL-003 | Data health | `/control-panel/data-health` | observability | Data Health dashboard | `DataHealthPage` ~ | Existe | P1 |
-| DEMO-001 | Charts demo | `/charts-demo` | dev/demo | n/a | `ChartsDemoPage` ~ | Existe | P3 |
-| DEMO-002 | Monaco demo | `/monaco-demo` | dev/demo | n/a | `MonacoDemoPage` ~ | Existe | P3 |
-| DEMO-003 | MapLibre demo | `/maplibre-demo` | dev/demo | n/a | `MapLibreDemoPage` ~ | Existe | P3 |
-| DEMO-004 | Cytoscape demo | `/cytoscape-demo` | dev/demo | n/a | `CytoscapeDemoPage` ~ | Existe | P3 |
-| 404-001 | Not found | `/404` | core | n/a | `NotFound` ~ | Existe | P3 |
+| HOME-001 | Workspace home | `/` | core | Compass/Data Catalog | `AppShell` ~, `Sidebar` ~, `Topbar` ~, `ResourceTable (target)`, `ActivityPanel (target)`, `QuickActions (target)` | Partial | P0 |
+| SEARCH-001 | Global search page | `/search` | core | Compass Quicksearch | `SearchPage` ~, `CommandPalette (target)`, `SearchResults (target)`, `ObjectCard (target)` | Partial | P0 |
+| AUTH-001 | Auth login | `/auth/login` | security | identity docs | `AuthLayout` ~, `LoginPage` ~ | Exists | P0 |
+| AUTH-002 | Auth register | `/auth/register` | security | identity docs | `RegisterPage` ~ | Exists | P1 |
+| AUTH-003 | Auth MFA | `/auth/mfa` | security | MFA docs | `MfaPage` ~ | Exists | P0 |
+| AUTH-004 | Auth callback | `/auth/callback` | security | SSO callback | `CallbackPage` ~ | Exists | P1 |
+| PROJECT-001 | Projects gallery | `/projects` | projects | Compass Data Catalog | `ProjectsListPage` ~, `Tabs` ~, `CreateProjectModal (target)` | Partial | P0 |
+| PROJECT-002 | Project detail | `/projects/:projectId` | projects | Compass project nav | `ProjectDetailPage` ~, `FolderTree` ~, `ResourceDetailsPanel` ~, `ShareDialog` ~, `ResourcePermissionsDrawer` ~ | Exists | P0 |
+| PROJECT-003 | Folder detail | `/projects/:projectId/:folderId` | projects | Compass files | `ProjectFolderPage` ~, `BulkActionsToolbar (target)` | Exists | P1 |
+| PROJECT-004 | Resource permissions drawer | overlay | projects/security | Checking permissions | `Drawer` ~, `PrincipalPicker` ~, `AccessGraph` ~, `ResourcePermissionsDrawer` ~ | Exists | P0 |
+| DATASET-001 | Datasets catalog | `/datasets` | datasets | Dataset Preview, Data Catalog | `DatasetsListPage` ~, `Facets (target)`, `UploadModal (target)` | Exists | P0 |
+| DATASET-002 | Dataset detail | `/datasets/:id` | datasets | Dataset Preview | `DatasetDetailPage` ~, `Tabs` ~, `VirtualizedPreviewTable` ~, `MetadataPanel (target)` | Exists | P0 |
+| DATASET-003 | Dataset upload | `/datasets/upload` | datasets | Compass manual upload | `DatasetUploadPage` ~, `FileUpload (target)`, `SchemaInferencePanel (target)` | Exists | P1 |
+| DATASET-004 | Dataset branches | `/datasets/:id/branches` | datasets/branching | Global branching | `DatasetBranchesPage` ~, `BranchGraph (target)`, `CreateBranchDialog (target)` | Exists | P1 |
+| DATASET-005 | Dataset branch detail | `/datasets/:id/branches/:branch` | datasets/branching | Global branching | `DatasetBranchDetailPage` ~, `CompareTab (target)` | Exists | P2 |
+| DATASET-006 | Quality rules drawer | overlay on dataset detail | datasets/quality | Dashboard params/details | `QualityDashboard (target)`, `RuleEditorDrawer (target)` | Partial | P1 |
+| PIPE-001 | Pipelines gallery | `/pipelines` | pipelines | Pipeline Builder | `PipelinesPage` ~, `CreatePipelineModal (target)`, `RunHistory (target)` | Exists | P0 |
+| PIPE-002 | Pipeline create | `/pipelines/new` | pipelines | Pipeline Builder setup | `PipelineNewPage` ~, `BuildSettings (target)`, `ScheduleConfig (target)` | Exists | P0 |
+| PIPE-003 | Pipeline builder | `/pipelines/:id/edit` | pipelines | Pipeline Builder | `PipelineEditPage` ~, `PipelineCanvas` ~, `NodeConfig` ~, `NodePreviewPanel (target)` | Partial | P0 |
+| PIPE-004 | Node inspector drawer | overlay on builder | pipelines | Pipeline Builder node detail | `Drawer (target)`, `NodeConfig` ~, `TransformEditor (target)` | Partial | P0 |
+| PIPE-005 | Pipeline run detail | overlay/tab on `/pipelines/:id/edit` + `/pipelines/:id/runs/:runId` | pipelines/builds | Build detail/logs | `RunLogs` ~, `LiveLogViewer` ~, `LineageView` ~, `PipelineRunDetailDrawer` ~ | Exists | P1 |
+| SCHED-001 | Schedule detail | `/schedules/:rid` | operations | schedule management | `ScheduleDetailPage` ~ | Exists | P1 |
+| SCHED-002 | Build schedules | `/build-schedules` | operations | schedule management | `BuildSchedulesPage` ~, `ScheduleConfig (target)`, `ScheduleDiff (target)` | Exists | P1 |
+| SCHED-003 | Sweep page | `/build-schedules/sweep` | operations | schedule sweep | `SweepPage` ~ | Exists | P2 |
+| BUILD-001 | Builds list | `/builds` | operations | Pipeline run history | `BuildsPage` ~, `StateBadge (target)`, `AbortAction (target)` | Exists | P1 |
+| BUILD-002 | Build detail | `/builds/:rid` | operations | run logs | `BuildDetailPage` ~, `RunLogs` ~, `ArtifactsPanel (target)` | Exists | P1 |
+| DASH-001 | Dashboard gallery | `/dashboards` | analytics | Dashboard editor left list | `DashboardsListPage` ~, `CreateDashboardModal (target)`, `TemplateGallery (target)` | Exists | P0 |
+| DASH-002 | Dashboard runtime/editor | `/dashboards/:id` | analytics | Dashboard runtime/editor | `DashboardDetailPage` ~, `DashboardGrid` ~, `WidgetConfig` ~, `FilterBar (target)` | Partial | P0 |
+| DASH-003 | Widget config drawer | overlay on dashboard | analytics | Editor right inspector | `WidgetConfig` ~, `QueryPicker (target)`, `ChartSettings (target)` | Partial | P0 |
+| NOTEBOOK-001 | Notebooks gallery | `/notebooks` | developer | JupyterLab/code workspaces | `NotebooksListPage` ~, `KernelSelector (target)`, `WorkspaceFiles (target)` | Exists | P2 |
+| NOTEBOOK-002 | Notebook detail | `/notebooks/:id` | developer | JupyterLab/code workspaces | `NotebookDetailPage` ~, `CellEditor (target)`, `CellOutput (target)` | Exists | P2 |
+| NOTEPAD-001 | Notepad gallery | `/notepad` | docs/analysis | Notepad doc editor | `NotepadListPage` ~, `Presence (target)` | Exists | P2 |
+| NOTEPAD-002 | Notepad editor | `/notepad/:id` | docs/analysis | Notepad document editor | `NotepadDetailPage` ~, `MonacoEditor` ~, `WidgetEmbeds (target)` | Exists | P2 |
+| APP-001 | Apps/Workshop gallery+builder | `/apps` (`?selected=:id`) | apps | Workshop, Developer Console | `AppsPage` ~, `AppPagesEditor` ~, `WidgetCatalog (target)`, `ThemePanel (target)` | Partial | P0 |
+| APP-002 | App runtime | `/apps/runtime/:slug` | apps | Workshop preview | `AppRuntimePage` ~, `AppRenderer` ~, `AppWidgetRenderer (target)` | Exists | P1 |
+| APP-003 | Publish app modal | overlay | apps | Workshop publish | `Modal (target)`, `VersionNotes (target)`, `PermissionSummary (target)` | Partial | P0 |
+| DATA-CONN-001 | Data connection home | `/data-connection` | connectivity | Data source/product admin | `DataConnectionPage` ~, `RemoteCatalogBrowser` ~, `AutoRegistrationCard (target)` | Exists | P0 |
+| DATA-CONN-002 | New source wizard | `/data-connection/new` | connectivity | connector wizard | `NewSourcePage` ~, `CredentialsPanel (target)`, `TestConnection (target)` | Exists | P0 |
+| DATA-CONN-003 | New streaming source | `/data-connection/new/streaming` | connectivity | streaming connector | `NewStreamingSourcePage` ~ | Exists | P1 |
+| DATA-CONN-004 | Source detail | `/data-connection/sources/:id` | connectivity | source detail | `SourceDetailPage` ~, `VirtualTablesTab (target)`, `BulkRegisterDialog (target)` | Exists | P1 |
+| DATA-CONN-005 | Agents | `/data-connection/agents` | connectivity | agent runtime | `AgentsPage` ~ | Exists | P2 |
+| DATA-CONN-006 | Egress policies | `/data-connection/egress-policies` | connectivity | egress | `EgressPoliciesPage` ~ | Exists | P1 |
+| ONT-001 | Ontology home | `/ontology` | ontology | Object table/Object explorer | `OntologyHomePage` ~, `OntologySearch` ~, `ObjectExplorer` ~ | Exists | P0 |
+| ONT-002 | Object type create/list | `/ontology/types` | ontology | Ontology manager | `CreateObjectTypePage` ~, `TypeEditor (target)` | Exists | P0 |
+| ONT-003 | Object type detail | `/ontology/:id` | ontology | Object Table | `ObjectTypeDetailPage` ~, `ObjectExplorer` ~, `PropertyPanel (target)`, `ActionsButtonGroup (target)` | Exists | P0 |
+| ONT-004 | Ontology graph | `/ontology/graph` | ontology | graph/cytoscape | `OntologyGraphPage` ~, `CytoscapeCanvas` ~ | Exists | P1 |
+| ONT-005 | Object sets | `/ontology/object-sets` | ontology | Object sets docs | `ObjectSetsPage` ~, `ObjectSetFilterBuilder (target)` | Exists | P1 |
+| ONT-006 | Object detail drawer | overlay | ontology | Object table side panel | `ObjectDetailDrawer`, `Drawer`, `ObjectCard`, `ActionExecutor`, `InlineEditCell`, `ObjectTimeline` | Exists | P0 |
+| ONT-007 | Ontology design | `/ontology-design` | ontology-admin | Ontology design | `OntologyDesignPage` ~ | Exists | P1 |
+| ONT-008 | Ontology indexing | `/ontology-indexing` | ontology-admin | Indexing | `OntologyIndexingPage` ~ | Exists | P2 |
+| ONT-009 | Ontologies registry | `/ontologies` | ontology-admin | multi-ontology | `OntologiesPage` ~ | Exists | P1 |
+| ONT-010 | Object explorer (legacy/global) | `/object-explorer` | ontology | Object explorer | `ObjectExplorerPage` ~ | Exists | P1 |
+| ONT-011 | Object views | `/object-views` | ontology | Object views | `ObjectViewsPage` ~ | Exists | P2 |
+| ONT-012 | Object monitors | `/object-monitors` | ontology/automation | Monitors | `ObjectMonitorsPage` ~ | Exists | P2 |
+| ONT-013 | Object link types | `/object-link-types` | ontology | Link types | `ObjectLinkTypesPage` ~ | Exists | P2 |
+| ONT-014 | Object databases | `/object-databases` | ontology | OSv2 databases | `ObjectDatabasesPage` ~ | Exists | P2 |
+| ONT-015 | Action types | `/action-types` | ontology | Action types | `ActionTypesPage` ~ | Exists | P1 |
+| ONT-016 | Functions | `/functions` | ontology/dev | Foundry functions | `FunctionsPage` ~ | Exists | P1 |
+| ONT-017 | Foundry rules | `/foundry-rules` | ontology/governance | Rules engine | `FoundryRulesPage` ~ | Exists | P2 |
+| ONT-018 | Interfaces | `/interfaces` | ontology | Interfaces | `InterfacesPage` ~ | Exists | P1 |
+| ONTM-001 | Ontology manager | `/ontology-manager` | ontology-admin | Ontology manager | `OntologyManagerPage` ~ | Exists | P0 |
+| ONTM-002 | Bindings wizard | `/ontology-manager/bindings` | ontology-admin | Dataset binding wizard | `BindingsWizardPage` ~, `SchemaMapper (target)` | Exists | P1 |
+| LINEAGE-001 | Lineage graph | `/lineage` | data/operations | pipeline lineage | `LineagePage` ~, `LineageView (target)`, `GraphView (target)` | Exists | P1 |
+| WF-001 | Workflows | `/workflows` | automation | approvals/workflows | `WorkflowsPage` ~, `WorkflowBuilder (target)`, `ApprovalList (target)` | Exists | P1 |
+| AUDIT-001 | Audit | `/audit` | security/governance | Audit | `AuditPage` ~ | Exists | P1 |
+| QUERIES-001 | Queries | `/queries` | analytics | Saved queries | `QueriesPage` ~ | Exists | P1 |
+| REPORTS-001 | Reports | `/reports` | analytics | Reports | `ReportsPage` ~ | Exists | P2 |
+| MARKET-001 | Marketplace | `/marketplace` | product delivery | Marketplace listings | `MarketplacePage` ~, `MarketplaceBrowser (target)` | Exists | P2 |
+| MARKET-002 | Marketplace product | `/marketplace/:id` | product delivery | Marketplace product | `MarketplaceProductPage` ~, `ListingDetail (target)`, `InstallDialog (target)` | Exists | P2 |
+| STREAM-001 | Streaming list | `/streaming` | streaming | Stream catalogs | `StreamingPage` ~ | Exists | P1 |
+| STREAM-002 | Streaming detail | `/streaming/:id` | streaming | Stream detail | `StreamingDetailPage` ~ | Exists | P1 |
+| VT-001 | Virtual tables | `/virtual-tables` | connectivity | Virtual tables | `VirtualTablesPage` ~ | Exists | P1 |
+| VT-002 | Virtual table detail | `/virtual-tables/:rid` | connectivity | Virtual table detail | `VirtualTableDetailPage` ~ | Exists | P2 |
+| ICE-001 | Iceberg tables | `/iceberg-tables` | connectivity | Iceberg tables | `IcebergTablesPage` ~ | Exists | P1 |
+| ICE-002 | Iceberg table detail | `/iceberg-tables/:id` | connectivity | Iceberg table detail | `IcebergTableDetailPage` ~ | Exists | P2 |
+| MEDIA-001 | Media sets | `/media-sets` | data/media | Media set docs | `MediaSetsPage` ~ | Exists | P2 |
+| MEDIA-002 | Media set detail | `/media-sets/:rid` | data/media | Media set detail | `MediaSetDetailPage` ~ | Exists | P2 |
+| AI-001 | AI platform overview | `/ai` | ai | AIP overview | `AiPage` ~ | Exists | P1 |
+| ML-001 | ML platform | `/ml` | ml | Model Studio | `MlPage` ~ | Exists | P1 |
+| FUSION-001 | Fusion | `/fusion` | data fusion | Fusion app | `FusionPage` ~ | Exists | P2 |
+| NEXUS-001 | Nexus | `/nexus` | federation | Nexus | `NexusPage` ~ | Exists | P2 |
+| CONTOUR-001 | Contour | `/contour` | analytics | Contour | `ContourPage` ~ | Exists | P2 |
+| QUIVER-001 | Quiver | `/quiver` | analytics | Quiver | `QuiverPage` ~ | Exists | P2 |
+| GEO-001 | Geospatial | `/geospatial` | analytics/geo | Geospatial | `GeospatialPage` ~ | Exists | P2 |
+| VERTEX-001 | Vertex | `/vertex` | graph | Vertex | `VertexPage` ~ | Exists | P2 |
+| MACH-001 | Machinery | `/machinery` | automation | Machinery | `MachineryPage` ~ | Exists | P2 |
+| GBR-001 | Global branching | `/global-branching` | branching | Global branching | `GlobalBranchingPage` ~ | Exists | P1 |
+| DSCH-001 | Dynamic scheduling | `/dynamic-scheduling` | operations | Dynamic schedules | `DynamicSchedulingPage` ~ | Exists | P2 |
+| DEV-001 | Developers | `/developers` | developer toolchain | Developer Console | `DevelopersPage` ~, `ApiExplorer (target)`, `SdkToolkit (target)` | Exists | P2 |
+| DEV-002 | Code repos | `/code-repos` | developer toolchain | Code repositories | `CodeReposPage` ~ | Exists | P1 |
+| SETTINGS-001 | Settings | `/settings` | security/admin | security settings | `SettingsPage` ~, `UsersSection (target)`, `RolesSection (target)`, `PoliciesSection (target)`, `ApiKeysSection (target)` | Exists | P0 |
+| CTRL-001 | Control panel | `/control-panel` | admin | platform control | `ControlPanelPage` ~ | Exists | P1 |
+| CTRL-002 | Streaming profiles | `/control-panel/streaming-profiles` | admin/streaming | streaming profiles | `StreamingProfilesPage` ~ | Exists | P2 |
+| CTRL-003 | Data health | `/control-panel/data-health` | observability | Data Health dashboard | `DataHealthPage` ~ | Exists | P1 |
+| DEMO-001 | Charts demo | `/charts-demo` | dev/demo | n/a | `ChartsDemoPage` ~ | Exists | P3 |
+| DEMO-002 | Monaco demo | `/monaco-demo` | dev/demo | n/a | `MonacoDemoPage` ~ | Exists | P3 |
+| DEMO-003 | MapLibre demo | `/maplibre-demo` | dev/demo | n/a | `MapLibreDemoPage` ~ | Exists | P3 |
+| DEMO-004 | Cytoscape demo | `/cytoscape-demo` | dev/demo | n/a | `CytoscapeDemoPage` ~ | Exists | P3 |
+| 404-001 | Not found | `/404` | core | n/a | `NotFound` ~ | Exists | P3 |
 
-### Componentes Existentes Hoy
+### Components That Exist Today
 
-Verificado contra `apps/web/src/lib/components/**`:
+Verified against `apps/web/src/lib/components/**`:
 
-- Shell y layout: `AppShell.tsx`, `Sidebar.tsx`, `Topbar.tsx`, `PageHeader.tsx`, `AuthLayout.tsx`, `Tabs.tsx`, `Pagination.tsx`, `LoadingState.tsx`, `ErrorBanner.tsx`, `Toaster.tsx`, `ConfirmDialog.tsx`, `MonacoEditor.tsx`, `JsonEditor.tsx`, `EChartCanvas.tsx`, `MapLibreCanvas.tsx`, `CytoscapeCanvas.tsx`.
-- Dominio: 28 subcarpetas con 188 componentes (ai, analytics, app-builder, apps, audit, builds, code-repo, dashboard, data, data-connection, dataset, developer, fusion, iceberg, layout, lineage, map, marketplace, nexus, notebook, notepad, ontology, pipeline, quiver, report, streaming, ui, workspace).
-- Anclas verificadas: `PipelineCanvas`, `RunLogs`, `NodeConfig`, `DashboardGrid`, `WidgetConfig`, `ObjectExplorer`, `OntologySearch`, `AppPagesEditor`, `AppRenderer`, `RemoteCatalogBrowser`.
+- Shell and layout: `AppShell.tsx`, `Sidebar.tsx`, `Topbar.tsx`, `PageHeader.tsx`, `AuthLayout.tsx`, `Tabs.tsx`, `Pagination.tsx`, `LoadingState.tsx`, `ErrorBanner.tsx`, `Toaster.tsx`, `ConfirmDialog.tsx`, `MonacoEditor.tsx`, `JsonEditor.tsx`, `EChartCanvas.tsx`, `MapLibreCanvas.tsx`, `CytoscapeCanvas.tsx`.
+- Domain: 28 subfolders with 188 components (ai, analytics, app-builder, apps, audit, builds, code-repo, dashboard, data, data-connection, dataset, developer, fusion, iceberg, layout, lineage, map, marketplace, nexus, notebook, notepad, ontology, pipeline, quiver, report, streaming, ui, workspace).
+- Verified anchors: `PipelineCanvas`, `RunLogs`, `NodeConfig`, `DashboardGrid`, `WidgetConfig`, `ObjectExplorer`, `OntologySearch`, `AppPagesEditor`, `AppRenderer`, `RemoteCatalogBrowser`.
 
-### Componentes Que El Blueprint Asume Como Target Y Aun No Existen
+### Components The Blueprint Assumes As Targets That Do Not Yet Exist
 
-- `ResourceTable` compartido (hoy cada pantalla implementa su propia tabla).
-- `CommandPalette` global accionable desde `cmd+k`.
-- `Modal` primitivo consistente con el lenguaje Foundry (hoy hay `ConfirmDialog` y `Drawer`).
+- Shared `ResourceTable` (today each screen implements its own table).
+- Global `CommandPalette` triggered by `cmd+k`.
+- A primitive `Modal` consistent with the Foundry language (today there are `ConfirmDialog` and `Drawer`).
 - `PermissionGate`, `AsyncActionButton`, `BackendActionFeedback`, `ActionMenu`.
-- `BranchSwitcher` global que aplique al recurso activo.
+- Global `BranchSwitcher` that applies to the active resource.
 - `MetadataPanel`, `BulkActionsToolbar`, `Facets`.
-- `LineageView` como componente reutilizable (AccessGraph ya existe para PROJECT-004).
+- `LineageView` as a reusable component (AccessGraph already exists for PROJECT-004).
 
-## Mapa De Navegacion Global
+## Global Navigation Map
 
-Punto de partida: `/` debe funcionar como home operativo. Desde ahi:
+Starting point: `/` should work as an operational home. From there:
 
-| Seccion home | Click | Tipo | Destino | Backend |
+| Home section | Click | Type | Destination | Backend |
 |---|---|---|---|---|
-| Projects & files | row/card | Navegacion | `/projects` | `GET /ontology/projects`, `GET /workspace/...` |
-| Datasets | row/card | Navegacion | `/datasets` | `GET /datasets` |
-| Pipelines | row/card | Navegacion | `/pipelines` | `GET /pipelines` |
-| Dashboards | row/card | Navegacion | `/dashboards` | local store hoy, futuro `GET /dashboards` |
-| Workshop/apps | row/card | Navegacion | `/apps` | `GET /apps`, `GET /apps/templates` |
-| Ontology | row/card | Navegacion | `/ontology` o `/ontology-manager` | `GET /ontology/types`, `GET /ontology/projects` |
-| Search | topbar/sidebar | Command palette o pagina | `/search` | `POST /ontology/search`, futuro global search |
-| Branch selector | topbar | Popover | branch switcher | branch APIs por dominio |
+| Projects & files | row/card | Navigation | `/projects` | `GET /ontology/projects`, `GET /workspace/...` |
+| Datasets | row/card | Navigation | `/datasets` | `GET /datasets` |
+| Pipelines | row/card | Navigation | `/pipelines` | `GET /pipelines` |
+| Dashboards | row/card | Navigation | `/dashboards` | local store today, future `GET /dashboards` |
+| Workshop/apps | row/card | Navigation | `/apps` | `GET /apps`, `GET /apps/templates` |
+| Ontology | row/card | Navigation | `/ontology` or `/ontology-manager` | `GET /ontology/types`, `GET /ontology/projects` |
+| Search | topbar/sidebar | Command palette or page | `/search` | `POST /ontology/search`, future global search |
+| Branch selector | topbar | Popover | branch switcher | per-domain branch APIs |
 | Share | topbar | Modal/drawer | share current resource | `POST /workspace/resources/:kind/:id/share` |
-| Save | topbar | Backend action contextual | recurso actual | endpoint contextual |
+| Save | topbar | Contextual backend action | current resource | contextual endpoint |
 
-Regla de navegacion:
+Navigation rule:
 
-- Page navigation: cambia `route`.
-- Tab navigation: cambia subvista local y puede disparar `GET`.
-- Modal: creacion, confirmacion, publish, share, upload.
-- Drawer: configuracion, detalles, permisos, node inspector, object detail.
-- Popover: menus de accion, branch selector, row actions.
+- Page navigation: changes `route`.
+- Tab navigation: changes the local sub-view and may trigger a `GET`.
+- Modal: creation, confirmation, publish, share, upload.
+- Drawer: configuration, details, permissions, node inspector, object detail.
+- Popover: action menus, branch selector, row actions.
 - Backend action: save/run/validate/deploy/publish/build/sync/share/delete.
 
-## Flujos Tipo Figma/FigJam
+## Figma/FigJam-Style Flows
 
-El grafo completo esta en `docs/frontend-ui-flow-map.mmd`. Resumen:
+The full graph lives in `docs/frontend-ui-flow-map.mmd`. Summary:
 
 ```mermaid
 flowchart LR
@@ -251,106 +251,106 @@ flowchart LR
   PublishModal --> AppRuntime["/apps/runtime/:slug"]
 ```
 
-### Dashboard Principal A Apps
+### Main Dashboard To Apps
 
-1. Usuario entra a `/`.
-2. Click en `Workshop`.
-3. Navega a `/apps`.
-4. Selecciona app existente o `New app`.
-5. Si selecciona app: carga definicion y abre editor.
-6. Click en `Pages`: cambia tab.
-7. Click en widget: abre drawer de configuracion.
-8. Click en `Publish`: abre modal de version.
-9. Confirmar publish: `POST /apps/:appId/publish`.
-10. Click en runtime: navega a `/apps/runtime/:slug`.
+1. User enters `/`.
+2. Clicks `Workshop`.
+3. Navigates to `/apps`.
+4. Picks an existing app or `New app`.
+5. If selecting an app: loads the definition and opens the editor.
+6. Clicks `Pages`: switches tab.
+7. Clicks a widget: opens the config drawer.
+8. Clicks `Publish`: opens the version modal.
+9. Confirms publish: `POST /apps/:appId/publish`.
+10. Clicks runtime: navigates to `/apps/runtime/:slug`.
 
 ### Datasets
 
-1. `/datasets` lista datasets con filtros, facetas y acciones bulk.
-2. Click en row: `/datasets/:id`.
-3. Tab `Preview`: `GET /datasets/:id/preview`.
-4. Tab `Schema`: `GET /datasets/:id/schema`.
-5. Tab `Files`: `GET /datasets/:id/files`.
-6. Tab `Transactions`: `GET /datasets/:id/transactions`.
-7. Tab `Quality`: `GET /datasets/:id/quality`.
-8. Accion `Build`: crea build o transaccion, backend async.
-9. Accion `Explore pipeline`: navega a pipeline/lineage asociado.
-10. Accion `Branches`: `/datasets/:id/branches`.
+1. `/datasets` lists datasets with filters, facets, and bulk actions.
+2. Click on a row: `/datasets/:id`.
+3. `Preview` tab: `GET /datasets/:id/preview`.
+4. `Schema` tab: `GET /datasets/:id/schema`.
+5. `Files` tab: `GET /datasets/:id/files`.
+6. `Transactions` tab: `GET /datasets/:id/transactions`.
+7. `Quality` tab: `GET /datasets/:id/quality`.
+8. `Build` action: creates a build or transaction, async backend.
+9. `Explore pipeline` action: navigates to the associated pipeline/lineage.
+10. `Branches` action: `/datasets/:id/branches`.
 
 ### Pipelines
 
-1. `/pipelines` lista pipelines y runs recientes.
-2. `New pipeline`: `/pipelines/new` o modal create.
-3. Guardar creacion: `POST /pipelines`, despues `/pipelines/:id/edit`.
-4. En builder, click en nodo: abre drawer `NodeConfig`.
-5. Add dataset/transform: modifica DAG local.
+1. `/pipelines` lists pipelines and recent runs.
+2. `New pipeline`: `/pipelines/new` or create modal.
+3. Save creation: `POST /pipelines`, then `/pipelines/:id/edit`.
+4. In the builder, clicking a node opens the `NodeConfig` drawer.
+5. Add dataset/transform: modifies the local DAG.
 6. Validate: `POST /pipelines/:id/_validate`.
 7. Save: `PUT /pipelines/:id`.
 8. Run now: `POST /pipelines/:id/runs`.
 9. History: `GET /pipelines/:id/runs`.
-10. Run detail futuro: `/pipelines/:id/runs/:runId` o drawer.
+10. Future run detail: `/pipelines/:id/runs/:runId` or drawer.
 
 ### Ontology
 
-1. `/ontology` muestra busqueda y tipos.
-2. Click en object type: `/ontology/:id`.
-3. Tab object table/list: `GET /ontology/types/:id/objects`.
-4. Click row object: abre drawer object detail.
-5. Click action: abre modal/action drawer.
+1. `/ontology` shows search and types.
+2. Click on an object type: `/ontology/:id`.
+3. Object table/list tab: `GET /ontology/types/:id/objects`.
+4. Click on an object row: opens the object detail drawer.
+5. Click an action: opens the action modal/drawer.
 6. Execute action: `POST /ontology/actions/:id/execute`.
 7. Inline edit: `POST /ontology/types/:typeId/objects/_inline-edit`.
-8. Properties: usar `PropertyPanel`.
-9. Links: usar `LinkEditor`.
+8. Properties: use `PropertyPanel`.
+9. Links: use `LinkEditor`.
 10. Timeline: `GET /ontology/types/:typeId/objects/:objectId/revisions`.
 
 ### Workshop/Apps
 
-1. `/apps` muestra galeria, templates y app seleccionada.
-2. `New app`: crea draft local o `POST /apps`.
+1. `/apps` shows the gallery, templates, and the selected app.
+2. `New app`: creates a local draft or `POST /apps`.
 3. `From template`: `POST /apps/from-template`.
-4. Tab `Pages`: editor visual.
-5. Click widget: drawer widget settings.
-6. Theme: settings de color/densidad.
+4. `Pages` tab: visual editor.
+5. Click a widget: widget settings drawer.
+6. Theme: color/density settings.
 7. Slate import/export: `GET/POST /apps/:id/slate-package`.
 8. Publish: modal, `POST /apps/:id/publish`.
 9. Runtime: `GET /apps/public/:slug`.
 
 ### Projects/Files
 
-1. `/projects` muestra Projects, Shared with me y Trash.
+1. `/projects` shows Projects, Shared with me, and Trash.
 2. New project: modal, `POST /ontology/projects`.
 3. Project row: `/projects/:projectId`.
 4. Folder row: `/projects/:projectId/:folderId`.
-5. Resource row: abre details drawer.
+5. Resource row: opens the details drawer.
 6. Share: modal, `POST /workspace/resources/:kind/:id/share`.
 7. Move: modal, `POST /workspace/resources/:kind/:id/move`.
 8. Rename: modal, `POST /workspace/resources/:kind/:id/rename`.
 9. Delete: confirmation, `DELETE /workspace/resources/:kind/:id`.
-10. Permissions: drawer, actual `GET/POST /workspace/resources/:kind/:id/shares` y `DELETE /workspace/shares/:shareId`; futuro endpoint de permisos efectivos dedicado.
+10. Permissions: drawer, currently `GET/POST /workspace/resources/:kind/:id/shares` and `DELETE /workspace/shares/:shareId`; future dedicated effective-permissions endpoint.
 
-## Matriz De Interacciones
+## Interactions Matrix
 
-La fuente estructurada esta en `docs/frontend-interaction-matrix.json`. Debe tratarse como contrato de producto. Cada interaccion define:
+The structured source lives in `docs/frontend-interaction-matrix.json`. It should be treated as a product contract. Each interaction defines:
 
-- `origin`: pantalla origen.
-- `element`: elemento clicable.
+- `origin`: source screen.
+- `element`: clickable element.
 - `type`: `navigation`, `tab`, `modal`, `drawer`, `popover`, `backend_action`.
-- `destination`: route, overlay o endpoint logico.
-- `state`: comportamiento esperado.
-- `backend`: endpoint actual o propuesto.
-- `permissions`: permiso funcional.
-- `uiStates`: estados de carga, exito, vacio y error.
+- `destination`: route, overlay, or logical endpoint.
+- `state`: expected behavior.
+- `backend`: current or proposed endpoint.
+- `permissions`: functional permission.
+- `uiStates`: loading, success, empty, and error states.
 
-## Especificacion De Componentes Reutilizables
+## Reusable Components Specification
 
 ### Shell
 
-Responsabilidad:
+Responsibility:
 
-- Mantener navegacion global, topbar, breadcrumbs, branch, estado de build y usuario.
-- Exponer contexto de recurso actual para `Share`, `Save`, `Favorite`, `Branch`.
+- Maintain global navigation, topbar, breadcrumbs, branch, build status, and user.
+- Expose the current resource context for `Share`, `Save`, `Favorite`, `Branch`.
 
-Props sugeridas:
+Suggested props:
 
 ```ts
 interface ShellContext {
@@ -361,7 +361,7 @@ interface ShellContext {
 }
 ```
 
-Estados:
+States:
 
 - `resource_unknown`
 - `dirty`
@@ -371,36 +371,36 @@ Estados:
 
 ### Sidebar
 
-Responsabilidad:
+Responsibility:
 
-- Agrupar secciones Core, Apps, Ontology, Platform, Projects & files.
-- Mostrar ruta activa, acceso a command/search, lenguaje, track/workspace.
+- Group Core, Apps, Ontology, Platform, Projects & files sections.
+- Show active route, access to command/search, language, track/workspace.
 
-Acciones:
+Actions:
 
-- Navegacion simple.
-- `View all` por grupo.
-- Futuro: collapse/pin.
+- Simple navigation.
+- `View all` per group.
+- Future: collapse/pin.
 
 ### Topbar
 
-Responsabilidad:
+Responsibility:
 
-- Breadcrumb contextual.
-- Menus File/Help.
+- Contextual breadcrumb.
+- File/Help menus.
 - Branch switcher.
-- Undo/redo contextual.
-- Save/share/publish contextual.
+- Contextual undo/redo.
+- Contextual save/share/publish.
 
-Cada boton debe resolver su accion desde `ScreenActionRegistry`, no desde hardcode local.
+Each button should resolve its action via `ScreenActionRegistry`, not from local hardcoded code.
 
 ### Resource Table
 
-Uso:
+Use:
 
 - Projects, datasets, pipelines, apps, builds, ontology resources.
 
-Capacidades:
+Capabilities:
 
 - Search, facets, sort, pagination.
 - Row click.
@@ -410,77 +410,77 @@ Capacidades:
 
 ### Preview Table
 
-Uso:
+Use:
 
 - Dataset preview, virtual tables, query results, object tables.
 
-Capacidades:
+Capabilities:
 
 - Sticky header.
 - Row index.
-- Column type row.
+- Column-type row.
 - Column search.
 - Transaction/version selector.
 - Virtualization.
-- Cell drawer para valores complejos.
+- Cell drawer for complex values.
 
 ### Config Panel
 
-Uso:
+Use:
 
 - Dashboard widget config, pipeline node config, app widget config, dataset quality rule.
 
-Patron:
+Pattern:
 
-- Drawer derecho para editar propiedades.
-- Footer con Cancel/Apply/Save.
-- Validacion inline.
-- Preview si existe.
+- Right-hand drawer to edit properties.
+- Footer with Cancel/Apply/Save.
+- Inline validation.
+- Preview when available.
 
 ### Modal
 
-Uso:
+Use:
 
 - Create, delete confirmation, publish, share, upload, move, rename.
 
-Debe incluir:
+Must include:
 
 - `title`, `description`, primary/secondary actions.
 - `busy`, `error`, `permission_denied`.
-- confirmacion explicita en acciones destructivas.
+- Explicit confirmation on destructive actions.
 
 ### Drawer
 
-Uso:
+Use:
 
 - Resource details, object detail, node inspector, permissions, lineage impact.
 
-Debe incluir:
+Must include:
 
-- Header con recurso.
-- Tabs internas.
-- Anchor a ruta opcional.
-- Modo read-only si faltan permisos.
+- Header with the resource.
+- Internal tabs.
+- Optional anchor to a route.
+- Read-only mode when permissions are missing.
 
 ### Tabbed Workspace
 
-Uso:
+Use:
 
 - Dataset detail, pipeline builder, dashboard editor, project detail, ontology type detail.
 
-Reglas:
+Rules:
 
-- Tabs cambian subvista sin perder contexto.
-- Si una tab carga datos, debe cachear resultado y permitir refresh.
-- Tab activa puede sincronizarse con query param si interesa compartir links.
+- Tabs change the sub-view without losing context.
+- If a tab loads data, it must cache the result and allow refresh.
+- The active tab may sync with a query param if sharing links is desired.
 
 ### Pipeline Canvas
 
-Uso:
+Use:
 
-- Builder DAG.
+- DAG builder.
 
-Capacidades:
+Capabilities:
 
 - Node palette.
 - Node inspector drawer.
@@ -494,44 +494,44 @@ Capacidades:
 
 ### Dashboard Widget
 
-Uso:
+Use:
 
-- Runtime y editor.
+- Runtime and editor.
 
-Capacidades:
+Capabilities:
 
 - Chart, table, KPI, text, filter/parameter.
-- Refresh individual.
-- Edit/duplicate/delete en edit mode.
-- Query template con parametros.
-- Error per-widget.
+- Individual refresh.
+- Edit/duplicate/delete in edit mode.
+- Query template with parameters.
+- Per-widget error.
 
 ### Gallery/Card List
 
-Uso:
+Use:
 
 - Apps templates, marketplace, dashboards gallery.
 
-Reglas:
+Rules:
 
-- Cards solo para items repetidos.
-- Debe tener lista compacta alternativa si el usuario necesita escaneo rapido.
+- Cards only for repeating items.
+- Must offer an alternative compact list when the user needs to scan quickly.
 
 ### Detail Page Layout
 
-Estructura:
+Structure:
 
-- Header compacto.
+- Compact header.
 - Action toolbar.
-- Main content con tabs.
-- Right/left metadata panel cuando el screenshot Foundry lo pide.
-- Overlay registry para drawers/modals.
+- Main content with tabs.
+- Right/left metadata panel when the Foundry screenshot requires it.
+- Overlay registry for drawers/modals.
 
-## Contrato Frontend-Backend Futuro
+## Future Frontend-Backend Contract
 
 ### Datasets
 
-Endpoints actuales:
+Current endpoints:
 
 - `GET /datasets`
 - `POST /datasets`
@@ -547,7 +547,7 @@ Endpoints actuales:
 - `POST /datasets/:id/quality/profile`
 - `GET/POST /datasets/:id/branches`
 
-DTO minimo:
+Minimal DTO:
 
 ```ts
 interface DatasetResource {
@@ -564,7 +564,7 @@ interface DatasetResource {
 }
 ```
 
-Faltantes recomendados:
+Recommended missing endpoints:
 
 - `POST /datasets/:id/builds`
 - `GET /datasets/:id/lineage`
@@ -573,7 +573,7 @@ Faltantes recomendados:
 
 ### Pipelines
 
-Endpoints actuales:
+Current endpoints:
 
 - `GET /pipelines`
 - `POST /pipelines`
@@ -588,7 +588,7 @@ Endpoints actuales:
 - `POST /pipelines/_compile`
 - `POST /pipelines/_prune`
 
-Faltantes recomendados:
+Recommended missing endpoints:
 
 - `POST /pipelines/:id/proposals`
 - `POST /pipelines/:id/deployments`
@@ -596,7 +596,7 @@ Faltantes recomendados:
 - `GET /pipelines/:id/runs/:runId/logs/stream`
 - `GET /pipelines/:id/nodes/:nodeId/preview`
 
-Eventos:
+Events:
 
 - `pipeline.run.started`
 - `pipeline.run.node_updated`
@@ -605,11 +605,11 @@ Eventos:
 
 ### Dashboards
 
-Estado actual:
+Current state:
 
-- Gran parte del dashboard usa store local.
+- Most of the dashboard uses a local store.
 
-Endpoints recomendados:
+Recommended endpoints:
 
 - `GET /dashboards`
 - `POST /dashboards`
@@ -621,9 +621,9 @@ Endpoints recomendados:
 - `DELETE /dashboards/:id/widgets/:widgetId`
 - `POST /dashboards/:id/publish`
 - `POST /dashboards/:id/share`
-- `POST /queries/execute` para widgets.
+- `POST /queries/execute` for widgets.
 
-DTO minimo:
+Minimal DTO:
 
 ```ts
 interface DashboardDefinitionDto {
@@ -640,7 +640,7 @@ interface DashboardDefinitionDto {
 
 ### Apps/Workshop
 
-Endpoints actuales:
+Current endpoints:
 
 - `GET /apps`
 - `GET /apps/templates`
@@ -657,14 +657,14 @@ Endpoints actuales:
 - `POST /apps/:id/publish`
 - `GET /apps/public/:slug`
 
-Faltantes recomendados:
+Recommended missing endpoints:
 
 - `POST /apps/:id/autosave`
 - `GET /apps/:id/collaborators/presence`
 - `POST /apps/:id/widgets/:widgetId/actions/validate`
 - `POST /apps/:id/theme/validate`
 
-Eventos:
+Events:
 
 - `app.autosaved`
 - `app.version.published`
@@ -672,7 +672,7 @@ Eventos:
 
 ### Ontology
 
-Endpoints actuales abundantes:
+Current endpoints, plentiful:
 
 - Object types: `GET/POST/PUT/DELETE /ontology/types`
 - Objects: `GET/POST/PATCH/DELETE /ontology/types/:typeId/objects`
@@ -682,7 +682,7 @@ Endpoints actuales abundantes:
 - Projects, branches, proposals, migrations.
 - Funnel/indexing.
 
-Faltantes recomendados:
+Recommended missing endpoints:
 
 - `GET /ontology/types/:typeId/objects/:objectId/links`
 - `GET /ontology/types/:typeId/objects/:objectId/actions`
@@ -690,7 +690,7 @@ Faltantes recomendados:
 - `GET /ontology/types/:typeId/table-state`
 - `PATCH /ontology/types/:typeId/table-state`
 
-Eventos:
+Events:
 
 - `ontology.object.updated`
 - `ontology.action.executed`
@@ -698,7 +698,7 @@ Eventos:
 
 ### Projects/Workspace
 
-Endpoints actuales:
+Current endpoints:
 
 - `GET/POST/PATCH/DELETE /ontology/projects`
 - `/ontology/projects/:id/folders`
@@ -711,7 +711,7 @@ Endpoints actuales:
 - `/workspace/resources/:kind/:id/purge`
 - `/workspace/resources/batch`
 
-Faltantes recomendados:
+Recommended missing endpoints:
 
 - `GET /workspace/resources/:kind/:id/permissions`
 - `PATCH /workspace/resources/:kind/:id/permissions`
@@ -720,7 +720,7 @@ Faltantes recomendados:
 
 ### Data Connection
 
-Endpoints actuales:
+Current endpoints:
 
 - `GET /data-connection/catalog`
 - `GET/POST/PATCH/DELETE /data-connection/sources`
@@ -728,20 +728,20 @@ Endpoints actuales:
 - discovery/bulk registrations.
 - credentials, egress policies, syncs, media set syncs.
 
-Faltantes recomendados:
+Recommended missing endpoints:
 
 - `GET /data-connection/sources/:id/health`
 - `GET /data-connection/syncs/:syncId/logs`
 - `POST /data-connection/sources/:id/preview`
 
-### Otros Dominios
+### Other Domains
 
-Cada uno tiene su client en `apps/web/src/lib/api/<domain>.ts` y su detalle exhaustivo en `docs/frontend-interaction-matrix.json` -> `backendContracts`. Resumen:
+Each has its client in `apps/web/src/lib/api/<domain>.ts` and its exhaustive detail in `docs/frontend-interaction-matrix.json` -> `backendContracts`. Summary:
 
-- `builds` (`buildsV1.ts`): `GET /builds`, `GET /builds/:rid`, `POST /builds/:runId/run`, `POST /builds/:runId/abort`. Recomendado: `GET /builds/:rid/logs/stream`, `GET /builds/:rid/artifacts`.
+- `builds` (`buildsV1.ts`): `GET /builds`, `GET /builds/:rid`, `POST /builds/:runId/run`, `POST /builds/:runId/abort`. Recommended: `GET /builds/:rid/logs/stream`, `GET /builds/:rid/artifacts`.
 - `schedules` (`schedules.ts`): `GET /schedules`, `PATCH /schedules/:id`, `POST /schedules/:id/pause|resume|run`, `POST /schedules/:id/convert-to-project-scope`.
-- `workflows` (`workflows.ts`): CRUD `/workflows`, `POST /workflows/:id/runs/manual`, `POST /workflows/approvals/:id/decision`. Recomendado: `GET /workflows/:id/runs/:runId/logs`.
-- `notebooks` (`notebooks.ts`): CRUD `/notebooks`, `POST /notebooks/:id/sessions`, `POST /notebooks/:id/cells/:cellId/execute`, `GET /notebooks/:id/workspace-files`. Recomendado: `GET /notebooks/:id/sessions/:sessionId/logs/stream`.
+- `workflows` (`workflows.ts`): CRUD `/workflows`, `POST /workflows/:id/runs/manual`, `POST /workflows/approvals/:id/decision`. Recommended: `GET /workflows/:id/runs/:runId/logs`.
+- `notebooks` (`notebooks.ts`): CRUD `/notebooks`, `POST /notebooks/:id/sessions`, `POST /notebooks/:id/cells/:cellId/execute`, `GET /notebooks/:id/workspace-files`. Recommended: `GET /notebooks/:id/sessions/:sessionId/logs/stream`.
 - `notepad` (`notepad.ts`): CRUD `/notepad/documents`, `GET /notepad/documents/:id/export`.
 - `marketplace` (`marketplace.ts`): `GET /marketplace/listings(/:id)`, `POST /marketplace/listings/:id/install`, `POST /marketplace/products/:id/versions`, fleets.
 - `streaming` (`streaming.ts`): CRUD `/streaming/streams`, `POST /streaming/streams/:id/events`, `GET /streaming/streams/:id/dlq`, profiles.
@@ -762,13 +762,13 @@ Cada uno tiene su client en `apps/web/src/lib/api/<domain>.ts` y su detalle exha
 - `notifications` (`notifications.ts`): `GET /notifications`, `POST /notifications/:id/read`, ticket socket.
 - `global-branches` (`global-branches.ts`): `GET/POST /global-branches`, `POST /global-branches/:id/promote`.
 
-Cualquier nuevo dominio debe agregar su entrada en `backendContracts` del JSON antes de implementar la pantalla.
+Any new domain must add its entry under `backendContracts` in the JSON before the screen is implemented.
 
-## Implementacion Recomendada
+## Recommended Implementation
 
-### Fase 1: Flow registry
+### Phase 1: Flow registry
 
-Crear un registro fuente en TypeScript:
+Create a source registry in TypeScript:
 
 ```ts
 interface UiFlowScreen {
@@ -790,25 +790,25 @@ interface UiFlowAction {
 }
 ```
 
-Ese registro puede derivarse inicialmente de `docs/frontend-interaction-matrix.json`.
+That registry can initially be derived from `docs/frontend-interaction-matrix.json`.
 
-### Fase 2: UI Map Route
+### Phase 2: UI Map Route
 
-Crear una ruta interna futura:
+Create a future internal route:
 
 - `/ui-map`
 
-Funciones:
+Features:
 
-- Ver grafo de pantallas.
-- Click en nodo para ver pantallas hijas.
-- Click en accion para ver endpoint, permisos y estados.
-- Exportar Mermaid/JSON.
-- Marcar pantallas como `implemented`, `needs_backend`, `needs_design`.
+- View the screen graph.
+- Click on a node to see child screens.
+- Click on an action to see endpoint, permissions, and states.
+- Export Mermaid/JSON.
+- Mark screens as `implemented`, `needs_backend`, `needs_design`.
 
-### Fase 3: Componentes Base
+### Phase 3: Base Components
 
-Normalizar:
+Normalize:
 
 - `ResourceTable`
 - `DetailPageLayout`
@@ -820,9 +820,9 @@ Normalizar:
 - `AsyncActionButton`
 - `BackendActionFeedback`
 
-### Fase 4: Sincronizacion Backend
+### Phase 4: Backend Synchronization
 
-Cada boton debe pasar por:
+Every button must flow through:
 
 1. `PermissionGate`.
 2. `ActionRegistry`.
@@ -833,13 +833,13 @@ Cada boton debe pasar por:
 
 ## Definition Of Done
 
-Una pantalla queda lista cuando:
+A screen is considered done when:
 
-- Esta en el inventario con ruta, prioridad y estado.
-- Tiene sus tabs, modales y drawers definidos.
-- Cada boton importante tiene destino o endpoint.
-- Los estados loading/error/empty/success estan diseñados.
-- El permiso requerido esta definido.
-- Hay una historia clara de backend: DTO, endpoint y evento si aplica.
-- Se puede representar en `frontend-ui-flow-map.mmd`.
-- Se puede serializar en `frontend-interaction-matrix.json`.
+- It is in the inventory with route, priority, and status.
+- It has its tabs, modals, and drawers defined.
+- Every important button has a destination or endpoint.
+- The loading/error/empty/success states are designed.
+- The required permission is defined.
+- There is a clear backend story: DTO, endpoint, and event when applicable.
+- It can be represented in `frontend-ui-flow-map.mmd`.
+- It can be serialized in `frontend-interaction-matrix.json`.

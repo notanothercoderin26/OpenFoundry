@@ -1,5 +1,4 @@
-// Package objects ports the helpers from
-// `libs/ontology-kernel/src/handlers/objects.rs` that the kernel's
+// Package objects holds the kernel's object-storage helpers that the
 // downstream handlers (rules, funnel, …) reach into:
 //
 //   - LoadObjectInstance / LoadRepoObjectFromStore — read paths.
@@ -13,10 +12,6 @@
 //   - FindObjectIDByProperty — scan ObjectStore by type to find an
 //     existing row by primary-key property value.
 //   - ValueAsStoreText — pure JSON → store-text helper.
-//
-// Every public symbol is byte-for-byte equivalent to the Rust source;
-// the writeback path delegates to `domain.ApplyObjectWithOutbox`
-// (already 1:1) so retry semantics match too.
 package objects
 
 import (
@@ -35,7 +30,8 @@ import (
 	storage "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 )
 
-// LoadObjectInstance mirrors `pub async fn load_object_instance`.
+// LoadObjectInstance fetches an object by ID and projects it into the
+// handler-facing ObjectInstance view.
 func LoadObjectInstance(
 	ctx context.Context,
 	state *ontologykernel.AppState,
@@ -54,10 +50,9 @@ func LoadObjectInstance(
 	return domain.ObjectStoreToObjectInstance(*stored, claims.OrgID), nil
 }
 
-// LoadRepoObjectFromStore mirrors
-// `pub(crate) async fn load_repo_object_from_store`. Same call shape
-// as LoadObjectInstance but returns the raw storage.Object so the
-// caller has access to `Version` for optimistic concurrency.
+// LoadRepoObjectFromStore is the LoadObjectInstance variant that
+// returns the raw storage.Object so callers can read its Version for
+// optimistic concurrency.
 func LoadRepoObjectFromStore(
 	ctx context.Context,
 	state *ontologykernel.AppState,
@@ -73,9 +68,9 @@ func LoadRepoObjectFromStore(
 	return stored, nil
 }
 
-// InstanceToRepoObject mirrors `pub(crate) fn instance_to_repo_object`.
-// Pure projection — no IO. Used by ApplyObjectWrite to compose the
-// payload it hands to writeback.
+// InstanceToRepoObject projects an ObjectInstance into the storage
+// Object wire shape. Pure — no IO. Used by ApplyObjectWrite to compose
+// the payload it hands to writeback.
 func InstanceToRepoObject(
 	tenant storage.TenantId,
 	object *domain.ObjectInstance,
@@ -104,9 +99,8 @@ func InstanceToRepoObject(
 	}
 }
 
-// ApplyObjectWrite mirrors `pub(crate) async fn apply_object_write`.
-// Builds the canonical `ontology.object.changed.v1` payload, merges
-// caller-supplied extras, and routes through
+// ApplyObjectWrite builds the canonical `ontology.object.changed.v1`
+// payload, merges caller-supplied extras, and routes through
 // `domain.ApplyObjectWithOutbox` so retries collapse on the
 // deterministic event_id.
 func ApplyObjectWrite(
@@ -152,10 +146,9 @@ func ApplyObjectWrite(
 		repoObject, expectedVersion, "object", "ontology.object.changed.v1", body)
 }
 
-// AppendObjectRevision mirrors `pub(crate) async fn append_object_revision`.
-// Appends a "revision" entry to the action log so `list_object_revisions`
-// can replay history. `restoredFromRevisionNumber` is non-nil when the
-// revision is a restore from an earlier snapshot.
+// AppendObjectRevision appends a "revision" entry to the action log so
+// `list_object_revisions` can replay history. `restoredFromRevisionNumber`
+// is non-nil when the revision is a restore from an earlier snapshot.
 func AppendObjectRevision(
 	ctx context.Context,
 	state *ontologykernel.AppState,
@@ -199,8 +192,8 @@ func AppendObjectRevision(
 	})
 }
 
-// ValueAsStoreText mirrors `pub(crate) fn value_as_store_text`. Pure
-// JSON → store-text projection used by the primary-key scan path.
+// ValueAsStoreText is a pure JSON → store-text projection used by the
+// primary-key scan path.
 //
 // Rules:
 //   - JSON null → error ("primary key value cannot be null").
@@ -225,14 +218,11 @@ func ValueAsStoreText(value json.RawMessage) (string, error) {
 	return string(out), nil
 }
 
-// FindObjectIDByProperty mirrors
-// `pub(crate) async fn find_object_id_by_property`. Walks every
-// object of the given type (via ObjectStore.ListByType, paged at 200
-// per request to match Rust) until it finds one whose property value
-// matches `propertyValue`.
+// FindObjectIDByProperty walks every object of the given type (via
+// ObjectStore.ListByType, paged at 200 per request) until it finds one
+// whose property value matches `propertyValue`.
 //
-// Returns (nil, nil) when no row matches — same shape as the Rust
-// `Option<Uuid>` return.
+// Returns (nil, nil) when no row matches.
 func FindObjectIDByProperty(
 	ctx context.Context,
 	state *ontologykernel.AppState,

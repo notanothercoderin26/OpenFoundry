@@ -1,9 +1,8 @@
-// Package engine — DAG topological sort + execution-stage planner.
+// DAG topological sort + execution-stage planner.
 //
-// 1:1 port of the Rust crate's `execution_order`, `execution_stages`,
-// `reachable_nodes`, `topological_sort` helpers. Kahn's algorithm
-// drives the sort; cycle detection compares visited count against
-// reachable count and surfaces the canonical
+// `execution_order`, `execution_stages`, `reachable_nodes`,
+// `topological_sort` use Kahn's algorithm; cycle detection compares
+// visited count against reachable count and surfaces the canonical
 // `cycle detected in pipeline DAG` error.
 package engine
 

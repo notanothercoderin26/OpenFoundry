@@ -28,15 +28,11 @@
 //     Callers that need filter push-down should embed the predicate
 //     directly in the `query` they pass to TryNewFlightSQLProvider.
 //
-// # Divergence from the Rust crate
+// # Shape
 //
-// The Rust crate exposes `FlightSqlTableProvider` as a DataFusion
-// `TableProvider` plus an `ExecutionPlan` (FlightSqlExec). Go has no
-// DataFusion equivalent, so we expose the same underlying capability
-// — connect, execute, walk endpoints, project, limit — as a plain
-// type with a Scan method that returns an `array.RecordReader`. The
-// wire-level behaviour, error taxonomy, and push-down policy are
-// identical to the Rust port.
+// Provides the connect-execute-walk-endpoints-project-limit capability
+// as a plain type with a Scan method that returns an
+// `array.RecordReader`.
 package queryengine
 
 import (

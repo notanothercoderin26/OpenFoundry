@@ -31,7 +31,7 @@ the staging cluster.
 
 * **Chaos Mesh** (Apache 2.0), installed via its official Helm chart
   in the `chaos-mesh` namespace.
-* Manifests stored in [`infra/k8s/chaos/`](../../../infra/k8s/chaos/).
+* Manifests stored in [`infra/helm/chaos/`](../../../infra/helm/chaos/).
 * Experiments deployed as `Schedule` resources — Chaos Mesh manages
   the cron, ramp-up and rollback.
 * Observability: each experiment is annotated so Grafana renders an
@@ -41,21 +41,21 @@ the staging cluster.
 ### Standing experiments
 
 1. **Cassandra Pod kill** —
-   [`cassandra-kill.yaml`](../../../infra/k8s/chaos/cassandra-kill.yaml).
+   [`cassandra-kill.yaml`](../../../infra/helm/chaos/cassandra-kill.yaml).
    Kills one Cassandra Pod every Tuesday 02:00 UTC. Success: P95
    read ≤ 25 ms within 60 s of kill, no client error budget burn.
 2. **Kafka broker kill** —
-   [`kafka-broker-kill.yaml`](../../../infra/k8s/chaos/kafka-broker-kill.yaml).
+   [`kafka-broker-kill.yaml`](../../../infra/helm/chaos/kafka-broker-kill.yaml).
    Kills one Strimzi broker Pod every Wednesday 02:00 UTC. Success:
    consumer lag returns to baseline within 90 s, no committed-offset
    loss.
 3. **Temporal history Pod kill** —
-   [`temporal-history-kill.yaml`](../../../infra/k8s/chaos/temporal-history-kill.yaml).
+   [`temporal-history-kill.yaml`](../../../infra/helm/chaos/temporal-history-kill.yaml).
    Kills one Temporal history Pod every Thursday 02:00 UTC. Success:
    in-flight workflows continue (no `WorkflowExecutionTimedOut`
    metric increment).
 4. **k8s node drain** —
-   [`k8s-node-drain.yaml`](../../../infra/k8s/chaos/k8s-node-drain.yaml).
+   [`k8s-node-drain.yaml`](../../../infra/helm/chaos/k8s-node-drain.yaml).
    Drains one worker node every Friday 02:00 UTC. Success: PDBs
    honoured (no service drops below `minAvailable`), all Pods
    reschedule within 5 min.
@@ -105,4 +105,4 @@ A failed experiment in staging:
 * Chaos Mesh — <https://chaos-mesh.org>
 * [ADR-0020 — Cassandra as operational store](ADR-0020-cassandra-as-operational-store.md)
 * [`infra/runbooks/dr-game-day.md`](../../../infra/runbooks/dr-game-day.md)
-* [`infra/k8s/chaos/`](../../../infra/k8s/chaos/)
+* [`infra/helm/chaos/`](../../../infra/helm/chaos/)

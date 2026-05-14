@@ -199,10 +199,9 @@ func deriveEdgeMarking(
 	return edgeMarkingFromRank(strongest), nil
 }
 
-// CollectLinks mirrors `pub(crate) async fn collect_links`. Pages
-// through outgoing then incoming links across every requested
-// link_type until the budget is reached. Exported because the
-// graph layer (iter 7c₄) depends on the same primitive.
+// CollectLinks pages through outgoing then incoming links across
+// every requested link_type until the budget is reached. Exported
+// because the graph layer (iter 7c₄) depends on the same primitive.
 func CollectLinks(
 	ctx context.Context,
 	links storage.LinkStore,

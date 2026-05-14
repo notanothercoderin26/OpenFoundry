@@ -1,68 +1,71 @@
 # Policy bundles in-process
 
-> Patrón de distribución y evaluación de políticas de autorización para los
-> servicios de OpenFoundry. **Esta página es exclusivamente documental: no
-> reescribe ningún servicio Rust.** Su objetivo es fijar el contrato del patrón
-> "policy bundle in-process" antes de que cualquier servicio lo adopte.
+> Distribution and evaluation pattern for authorization policies across
+> OpenFoundry's Go services. **This page is purely documentary: it does not
+> rewrite any existing service.** Its goal is to pin down the contract for the
+> "policy bundle in-process" pattern before any service adopts it.
 
-## Por qué este patrón
+## Why this pattern
 
-Las políticas de autorización (RBAC + ABAC + restricted views, ver
+Authorization policies (RBAC + ABAC + restricted views, see
 [`/security-governance/policies-and-authorization`](./policies-and-authorization.md)
-y [`/security-governance/abac-and-cbac-model/`](./abac-and-cbac-model/)) deben
-evaluarse en el **hot path** de cada lectura/escritura sobre objetos, queries y
-acciones. Un PDP (Policy Decision Point) central accedido por RPC en cada
-petición introduce:
+and [`/security-governance/abac-and-cbac-model/`](./abac-and-cbac-model/)) must
+be evaluated on the **hot path** of every read/write over objects, queries, and
+actions. A central PDP (Policy Decision Point) reached over RPC on every
+request introduces:
 
-- latencia adicional sincrónica en cada operación de datos,
-- un **single point of failure** transversal a toda la plataforma,
-- acoplamiento operativo entre servicios de datos y `auth-service` /
-  `ontology-security-service`.
+- additional synchronous latency on every data operation,
+- a **single point of failure** that cuts across the entire platform,
+- operational coupling between the data services and the
+  `authorization-policy-service`.
 
-Por esa razón fijamos como regla arquitectónica:
+For that reason we fix the following architectural rule:
 
-> **No hay PDP central en el hot path.** Cada servicio evalúa las políticas
-> _in-process_ contra un *bundle* versionado y firmado que recibe fuera de
-> banda.
+> **There is no central PDP on the hot path.** Each service evaluates policies
+> _in-process_ against a versioned, signed *bundle* delivered out of band.
 
-Esta regla extiende la separación control-plane / data-plane formalizada en
+This rule extends the control-plane / data-plane separation formalized in
 [`docs/architecture/adr/ADR-0011-control-vs-data-bus-contract.md`](../architecture/adr/ADR-0011-control-vs-data-bus-contract.md):
-las **decisiones** de política son data-plane (cada servicio las ejecuta sobre
-sus propios datos), mientras que las **actualizaciones** de política viajan por
-el control-plane (NATS JetStream, `libs/event-bus-control`).
+policy **decisions** are data-plane (each service runs them over its own
+data), while policy **updates** travel on the control-plane (NATS JetStream,
+`libs/event-bus-control`).
 
-## Productor: `ontology-security-service`
+## Publisher: `authorization-policy-service`
 
-Responsable de compilar, firmar y publicar el *policy bundle* canónico de la
-plataforma. El servicio ya existe en `/services/ontology-security-service`
-y se enumera entre los servicios de _governance & semantics_ en
+Responsible for compiling, signing, and publishing the platform's canonical
+*policy bundle*. The service lives at `/services/authorization-policy-service`
+and is one of the _governance & semantics_ services documented in
 [`docs/architecture/runtime-topology.md`](../architecture/runtime-topology.md)
-(§ "Layered service map").
+(§ "Layered service map"). Its internal Cedar engine uses the
+`libs/authz-cedar-go` library.
 
-Contrato del productor:
+> Earlier versions of this page mentioned a separate `ontology-security-service`
+> as the bundle publisher. That binary does not exist; the capability is
+> consolidated inside `authorization-policy-service`.
 
-1. **Compilación.** `ontology-security-service` toma como input las políticas
-   gestionadas por `auth-service`
-   (`services/auth-service/src/handlers/policy_mgmt.rs`,
-   `permission_mgmt.rs`, `role_mgmt.rs`, citados en
-   [`policies-and-authorization`](./policies-and-authorization.md)) y las
-   restricted views, y produce un *bundle* declarativo inmutable.
-2. **Versionado.** Cada bundle recibe un identificador monotónico
-   (`bundle_version`, p. ej. ULID + epoch lógico) y un hash de contenido
-   (`sha256:…`). El bundle anterior queda disponible para rollback.
-3. **Almacenamiento.** El bundle se sube al backend S3-compatible operado por
-   **Ceph RGW** ya documentado en
+Publisher contract:
+
+1. **Compilation.** `authorization-policy-service` takes as input the policies
+   it manages itself (CRUD endpoints in
+   `services/authorization-policy-service/internal/handlers/`, cited in
+   [`policies-and-authorization`](./policies-and-authorization.md)) along with
+   the restricted views, and produces an immutable declarative *bundle*.
+2. **Versioning.** Each bundle receives a monotonic identifier
+   (`bundle_version`, e.g. ULID + logical epoch) and a content hash
+   (`sha256:…`). The previous bundle remains available for rollback.
+3. **Storage.** The bundle is uploaded to the S3-compatible backend operated by
+   **Ceph RGW**, already documented in
    [`docs/operations/deployment.md`](../operations/deployment.md) §"Production
-   (Ceph RGW via Rook)" y en
+   (Ceph RGW via Rook)" and in
    [`docs/architecture/adr/ADR-0010-cnpg-postgres-operator.md`](../architecture/adr/ADR-0010-cnpg-postgres-operator.md)
-   §"Backups y WAL archive a Ceph RGW". La URL distribuida es una **URL
-   firmada** (presigned) con TTL acotado.
-4. **Firma criptográfica.** El bundle se firma con la clave de release del
-   `ontology-security-service`. Los consumidores rechazan cualquier bundle
-   cuya firma no verifique contra la clave pública distribuida fuera de banda.
-5. **Notificación.** Tras subir el artefacto, `ontology-security-service`
-   publica un evento en **NATS JetStream** mediante la librería
-   `libs/event-bus-control`:
+   §"Backups y WAL archive a Ceph RGW". The distributed URL is a **signed
+   URL** (presigned) with a bounded TTL.
+4. **Cryptographic signature.** The bundle is signed with the release key of
+   `authorization-policy-service`. Consumers reject any bundle whose signature
+   does not verify against the public key distributed out of band.
+5. **Notification.** After uploading the artifact, `authorization-policy-service`
+   publishes an event on **NATS JetStream** via the `libs/event-bus-control`
+   library:
 
    - **Subject:** `policy.bundle.updated`
    - **Payload (JSON):**
@@ -76,128 +79,131 @@ Contrato del productor:
        "issued_at": "2026-04-29T20:55:00Z"
      }
      ```
-   - **Stream:** dentro del control-plane (NATS), nunca en `event-bus-data`
-     (Kafka). Esto cumple el contrato mecánico de
+   - **Stream:** inside the control-plane (NATS), never on `event-bus-data`
+     (Kafka). This satisfies the mechanical contract of
      [`ADR-0011`](../architecture/adr/ADR-0011-control-vs-data-bus-contract.md)
      §"Decision" / "Allowlist file".
 
-## Consumidor: `libs/auth-middleware`
+## Consumer: `libs/auth-middleware`
 
-Cada servicio de datos enlaza la librería `libs/auth-middleware` y delega en
-ella la evaluación de políticas. El middleware encapsula:
+Each data service links the `libs/auth-middleware` library and delegates policy
+evaluation to it. The middleware encapsulates:
 
-1. **Bootstrap.** Al arrancar, el servicio descarga el último bundle conocido
-   (vía URL firmada obtenida del `ontology-security-service` o cacheada
-   localmente) y verifica su firma. Si la verificación falla, el servicio
-   **fail-closed**: rechaza solicitudes hasta disponer de un bundle válido.
-2. **Suscripción push.** El middleware se suscribe al subject
-   `policy.bundle.updated` en `event-bus-control` (NATS JetStream). Al recibir
-   el evento:
-   - descarga el nuevo bundle desde la `signed_url`,
-   - verifica firma y `sha256`,
-   - intercambia atómicamente el bundle activo en memoria (swap detrás de un
+1. **Bootstrap.** On startup, the service downloads the latest known bundle
+   (via the signed URL obtained from `authorization-policy-service` or cached
+   locally) and verifies its signature. If verification fails, the service
+   **fails closed**: it rejects requests until a valid bundle is available.
+2. **Push subscription.** The middleware subscribes to the
+   `policy.bundle.updated` subject on `event-bus-control` (NATS JetStream).
+   On receiving the event it:
+   - downloads the new bundle from the `signed_url`,
+   - verifies the signature and the `sha256`,
+   - atomically swaps the active in-memory bundle (swap behind an
      `ArcSwap`/`RwLock`),
-   - mantiene el bundle anterior accesible durante un *grace period* corto
-     para evaluaciones en curso.
-3. **Evaluación in-process.** Toda decisión `allow/deny` se resuelve en el
-   propio proceso del servicio, **sin RPC al PDP en el hot path**, contra el
-   bundle activo. Esto es lo que hace operativa la regla enunciada arriba.
-4. **Caché local con TTL.** El bundle se persiste en disco local con un TTL
-   configurable (p. ej. 24 h) para soportar reinicios sin contactar al
-   productor. La invalidación normal es **push** vía NATS; el TTL es la red de
-   seguridad cuando el control-plane está degradado.
-5. **Telemetría y auditoría.** Cada decisión emite un registro estructurado
-   (decision id, bundle_version, principal, recurso, acción, resultado) que
-   alimenta el flujo descrito en
+   - keeps the previous bundle accessible during a short *grace period* for
+     in-flight evaluations.
+3. **In-process evaluation.** Every `allow/deny` decision is resolved within
+   the service's own process, **without an RPC to the PDP on the hot path**,
+   against the active bundle. The in-memory swap of the active bundle uses an
+   `atomic.Pointer` (or a `sync.RWMutex` wrapping an immutable struct) in Go.
+   This is what makes the rule stated above operational.
+4. **Local cache with TTL.** The bundle is persisted to local disk with a
+   configurable TTL (e.g. 24 h) to support restarts without contacting the
+   publisher. Normal invalidation is **push**-based via NATS; the TTL is the
+   safety net for when the control-plane is degraded.
+5. **Telemetry and audit.** Each decision emits a structured record (decision
+   id, bundle_version, principal, resource, action, outcome) that feeds the
+   flow described in
    [`/security-governance/audit-and-traceability`](./audit-and-traceability.md)
-   y en [`/security-governance/audit-model/`](./audit-model/).
+   and in [`/security-governance/audit-model/`](./audit-model/).
 
-### Modos de fallo
+### Failure modes
 
-| Escenario                                  | Comportamiento del consumidor                                  |
+| Scenario                                   | Consumer behavior                                              |
 | ------------------------------------------ | -------------------------------------------------------------- |
-| NATS no disponible                         | Continúa con el bundle activo; reintenta suscripción.          |
-| URL firmada caducada antes de la descarga  | Solicita re-emisión al `ontology-security-service`.            |
-| Firma inválida en el nuevo bundle          | **Descarta** el bundle, mantiene el anterior, alerta.          |
-| TTL local expirado y productor inalcanzable| **Fail-closed** sobre recursos sensibles, configurable.        |
+| NATS unavailable                           | Continues with the active bundle; retries the subscription.    |
+| Signed URL expired before download         | Requests re-issuance from `authorization-policy-service`.      |
+| Invalid signature on the new bundle        | **Discards** the bundle, keeps the previous one, alerts.       |
+| Local TTL expired and publisher unreachable| **Fails closed** on sensitive resources, configurable.         |
 
-## Formato del bundle
+## Bundle format
 
-Se evaluaron tres opciones, todas OSS:
+Three options were evaluated, all OSS:
 
-| Opción           | Licencia      | Trazabilidad | Notas                                                                                  |
+| Option           | License       | Traceability | Notes                                                                                  |
 | ---------------- | ------------- | ------------ | -------------------------------------------------------------------------------------- |
-| Rego (OPA)       | Apache-2.0    | Media        | Lenguaje imperativo-lógico; explicaciones de decisión requieren herramientas externas. |
-| **Cedar**        | **Apache-2.0**| **Alta**     | Diseñado para análisis estático y *policy reasoning*; trazas de decisión nativas.      |
-| JSON declarativo | N/A           | Baja         | Sencillo pero requiere escribir un evaluador y un sistema de pruebas propios.          |
+| Rego (OPA)       | Apache-2.0    | Medium       | Imperative-logical language; decision explanations require external tooling.           |
+| **Cedar**        | **Apache-2.0**| **High**     | Designed for static analysis and *policy reasoning*; native decision traces.           |
+| Declarative JSON | N/A           | Low          | Simple, but requires writing your own evaluator and testing system.                    |
 
-**Recomendación: Cedar (Apache-2.0).** Razones:
+**Decision adopted: Cedar (Apache-2.0)** — already implemented through
+`libs/authz-cedar-go` (Go bindings to the Cedar engine). Reasons:
 
-- Trazabilidad nativa: cada decisión expone qué política y qué *condition*
-  contribuyeron, lo que se integra directamente con el modelo de auditoría
-  documentado en [`audit-model/`](./audit-model/).
-- Análisis estático formal (validación de esquema, detección de políticas
-  inalcanzables o conflictivas) ejecutable en CI sobre el bundle antes de
-  publicarlo.
-- Licencia Apache-2.0, alineada con el requisito 100% OSS de la plataforma.
-- Modelo entidad/atributo coherente con el diseño ABAC/CBAC ya documentado en
-  [`abac-and-cbac-model/`](./abac-and-cbac-model/).
+- Native traceability: each decision exposes which policy and which *condition*
+  contributed, integrating directly with the audit model documented in
+  [`audit-model/`](./audit-model/).
+- Formal static analysis (schema validation, detection of unreachable or
+  conflicting policies) executable in CI over the bundle before it is
+  published.
+- Apache-2.0 license, aligned with the platform's 100% OSS requirement.
+- Entity/attribute model coherent with the ABAC/CBAC design already documented
+  in [`abac-and-cbac-model/`](./abac-and-cbac-model/).
 
-Estructura propuesta del bundle (a fijar en una ADR posterior cuando se
-implemente):
+Proposed bundle structure (to be locked in via a later ADR when implemented):
 
 ```
 bundle-<version>.tar.zst
 ├── manifest.json          # version, sha256, schema_version, issued_at
-├── schema.cedarschema     # esquema de entidades y acciones
-├── policies/              # *.cedar (políticas declarativas)
-└── entities/              # snapshots de entidades estables (roles, grupos)
+├── schema.cedarschema     # schema of entities and actions
+├── policies/              # *.cedar (declarative policies)
+└── entities/              # snapshots of stable entities (roles, groups)
 ```
 
-## Sub-issue plan: adopción del patrón
+## Sub-issue plan: adopting the pattern
 
-> Sub-issue plan asociado a esta página. **No** se modifica código Rust en esta
-> tarea; las casillas se marcarán cuando cada servicio adopte
-> `libs/auth-middleware` con evaluación in-process del bundle.
+> Sub-issue plan associated with this page. **No** code is changed in this
+> task; the checkboxes will be ticked when each service adopts
+> `libs/auth-middleware` with in-process bundle evaluation.
 
-Servicios prioritarios, ordenados por superficie de hot path sobre objetos
-ontológicos (ver clasificación de servicios de _governance & semantics_ en
+Priority services, ordered by hot-path surface over ontology objects (see the
+classification of _governance & semantics_ services in
 [`docs/architecture/runtime-topology.md`](../architecture/runtime-topology.md)
 § "Layered service map"):
 
 - [ ] **`object-database-service`** (`/services/object-database-service`).
-  Custodio del estado de objetos; cada lectura/escritura debe evaluar políticas
-  in-process. Mayor ganancia de latencia al eliminar el RPC al PDP.
+  Custodian of object state; every read/write must evaluate policies
+  in-process. Largest latency gain from eliminating the RPC to the PDP.
 - [ ] **`ontology-query-service`** (`/services/ontology-query-service`).
-  Aplica filtros derivados del bundle (restricted views, ABAC) al planificar y
-  ejecutar queries; necesita decisión local para *row/column-level* filtering.
+  Applies bundle-derived filters (restricted views, ABAC) when planning and
+  executing queries; needs a local decision for *row/column-level* filtering.
 - [ ] **`ontology-actions-service`** (`/services/ontology-actions-service`).
-  Evalúa permisos sobre acciones (escrituras estructuradas) antes de
-  despacharlas; bloquea acciones no autorizadas sin saltos de red.
+  Evaluates permissions on actions (structured writes) before dispatching
+  them; blocks unauthorized actions without network hops.
 
-Cada adopción requerirá su propia PR e incluirá:
+Each adoption will require its own PR and will include:
 
-1. Enlace de `libs/auth-middleware` en el `Cargo.toml` del servicio.
-2. Suscripción a `policy.bundle.updated` mediante `libs/event-bus-control`
-   (compatible con la allowlist de buses de
+1. Importing `libs/auth-middleware` from the root `go.mod` (single module —
+   no per-service sub-modules).
+2. Subscribing to `policy.bundle.updated` via `libs/event-bus-control`
+   (compatible with the bus allowlist in
    [`ADR-0011`](../architecture/adr/ADR-0011-control-vs-data-bus-contract.md);
-   añadir el servicio a `/.github/bus-allowlist.yaml` si aún no estuviera).
-3. Pruebas de integración con un bundle firmado de ejemplo.
-4. Métricas de latencia *antes/después* documentadas en la PR.
+   add the service to `/.github/bus-allowlist.yaml` if not already present).
+3. Integration tests with a signed sample bundle.
+4. Latency metrics *before/after* documented in the PR.
 
-## Referencias cruzadas
+## Cross-references
 
 - [`docs/architecture/adr/ADR-0011-control-vs-data-bus-contract.md`](../architecture/adr/ADR-0011-control-vs-data-bus-contract.md)
-  — separación control vs data bus; las notificaciones de bundle viajan por el
-  bus de control.
+  — control vs data bus separation; bundle notifications travel on the control
+  bus.
 - [`docs/architecture/runtime-topology.md`](../architecture/runtime-topology.md)
-  — topología y clasificación de servicios.
+  — topology and classification of services.
 - [`/security-governance/policies-and-authorization`](./policies-and-authorization.md)
-  — superficie actual de políticas en `auth-service`.
+  — current policy surface in `authorization-policy-service`.
 - [`/security-governance/abac-and-cbac-model/`](./abac-and-cbac-model/)
-  — modelo de atributos que el bundle materializa.
+  — attribute model that the bundle materializes.
 - [`/security-governance/audit-and-traceability`](./audit-and-traceability.md)
-  y [`/security-governance/audit-model/`](./audit-model/) — destino de las
-  trazas de decisión emitidas in-process.
+  and [`/security-governance/audit-model/`](./audit-model/) — destination of
+  the decision traces emitted in-process.
 - [`docs/operations/deployment.md`](../operations/deployment.md) §"Production
-  (Ceph RGW via Rook)" — backend S3 que aloja los bundles firmados.
+  (Ceph RGW via Rook)" — S3 backend that hosts the signed bundles.

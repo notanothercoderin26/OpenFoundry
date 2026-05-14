@@ -7,7 +7,7 @@
   that bundled OpenSearch alongside Vespa, plus the planned
   `libs/search-index` crate with `meilisearch` and `opensearch` backends.
 - **Related work:** Vespa adoption for vector + lexical retrieval, pgvector for
-  embedded vector search, Meilisearch in `infra/docker-compose.yml` (DX only).
+  embedded vector search, Meilisearch in `infra/compose/docker-compose.yml` (DX only).
 
 ## Context
 
@@ -52,7 +52,7 @@ substantially.
 - One stateful search cluster (Vespa) for BM25, vector, hybrid and ranking.
 - pgvector for service-local embedded vector search co-located with
   relational data.
-- Meilisearch retained **only** in `infra/docker-compose.yml` for local
+- Meilisearch retained **only** in `infra/compose/docker-compose.yml` for local
   developer experience (fast first-run, zero-JVM, instant search demos).
 
 **Pros**
@@ -121,7 +121,7 @@ We adopt **Option A — Vespa only + pgvector**.
 - **Embedded / co-located vector search** (small corpora living next to
   relational state, e.g. service-local similarity lookups) uses **pgvector**
   on the existing PostgreSQL instances.
-- **Meilisearch is kept only in `infra/docker-compose.yml`** for local
+- **Meilisearch is kept only in `infra/compose/docker-compose.yml`** for local
   developer experience. It is **not** a production component, has no Helm
   chart, and is not exposed by Argo CD. Service code that targets
   production must not depend on Meilisearch behaviour beyond what Vespa
@@ -162,13 +162,13 @@ We adopt **Option A — Vespa only + pgvector**.
 ### Migration / cleanup
 
 - No production OpenSearch manifests existed at the time of this decision —
-  there is nothing to remove from `infra/k8s/helm/**` or from any Argo CD
+  there is nothing to remove from `infra/helm/apps/**` or from any Argo CD
   `Application`.
 - Any future task description, roadmap entry or design note that mentions
   "OpenSearch" as a planned component must instead link to this ADR and
   state that the capability is provided by Vespa (or pgvector for embedded
   cases).
-- Meilisearch usage is restricted to `infra/docker-compose.yml` and to
+- Meilisearch usage is restricted to `infra/compose/docker-compose.yml` and to
   documentation describing local development. It must not appear in Helm
   values, Argo CD applications, or production runbooks.
 
@@ -196,7 +196,7 @@ abstraction needs to be reintroduced.
 
 ## References
 
-- `infra/docker-compose.yml` — Vespa Lite single-node container (DX) and
+- `infra/compose/docker-compose.yml` — Vespa Lite single-node container (DX) and
   the canonical reference to the production search engine.
 - `infra/docker-compose.dev.yml` — Meilisearch under the optional
   `demo` profile (first-run demo only).
@@ -205,51 +205,51 @@ abstraction needs to be reintroduced.
 - Vespa documentation: <https://docs.vespa.ai/>
 - pgvector: <https://github.com/pgvector/pgvector>
 
-## Addendum — 2026-04: consolidación final
+## Addendum — 2026-04: final consolidation
 
-> **Estado:** Aceptado · **Fecha:** 2026-04-29
+> **Status:** Accepted · **Date:** 2026-04-29
 
-Tras validar que ningún servicio del workspace, ningún test de
-integración y ningún escenario en `smoke/` consume Meilisearch (solo
-quedaba la declaración no usada `meilisearch-sdk` en
-`Cargo.toml [workspace.dependencies]`), se consolida la decisión de la
-siguiente forma:
+After verifying that no workspace service, no integration test, and no
+scenario under `smoke/` consumes Meilisearch (only the unused
+`meilisearch-sdk` declaration in
+`Cargo.toml [workspace.dependencies]` remained), the decision is
+consolidated as follows:
 
-- **Vespa Lite** (`vespaengine/vespa`, Apache-2.0) pasa a ser la
-  dependencia de búsqueda por defecto para **DX local**, expuesta como
-  un único contenedor single-node en `infra/docker-compose.yml`. Es el
-  mismo motor que el de producción descrito en `infra/runbooks/vespa.md`
-  e `infra/k8s/platform/charts/vespa/`, lo que elimina la
-  divergencia DX↔producción que motivaba mantener Meilisearch.
-- **Meilisearch** se traslada a `infra/docker-compose.dev.yml` bajo el
-  perfil opcional `--profile demo`. Solo se levanta cuando se quiere
-  reproducir el "first-run demo" (búsqueda instantánea sin JVM); no es
-  una dependencia ni de DX común ni de producción.
-- Los scripts (`infra/scripts/dev-stack.sh`), el `justfile` y
-  `.env.example` reservan/exportan puertos y endpoints para Vespa por
-  defecto; las variables `MEILISEARCH_URL` / `OPENFOUNDRY_MEILISEARCH_HOST_PORT`
-  solo se materializan si el operador pide explícitamente el perfil
-  `demo`.
-- Ninguna de las condiciones de reapertura listadas más arriba se ha
-  disparado: Vespa sigue siendo Apache-2.0, no se ha materializado un
-  requisito de Kibana sobre >1 TB, no hay benchmarks que demuestren
-  inferioridad de Vespa para nuestras cargas y no hay imposición
-  regulatoria de OpenSearch.
+- **Vespa Lite** (`vespaengine/vespa`, Apache-2.0) becomes the
+  default search dependency for **local DX**, exposed as
+  a single-node container in `infra/compose/docker-compose.yml`. It is the
+  same engine as the production one described in `infra/runbooks/vespa.md`
+  and `infra/helm/infra/charts/vespa/`, which eliminates the
+  DX↔production divergence that motivated keeping Meilisearch.
+- **Meilisearch** is moved to `infra/docker-compose.dev.yml` under the
+  optional `--profile demo` profile. It only starts up when the
+  "first-run demo" is to be reproduced (instant search without JVM); it is
+  neither a common DX dependency nor a production one.
+- The scripts (`infra/scripts/dev-stack.sh`), the `justfile` and
+  `.env.example` reserve/export ports and endpoints for Vespa by
+  default; the `MEILISEARCH_URL` / `OPENFOUNDRY_MEILISEARCH_HOST_PORT`
+  variables are only materialized if the operator explicitly requests the
+  `demo` profile.
+- None of the reopening conditions listed above has been
+  triggered: Vespa is still Apache-2.0, no Kibana requirement over
+  >1 TB has materialized, there are no benchmarks demonstrating
+  Vespa's inferiority for our workloads, and there is no regulatory
+  requirement for OpenSearch.
 
-Cambios concretos asociados a este addendum (2026-04):
+Concrete changes associated with this addendum (2026-04):
 
-- `infra/docker-compose.yml`: se elimina el servicio `meilisearch` y su
-  volumen `meilisearch_data`, y se añade el servicio `vespa` single-node
-  con healthcheck contra `:19071/state/v1/health` y volumen `vespa_data`.
-- `infra/docker-compose.dev.yml`: se añade `meilisearch` con
-  `profiles: ["demo"]` y volumen `meilisearch_data`, exclusivamente para
-  el demo opcional.
-- Documentación (`docs/operations/deployment.md`,
+- `infra/compose/docker-compose.yml`: the `meilisearch` service and its
+  `meilisearch_data` volume are removed, and the single-node `vespa` service is
+  added with a healthcheck against `:19071/state/v1/health` and a `vespa_data` volume.
+- `infra/docker-compose.dev.yml`: `meilisearch` is added with
+  `profiles: ["demo"]` and the `meilisearch_data` volume, exclusively for
+  the optional demo.
+- Documentation (`docs/operations/deployment.md`,
   `docs/guide/local-development.md`,
-  `docs/architecture/runtime-topology.md`) actualizada para retirar
-  Meilisearch de la lista de dependencias comunes y apuntar al perfil
-  `demo`.
+  `docs/architecture/runtime-topology.md`) updated to remove
+  Meilisearch from the list of common dependencies and point to the
+  `demo` profile.
 
-Si en el futuro se decidiera retirar también el demo, la declaración
-`meilisearch-sdk` en `Cargo.toml` puede eliminarse junto con este
-servicio sin afectar a ningún consumidor.
+If in the future the demo were also retired, the
+`meilisearch-sdk` declaration in `Cargo.toml` can be removed alongside this
+service without affecting any consumer.

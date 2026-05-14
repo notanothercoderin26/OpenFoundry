@@ -44,44 +44,52 @@ func (s NodeState) terminal() bool {
 	return s == NodeAborted || s == NodeFailed || s == NodeCompleted
 }
 
-// OutputTransaction is the open write transaction for one output dataset.
+// OutputTransaction is the open write transaction for one output resource.
 type OutputTransaction struct {
-	DatasetRID             string
-	TransactionRID         string
-	DatasetName            string
-	Branch                 string
-	WriteMode              string
-	FileFormat             string
-	LogicalPath            string
-	OutputKind             string
-	OutputNodeID           string
-	SourceNodeID           string
-	PipelineRID            string
-	InputDatasetRIDs       []string
-	CreateIfMissing        bool
-	ObjectTypeID           string
-	ObjectTypeName         string
-	ObjectTypeDisplayName  string
-	ObjectTypePluralName   string
-	ObjectTypePrimaryKey   string
-	ObjectTypeIcon         string
-	ObjectTypeColor        string
-	ObjectTypeEditable     bool
-	ObjectPropertyMappings []OutputPropertyMapping
-	LinkTypeID             string
-	LinkTypeName           string
-	LinkTypeDisplayName    string
-	LinkTypeDescription    string
-	LinkTypeCardinality    string
-	LinkSourceObjectTypeID string
-	LinkTargetObjectTypeID string
-	LinkSourceObjectNodeID string
-	LinkTargetObjectNodeID string
-	LinkSourcePrimaryKey   string
-	LinkTargetPrimaryKey   string
-	LinkSourceKeyColumn    string
-	LinkTargetKeyColumn    string
-	LinkTenant             string
+	DatasetRID                string
+	TransactionRID            string
+	DatasetName               string
+	Branch                    string
+	WriteMode                 string
+	FileFormat                string
+	LogicalPath               string
+	OutputKind                string
+	OutputNodeID              string
+	SourceNodeID              string
+	PipelineRID               string
+	InputDatasetRIDs          []string
+	CreateIfMissing           bool
+	ObjectTypeID              string
+	ObjectTypeName            string
+	ObjectTypeDisplayName     string
+	ObjectTypePluralName      string
+	ObjectTypePrimaryKey      string
+	ObjectTypeIcon            string
+	ObjectTypeColor           string
+	ObjectTypeEditable        bool
+	ObjectPropertyMappings    []OutputPropertyMapping
+	LinkTypeID                string
+	LinkTypeName              string
+	LinkTypeDisplayName       string
+	LinkTypeDescription       string
+	LinkTypeCardinality       string
+	LinkSourceObjectTypeID    string
+	LinkTargetObjectTypeID    string
+	LinkSourceObjectNodeID    string
+	LinkTargetObjectNodeID    string
+	LinkSourcePrimaryKey      string
+	LinkTargetPrimaryKey      string
+	LinkSourceKeyColumn       string
+	LinkTargetKeyColumn       string
+	LinkTenant                string
+	VirtualTableRID           string
+	VirtualTableSourceRID     string
+	VirtualTableProvider      string
+	VirtualTableType          string
+	VirtualTableLocator       string
+	VirtualTableReference     string
+	VirtualTableStorage       string
+	VirtualTableOrchestration string
 }
 
 // OutputPropertyMapping describes how a table column becomes an Ontology

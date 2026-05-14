@@ -1,7 +1,7 @@
 // Command telemetry-governance-service hosts the four foundation
 // CRUDs (telemetry-exports, health-checks, execution-runs,
-// monitoring-rules). The streaming-monitor + evaluator surface from
-// the Rust crate is deferred — see README.
+// monitoring-rules). The streaming-monitor + evaluator surface is
+// deferred — see README.
 package main
 
 import (

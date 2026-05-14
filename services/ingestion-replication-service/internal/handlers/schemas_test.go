@@ -1,9 +1,8 @@
 package handlers_test
 
-// Schema validation + history endpoint coverage for IRF-9. Mirrors
-// the behavioural assertions from the Rust handler and the registry
-// crate; all cases run against fakes so the build invariant stays
-// green without a Postgres or schema-registry instance.
+// Schema validation + history endpoint coverage for IRF-9. All
+// cases run against fakes so the build invariant stays green without
+// a Postgres or schema-registry instance.
 
 import (
 	"context"

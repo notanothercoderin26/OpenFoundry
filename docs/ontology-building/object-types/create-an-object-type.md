@@ -4,7 +4,7 @@ Creating an object type is the first step in turning domain language into a reus
 
 ## Current request shape
 
-Based on `CreateObjectTypeRequest` in `services/ontology-service/src/models/object_type.rs`, OpenFoundry currently supports:
+Based on `CreateObjectTypeRequest` in `services/ontology-definition-service/internal/models/object_type.go`, OpenFoundry currently supports:
 
 | Field | Required | Purpose |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ Based on `CreateObjectTypeRequest` in `services/ontology-service/src/models/obje
 ```text
 semantic designer
   -> POST /api/v1/ontology/types
-  -> ontology-service persists object_types row
+  -> ontology-definition-service persists object_types row
   -> owner_id is derived from JWT subject
   -> object type becomes available for property and interface attachment
 ```

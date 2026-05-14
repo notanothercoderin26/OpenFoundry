@@ -29,7 +29,7 @@
 //  3. The runner relies on the in-house libs/scheduling-cron parser
 //     (Foundry-parity Unix-5 / Quartz-6, IANA TZ, DST-correct), so it
 //     matches the rest of the platform's cron semantics rather than
-//     the looser semantics of an external cron crate.
+//     the looser semantics of off-the-shelf cron libraries.
 //
 // # Delivery semantics
 //

@@ -6,11 +6,13 @@ The fastest way to understand what OpenFoundry is trying to deliver is to read i
 
 | Phase | Scenario | Main Capability Areas |
 | --- | --- | --- |
+| P0 | `smoke/scenarios/p0-critical-path.json` | thinnest end-to-end gate: connection → dataset → query → ontology → action, used by CI as the must-pass smoke before per-phase suites |
 | P2 | `smoke/scenarios/p2-runtime-critical-path.json` | connectors, datasets, sync, pipelines, queries, streaming, reports, geospatial |
 | P3 | `smoke/scenarios/p3-semantic-governance-critical-path.json` | ontology, interfaces, properties, governance-oriented workflows |
 | P4 | `smoke/scenarios/p4-developer-platform-critical-path.json` | code repositories, branching, commits, search, developer platform flows |
 | P5 | `smoke/scenarios/p5-ai-ml-critical-path.json` | AI providers, knowledge bases, embeddings, training jobs, model workflows |
 | P6 | `smoke/scenarios/p6-analytics-enterprise-critical-path.json` | analytics datasets, enterprise-tier behaviors, geospatial exploration |
+| Foundry-pattern | `smoke/scenarios/foundry-pattern-full-flow.json` | end-to-end exercise of the four Foundry-pattern surfaces (Automate, Saga, Approval, Pipeline) against a live cluster with Debezium + EventRouter SMT wired (see [`foundry-pattern-orchestration.md`](./foundry-pattern-orchestration.md)) |
 
 ## How The Repo Reflects Those Phases
 

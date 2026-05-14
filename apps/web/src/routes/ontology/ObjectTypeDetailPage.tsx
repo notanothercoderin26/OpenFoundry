@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import {
   attachSharedPropertyType,
+  buildObjectInstanceViewPolicy,
   createObject,
   detachSharedPropertyType,
   getObject,
@@ -20,18 +21,29 @@ import {
   listTypeSharedPropertyTypes,
   listValueTypes,
   mergeApplicableInterfaceActions,
+  objectSecurityPolicySupportStatus,
+  objectTypeWithRestrictedViewConfig,
+  readRestrictedViewBackingConfig,
+  redactObjectInstanceForRestrictedViewPolicy,
+  restrictedViewPolicyPropagationStatus,
+  schemaOnlyObjectInstance,
+  saveRestrictedViewBackingConfig,
   validateInterfaceActionRestrictions,
   validateMultiDatasourcePrimaryKeys,
   bindingDatasourceProvenance,
   type ActionType,
   type LinkType,
   type ObjectInstance,
+  type ObjectInstanceViewPolicy,
   type ObjectTypeBinding,
   type ObjectType,
+  type OntologyPermissionPrincipal,
   type OntologyInterface,
   type OntologyRule,
   type OntologyValueType,
   type Property,
+  type RestrictedViewBackingConfig,
+  type RestrictedViewStorageMode,
   type SharedPropertyType,
 } from '@/lib/api/ontology';
 import { listDatasets, type Dataset } from '@/lib/api/datasets';
@@ -42,18 +54,39 @@ import { PropertyPanel } from '@/lib/components/ontology/PropertyPanel';
 import { SaveAsAppModal } from '@/lib/components/apps/SaveAsAppModal';
 import { Tabs } from '@/lib/components/Tabs';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
+import { useAuth } from '@/lib/stores/auth';
 
 type Tab = 'overview' | 'properties' | 'objects' | 'actions' | 'datasources' | 'links' | 'rules' | 'shared';
 
 interface DatasourceSettings {
+  backing_source_kind: 'dataset' | 'restricted_view';
   backing_dataset_id: string | null;
+  restricted_view_id: string | null;
+  restricted_view_storage_mode: RestrictedViewStorageMode;
+  restricted_view_policy_version: number;
+  restricted_view_registered_policy_version: number;
+  restricted_view_indexed_policy_version: number;
+  restricted_view_required_markings: string;
+  restricted_view_allowed_groups: string;
+  restricted_view_required_property: string;
+  restricted_view_required_value: string;
   allow_edits: boolean;
   track_user_edit_history: boolean;
   conflict_resolution: 'apply_user_edits' | 'apply_most_recent';
 }
 
 const DEFAULT_DATASOURCE_SETTINGS: DatasourceSettings = {
+  backing_source_kind: 'dataset',
   backing_dataset_id: null,
+  restricted_view_id: null,
+  restricted_view_storage_mode: 'remote',
+  restricted_view_policy_version: 1,
+  restricted_view_registered_policy_version: 1,
+  restricted_view_indexed_policy_version: 1,
+  restricted_view_required_markings: '',
+  restricted_view_allowed_groups: '',
+  restricted_view_required_property: '',
+  restricted_view_required_value: '',
   allow_edits: false,
   track_user_edit_history: false,
   conflict_resolution: 'apply_user_edits',
@@ -63,8 +96,10 @@ function readDatasourceSettings(typeId: string): DatasourceSettings {
   if (!typeId || typeof window === 'undefined') return { ...DEFAULT_DATASOURCE_SETTINGS };
   try {
     const raw = window.localStorage.getItem(`of:ontology:datasource:${typeId}`);
-    if (!raw) return { ...DEFAULT_DATASOURCE_SETTINGS };
-    return { ...DEFAULT_DATASOURCE_SETTINGS, ...(JSON.parse(raw) as Partial<DatasourceSettings>) };
+    const base = raw ? { ...DEFAULT_DATASOURCE_SETTINGS, ...(JSON.parse(raw) as Partial<DatasourceSettings>) } : { ...DEFAULT_DATASOURCE_SETTINGS };
+    const restrictedView = readRestrictedViewBackingConfig(typeId);
+    if (!restrictedView) return base;
+    return datasourceSettingsFromRestrictedViewConfig(base, restrictedView);
   } catch {
     return { ...DEFAULT_DATASOURCE_SETTINGS };
   }
@@ -77,6 +112,59 @@ function writeDatasourceSettings(typeId: string, settings: DatasourceSettings) {
   } catch {
     /* ignore */
   }
+}
+
+function csv(value: string) {
+  return value.split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
+function datasourceSettingsFromRestrictedViewConfig(
+  base: DatasourceSettings,
+  config: RestrictedViewBackingConfig,
+): DatasourceSettings {
+  const rule = config.policy?.row_rules?.[0] ?? config.policy?.rules?.[0];
+  return {
+    ...base,
+    backing_source_kind: 'restricted_view',
+    restricted_view_id: config.restricted_view_id,
+    restricted_view_storage_mode: config.storage_mode ?? 'remote',
+    restricted_view_policy_version: config.policy_version ?? 1,
+    restricted_view_registered_policy_version: config.registered_policy_version ?? config.policy_version ?? 1,
+    restricted_view_indexed_policy_version: config.indexed_policy_version ?? config.policy_version ?? 1,
+    restricted_view_required_markings: (config.policy?.required_markings ?? []).join(', '),
+    restricted_view_allowed_groups: (config.policy?.allowed_groups ?? []).join(', '),
+    restricted_view_required_property: rule?.property ?? '',
+    restricted_view_required_value: rule?.value === undefined || rule?.value === null ? '' : String(rule.value),
+  };
+}
+
+function restrictedViewConfigFromDatasourceSettings(settings: DatasourceSettings): RestrictedViewBackingConfig | null {
+  if (settings.backing_source_kind !== 'restricted_view' || !settings.restricted_view_id?.trim()) return null;
+  const rules = settings.restricted_view_required_property.trim()
+    ? [{
+        id: 'local-required-property',
+        property: settings.restricted_view_required_property.trim(),
+        operator: 'equals',
+        value: settings.restricted_view_required_value,
+      }]
+    : [];
+  return {
+    restricted_view_id: settings.restricted_view_id.trim(),
+    backing_dataset_id: settings.backing_dataset_id,
+    storage_mode: settings.restricted_view_storage_mode,
+    policy_version: Number(settings.restricted_view_policy_version) || 1,
+    registered_policy_version: Number(settings.restricted_view_registered_policy_version) || 0,
+    indexed_policy_version: Number(settings.restricted_view_indexed_policy_version) || 0,
+    policy: {
+      mode: rules.length > 0 ? 'any_rule' : 'allow_all',
+      required_markings: csv(settings.restricted_view_required_markings),
+      allowed_groups: csv(settings.restricted_view_allowed_groups),
+      row_rules: rules,
+    },
+    policy_updated_at: new Date().toISOString(),
+    require_reregistration_on_policy_change: true,
+    require_reindex_on_policy_change: true,
+  };
 }
 type DependentKind =
   | 'developer-console'
@@ -228,6 +316,7 @@ export function ObjectTypeDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('overview');
   const [dependentKind, setDependentKind] = useState<DependentKind>('workshop');
   const [saveAsOpen, setSaveAsOpen] = useState(false);
@@ -257,6 +346,25 @@ export function ObjectTypeDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const principal = useMemo<OntologyPermissionPrincipal>(() => ({
+    user_id: user?.id,
+    email: user?.email,
+    groups: user?.groups || [],
+    roles: user?.roles || [],
+    permissions: user?.permissions || [],
+  }), [user?.id, user?.email, user?.groups, user?.roles, user?.permissions]);
+  const restrictedViewConfig = useMemo(
+    () => restrictedViewConfigFromDatasourceSettings(datasourceSettings),
+    [datasourceSettings],
+  );
+  const effectiveType = useMemo(
+    () => type ? objectTypeWithRestrictedViewConfig(type, restrictedViewConfig) : null,
+    [restrictedViewConfig, type],
+  );
+  const instanceAccess = useMemo<ObjectInstanceViewPolicy | null>(
+    () => effectiveType ? buildObjectInstanceViewPolicy({ objectType: effectiveType, principal }) : null,
+    [effectiveType, principal],
+  );
 
   async function loadOverview() {
     if (!id) return;
@@ -358,8 +466,12 @@ export function ObjectTypeDetailPage() {
     let cancelled = false;
     async function loadDeepLinkedObject() {
       try {
+        if (effectiveType && instanceAccess && !instanceAccess.can_view_instances) {
+          if (!cancelled) setSelectedObject(schemaOnlyObjectInstance(effectiveType, activeObjectId, instanceAccess));
+          return;
+        }
         const loaded = await getObject(id, activeObjectId);
-        if (!cancelled) setSelectedObject(loaded);
+        if (!cancelled) setSelectedObject(effectiveType ? redactObjectInstanceForRestrictedViewPolicy(loaded, effectiveType, principal) : loaded);
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : 'Failed to open object view');
       }
@@ -369,7 +481,7 @@ export function ObjectTypeDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, searchParams, selectedObject?.id]);
+  }, [effectiveType, id, instanceAccess, principal, searchParams, selectedObject?.id]);
 
   function closeObjectView() {
     setSelectedObject(null);
@@ -387,7 +499,7 @@ export function ObjectTypeDetailPage() {
     try {
       const propertiesBody = JSON.parse(createPropsJson || '{}') as Record<string, unknown>;
       const created = await createObject(type.id, { properties: propertiesBody });
-      setSelectedObject(created);
+      setSelectedObject(effectiveType ? redactObjectInstanceForRestrictedViewPolicy(created, effectiveType, principal) : created);
       setCreatePropsJson('{}');
       setObjectsReload((value) => value + 1);
     } catch (cause) {
@@ -634,6 +746,11 @@ export function ObjectTypeDetailPage() {
 
       {tab === 'objects' && (
         <div style={{ display: 'grid', gap: 12 }}>
+          {instanceAccess?.schema_only ? (
+            <div className="of-status-warning" style={{ padding: 10, borderRadius: 6, fontSize: 12 }}>
+              {instanceAccess.reason}
+            </div>
+          ) : null}
           <section className="of-panel" style={{ padding: 16 }}>
             <p className="of-eyebrow">Create object</p>
             <textarea
@@ -649,9 +766,11 @@ export function ObjectTypeDetailPage() {
 
           <ObjectExplorer
             typeId={type.id}
-            objectType={type}
+            objectType={effectiveType ?? type}
             properties={properties}
             editable
+            instanceAccess={instanceAccess}
+            principal={principal}
             reloadSignal={objectsReload}
             onSelect={(object) => {
               setSelectedObject(object);
@@ -712,6 +831,9 @@ export function ObjectTypeDetailPage() {
 
       {tab === 'datasources' && (() => {
         const backingDataset = datasets.find((d) => d.id === datasourceSettings.backing_dataset_id) ?? null;
+        const restrictedView = restrictedViewConfigFromDatasourceSettings(datasourceSettings);
+        const propagationStatus = restrictedViewPolicyPropagationStatus(restrictedView);
+        const objectSecurityStatus = objectSecurityPolicySupportStatus(effectiveType ?? type);
         function patchSettings(patch: Partial<DatasourceSettings>) {
           setDatasourceSettings((current) => {
             const next = { ...current, ...patch };
@@ -723,6 +845,7 @@ export function ObjectTypeDetailPage() {
         function saveDatasource() {
           if (!id) return;
           writeDatasourceSettings(id, datasourceSettings);
+          saveRestrictedViewBackingConfig(id, restrictedView);
           setDatasourceDirty(false);
           setDatasourceSaved(true);
         }
@@ -735,8 +858,23 @@ export function ObjectTypeDetailPage() {
               </header>
               <div style={{ padding: 16, display: 'grid', gap: 12 }}>
                 <p className="of-text-muted" style={{ fontSize: 12, margin: 0 }}>
-                  Configure the backing datasource for this object type. The datasource is required, but can be changed.
+                  Configure the backing datasource for this object type. Use a dataset for direct reads or a restricted view when row-level outcomes must gate object rows.
                 </p>
+                <div style={{ display: 'inline-flex', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border-default)', width: 'fit-content' }}>
+                  {([
+                    { id: 'dataset', label: 'Dataset' },
+                    { id: 'restricted_view', label: 'Restricted view' },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => patchSettings({ backing_source_kind: option.id })}
+                      style={{ padding: '6px 12px', border: 0, background: datasourceSettings.backing_source_kind === option.id ? '#1c2127' : '#fff', color: datasourceSettings.backing_source_kind === option.id ? '#fff' : 'var(--text-strong)', cursor: 'pointer', fontSize: 12 }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
                 {backingDataset ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: '1px solid var(--border-subtle)', borderRadius: 6, background: '#fff' }}>
                     <Glyph name="database" size={14} tone="#0d9488" />
@@ -757,6 +895,110 @@ export function ObjectTypeDetailPage() {
                 <button type="button" className="of-button" onClick={() => setDatasetPickerOpen(true)} style={{ alignSelf: 'flex-start' }}>
                   <Glyph name="plus" size={12} /> Add new backing datasource
                 </button>
+                {datasourceSettings.backing_source_kind === 'restricted_view' ? (
+                  <div style={{ display: 'grid', gap: 10, padding: 12, border: '1px solid var(--border-subtle)', borderRadius: 6, background: '#fff' }}>
+                    <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                      Restricted view RID/API name
+                      <input
+                        value={datasourceSettings.restricted_view_id ?? ''}
+                        onChange={(event) => patchSettings({ restricted_view_id: event.target.value })}
+                        className="of-input"
+                        placeholder="rv.customer_rows"
+                      />
+                    </label>
+                    <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+                      <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                        Storage mode
+                        <select
+                          value={datasourceSettings.restricted_view_storage_mode}
+                          onChange={(event) => patchSettings({ restricted_view_storage_mode: event.target.value as RestrictedViewStorageMode })}
+                          className="of-input"
+                        >
+                          <option value="remote">Remote policy evaluation</option>
+                          <option value="foundry_object_storage">Foundry object storage</option>
+                          <option value="local_storage">Local storage</option>
+                          <option value="local_index">Local index</option>
+                        </select>
+                      </label>
+                      <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                        Policy version
+                        <input type="number" min={0} value={datasourceSettings.restricted_view_policy_version} onChange={(event) => patchSettings({ restricted_view_policy_version: Number(event.target.value) })} className="of-input" />
+                      </label>
+                      <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                        Registered version
+                        <input type="number" min={0} value={datasourceSettings.restricted_view_registered_policy_version} onChange={(event) => patchSettings({ restricted_view_registered_policy_version: Number(event.target.value) })} className="of-input" />
+                      </label>
+                      <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                        Indexed version
+                        <input type="number" min={0} value={datasourceSettings.restricted_view_indexed_policy_version} onChange={(event) => patchSettings({ restricted_view_indexed_policy_version: Number(event.target.value) })} className="of-input" />
+                      </label>
+                    </div>
+                    <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                      <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                        Required markings
+                        <input value={datasourceSettings.restricted_view_required_markings} onChange={(event) => patchSettings({ restricted_view_required_markings: event.target.value })} className="of-input" placeholder="public, internal" />
+                      </label>
+                      <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                        Allowed groups
+                        <input value={datasourceSettings.restricted_view_allowed_groups} onChange={(event) => patchSettings({ restricted_view_allowed_groups: event.target.value })} className="of-input" placeholder="ops, analysts" />
+                      </label>
+                    </div>
+                    <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(160px, 1fr) minmax(160px, 1fr)' }}>
+                      <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                        Required row property
+                        <input value={datasourceSettings.restricted_view_required_property} onChange={(event) => patchSettings({ restricted_view_required_property: event.target.value })} className="of-input" placeholder="region" />
+                      </label>
+                      <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                        Required value
+                        <input value={datasourceSettings.restricted_view_required_value} onChange={(event) => patchSettings({ restricted_view_required_value: event.target.value })} className="of-input" placeholder="emea" />
+                      </label>
+                    </div>
+                    {propagationStatus.warnings.map((warning) => (
+                      <div key={warning} className="of-status-warning" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>
+                        {warning}
+                      </div>
+                    ))}
+                    {restrictedView ? (
+                      <div className="of-text-muted" style={{ fontSize: 11 }}>
+                        Policy v{propagationStatus.policy_version} · registered v{propagationStatus.registered_policy_version} · indexed v{propagationStatus.indexed_policy_version}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="of-panel" style={{ padding: 0, overflow: 'hidden' }}>
+              <header style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Glyph name="shield" size={14} tone="#5c7080" />
+                <strong style={{ fontSize: 14 }}>Object and property security policies</strong>
+              </header>
+              <div style={{ padding: 16, display: 'grid', gap: 10 }}>
+                <p className="of-text-muted" style={{ fontSize: 12, margin: 0 }}>
+                  Object policies guard instance reads; property policies additionally null protected property values and split normal writeback from policy-property edits.
+                </p>
+                {objectSecurityStatus.configured ? (
+                  objectSecurityStatus.blocked ? (
+                    objectSecurityStatus.warnings.map((warning) => (
+                      <div key={warning} className="of-status-warning" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>
+                        {warning}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="of-status-success" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>
+                      Object/property security policy enforcement is enabled for this object type.
+                    </div>
+                  )
+                ) : (
+                  <div className="of-status-warning" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>
+                    No object or property security policy is configured. OpenFoundry keeps enforcement blocked until compatible attribute-policy primitives and fixtures are present.
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 11 }}>
+                  <span className="of-chip">read: {objectSecurityStatus.supports_attribute_evaluation ? 'supported' : 'blocked'}</span>
+                  <span className="of-chip">edit property: {objectSecurityStatus.supports_edit_policies ? 'supported' : 'blocked'}</span>
+                  <span className="of-chip">fixtures: {objectSecurityStatus.has_test_fixtures ? 'available' : 'missing'}</span>
+                </div>
               </div>
             </div>
 
@@ -922,7 +1164,7 @@ export function ObjectTypeDetailPage() {
                       <button
                         key={dataset.id}
                         type="button"
-                        onClick={() => { patchSettings({ backing_dataset_id: dataset.id }); setDatasetPickerOpen(false); }}
+                        onClick={() => { patchSettings({ backing_dataset_id: dataset.id, backing_source_kind: datasourceSettings.backing_source_kind }); setDatasetPickerOpen(false); }}
                         style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', border: 0, background: datasourceSettings.backing_dataset_id === dataset.id ? 'rgba(45, 114, 210, 0.06)' : 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, borderRadius: 4 }}
                       >
                         <Glyph name="database" size={13} tone="#0d9488" />
@@ -999,11 +1241,14 @@ export function ObjectTypeDetailPage() {
         open={selectedObject !== null}
         typeId={type.id}
         objectId={selectedObject?.id ?? null}
-        objectType={type}
+        objectType={effectiveType ?? type}
         initialObject={selectedObject}
         properties={properties}
         actions={actions}
         linkTypes={links}
+        objectTypes={allTypes.length > 0 ? allTypes.map((entry) => entry.id === type.id ? effectiveType ?? type : entry) : [effectiveType ?? type]}
+        instanceAccess={instanceAccess}
+        principal={principal}
         onClose={closeObjectView}
         onObjectUpdated={handleObjectUpdated}
       />

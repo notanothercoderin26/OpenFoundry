@@ -7,9 +7,9 @@ This page groups the ontology-definition concerns that, in a fuller platform, us
 The current repository already has the beginnings of this layer through:
 
 - ontology domain contracts in `proto/ontology/*`
-- `ontology-service` as the semantic backend
+- the ontology service split (`ontology-definition-service` for schema/governance, `ontology-query-service` for reads, `ontology-actions-service` for mutations, `object-database-service` for storage) as the semantic backend
 - smoke coverage for object types, interfaces, and type properties
-- auth and audit services that can support reviewable change flows
+- `identity-federation-service`, `authorization-policy-service`, and `audit-service` that can support reviewable change flows
 
 ## Planned subdomains
 

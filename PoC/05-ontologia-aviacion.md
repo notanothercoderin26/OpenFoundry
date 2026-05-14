@@ -1,30 +1,30 @@
-# 05 — Ontología de aviación
+# 05 — Aviation Ontology
 
-> El **modelo ontológico** es el activo central de Foundry y de OpenFoundry. Define las "cosas que importan" al negocio, sus propiedades y cómo se relacionan. Aquí está el modelo completo para la PoC, listo para cargar en `ontology-definition-service`.
+> The **ontology model** is the central asset of Foundry and OpenFoundry. It defines the "things that matter" to the business, their properties, and how they relate to each other. Here is the complete model for the PoC, ready to load into `ontology-definition-service`.
 
 ---
 
-## 🧱 Entidades (object types)
+## 🧱 Entities (object types)
 
-| ID | Nombre | Descripción | Tabla origen |
+| ID | Name | Description | Source table |
 |---|---|---|---|
-| `Aircraft` | Avión físico | Una unidad de flota (un *tail number*). | `curated.aircraft` |
-| `Airport` | Aeropuerto | Localización con código IATA/ICAO. | `curated.airports` |
-| `Flight` | Vuelo | Un vuelo programado o realizado. | `curated.flights` |
-| `FlightSegment` | Segmento ADS-B | Tracking en vivo (posición, vel.). | `curated.flight_segments` |
-| `WeatherObservation` | Observación meteo | Estado meteo en una celda + hora. | `curated.weather_observations` |
-| `MaintenanceEvent` | Evento de mantenimiento | Work order o inspección. | `curated.maintenance_events` |
-| `Part` | Pieza | Componente del catálogo. | `curated.parts` |
-| `PartUsage` | Uso de pieza | Pieza usada en un MaintenanceEvent. | `curated.part_usages` |
-| `Engineer` | Ingeniero MRO | Persona técnica. | `curated.engineers` |
-| `Airline` | Aerolínea operadora | | `curated.airlines` |
-| `AircraftModel` | Modelo (e.g., A320-214) | | `curated.aircraft_models` |
+| `Aircraft` | Physical aircraft | A fleet unit (a *tail number*). | `curated.aircraft` |
+| `Airport` | Airport | Location with IATA/ICAO code. | `curated.airports` |
+| `Flight` | Flight | A scheduled or completed flight. | `curated.flights` |
+| `FlightSegment` | ADS-B segment | Live tracking (position, speed). | `curated.flight_segments` |
+| `WeatherObservation` | Weather observation | Weather state in a cell + time. | `curated.weather_observations` |
+| `MaintenanceEvent` | Maintenance event | Work order or inspection. | `curated.maintenance_events` |
+| `Part` | Part | Catalog component. | `curated.parts` |
+| `PartUsage` | Part usage | Part used in a MaintenanceEvent. | `curated.part_usages` |
+| `Engineer` | MRO engineer | Technical staff. | `curated.engineers` |
+| `Airline` | Operating airline | | `curated.airlines` |
+| `AircraftModel` | Model (e.g., A320-214) | | `curated.aircraft_models` |
 
 ---
 
-## 🔗 Relaciones (link types)
+## 🔗 Relationships (link types)
 
-| Relación | De | A | Cardinalidad |
+| Relationship | From | To | Cardinality |
 |---|---|---|---|
 | `OPERATES` | `Airline` | `Aircraft` | 1—N |
 | `IS_MODEL_OF` | `Aircraft` | `AircraftModel` | N—1 |
@@ -33,7 +33,7 @@
 | `ARRIVES_AT` | `Flight` | `Airport` | N—1 |
 | `TRACKED_BY` | `Flight` | `FlightSegment` | 1—N |
 | `OBSERVED_AT` | `WeatherObservation` | `Airport` | N—1 |
-| `INFLUENCED_BY` | `Flight` | `WeatherObservation` | N—N (computado) |
+| `INFLUENCED_BY` | `Flight` | `WeatherObservation` | N—N (computed) |
 | `HAS_EVENT` | `Aircraft` | `MaintenanceEvent` | 1—N |
 | `USED_PART` | `MaintenanceEvent` | `PartUsage` | 1—N |
 | `OF_PART` | `PartUsage` | `Part` | N—1 |
@@ -42,10 +42,10 @@
 
 ---
 
-## 🧬 Propiedades por entidad
+## 🧬 Properties per entity
 
 ### `Aircraft`
-| Propiedad | Tipo | PII | Notas |
+| Property | Type | PII | Notes |
 |---|---|---|---|
 | `tail_number` (PK) | string | no | "N12345" |
 | `serial_number` | string | no | |
@@ -60,7 +60,7 @@
 | `current_status` | enum | no | IN_FLIGHT / ON_GROUND / IN_MAINTENANCE / GROUNDED |
 
 ### `Flight`
-| Propiedad | Tipo | Notas |
+| Property | Type | Notes |
 |---|---|---|
 | `flight_id` (PK) | string | "AAL123_20260415" |
 | `flight_number` | string | "AA123" |
@@ -79,41 +79,41 @@
 | `diverted` | bool | |
 | `distance_km` | float | |
 | **Computed** | | |
-| `risk_score` | float [0,1] | output del pipeline `delay_risk_predictor` |
+| `risk_score` | float [0,1] | output of the `delay_risk_predictor` pipeline |
 | `risk_band` | enum | LOW/MEDIUM/HIGH/CRITICAL |
 
 ### `Airport`
-`iata` (PK), `icao`, `name`, `city`, `country`, `lat`, `lon`, `elevation_ft`, `timezone`, `runway_count`, `is_hub_for` (lista de `airline_id`).
+`iata` (PK), `icao`, `name`, `city`, `country`, `lat`, `lon`, `elevation_ft`, `timezone`, `runway_count`, `is_hub_for` (list of `airline_id`).
 
 ### `WeatherObservation`
 `observation_id` (PK), `station_iata`, `valid_at_utc`, `wind_speed_kt`, `wind_dir_deg`, `visibility_m`, `ceiling_ft`, `precipitation_mm_h`, `turbulence_index`, `convective_sigmet` (bool).
 
 ### `MaintenanceEvent`
-`event_id` (PK), `tail_number` (FK), `event_type` (LINE/A/B/C/D check, AOG, defect-finding), `defect_code` (ATA), `severity`, `discovered_at_utc`, `closed_at_utc`, `mttr_hours`, `assigned_engineer_id` (FK), `description`, `attached_documents` (lista S3 URIs).
+`event_id` (PK), `tail_number` (FK), `event_type` (LINE/A/B/C/D check, AOG, defect-finding), `defect_code` (ATA), `severity`, `discovered_at_utc`, `closed_at_utc`, `mttr_hours`, `assigned_engineer_id` (FK), `description`, `attached_documents` (list of S3 URIs).
 
-### `Part`, `PartUsage`, `Engineer`, `Airline`, `AircraftModel` — propiedades estándar (id, nombre, atributos descriptivos).
+### `Part`, `PartUsage`, `Engineer`, `Airline`, `AircraftModel` — standard properties (id, name, descriptive attributes).
 
 ---
 
-## ⚡ Acciones (action types) registradas en `ontology-actions-service`
+## ⚡ Actions (action types) registered in `ontology-actions-service`
 
-> Una **action** es una operación de escritura sobre la ontología, con permisos, validación, audit y posible desencadenamiento de workflows.
+> An **action** is a write operation on the ontology, with permissions, validation, audit and possible workflow triggering.
 
-| Action ID | Sobre | Parámetros | Efecto | Permiso requerido |
+| Action ID | On | Parameters | Effect | Required permission |
 |---|---|---|---|---|
-| `flag-aircraft-for-inspection` | `Aircraft` | `reason: string`, `priority: enum`, `due_by: date` | crea un `MaintenanceEvent` en estado OPEN, dispara workflow `mro-inspection` | `role:mro-lead` |
-| `assign-maintenance-event` | `MaintenanceEvent` | `engineer_id: string` | actualiza `assigned_engineer_id`, notifica al ingeniero | `role:mro-lead` |
-| `acknowledge-delay-risk` | `Flight` | `note: string` | añade un audit entry, no cambia estado | `role:ops-controller` |
-| `reroute-flight` | `Flight` | `new_destination: iata`, `reason: string` | crea un nuevo `Flight` ligado al original, notifica ATC sim | `role:ops-controller` + `approval:duty-manager` |
-| `order-part` | `Part` | `quantity: int`, `requested_by: user_id`, `for_event: event_id` | crea registro en backlog de compras, notifica supply chain | `role:mro-lead` |
+| `flag-aircraft-for-inspection` | `Aircraft` | `reason: string`, `priority: enum`, `due_by: date` | creates a `MaintenanceEvent` in OPEN state, triggers `mro-inspection` workflow | `role:mro-lead` |
+| `assign-maintenance-event` | `MaintenanceEvent` | `engineer_id: string` | updates `assigned_engineer_id`, notifies the engineer | `role:mro-lead` |
+| `acknowledge-delay-risk` | `Flight` | `note: string` | adds an audit entry, does not change state | `role:ops-controller` |
+| `reroute-flight` | `Flight` | `new_destination: iata`, `reason: string` | creates a new `Flight` linked to the original, notifies ATC sim | `role:ops-controller` + `approval:duty-manager` |
+| `order-part` | `Part` | `quantity: int`, `requested_by: user_id`, `for_event: event_id` | creates entry in the purchasing backlog, notifies supply chain | `role:mro-lead` |
 
-> Estas acciones se ejecutan desde la UI **y** las puede invocar el copiloto AIP — siempre con audit y, cuando aplica, con aprobación humana.
+> These actions are executed from the UI **and** can be invoked by the AIP copilot — always with audit and, when applicable, with human approval.
 
 ---
 
-## 📥 Carga de la ontología en `ontology-definition-service`
+## 📥 Loading the ontology into `ontology-definition-service`
 
-El servicio acepta una definición **declarativa** YAML/JSON. Plantilla:
+The service accepts a **declarative** YAML/JSON definition. Template:
 
 ```yaml
 ontology:
@@ -160,7 +160,7 @@ ontology:
         - { id: risk_score, type: float, computed: true }
         - { id: risk_band, type: enum, values: [LOW, MEDIUM, HIGH, CRITICAL], computed: true }
 
-    # ... resto: Airport, WeatherObservation, MaintenanceEvent, Part, PartUsage,
+    # ... remaining: Airport, WeatherObservation, MaintenanceEvent, Part, PartUsage,
     #     Engineer, Airline, AircraftModel, FlightSegment
 
   link_types:
@@ -206,10 +206,10 @@ ontology:
       auth:
         required_roles: [ops-controller]
 
-    # ... resto: assign-maintenance-event, reroute-flight, order-part
+    # ... remaining: assign-maintenance-event, reroute-flight, order-part
 ```
 
-### Comando de carga
+### Load command
 ```bash
 curl -X POST https://poc.openfoundry.dev/api/ontology/v1/definitions \
   -H "Authorization: Bearer $TOKEN" \
@@ -217,13 +217,13 @@ curl -X POST https://poc.openfoundry.dev/api/ontology/v1/definitions \
   --data-binary @PoC/assets/ontology-aviation.yaml
 ```
 
-> Tarea pendiente: **crear `PoC/assets/ontology-aviation.yaml`** con el YAML completo. **No crear ahora** (decisión: dejar la plantilla aquí en el `.md` y materializarla cuando se implemente).
+> Pending task: **create `PoC/assets/ontology-aviation.yaml`** with the complete YAML. **Do not create now** (decision: keep the template here in the `.md` and materialize it when implementation happens).
 
 ---
 
-## 🔍 Ejemplos de queries que el cliente verá funcionar
+## 🔍 Sample queries the client will see running
 
-### 1) Aviones con más eventos críticos en 30 días
+### 1) Aircraft with the most critical events in 30 days
 ```
 ONTOLOGY MATCH (a:Aircraft)-[:HAS_EVENT]->(e:MaintenanceEvent)
 WHERE e.severity = 'CRITICAL'
@@ -233,7 +233,7 @@ ORDER BY critical_events DESC
 LIMIT 10
 ```
 
-### 2) Vuelos en riesgo HIGH/CRITICAL llegando a JFK en próximas 4 h
+### 2) Flights at HIGH/CRITICAL risk arriving at JFK in the next 4 h
 ```
 ONTOLOGY MATCH (f:Flight)-[:ARRIVES_AT]->(a:Airport {iata:'JFK'})
 WHERE f.risk_band IN ['HIGH','CRITICAL']
@@ -241,7 +241,7 @@ WHERE f.risk_band IN ['HIGH','CRITICAL']
 RETURN f.flight_number, f.aircraft_tail_number, f.risk_score, f.scheduled_arrival_utc
 ```
 
-### 3) Defectos ATA-27 recientes en flota A320 (UC-3)
+### 3) Recent ATA-27 defects in A320 fleet (UC-3)
 ```
 ONTOLOGY MATCH (a:Aircraft)-[:IS_MODEL_OF]->(m:AircraftModel),
                (a)-[:HAS_EVENT]->(e:MaintenanceEvent)
@@ -254,10 +254,10 @@ ORDER BY e.discovered_at_utc DESC
 
 ---
 
-## ✅ Acciones concretas (cuando se ejecute la PoC)
+## ✅ Concrete actions (when the PoC is executed)
 
-1. Materializar `PoC/assets/ontology-aviation.yaml` desde la plantilla.
-2. Cargarlo en `ontology-definition-service`.
-3. Ejecutar las 3 queries de arriba como **smoke test** y validar que devuelven > 0 filas.
-4. Asignar permisos a los roles `ops-controller` y `mro-lead` sobre las acciones correspondientes.
-5. Validar que un usuario `ana` (ops-controller) **no** puede ejecutar `flag-aircraft-for-inspection` (debe darle 403).
+1. Materialize `PoC/assets/ontology-aviation.yaml` from the template.
+2. Load it into `ontology-definition-service`.
+3. Run the 3 queries above as a **smoke test** and validate they return > 0 rows.
+4. Assign permissions to the `ops-controller` and `mro-lead` roles for the corresponding actions.
+5. Validate that a user `ana` (ops-controller) **cannot** execute `flag-aircraft-for-inspection` (must return 403).

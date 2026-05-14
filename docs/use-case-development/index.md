@@ -4,13 +4,14 @@ This section covers how platform capabilities become workflow-ready applications
 
 ## OpenFoundry mapping
 
-- `services/app-builder-service`
-- `services/workflow-automation-service`
-- `services/report-service`
-- `services/notebook-runtime-service`
-- `services/document-reporting-service`
-- `apps/web/src/routes/apps`
-- `apps/web/src/routes/workflows`
+- `services/application-composition-service` — Workshop app composition (pages, widgets, publish runtime)
+- `services/workflow-automation-service` — workflow definitions, sagas, **approval steps** (native, no separate approvals binary)
+- `services/notification-alerting-service` — inbox + email/Slack/Teams delivery + WebSocket fan-out
+- `services/notebook-runtime-service` — notebooks for ad-hoc and analytical workbooks
+- `apps/web/src/routes/apps`, `/workshop-editor` — Workshop App builder UI
+- `apps/web/src/routes/workflows`, `/automate`, `/workflow-lineage` — workflow authoring + tracing
+- `apps/web/src/routes/reports` — reports UI (no dedicated `report-service` binary yet — report jobs run as steps inside `workflow-automation-service`; the dedicated binary is on the [ROADMAP](../../ROADMAP.md))
+- `apps/web/src/routes/notebooks` — Notebook editor
 
 ## Key concerns
 

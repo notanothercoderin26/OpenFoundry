@@ -99,9 +99,8 @@ func CreateLink(
 	return true, nil
 }
 
-// DeleteLink mirrors the symmetric helper in the Rust crate's
-// composition module. Returns `(false, nil)` when the row was
-// already absent (idempotent delete).
+// DeleteLink removes a link row. Returns `(false, nil)` when the row
+// was already absent (idempotent delete).
 func DeleteLink(
 	ctx context.Context,
 	store storage.LinkStore,

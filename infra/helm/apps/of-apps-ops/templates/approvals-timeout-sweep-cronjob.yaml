@@ -7,7 +7,7 @@ This CronJob is unchanged in behaviour — same binary
 (`/usr/local/bin/approvals-timeout-sweep`), same target table
 (`audit_compliance.approval_requests`), same `approval.expired.v1`
 outbox topic — but the image now ships from `workflow-automation-service`
-because that crate carries the second `[[bin]]` target.
+because that service hosts the cmd/approvals-timeout-sweep binary.
 
 Each invocation:
 

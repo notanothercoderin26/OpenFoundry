@@ -87,3 +87,6 @@ docs_original_palantir_foundry/
 # ArgoCD: real Slack creds (only the .example.yaml is checked in)
 infra/argocd/notifications/slack-secret.yaml
 /capabilities-snapshot
+
+# Local-built tool binaries at repo root (built by `go build ./tools/<name>`)
+/route-audit

@@ -1,17 +1,14 @@
 package audittrail
 
-// middleware.go ports libs/audit-trail/src/middleware.rs.
-//
 // HTTP middleware that emits one structured log record per request
-// for the audit-compliance collector. The Rust crate uses
-// `tracing::info!(target = "audit", …)`; Go has no notion of a
-// tracing target, so we tag records with `category=audit` — the
-// collector's slog handler subscribes to records carrying that key.
+// for the audit-compliance collector. Records are tagged with
+// `category=audit`; the collector's slog handler subscribes to
+// records carrying that key.
 //
 // Middleware shape is the chi-compatible `func(http.Handler) http.Handler`
 // already used by `auth-middleware`. Errors from inner handlers
 // propagate unchanged so retry / fallback middleware above keep
-// seeing them (matches the Rust contract).
+// seeing them.
 
 import (
 	"log/slog"
@@ -21,8 +18,7 @@ import (
 
 // Middleware returns a chi-compatible middleware that emits a
 // structured `request handled` log record on the default logger
-// when each request completes. Mirrors `audit_layer` /
-// `AuditLayer` in the Rust crate.
+// when each request completes.
 //
 // Mount once per Router:
 //

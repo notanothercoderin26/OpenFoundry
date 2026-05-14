@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -10,6 +13,7 @@ import (
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/models"
+	repopkg "github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/repo"
 )
 
 func logicClaims(w http.ResponseWriter, r *http.Request) (*authmw.Claims, bool) {
@@ -31,6 +35,13 @@ func validateExecutionMode(mode *string) bool {
 	default:
 		return false
 	}
+}
+
+func validateRunHistoryMaxRows(value *int32) bool {
+	if value == nil {
+		return true
+	}
+	return *value >= 1 && *value <= 1000000
 }
 
 func validateLogicName(name string) bool {
@@ -59,6 +70,35 @@ func parseLogicFileID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) 
 	return id, true
 }
 
+func parseLogicVersionID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	id, err := uuid.Parse(chi.URLParam(r, "version_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "version_id must be a uuid")
+		return uuid.Nil, false
+	}
+	return id, true
+}
+
+func requestBaseURL(r *http.Request) string {
+	if base := strings.TrimRight(strings.TrimSpace(r.URL.Query().Get("base_url")), "/"); base != "" {
+		return base
+	}
+	scheme := "http"
+	if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto != "" {
+		scheme = strings.TrimSpace(strings.Split(proto, ",")[0])
+	} else if r.TLS != nil {
+		scheme = "https"
+	}
+	host := r.Host
+	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+		host = strings.TrimSpace(strings.Split(forwardedHost, ",")[0])
+	}
+	if strings.TrimSpace(host) == "" {
+		host = "localhost:8080"
+	}
+	return scheme + "://" + host
+}
+
 func (h *Handlers) CreateLogicFile(w http.ResponseWriter, r *http.Request) {
 	claims, ok := logicClaims(w, r)
 	if !ok {
@@ -79,6 +119,10 @@ func (h *Handlers) CreateLogicFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validateExecutionMode(body.ExecutionMode) {
 		writeError(w, http.StatusBadRequest, "execution_mode must be user_scoped or project_scoped")
+		return
+	}
+	if !validateRunHistoryMaxRows(body.RunHistoryMaxRows) {
+		writeError(w, http.StatusBadRequest, "run_history_max_rows must be between 1 and 1000000")
 		return
 	}
 	lf, err := h.Repo.CreateLogicFile(r.Context(), claims.Sub, body)
@@ -155,6 +199,10 @@ func (h *Handlers) UpdateLogicFileMetadata(w http.ResponseWriter, r *http.Reques
 	}
 	if !validateExecutionMode(body.ExecutionMode) {
 		writeError(w, http.StatusBadRequest, "execution_mode must be user_scoped or project_scoped")
+		return
+	}
+	if !validateRunHistoryMaxRows(body.RunHistoryMaxRows) {
+		writeError(w, http.StatusBadRequest, "run_history_max_rows must be between 1 and 1000000")
 		return
 	}
 	lf, err := h.Repo.UpdateLogicFileMetadata(r.Context(), id, claims.Sub, body, claims.HasRole("admin"))
@@ -277,4 +325,227 @@ func (h *Handlers) RestoreLogicFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, lf)
+}
+
+func (h *Handlers) SaveLogicDraftVersion(w http.ResponseWriter, r *http.Request) {
+	claims, ok := logicClaims(w, r)
+	if !ok {
+		return
+	}
+	id, ok := parseLogicFileID(w, r)
+	if !ok {
+		return
+	}
+	var body models.SaveLogicDraftVersionRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(string(body.Definition)) == "" {
+		writeError(w, http.StatusBadRequest, "definition must be a JSON object")
+		return
+	}
+	version, err := h.Repo.SaveLogicDraftVersion(r.Context(), id, claims.Sub, body, claims.HasRole("admin"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if version == nil {
+		writeError(w, http.StatusNotFound, "logic file not found")
+		return
+	}
+	writeJSON(w, http.StatusCreated, version)
+}
+
+func (h *Handlers) ListLogicVersions(w http.ResponseWriter, r *http.Request) {
+	claims, ok := logicClaims(w, r)
+	if !ok {
+		return
+	}
+	id, ok := parseLogicFileID(w, r)
+	if !ok {
+		return
+	}
+	versions, err := h.Repo.ListLogicVersions(r.Context(), id, claims.Sub, claims.HasRole("admin"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, versions)
+}
+
+func (h *Handlers) GetLogicVersion(w http.ResponseWriter, r *http.Request) {
+	claims, ok := logicClaims(w, r)
+	if !ok {
+		return
+	}
+	id, ok := parseLogicFileID(w, r)
+	if !ok {
+		return
+	}
+	versionID, ok := parseLogicVersionID(w, r)
+	if !ok {
+		return
+	}
+	version, err := h.Repo.GetLogicVersion(r.Context(), id, versionID, claims.Sub, claims.HasRole("admin"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if version == nil {
+		writeError(w, http.StatusNotFound, "logic version not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, version)
+}
+
+func (h *Handlers) CompareLogicVersions(w http.ResponseWriter, r *http.Request) {
+	claims, ok := logicClaims(w, r)
+	if !ok {
+		return
+	}
+	id, ok := parseLogicFileID(w, r)
+	if !ok {
+		return
+	}
+	baseID, err := uuid.Parse(r.URL.Query().Get("base_version_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "base_version_id must be a uuid")
+		return
+	}
+	headID, err := uuid.Parse(r.URL.Query().Get("head_version_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "head_version_id must be a uuid")
+		return
+	}
+	comparison, err := h.Repo.CompareLogicVersions(r.Context(), id, baseID, headID, claims.Sub, claims.HasRole("admin"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if comparison == nil {
+		writeError(w, http.StatusNotFound, "logic versions not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, comparison)
+}
+
+func (h *Handlers) PublishLogicVersion(w http.ResponseWriter, r *http.Request) {
+	claims, ok := logicClaims(w, r)
+	if !ok {
+		return
+	}
+	id, ok := parseLogicFileID(w, r)
+	if !ok {
+		return
+	}
+	versionID, ok := parseLogicVersionID(w, r)
+	if !ok {
+		return
+	}
+	var body models.PublishLogicVersionRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	published, err := h.Repo.PublishLogicVersion(r.Context(), id, versionID, claims.Sub, body, claims.HasRole("admin"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if published == nil {
+		writeError(w, http.StatusNotFound, "logic version not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, published)
+}
+
+func (h *Handlers) GetLogicUsage(w http.ResponseWriter, r *http.Request) {
+	claims, ok := logicClaims(w, r)
+	if !ok {
+		return
+	}
+	id, ok := parseLogicFileID(w, r)
+	if !ok {
+		return
+	}
+	usage, err := h.Repo.GetLogicUsage(r.Context(), id, claims.Sub, requestBaseURL(r), claims.HasRole("admin"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if usage == nil {
+		writeError(w, http.StatusNotFound, "logic file not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, usage)
+}
+
+func (h *Handlers) ListLogicRuns(w http.ResponseWriter, r *http.Request) {
+	claims, ok := logicClaims(w, r)
+	if !ok {
+		return
+	}
+	id, ok := parseLogicFileID(w, r)
+	if !ok {
+		return
+	}
+	runs, err := h.Repo.ListLogicRuns(r.Context(), id, claims.Sub, claims.HasRole("admin"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, runs)
+}
+
+func (h *Handlers) GetLogicMetrics(w http.ResponseWriter, r *http.Request) {
+	claims, ok := logicClaims(w, r)
+	if !ok {
+		return
+	}
+	id, ok := parseLogicFileID(w, r)
+	if !ok {
+		return
+	}
+	metrics, err := h.Repo.GetLogicMetrics(r.Context(), id, claims.Sub, r.URL.Query().Get("window"), claims.HasRole("admin"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if metrics == nil {
+		writeError(w, http.StatusNotFound, "logic file not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, metrics)
+}
+
+func (h *Handlers) InvokeLogicFunction(w http.ResponseWriter, r *http.Request) {
+	claims, ok := logicClaims(w, r)
+	if !ok {
+		return
+	}
+	functionRID, err := url.PathUnescape(chi.URLParam(r, "function_rid"))
+	if err != nil || strings.TrimSpace(functionRID) == "" {
+		writeError(w, http.StatusBadRequest, "function_rid must not be empty")
+		return
+	}
+	var body models.InvokeLogicFunctionRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	invocation, err := h.Repo.InvokeLogicFunction(r.Context(), functionRID, claims.Sub, body, claims.HasRole("admin"))
+	if errors.Is(err, repopkg.ErrLogicFunctionAPINotSupported) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if invocation == nil {
+		writeError(w, http.StatusNotFound, "logic function not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, invocation)
 }

@@ -367,7 +367,7 @@ services:
 
   analytical-logic-service:
     # S8 / ADR-0030: retired — reusable expressions are now an internal
-    # crate (`libs/analytical-logic`) consumed by `sql-bi-gateway-service`
+    # library (`libs/analytical-logic`) consumed by `sql-bi-gateway-service`
     # in-process, with no duplicated HTTP routes. The
     # `analytical_expressions` schema is migrated by the gateway's
     # pre-install Job (`templates/sql-bi-gateway-migrations.yaml`).

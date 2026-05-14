@@ -6,8 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// TOTPConfig mirrors the `user_mfa_totp` row + the Rust crate's
-// `TotpConfiguration` model.
+// TOTPConfig is the wire type for the `user_mfa_totp` row.
 type TOTPConfig struct {
 	UserID             uuid.UUID  `json:"user_id"`
 	Secret             string     `json:"-"` // never serialised

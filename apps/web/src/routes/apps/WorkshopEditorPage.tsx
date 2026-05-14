@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { getApp, updateApp, type AppDefinition, type AppPage, type AppWidget, type AppSettings, type WorkshopHeaderSettings } from '@/lib/api/apps';
-import { executeAction, executeActionBatch, getActionType, listActionTypes, listFunctionPackages, listObjectTypes, listProperties, validateAction, type ActionInputField, type ActionOperationKind, type ActionType, type ExecuteActionResponse, type ExecuteBatchActionResponse, type FunctionPackage, type ObjectInstance, type ObjectType, type Property } from '@/lib/api/ontology';
+import { buildObjectViewActionSuccessToastLink, executeAction, executeActionBatch, getActionType, listActionTypes, listFunctionPackages, listObjectTypes, listProperties, validateAction, type ActionInputField, type ActionOperationKind, type ActionType, type ExecuteActionResponse, type ExecuteBatchActionResponse, type FunctionPackage, type ObjectInstance, type ObjectType, type Property } from '@/lib/api/ontology';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { EChartCanvas } from '@/lib/components/EChartCanvas';
 import { AppRenderer } from '@/lib/components/apps/AppRenderer';
@@ -7155,7 +7155,7 @@ function PreviewRuntime({
   const [runtimeParameters, setRuntimeParametersState] = useState<Record<string, string>>({});
   const [refreshKey, setRefreshKey] = useState(0);
   const [actionModal, setActionModal] = useState<{ button: ButtonGroupButton } | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | { message: string; href?: string; linkLabel?: string } | null>(null);
   const eventHandlersRef = useRef<WorkshopEventHandlers>({});
 
   const setActiveObject = useCallback((variableId: string, object: ObjectInstance | null) => {
@@ -7364,7 +7364,14 @@ function PreviewRuntime({
             onClose={() => setActionModal(null)}
             onSuccess={(result) => {
               setActionModal(null);
-              setToast(workshopActionSuccessMessage(result));
+              const objectViewLink = buildObjectViewActionSuccessToastLink({ result, objectTypes });
+              setToast(objectViewLink
+                ? {
+                    message: workshopActionSuccessMessage(result),
+                    href: objectViewLink.href,
+                    linkLabel: objectViewLink.label,
+                  }
+                : workshopActionSuccessMessage(result));
               setRefreshKey((key) => key + 1);
               window.setTimeout(() => setToast(null), 4000);
             }}
@@ -7373,7 +7380,12 @@ function PreviewRuntime({
         {toast ? (
           <div role="status" style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 100, display: 'inline-flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderRadius: 6, background: '#15803d', color: '#fff', fontSize: 13, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.18)' }}>
             <Glyph name="check" size={13} tone="#fff" />
-            <span>{toast}</span>
+            <span>{typeof toast === 'string' ? toast : toast.message}</span>
+            {typeof toast !== 'string' && toast.href ? (
+              <Link to={toast.href} style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>
+                {toast.linkLabel ?? 'Open Object View'}
+              </Link>
+            ) : null}
             <button type="button" className="of-link" style={{ background: 'none', border: 0, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Revert</button>
             <button type="button" aria-label="Dismiss" onClick={() => setToast(null)} style={{ border: 0, background: 'transparent', color: '#fff', cursor: 'pointer' }}><Glyph name="x" size={11} tone="#fff" /></button>
           </div>
@@ -7567,6 +7579,11 @@ export function ActionFormModal({
       const validation = await validateAction(action.id, {
         target_object_id: request.targetObjectId ?? request.targetObjectIds[0],
         parameters: request.parameters,
+        execution_context: {
+          surface: 'workshop_action_execution',
+          action_execution_id: action.id,
+          source: 'workshop',
+        },
       });
       if (validation && validation.valid === false) {
         const nextIssues = normalizeActionValidationIssues(validation.errors);
@@ -7579,6 +7596,11 @@ export function ActionFormModal({
           target_object_ids: request.targetObjectIds,
           parameters: request.parameters,
           justification: request.justification,
+          execution_context: {
+            surface: 'workshop_action_execution',
+            action_execution_id: action.id,
+            source: 'workshop',
+          },
         });
         if (result.failed > 0) {
           setBatchInfo(result);
@@ -7593,6 +7615,11 @@ export function ActionFormModal({
         target_object_id: request.targetObjectId,
         parameters: request.parameters,
         justification: request.justification,
+        execution_context: {
+          surface: 'workshop_action_execution',
+          action_execution_id: action.id,
+          source: 'workshop',
+        },
       });
       onSuccess(result);
     } catch (cause) {

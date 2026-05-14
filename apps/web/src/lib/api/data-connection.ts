@@ -152,6 +152,404 @@ export interface SourceHealthSummary {
   message: string | null;
 }
 
+export type DataConnectionHealthState = 'ok' | 'warning' | 'critical' | 'unknown';
+export type DataConnectionHealthSeverity = 'info' | 'warning' | 'critical';
+export type DataConnectionHealthSurface =
+  | 'source'
+  | 'agent'
+  | 'credential'
+  | 'network_policy'
+  | 'sync'
+  | 'stream'
+  | 'export'
+  | 'webhook'
+  | 'cdc'
+  | 'virtual_table'
+  | 'schedule'
+  | 'retry';
+
+export interface DataConnectionHealthCounts {
+  ok: number;
+  warning: number;
+  critical: number;
+  unknown: number;
+}
+
+export interface DataConnectionHealthCheck {
+  code: string;
+  label: string;
+  surface: DataConnectionHealthSurface;
+  severity: DataConnectionHealthSeverity;
+  state: DataConnectionHealthState;
+  message: string;
+  resource_id?: string | null;
+  resource_rid?: string | null;
+  resource_name?: string | null;
+  recommendation?: string | null;
+  last_observed_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface DataConnectionHealthSummary {
+  source_id: string;
+  source_rid: string;
+  state: DataConnectionHealthState;
+  checked_at: string;
+  counts: DataConnectionHealthCounts;
+  surfaces: DataConnectionHealthSurface[];
+  checks: DataConnectionHealthCheck[];
+}
+
+// SDC.40 — Automatic retries and failure recovery wire shapes + pure helpers.
+export type RetryFailureCategory =
+  | 'source'
+  | 'network'
+  | 'credential'
+  | 'destination'
+  | 'unknown';
+
+export const RETRY_FAILURE_CATEGORIES: RetryFailureCategory[] = [
+  'source',
+  'network',
+  'credential',
+  'destination',
+];
+
+export interface RetryBackoffPolicy {
+  max_attempts: number;
+  initial_backoff_seconds: number;
+  max_backoff_seconds: number;
+  backoff_multiplier: number;
+  jitter_ratio: number;
+  preserve_checkpoint: boolean;
+  escalate_after_attempts: number;
+  retryable_substrings?: string[] | null;
+  non_retryable_substrings?: string[] | null;
+}
+
+export interface SourceRetryPolicy {
+  source_id: string;
+  source_rid: string;
+  categories: Partial<Record<RetryFailureCategory, RetryBackoffPolicy>>;
+  updated_by?: string | null;
+  updated_at: string;
+}
+
+export interface UpdateSourceRetryPolicyRequest {
+  categories: Partial<Record<RetryFailureCategory, RetryBackoffPolicy>>;
+}
+
+export type RetryDecisionAction = 'retry' | 'exhausted' | 'escalate' | 'no_retry';
+
+export interface RetryDecision {
+  action: RetryDecisionAction;
+  next_attempt: number;
+  max_attempts: number;
+  backoff_seconds: number;
+  next_retry_at?: string | null;
+  category: RetryFailureCategory;
+  escalate_to_data_health: boolean;
+  preserve_checkpoint: boolean;
+  reason: string;
+}
+
+export interface RetryRecoveryRunSummary {
+  sync_def_id: string;
+  sync_def_name?: string;
+  run_id: string;
+  status: string;
+  attempt: number;
+  max_attempts: number;
+  category: RetryFailureCategory;
+  error?: string;
+  next_retry_at?: string | null;
+  has_checkpoint: boolean;
+  checkpoint_summary?: string;
+  started_at: string;
+  finished_at?: string | null;
+  escalated: boolean;
+  decision?: RetryDecision | null;
+}
+
+export interface RetryRecoverySummary {
+  source_id: string;
+  source_rid: string;
+  policy: SourceRetryPolicy;
+  recent_runs: RetryRecoveryRunSummary[];
+  backoff_in_progress_count: number;
+  exhausted_count: number;
+  escalated_count: number;
+  checkpoint_preserved_runs: number;
+  checked_at: string;
+}
+
+const DEFAULT_NETWORK_RETRY_SUBSTRINGS = [
+  'connection reset',
+  'connection refused',
+  'timeout',
+  'tls handshake',
+  'i/o timeout',
+  'no route to host',
+  'temporary failure',
+  '503',
+  '504',
+];
+
+const DEFAULT_CREDENTIAL_RETRY_SUBSTRINGS = [
+  'token expired',
+  'expired token',
+  '401',
+  'unauthorized: retry',
+  'refresh required',
+];
+
+const DEFAULT_CREDENTIAL_NON_RETRYABLE = ['invalid credentials', 'permission denied', 'forbidden'];
+
+const DEFAULT_DESTINATION_RETRY_SUBSTRINGS = [
+  'write conflict',
+  'dataset busy',
+  'lock timeout',
+  'transient',
+  'throttled',
+  'rate limit',
+];
+
+const DEFAULT_DESTINATION_NON_RETRYABLE = ['schema mismatch', 'constraint violation'];
+
+const DEFAULT_SOURCE_RETRY_SUBSTRINGS = ['temporary', 'transient', 'retry', 'server busy', 'throttled'];
+
+export function defaultRetryBackoffPolicy(category: RetryFailureCategory): RetryBackoffPolicy {
+  switch (category) {
+    case 'network':
+      return {
+        max_attempts: 6,
+        initial_backoff_seconds: 5,
+        max_backoff_seconds: 600,
+        backoff_multiplier: 2,
+        jitter_ratio: 0.2,
+        preserve_checkpoint: true,
+        escalate_after_attempts: 4,
+        retryable_substrings: [...DEFAULT_NETWORK_RETRY_SUBSTRINGS],
+      };
+    case 'credential':
+      return {
+        max_attempts: 3,
+        initial_backoff_seconds: 30,
+        max_backoff_seconds: 600,
+        backoff_multiplier: 2,
+        jitter_ratio: 0.1,
+        preserve_checkpoint: true,
+        escalate_after_attempts: 2,
+        retryable_substrings: [...DEFAULT_CREDENTIAL_RETRY_SUBSTRINGS],
+        non_retryable_substrings: [...DEFAULT_CREDENTIAL_NON_RETRYABLE],
+      };
+    case 'destination':
+      return {
+        max_attempts: 5,
+        initial_backoff_seconds: 15,
+        max_backoff_seconds: 1800,
+        backoff_multiplier: 2,
+        jitter_ratio: 0.2,
+        preserve_checkpoint: true,
+        escalate_after_attempts: 3,
+        retryable_substrings: [...DEFAULT_DESTINATION_RETRY_SUBSTRINGS],
+        non_retryable_substrings: [...DEFAULT_DESTINATION_NON_RETRYABLE],
+      };
+    case 'source':
+    default:
+      return {
+        max_attempts: 4,
+        initial_backoff_seconds: 10,
+        max_backoff_seconds: 900,
+        backoff_multiplier: 2,
+        jitter_ratio: 0.2,
+        preserve_checkpoint: true,
+        escalate_after_attempts: 3,
+        retryable_substrings: [...DEFAULT_SOURCE_RETRY_SUBSTRINGS],
+      };
+  }
+}
+
+export function classifyRunFailure(errorMessage: string | null | undefined): RetryFailureCategory {
+  const msg = (errorMessage ?? '').toLowerCase().trim();
+  if (!msg) return 'unknown';
+  const credentialMarkers = [
+    'unauthorized',
+    '401',
+    '403',
+    'forbidden',
+    'credential',
+    'token expired',
+    'expired token',
+    'permission denied',
+    'access denied',
+    'invalid signature',
+  ];
+  if (credentialMarkers.some((marker) => msg.includes(marker))) return 'credential';
+  const networkMarkers = [
+    'connection reset',
+    'connection refused',
+    'timeout',
+    'dns',
+    'i/o timeout',
+    'tls handshake',
+    'no route to host',
+    'network is unreachable',
+    'eof',
+    'broken pipe',
+    '503',
+    '504',
+    '502 bad gateway',
+  ];
+  if (networkMarkers.some((marker) => msg.includes(marker))) return 'network';
+  const destinationMarkers = [
+    'dataset',
+    'dataset version',
+    'transaction',
+    'write conflict',
+    'schema mismatch',
+    'constraint',
+    'lock timeout',
+    'throttled',
+    'rate limit',
+    'destination',
+    'stream archive',
+  ];
+  if (destinationMarkers.some((marker) => msg.includes(marker))) return 'destination';
+  return 'source';
+}
+
+export function computeRetryBackoffSeconds(policy: RetryBackoffPolicy, attempt: number): number {
+  const effectiveAttempt = attempt < 1 ? 1 : attempt;
+  const base = policy.initial_backoff_seconds > 0 ? policy.initial_backoff_seconds : 1;
+  const multiplier = policy.backoff_multiplier > 1 ? policy.backoff_multiplier : 1;
+  let value = base;
+  for (let i = 1; i < effectiveAttempt; i += 1) {
+    value *= multiplier;
+    if (policy.max_backoff_seconds > 0 && value >= policy.max_backoff_seconds) {
+      value = policy.max_backoff_seconds;
+      break;
+    }
+  }
+  if (policy.max_backoff_seconds > 0 && value > policy.max_backoff_seconds) {
+    value = policy.max_backoff_seconds;
+  }
+  return Math.max(1, Math.round(value));
+}
+
+export interface EvaluateRetryDecisionInput {
+  category: RetryFailureCategory;
+  errorMessage?: string;
+  attempt: number;
+  hasCheckpoint?: boolean;
+  now?: Date;
+}
+
+export function evaluateRetryDecision(policy: RetryBackoffPolicy, input: EvaluateRetryDecisionInput): RetryDecision {
+  const attempt = Math.max(1, input.attempt);
+  const now = input.now ?? new Date();
+  const msg = (input.errorMessage ?? '').toLowerCase();
+  const hasCheckpoint = input.hasCheckpoint ?? false;
+
+  const matches = (markers?: string[] | null) =>
+    !!markers && markers.some((marker) => marker.trim() !== '' && msg.includes(marker.toLowerCase()));
+
+  if (matches(policy.non_retryable_substrings)) {
+    return {
+      action: 'no_retry',
+      next_attempt: attempt,
+      max_attempts: policy.max_attempts,
+      backoff_seconds: 0,
+      next_retry_at: null,
+      category: input.category,
+      escalate_to_data_health: true,
+      preserve_checkpoint: policy.preserve_checkpoint && hasCheckpoint,
+      reason: 'Failure matched a non-retryable signature; manual remediation required.',
+    };
+  }
+
+  let retryable = true;
+  if (policy.retryable_substrings && policy.retryable_substrings.length > 0) {
+    retryable = matches(policy.retryable_substrings);
+  }
+  if (!retryable) {
+    return {
+      action: 'no_retry',
+      next_attempt: attempt,
+      max_attempts: policy.max_attempts,
+      backoff_seconds: 0,
+      next_retry_at: null,
+      category: input.category,
+      escalate_to_data_health: true,
+      preserve_checkpoint: policy.preserve_checkpoint && hasCheckpoint,
+      reason: 'Failure signature is outside the configured retryable patterns for this category.',
+    };
+  }
+
+  if (attempt >= policy.max_attempts) {
+    return {
+      action: 'exhausted',
+      next_attempt: attempt,
+      max_attempts: policy.max_attempts,
+      backoff_seconds: 0,
+      next_retry_at: null,
+      category: input.category,
+      escalate_to_data_health: true,
+      preserve_checkpoint: policy.preserve_checkpoint && hasCheckpoint,
+      reason: `Reached the configured max ${policy.max_attempts} attempts for ${input.category} failures.`,
+    };
+  }
+
+  const nextAttempt = attempt + 1;
+  const backoff = computeRetryBackoffSeconds(policy, nextAttempt);
+  const nextRetryAt = new Date(now.getTime() + backoff * 1000).toISOString();
+  const escalate = attempt >= policy.escalate_after_attempts;
+
+  return {
+    action: escalate ? 'escalate' : 'retry',
+    next_attempt: nextAttempt,
+    max_attempts: policy.max_attempts,
+    backoff_seconds: backoff,
+    next_retry_at: nextRetryAt,
+    category: input.category,
+    escalate_to_data_health: escalate,
+    preserve_checkpoint: policy.preserve_checkpoint && hasCheckpoint,
+    reason: escalate
+      ? `Attempt ${nextAttempt}/${policy.max_attempts} scheduled in ${backoff}s. Persistent failure escalated to Data Health.`
+      : `Attempt ${nextAttempt}/${policy.max_attempts} scheduled in ${backoff}s.`,
+  };
+}
+
+export function retryFailureCategoryLabel(category: RetryFailureCategory): string {
+  switch (category) {
+    case 'source':
+      return 'Source';
+    case 'network':
+      return 'Network';
+    case 'credential':
+      return 'Credential';
+    case 'destination':
+      return 'Destination';
+    default:
+      return 'Unknown';
+  }
+}
+
+export function retryDecisionActionLabel(action: RetryDecisionAction): string {
+  switch (action) {
+    case 'retry':
+      return 'Retry scheduled';
+    case 'escalate':
+      return 'Escalate to Data Health';
+    case 'exhausted':
+      return 'Attempts exhausted';
+    case 'no_retry':
+      return 'Manual remediation';
+    default:
+      return action;
+  }
+}
+
 export interface SourceUsageSummary {
   sync_count: number;
   export_count: number;
@@ -236,6 +634,103 @@ export interface ArchiveSourceRequest {
   reason?: string;
 }
 
+export type SourcePermissionRole =
+  | 'source_view'
+  | 'source_edit'
+  | 'source_use'
+  | 'source_owner'
+  | 'webhook_execute'
+  | 'sync_create'
+  | 'export_create'
+  | 'code_import';
+
+export interface SourcePermissionRoleDefinition {
+  role: SourcePermissionRole;
+  label: string;
+  description: string;
+  implied_roles?: SourcePermissionRole[];
+}
+
+export interface SourcePermissionGrant {
+  id?: string;
+  source_id?: string;
+  principal_id: string;
+  principal_type: 'user' | 'group' | 'service_account' | string;
+  principal_name?: string;
+  roles: SourcePermissionRole[];
+  granted_by?: string | null;
+  reason?: string;
+  expires_at?: string | null;
+  granted_at?: string;
+}
+
+export interface SourceVisibilityPolicy {
+  source_visibility_roles: SourcePermissionRole[];
+  credential_visibility_roles: SourcePermissionRole[];
+  external_sample_visibility_roles: SourcePermissionRole[];
+  output_dataset_permission_roles: string[];
+  credential_values_visible: boolean;
+  external_samples_persisted: boolean;
+  output_dataset_permissions_enforced: boolean;
+  output_dataset_permission_system: string;
+  source_visibility_distinct: boolean;
+  credential_visibility_distinct: boolean;
+  external_sample_visibility_distinct: boolean;
+  output_dataset_permissions_distinct: boolean;
+}
+
+export interface SourceOutputDatasetPermission {
+  dataset_id?: string | null;
+  dataset_rid?: string;
+  required_permissions: string[];
+  actor_permissions: string[];
+  verified: boolean;
+  message?: string;
+}
+
+export interface SourceGovernanceWarning {
+  code: string;
+  severity: 'info' | 'warning' | 'error' | string;
+  message: string;
+}
+
+export interface SourceGovernanceAuditEvent {
+  id: string;
+  source_id: string;
+  actor_id?: string | null;
+  event_type: 'permission_change' | 'source_use' | string;
+  action: string;
+  result: string;
+  principal_id?: string;
+  principal_type?: string;
+  roles?: SourcePermissionRole[];
+  capability?: string;
+  job_rid?: string;
+  downstream_resource_rid?: string;
+  message?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface SourceGovernance {
+  source_id: string;
+  source_rid: string;
+  owner_id: string;
+  role_definitions: SourcePermissionRoleDefinition[];
+  effective_roles: SourcePermissionRole[];
+  permission_grants: SourcePermissionGrant[];
+  visibility: SourceVisibilityPolicy;
+  output_dataset_permissions: SourceOutputDatasetPermission[];
+  audit_events: SourceGovernanceAuditEvent[];
+  warnings?: SourceGovernanceWarning[];
+}
+
+export interface UpdateSourceGovernanceRequest {
+  permission_grants?: SourcePermissionGrant[];
+  visibility?: SourceVisibilityPolicy;
+  reason?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Credentials
 // ---------------------------------------------------------------------------
@@ -284,6 +779,9 @@ export interface Credential {
   secret_version?: string | null;
   last_rotated_at?: string | null;
   created_by?: string | null;
+  validation_status?: string | null;
+  last_validated_at?: string | null;
+  expires_at?: string | null;
   test_status?: CredentialTestStatus;
   last_tested_at?: string | null;
   usage?: CredentialUsageSummary | null;
@@ -319,10 +817,18 @@ export interface ConnectorAgent {
   id: string;
   name: string;
   agent_url: string;
+  version: string;
+  environment: string;
+  host: string;
   owner_id: string;
   status: string;
   capabilities: Record<string, unknown>;
   metadata: Record<string, unknown>;
+  connected_sources: AgentConnectedSource[];
+  supported_connector_capabilities: AgentConnectorCapabilitySummary[];
+  assigned_proxy_policies: AgentProxyPolicyAssignment[];
+  connection_failures: AgentConnectionFailure[];
+  health: AgentHealthSummary;
   last_heartbeat_at: string | null;
   created_at: string;
   updated_at: string;
@@ -331,13 +837,70 @@ export interface ConnectorAgent {
 export interface RegisterConnectorAgentRequest {
   name: string;
   agent_url: string;
+  version?: string;
+  environment?: string;
+  host?: string;
   capabilities?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+  connected_sources?: AgentConnectedSource[];
+  supported_connector_capabilities?: AgentConnectorCapabilitySummary[];
+  assigned_proxy_policies?: AgentProxyPolicyAssignment[];
+  connection_failures?: AgentConnectionFailure[];
 }
 
 export interface ConnectorAgentHeartbeatRequest {
+  version?: string;
+  environment?: string;
+  host?: string;
   capabilities?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+  connected_sources?: AgentConnectedSource[];
+  supported_connector_capabilities?: AgentConnectorCapabilitySummary[];
+  assigned_proxy_policies?: AgentProxyPolicyAssignment[];
+  connection_failures?: AgentConnectionFailure[];
+}
+
+export interface AgentConnectedSource {
+  source_id: string;
+  source_name: string;
+  connector_type: string;
+  status: string;
+  last_connected_at?: string | null;
+}
+
+export interface AgentConnectorCapabilitySummary {
+  connector_type: string;
+  capabilities: string[];
+}
+
+export interface AgentProxyPolicyAssignment {
+  policy_id: string;
+  policy_name?: string;
+  source_id?: string;
+  source_name?: string;
+  proxy_mode?: string;
+  status?: string;
+  assigned_at?: string | null;
+}
+
+export interface AgentConnectionFailure {
+  source_id?: string;
+  source_name?: string;
+  policy_id?: string;
+  code: string;
+  message: string;
+  retryable: boolean;
+  occurred_at?: string | null;
+}
+
+export interface AgentHealthSummary {
+  state: 'healthy' | 'warning' | 'stale' | 'error' | string;
+  message?: string;
+  stale: boolean;
+  last_heartbeat_age_seconds?: number | null;
+  connected_source_count: number;
+  assigned_proxy_policy_count: number;
+  failure_count: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +1088,8 @@ export type DatasetTransactionType = 'SNAPSHOT' | 'APPEND' | 'UPDATE';
 export type SyncResourceHealthState = 'not_run' | 'healthy' | 'warning' | 'error';
 export type FileSyncMode = 'snapshot_mirror' | 'incremental_append' | 'historical_snapshot_incremental';
 export type TableBatchSyncMode = 'full_snapshot' | 'incremental';
+export type CdcSyncInputKind = 'relational_connector' | 'streaming_middleware_changelog';
+export type CdcStartPosition = 'initial_snapshot' | 'latest' | 'timestamp' | 'lsn' | 'offset';
 
 export interface SyncResourceHealth {
   state: SyncResourceHealthState;
@@ -624,12 +1189,467 @@ export interface TableBatchSyncSettings {
   warnings?: SyncValidationWarning[];
 }
 
+export interface CdcConnectorDerivedMetadata {
+  connector_type: string;
+  source_database?: string | null;
+  source_schema?: string | null;
+  source_table?: string | null;
+  upstream_topic?: string | null;
+  output_stream_id?: string | null;
+  debezium_connector?: string | null;
+  snapshot_mode?: string | null;
+  publication_name?: string | null;
+  replication_slot?: string | null;
+  start_position_metadata?: Record<string, unknown> | null;
+  properties?: Record<string, unknown> | null;
+  derived_at?: string | null;
+}
+
+export interface CdcSyncSettings {
+  input_kind: CdcSyncInputKind;
+  source_database?: string | null;
+  source_schema?: string | null;
+  source_table: string;
+  source_topic?: string | null;
+  primary_key_columns: string[];
+  ordering_column: string;
+  deletion_column?: string | null;
+  output_stream_id?: string | null;
+  output_stream_location: string;
+  schema: SyncResourceSchemaField[];
+  start_position: CdcStartPosition;
+  start_position_value?: string | number | null;
+  source_database_cdc_enabled: boolean;
+  source_table_cdc_enabled: boolean;
+  changelog_input_validated: boolean;
+  connector_metadata: CdcConnectorDerivedMetadata;
+  warnings?: SyncValidationWarning[];
+}
+
+export type DataExportType = 'file' | 'table' | 'streaming';
+export type DataExportMode =
+  | 'snapshot'
+  | 'incremental'
+  | 'mirror'
+  | 'full_snapshot'
+  | 'full_snapshot_truncate'
+  | 'incremental_truncate'
+  | 'incremental_append_only'
+  | 'continuous';
+export type DataExportStatus = 'draft' | 'scheduled' | 'running' | 'succeeded' | 'failed' | 'stopped';
+export type DataExportHealthState = SyncResourceHealthState | 'running';
+
+export interface DataExportControls {
+  allowed_markings: string[];
+  allowed_organizations: string[];
+}
+
+export interface DataExportHealth {
+  state: DataExportHealthState;
+  message?: string | null;
+  last_checked_at?: string | null;
+}
+
+export interface DataExportHistoryEntry {
+  id: string;
+  action: string;
+  status: string;
+  message?: string | null;
+  build_id?: string | null;
+  build_report_url?: string | null;
+  files_written?: number;
+  files_skipped?: number;
+  bytes_written?: number;
+  rows_written?: number;
+  truncate_performed?: boolean;
+  records_exported?: number;
+  records_skipped?: number;
+  last_exported_offset?: string | null;
+  replay_behavior?: string;
+  schedule_triggered?: boolean;
+  retry_attempts?: number;
+  error_message?: string | null;
+  high_watermark_transaction_id?: string | null;
+  full_reexport?: boolean;
+  metadata?: Record<string, unknown> | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+}
+
+export interface DataExportSchedule {
+  rid: string;
+  name: string;
+  build_system: string;
+  trigger_kind: string;
+  cron: string;
+  time_zone: string;
+  target_kind: string;
+  target_rid: string;
+  target_display_name: string;
+  schedule_url?: string | null;
+  active: boolean;
+  last_triggered_at?: string | null;
+}
+
+export type FileExportIncrementalPolicy = 'modified_since_last_success' | 'full_snapshot';
+export type FileExportOverwriteBehavior = 'overwrite_existing' | 'fail_if_exists' | 'skip_existing' | 'connector_default';
+export type FileExportFullReexportStrategy = 'create_new_export_or_overwrite_upstream' | 'include_all_files_once';
+
+export interface FileExportSourceFile {
+  path: string;
+  size_bytes: number;
+  modified_at?: string | null;
+  transaction_id?: string | null;
+  content_hash?: string | null;
+}
+
+export interface FileExportSettings {
+  incremental_policy: FileExportIncrementalPolicy;
+  overwrite_behavior: FileExportOverwriteBehavior;
+  destination_subfolder?: string | null;
+  preserve_directory_structure: boolean;
+  full_reexport_requested: boolean;
+  full_reexport_strategy: FileExportFullReexportStrategy;
+  source_files?: FileExportSourceFile[];
+  last_successful_transaction_id?: string | null;
+  last_successful_at?: string | null;
+  destination_subfolder_guidance?: string[];
+}
+
+export interface FileExportRunPlan {
+  incremental_policy: FileExportIncrementalPolicy;
+  overwrite_behavior: FileExportOverwriteBehavior;
+  destination_path: string;
+  destination_subfolder?: string | null;
+  files_considered: number;
+  files_written: number;
+  files_skipped: number;
+  bytes_written: number;
+  full_reexport: boolean;
+  last_successful_at?: string | null;
+  last_exported_transaction_id?: string | null;
+  exported_files: FileExportSourceFile[];
+  skipped_files: FileExportSourceFile[];
+  destination_subfolder_advice: string[];
+}
+
+export interface TableExportColumn {
+  name: string;
+  foundry_type: string;
+  external_type: string;
+  nullable: boolean;
+}
+
+export interface TableExportValidationIssue {
+  code: string;
+  severity: 'error' | 'warning';
+  message: string;
+  column?: string | null;
+}
+
+export interface TableExportSettings {
+  dataset_schema: TableExportColumn[];
+  destination_schema: TableExportColumn[];
+  input_parquet_backed: boolean;
+  destination_table_exists: boolean;
+  truncate_permission: boolean;
+  exact_column_match: boolean;
+  row_count_estimate?: number | null;
+  last_successful_transaction_id?: string | null;
+  last_successful_at?: string | null;
+  validation_issues?: TableExportValidationIssue[];
+}
+
+export interface TableExportRunPlan {
+  export_mode: DataExportMode;
+  resolution_strategy: string;
+  rows_written: number;
+  truncate_required: boolean;
+  truncate_performed: boolean;
+  input_parquet_backed: boolean;
+  destination_table_exists: boolean;
+  exact_column_match: boolean;
+  last_successful_at?: string | null;
+  validation_issues: TableExportValidationIssue[];
+}
+
+export type StreamingExportReplayBehavior = 'export_replayed_records' | 'skip_replayed_records';
+export type StreamingExportStartOffset = 'previous_export_offset' | 'latest' | 'earliest' | 'explicit';
+
+export interface StreamingExportWarning {
+  code: string;
+  severity: 'warning' | 'error';
+  message: string;
+}
+
+export interface StreamingExportSettings {
+  replay_behavior: StreamingExportReplayBehavior;
+  start_offset: StreamingExportStartOffset;
+  start_offset_value?: string | null;
+  last_exported_offset?: string | null;
+  last_checkpoint_id?: string | null;
+  schedule_restart_enabled: boolean;
+  restart_from_previous_offset: boolean;
+  records_exported_estimate?: number | null;
+  replayed_records_detected: boolean;
+  last_started_at?: string | null;
+  last_stopped_at?: string | null;
+  warnings?: StreamingExportWarning[];
+}
+
+export interface StreamingExportStartPlan {
+  replay_behavior: StreamingExportReplayBehavior;
+  start_offset: StreamingExportStartOffset;
+  effective_start_offset?: string | null;
+  restart_from_previous_offset: boolean;
+  schedule_restart_enabled: boolean;
+  schedule_triggered: boolean;
+  records_to_export: number;
+  duplicate_risk: boolean;
+  drop_risk: boolean;
+  warnings: StreamingExportWarning[];
+}
+
+export interface DataExport {
+  id: string;
+  source_id: string;
+  name: string;
+  export_type: DataExportType;
+  export_mode: DataExportMode;
+  input_dataset_id?: string | null;
+  input_dataset_rid?: string | null;
+  input_stream_id?: string | null;
+  destination_path?: string | null;
+  destination_table?: string | null;
+  destination_topic?: string | null;
+  schedule_cron?: string | null;
+  start_behavior: 'manual' | 'scheduled' | 'start_immediately' | string;
+  stop_behavior: 'after_run' | 'manual' | 'continuous' | string;
+  export_controls: DataExportControls;
+  config: Record<string, unknown>;
+  file_export?: FileExportSettings | null;
+  table_export?: TableExportSettings | null;
+  streaming_export?: StreamingExportSettings | null;
+  schedule?: DataExportSchedule | null;
+  status: DataExportStatus;
+  health: DataExportHealth;
+  history: DataExportHistoryEntry[];
+  last_run_at?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourceExportControls {
+  allow_foundry_inputs: boolean;
+  allowed_markings: string[];
+  allowed_organizations: string[];
+}
+
+export interface SourceCodeRepositoryImport {
+  repository_rid: string;
+  repository_name: string;
+  file_path?: string | null;
+  url?: string | null;
+  imported_name: string;
+  last_imported_at?: string | null;
+  rendered_link?: string;
+  rendered_display?: string;
+}
+
+export interface SourceGeneratedBinding {
+  library: string;
+  import_line: string;
+  decorator: string;
+  source_rid: string;
+  parameter_name: string;
+  friendly_name: string;
+  code_snippet: string;
+  source_panel_url: string;
+}
+
+export interface ExternalTransformPattern {
+  id: string;
+  title: string;
+  summary: string;
+  alternative_for: string[];
+  example_kind: string;
+  runtime: string;
+  requires_source_import: boolean;
+  requires_foundry_input: boolean;
+  requires_export_controls: boolean;
+  requires_agent_proxy: boolean;
+  source_requirements: string[];
+  recommended_when: string[];
+  limitations: string[];
+  code_snippet: string;
+  docs_url: string;
+}
+
+export interface ComputeModuleAlternative {
+  id: string;
+  title: string;
+  summary: string;
+  alternative_for: string;
+  runtime_kind: string;
+  status: 'blocked' | 'available' | string;
+  supported_languages: string[];
+  required_contracts: string[];
+  blockers: string[];
+  readiness_checks: string[];
+  source_rid: string;
+  source_import_contract: string;
+  deployment_contract: string;
+  execution_contract: string;
+  code_sketch: string;
+  docs_url: string;
+}
+
+export interface SourceCodeImportWarning {
+  code: string;
+  severity: 'info' | 'warning' | 'error' | string;
+  message: string;
+}
+
+export interface SourceCodeImportFoundryInput {
+  rid: string;
+  display_name?: string;
+  resource_type?: string;
+  markings: string[];
+  organizations: string[];
+}
+
+export interface SourceCodeImportExportPolicyDecision {
+  status: 'allowed' | 'blocked' | 'not_applicable' | string;
+  build_allowed: boolean;
+  uses_foundry_inputs: boolean;
+  allow_foundry_inputs: boolean;
+  foundry_inputs: SourceCodeImportFoundryInput[];
+  matched_markings?: string[];
+  missing_markings?: string[];
+  matched_organizations?: string[];
+  missing_organizations?: string[];
+  blocking_reasons?: SourceCodeImportWarning[];
+  owner_approval_required: boolean;
+}
+
+export interface SourceCredentialBinding {
+  credential_id: string;
+  kind: string;
+  fingerprint: string;
+  created_at: string;
+}
+
+export interface SourceEgressPolicyBinding {
+  policy_id: string;
+  kind: string;
+}
+
+export interface SourceCodeImportBuildResolution {
+  source_id: string;
+  source_rid: string;
+  source_name: string;
+  connector_type: string;
+  python_identifier: string;
+  friendly_name: string;
+  build_rid?: string | null;
+  repository_rid?: string | null;
+  branch?: string | null;
+  resolved_at: string;
+  source_updated_at: string;
+  config_hash: string;
+  credential_bindings: SourceCredentialBinding[];
+  egress_policy_bindings: SourceEgressPolicyBinding[];
+  export_controls: SourceExportControls;
+  export_policy_decision: SourceCodeImportExportPolicyDecision;
+  uses_live_configuration: boolean;
+  no_code_change_required: boolean;
+  generated_binding: SourceGeneratedBinding;
+  warnings?: SourceCodeImportWarning[];
+}
+
+export interface SourceCodeImport {
+  source_id: string;
+  source_rid: string;
+  source_name: string;
+  connector_type: string;
+  enabled: boolean;
+  friendly_name: string;
+  python_identifier: string;
+  generated_binding: SourceGeneratedBinding;
+  code_repositories: SourceCodeRepositoryImport[];
+  export_controls: SourceExportControls;
+  external_transform_patterns: ExternalTransformPattern[];
+  compute_module_alternatives: ComputeModuleAlternative[];
+  build_start_resolution: SourceCodeImportBuildResolution;
+  warnings?: SourceCodeImportWarning[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateSourceCodeImportRequest {
+  enabled?: boolean;
+  friendly_name?: string;
+  python_identifier?: string;
+  code_repositories?: SourceCodeRepositoryImport[];
+  export_controls?: SourceExportControls;
+}
+
+export interface ResolveSourceCodeImportBuildRequest {
+  repository_rid?: string;
+  build_rid?: string;
+  branch?: string;
+  uses_foundry_inputs?: boolean;
+  foundry_inputs?: SourceCodeImportFoundryInput[];
+}
+
+export interface CreateDataExportRequest {
+  source_id?: string;
+  name?: string;
+  export_type: DataExportType;
+  export_mode?: DataExportMode;
+  input_dataset_id?: string;
+  input_dataset_rid?: string;
+  input_stream_id?: string;
+  destination_path?: string;
+  destination_table?: string;
+  destination_topic?: string;
+  schedule_cron?: string;
+  start_behavior?: 'manual' | 'scheduled' | 'start_immediately';
+  stop_behavior?: 'after_run' | 'manual' | 'continuous';
+  export_controls?: DataExportControls;
+  config?: Record<string, unknown>;
+  file_export?: FileExportSettings;
+  table_export?: TableExportSettings;
+  streaming_export?: StreamingExportSettings;
+}
+
+export interface UpdateDataExportRequest {
+  name?: string;
+  export_mode?: DataExportMode;
+  input_dataset_id?: string;
+  input_dataset_rid?: string;
+  input_stream_id?: string;
+  destination_path?: string;
+  destination_table?: string;
+  destination_topic?: string;
+  schedule_cron?: string;
+  start_behavior?: 'manual' | 'scheduled' | 'start_immediately';
+  stop_behavior?: 'after_run' | 'manual' | 'continuous';
+  export_controls?: DataExportControls;
+  config?: Record<string, unknown>;
+  file_export?: FileExportSettings;
+  table_export?: TableExportSettings;
+  streaming_export?: StreamingExportSettings;
+}
+
 export interface BatchSyncDef {
   id: string;
   source_id: string;
   capability_type?: SyncCapabilityType;
   output_kind?: SyncOutputKind;
-  output_dataset_id: string;
+  output_dataset_id?: string | null;
   output_stream_id?: string | null;
   output_media_set_id?: string | null;
   source_selector?: string | null;
@@ -647,6 +1667,7 @@ export interface BatchSyncDef {
   dataset_transaction_type?: DatasetTransactionType;
   file_sync?: FileSyncSettings | null;
   table_sync?: TableBatchSyncSettings | null;
+  cdc_sync?: CdcSyncSettings | null;
   file_glob: string | null;
   schedule_cron: string | null;
   created_at: string;
@@ -656,7 +1677,7 @@ export interface CreateBatchSyncRequest {
   source_id: string;
   capability_type?: SyncCapabilityType;
   output_kind?: SyncOutputKind;
-  output_dataset_id: string;
+  output_dataset_id?: string;
   output_stream_id?: string;
   output_media_set_id?: string;
   source_selector?: string;
@@ -672,6 +1693,7 @@ export interface CreateBatchSyncRequest {
   dataset_transaction_type?: DatasetTransactionType;
   file_sync?: FileSyncSettings;
   table_sync?: TableBatchSyncSettings;
+  cdc_sync?: CdcSyncSettings;
   file_glob?: string;
   schedule_cron?: string;
 }
@@ -822,6 +1844,59 @@ export interface StreamLiveRow {
   source: StreamStorageSource;
 }
 
+export interface CdcResolvedArchiveView {
+  live_rows: StreamLiveRow[];
+  archive_rows: StreamLiveRow[];
+  deleted_rows: StreamLiveRow[];
+  primary_key_columns: string[];
+  ordering_column: string | null;
+  deletion_column: string | null;
+  resolution_strategy: string;
+  used_backend_archive: boolean;
+  warnings: SyncValidationWarning[];
+}
+
+export type CdcDownstreamSurface =
+  | 'pipeline_builder'
+  | 'ontology_indexing'
+  | 'stream_processing'
+  | 'archive_view'
+  | 'data_health';
+
+export type CdcDownstreamIntegrationStatus = 'ready' | 'warning' | 'blocked';
+
+export interface CdcDataHealthCheckDefinition {
+  code: string;
+  label: string;
+  severity: 'info' | 'warning' | 'critical';
+  columns: string[];
+}
+
+export interface CdcDownstreamIntegrationTarget {
+  surface: CdcDownstreamSurface;
+  label: string;
+  status: CdcDownstreamIntegrationStatus;
+  required_columns: string[];
+  metadata: Record<string, unknown>;
+  warnings: SyncValidationWarning[];
+  recommended_checks?: CdcDataHealthCheckDefinition[];
+}
+
+export interface CdcDownstreamIntegrationMetadata {
+  stream_id: string;
+  stream_name: string;
+  source: string;
+  output_stream_id: string | null;
+  primary_key_columns: string[];
+  ordering_column: string;
+  deletion_column: string | null;
+  required_metadata_columns: string[];
+  propagated_metadata_columns: string[];
+  resolution_strategy: string;
+  targets: CdcDownstreamIntegrationTarget[];
+  warnings: SyncValidationWarning[];
+}
+
 
 export interface StreamArchivePolicy {
   enabled: boolean;
@@ -919,6 +1994,7 @@ export interface DataConnectionStreamResource {
   checkpoints: StreamCheckpointSummary[];
   restart_plan?: StreamRestartPlan | null;
   consistency?: StreamConsistencySupport | null;
+  cdc_metadata?: CdcSyncSettings | null;
   replay: StreamReplayMetadata | null;
   source_sync_ids: string[];
   consumers: StreamConsumerSummary[];
@@ -1161,6 +2237,946 @@ export interface CreateMediaSetSyncRequest {
   schedule_cron?: string | null;
 }
 
+// SDC.41 — Media sync handoff history, usage, and connector gating.
+export type MediaSetSyncRunStatus = 'running' | 'succeeded' | 'failed' | 'partially_succeeded';
+
+export interface MediaSetSyncRun {
+  id: string;
+  sync_def_id: string;
+  status: MediaSetSyncRunStatus;
+  started_at: string;
+  finished_at?: string | null;
+  accepted_files: number;
+  skipped_files: number;
+  schema_mismatched: number;
+  dispatched_files: number;
+  dispatch_errors: number;
+  bytes_accepted: number;
+  selected_paths: string[];
+  schema_mismatches: string[];
+  error_message?: string | null;
+  triggered_by?: string | null;
+}
+
+export interface MediaSetSyncUsageSummary {
+  sync_def_id: string;
+  run_count: number;
+  last_run_at?: string | null;
+  last_status?: MediaSetSyncRunStatus | null;
+  last_error_message?: string | null;
+  total_accepted_files: number;
+  total_bytes_accepted: number;
+  total_dispatch_errors: number;
+  total_schema_mismatch: number;
+}
+
+export interface MediaSetSyncWithUsage extends MediaSetSyncDef {
+  usage?: MediaSetSyncUsageSummary | null;
+}
+
+export interface MediaSetSyncHandoffDelegation {
+  schema: string;
+  conversion: string;
+  transformations: string;
+  transaction_policy: string;
+  media_reference: string;
+}
+
+export const MEDIA_SYNC_SUPPORTED_CONNECTORS = ['s3', 'onelake', 'abfs'] as const;
+
+export function connectorSupportsMediaSync(connectorType: string | null | undefined): boolean {
+  if (!connectorType) return false;
+  const normalized = connectorType.trim().toLowerCase();
+  return (MEDIA_SYNC_SUPPORTED_CONNECTORS as readonly string[]).includes(normalized);
+}
+
+export function mediaSetSyncRunStatusLabel(status: MediaSetSyncRunStatus): string {
+  switch (status) {
+    case 'running':
+      return 'Running';
+    case 'succeeded':
+      return 'Succeeded';
+    case 'partially_succeeded':
+      return 'Partially succeeded';
+    case 'failed':
+      return 'Failed';
+    default:
+      return status;
+  }
+}
+
+export function formatMediaSetSyncBytes(bytes: number | null | undefined): string {
+  const value = bytes ?? 0;
+  if (value <= 0) return '0 B';
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let scaled = value / 1024;
+  let unit = 0;
+  while (scaled >= 1024 && unit < units.length - 1) {
+    scaled /= 1024;
+    unit += 1;
+  }
+  return `${scaled.toFixed(scaled >= 10 ? 0 : 1)} ${units[unit]}`;
+}
+
+// SDC.42 — Virtual media handoff (blocked) descriptor and helpers. Mirrors the
+// backend `VirtualMediaHandoff` / `VirtualMediaHandoffDescriptor` shapes; the
+// status stays `blocked` until the Media Sets surface defines virtual item
+// semantics and the platform agrees on an object storage authorization
+// primitive (MS.18–MS.20).
+export type VirtualMediaHandoffMode = 'media_set_sync_virtual' | 'external_transform' | 'rest_api';
+
+export interface VirtualMediaHandoff {
+  id: string;
+  title: string;
+  summary: string;
+  handoff_mode: VirtualMediaHandoffMode;
+  connector_type: string;
+  status: 'blocked' | 'available' | string;
+  blockers: string[];
+  readiness_checks: string[];
+  required_contracts: string[];
+  source_rid?: string;
+  media_set_contract: string;
+  object_storage_contract: string;
+  authorization_contract: string;
+  registration_sketch: string;
+  docs_url: string;
+}
+
+export interface VirtualMediaHandoffDescriptor {
+  source_id?: string;
+  source_rid?: string;
+  connector_type: string;
+  status: 'blocked' | 'available' | 'not_supported' | string;
+  blocked_reason?: string;
+  supported_connectors: string[];
+  handoffs: VirtualMediaHandoff[];
+  delegation: MediaSetSyncHandoffDelegation;
+}
+
+export function virtualMediaHandoffsAreBlocked(handoffs: VirtualMediaHandoff[]): boolean {
+  if (!handoffs || handoffs.length === 0) return false;
+  return handoffs.every((handoff) => handoff.status === 'blocked');
+}
+
+export function virtualMediaHandoffBlockers(handoffs: VirtualMediaHandoff[]): string[] {
+  const seen = new Set<string>();
+  for (const handoff of handoffs) {
+    for (const blocker of handoff.blockers ?? []) {
+      if (blocker) seen.add(blocker);
+    }
+  }
+  return Array.from(seen).sort();
+}
+
+export function virtualMediaHandoffCoverage(handoffs: VirtualMediaHandoff[]): string[] {
+  const seen = new Set<string>();
+  for (const handoff of handoffs) {
+    if (handoff.handoff_mode) seen.add(handoff.handoff_mode);
+  }
+  return Array.from(seen).sort();
+}
+
+export function virtualMediaHandoffModeLabel(mode: VirtualMediaHandoffMode | string): string {
+  switch (mode) {
+    case 'media_set_sync_virtual':
+      return 'VIRTUAL_MEDIA_SET_SYNC dispatch';
+    case 'external_transform':
+      return 'External transform registration';
+    case 'rest_api':
+      return 'REST API registration';
+    default:
+      return mode;
+  }
+}
+
+// SDC.43 — Listener-style inbound ingestion descriptor and helpers.
+//
+// Mirrors the backend `ListenerInboundDescriptor` / `ListenerInboundCapability`
+// shapes. The aggregate `status` stays `blocked` until product policy pins the
+// schema mapping, auth strategy, replay/idempotency, and dead-letter semantics
+// for inbound webhook/listener flows. The descriptor still exposes the HMAC
+// webhook surface that is wired today so users can pick the right ingestion
+// path for the call site.
+export type ListenerInboundFacet =
+  | 'schema_mapping'
+  | 'auth_strategy'
+  | 'replay_idempotency'
+  | 'dead_letter';
+
+export type ListenerInboundStatus = 'available' | 'partial' | 'blocked';
+
+export interface ListenerInboundCapability {
+  id: string;
+  title: string;
+  summary: string;
+  facet: ListenerInboundFacet;
+  status: ListenerInboundStatus | string;
+  existing_surface: string;
+  blockers: string[];
+  readiness_checks: string[];
+  required_contracts: string[];
+  configuration_sketch: string;
+  docs_url: string;
+}
+
+export interface ListenerInboundDescriptor {
+  source_id?: string;
+  source_rid?: string;
+  connector_type: string;
+  status: ListenerInboundStatus | string;
+  blocked_reason?: string;
+  available_surfaces: string[];
+  supported_auth_modes: string[];
+  blocked_auth_modes: string[];
+  idempotency_key_headers: string[];
+  max_payload_bytes: number;
+  capabilities: ListenerInboundCapability[];
+  recommendation: StreamIngestionRecommendation;
+}
+
+export function listenerInboundCapabilitiesAreBlocked(caps: ListenerInboundCapability[]): boolean {
+  if (!caps || caps.length === 0) return false;
+  return caps.every((c) => c.status === 'blocked');
+}
+
+export function listenerInboundBlockers(caps: ListenerInboundCapability[]): string[] {
+  const seen = new Set<string>();
+  for (const c of caps) {
+    for (const blocker of c.blockers ?? []) {
+      if (blocker) seen.add(blocker);
+    }
+  }
+  return Array.from(seen).sort();
+}
+
+export function listenerInboundCoverage(caps: ListenerInboundCapability[]): ListenerInboundFacet[] {
+  const seen = new Set<ListenerInboundFacet>();
+  for (const c of caps) {
+    if (c.facet) seen.add(c.facet);
+  }
+  return Array.from(seen).sort();
+}
+
+export function listenerInboundFacetLabel(facet: ListenerInboundFacet | string): string {
+  switch (facet) {
+    case 'schema_mapping':
+      return 'Schema mapping';
+    case 'auth_strategy':
+      return 'Auth strategy';
+    case 'replay_idempotency':
+      return 'Replay & idempotency';
+    case 'dead_letter':
+      return 'Dead-letter handling';
+    default:
+      return facet;
+  }
+}
+
+export function aggregateListenerInboundStatus(caps: ListenerInboundCapability[]): ListenerInboundStatus {
+  if (!caps || caps.length === 0) return 'blocked';
+  let hasBlocked = false;
+  let hasPartial = false;
+  for (const c of caps) {
+    if (c.status === 'blocked') hasBlocked = true;
+    else if (c.status === 'partial') hasPartial = true;
+  }
+  if (hasBlocked) return 'blocked';
+  if (hasPartial) return 'partial';
+  return 'available';
+}
+
+// SDC.44 — Connector-specific capability packs (declarative manifests per
+// connector family). Mirrors the backend `ConnectorCapabilityPack` shape so
+// the UI can render typed capability chips alongside per-capability
+// validation rules without having to special-case each connector.
+export type ConnectorCapabilityFamily =
+  | 'relational_database'
+  | 'data_warehouse'
+  | 'object_store'
+  | 'file_transfer'
+  | 'event_stream'
+  | 'message_queue'
+  | 'rest_api'
+  | 'foundry_to_foundry';
+
+export interface ConnectorCapabilityFlags {
+  batch_sync: boolean;
+  file_sync: boolean;
+  table_sync: boolean;
+  streaming_sync: boolean;
+  cdc_sync: boolean;
+  media_sync: boolean;
+  file_export: boolean;
+  table_export: boolean;
+  streaming_export: boolean;
+  virtual_table: boolean;
+  webhook: boolean;
+  exploration: boolean;
+}
+
+export interface ConnectorCapabilityValidationRule {
+  id: string;
+  capability: string;
+  severity: 'required' | 'recommended' | 'informational' | string;
+  description: string;
+}
+
+export interface ConnectorCapabilityPack {
+  connector_type: string;
+  display_name: string;
+  family: ConnectorCapabilityFamily;
+  capabilities: ConnectorCapabilityFlags;
+  worker_overrides?: Record<string, ConnectorCapabilityFlags>;
+  cdc_input_kind?: string;
+  validation_rules: ConnectorCapabilityValidationRule[];
+  notes?: string[];
+  docs_url: string;
+}
+
+const CAPABILITY_ORDER: Array<keyof ConnectorCapabilityFlags> = [
+  'batch_sync',
+  'file_sync',
+  'table_sync',
+  'streaming_sync',
+  'cdc_sync',
+  'media_sync',
+  'file_export',
+  'table_export',
+  'streaming_export',
+  'virtual_table',
+  'webhook',
+  'exploration',
+];
+
+export function connectorCapabilityPackEffectiveFlags(
+  pack: ConnectorCapabilityPack,
+  worker: SourceWorker | string | null | undefined,
+): ConnectorCapabilityFlags {
+  if (!worker) return pack.capabilities;
+  const override = pack.worker_overrides?.[String(worker).toLowerCase().trim()];
+  return override ?? pack.capabilities;
+}
+
+export function connectorCapabilityPackChips(flags: ConnectorCapabilityFlags): Array<keyof ConnectorCapabilityFlags> {
+  return CAPABILITY_ORDER.filter((capability) => flags[capability]);
+}
+
+export function connectorCapabilityPackValidationRulesFor(
+  pack: ConnectorCapabilityPack,
+  capability: string,
+): ConnectorCapabilityValidationRule[] {
+  if (!pack || !capability) return [];
+  return pack.validation_rules.filter((rule) => rule.capability === capability);
+}
+
+// SDC.45 — Stream lag and throughput metrics. Mirrors the backend
+// `StreamMetricsSnapshot` shape; helpers run client-side against the existing
+// `DataConnectionStreamResource` so the Streams tab can render rates, lag, and
+// breakdowns without waiting for a round-trip when the snapshot can be
+// computed locally.
+export type StreamMetricsWindow = '1m' | '5m' | '1h' | '1d';
+
+export interface StreamThroughputSummary {
+  records_per_second: number;
+  bytes_per_second: number;
+  window_seconds: number;
+  window_started_at?: string | null;
+}
+
+export interface StreamLagBreakdown {
+  stream_lag_records: number;
+  hot_buffer_records: number;
+  hot_buffer_bytes: number;
+  archive_lag_records: number;
+  processing_lag_records: number;
+}
+
+export interface StreamCheckpointMetrics {
+  checkpoint_count: number;
+  average_duration_ms: number;
+  max_duration_ms: number;
+  last_duration_ms: number;
+  average_size_bytes: number;
+  last_size_bytes: number;
+  failure_count: number;
+}
+
+export interface StreamRetryMetrics {
+  total_retries: number;
+  dropped_records: number;
+  duplicate_warnings: number;
+  recent_failures: number;
+}
+
+export interface StreamPartitionMetrics {
+  partition_key: string;
+  topic?: string;
+  lag: number;
+  ingestion: StreamThroughputSummary;
+  consumption: StreamThroughputSummary;
+}
+
+export interface StreamConsumerMetrics {
+  consumer_id: string;
+  consumer_name?: string;
+  consumer_group?: string;
+  status?: string;
+  lag: number;
+  consumption: StreamThroughputSummary;
+}
+
+export interface StreamSyncMetrics {
+  sync_id: string;
+  sync_name?: string;
+  last_run_status?: string;
+  ingestion: StreamThroughputSummary;
+  retries: number;
+}
+
+export interface StreamExportMetrics {
+  export_id: string;
+  export_name?: string;
+  last_run_status?: string;
+  consumption: StreamThroughputSummary;
+  retries: number;
+  duplicate_risk: boolean;
+  drop_risk: boolean;
+  records_exported: number;
+}
+
+export interface StreamMetricsSnapshot {
+  stream_id: string;
+  stream_rid?: string;
+  stream_name?: string;
+  window: StreamMetricsWindow | string;
+  captured_at: string;
+  ingestion: StreamThroughputSummary;
+  consumption: StreamThroughputSummary;
+  lag: StreamLagBreakdown;
+  checkpoint: StreamCheckpointMetrics;
+  retries: StreamRetryMetrics;
+  partitions: StreamPartitionMetrics[];
+  consumers: StreamConsumerMetrics[];
+  streaming_syncs: StreamSyncMetrics[];
+  streaming_exports: StreamExportMetrics[];
+  warnings?: string[];
+}
+
+export interface StreamMetricsInput {
+  stream_id: string;
+  stream_rid?: string;
+  stream_name?: string;
+  window?: StreamMetricsWindow;
+  captured_at?: string;
+  stream_lag_records?: number;
+  hot_buffer_records?: number;
+  hot_buffer_bytes?: number;
+  archive_lag_records?: number;
+  processing_lag_records?: number;
+  ingested_records?: number;
+  ingested_bytes?: number;
+  consumed_records?: number;
+  consumed_bytes?: number;
+  retries?: number;
+  dropped_records?: number;
+  duplicate_warnings?: number;
+  recent_failures?: number;
+  checkpoints?: Array<{ id: string; status: string; duration_ms: number; size_bytes: number; created_at: string }>;
+  consumers?: Array<{
+    id: string;
+    name: string;
+    consumer_group?: string;
+    status?: string;
+    lag: number;
+    records_read?: number;
+    bytes_read?: number;
+  }>;
+  partitions?: Array<{
+    partition_key: string;
+    topic?: string;
+    lag: number;
+    ingested_records?: number;
+    ingested_bytes?: number;
+    consumed_records?: number;
+    consumed_bytes?: number;
+  }>;
+  streaming_syncs?: Array<{
+    sync_id: string;
+    sync_name?: string;
+    last_run_status?: string;
+    records_ingested?: number;
+    bytes_ingested?: number;
+    retries?: number;
+  }>;
+  streaming_exports?: Array<{
+    export_id: string;
+    export_name?: string;
+    last_run_status?: string;
+    records_exported?: number;
+    bytes_exported?: number;
+    retries?: number;
+    duplicate_risk?: boolean;
+    drop_risk?: boolean;
+  }>;
+}
+
+export function streamMetricsWindowSeconds(window: StreamMetricsWindow | string | undefined): number {
+  switch (window) {
+    case '5m':
+      return 300;
+    case '1h':
+      return 3600;
+    case '1d':
+      return 86400;
+    case '1m':
+    default:
+      return 60;
+  }
+}
+
+export function formatStreamRate(value: number, unit: 'records' | 'bytes'): string {
+  if (!Number.isFinite(value) || value <= 0) return unit === 'records' ? '0 rec/s' : '0 B/s';
+  if (unit === 'records') {
+    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} M rec/s`;
+    if (value >= 1_000) return `${(value / 1_000).toFixed(1)} k rec/s`;
+    return `${value.toFixed(value >= 100 ? 0 : 1)} rec/s`;
+  }
+  // bytes
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let scaled = value;
+  let i = 0;
+  while (scaled >= 1024 && i < units.length - 1) {
+    scaled /= 1024;
+    i += 1;
+  }
+  return `${scaled.toFixed(scaled >= 100 ? 0 : 1)} ${units[i]}/s`;
+}
+
+export function streamMetricsHasWarning(snapshot: StreamMetricsSnapshot | null | undefined): boolean {
+  if (!snapshot) return false;
+  if (snapshot.warnings && snapshot.warnings.length > 0) return true;
+  if (snapshot.retries.dropped_records > 0 || snapshot.retries.duplicate_warnings > 0) return true;
+  if (snapshot.lag.stream_lag_records > 0 && snapshot.consumption.records_per_second === 0) return true;
+  if (snapshot.checkpoint.failure_count > 0) return true;
+  return false;
+}
+
+export function streamMetricsInputFromResource(
+  stream: DataConnectionStreamResource,
+  window: StreamMetricsWindow = '1m',
+): StreamMetricsInput {
+  const offsets = stream.offsets ?? { earliest_offset: null, latest_offset: null, committed_offset: null, lag: null };
+  const consumers = (stream.consumers ?? []).map((consumer) => ({
+    id: consumer.id,
+    name: consumer.name,
+    consumer_group: consumer.consumer_group ?? undefined,
+    status: consumer.status,
+    lag: consumer.lag ?? 0,
+  }));
+  const checkpoints = (stream.checkpoints ?? []).map((checkpoint) => ({
+    id: checkpoint.id,
+    status: String(checkpoint.status),
+    duration_ms: checkpoint.duration_ms ?? 0,
+    size_bytes: checkpoint.size_bytes ?? 0,
+    created_at: checkpoint.created_at,
+  }));
+  return {
+    stream_id: stream.id,
+    stream_rid: stream.rid ?? undefined,
+    stream_name: stream.name,
+    window,
+    captured_at: new Date().toISOString(),
+    stream_lag_records: offsets.lag ?? 0,
+    hot_buffer_records: 0,
+    hot_buffer_bytes: stream.hot_buffer?.hot_buffer_bytes ?? 0,
+    consumers,
+    checkpoints,
+  };
+}
+
+// SDC.46 — Stream replay controls (safe replay planner). Mirrors the backend
+// `StreamReplayPlan` so the Streams tab can render impact severity, missing
+// acknowledgements, and the explicit confirmation required before replaying
+// streams with active exports.
+export type StreamReplayDownstreamKind =
+  | 'streaming_export'
+  | 'cdc_archive_view'
+  | 'object_index'
+  | 'duplicate_tolerant_consumer';
+
+export type StreamReplayImpactSeverity = 'block' | 'warn' | 'info';
+export type StreamReplayPlanStatus = 'ready' | 'requires_confirmation' | 'blocked';
+
+export interface StreamReplayActiveExportInput {
+  export_id: string;
+  export_name?: string;
+  status: string;
+  replay_behavior?: string;
+  has_active_consumers?: boolean;
+}
+
+export interface StreamReplayCDCViewInput {
+  view_id: string;
+  view_name?: string;
+  ordering_column?: string;
+  deletion_column?: string;
+}
+
+export interface StreamReplayObjectIndexInput {
+  index_id: string;
+  object_type?: string;
+  key_by_field?: string;
+}
+
+export interface StreamReplayConsumerInput {
+  consumer_id: string;
+  consumer_name?: string;
+  consumer_group?: string;
+  idempotency_mode?: 'duplicate_tolerant' | 'exactly_once' | 'unknown' | string;
+}
+
+export interface StreamReplayPlanRequest {
+  stream_id: string;
+  stream_rid?: string;
+  stream_name?: string;
+  from_offset?: number | null;
+  to_offset?: number | null;
+  earliest_offset?: number | null;
+  latest_offset?: number | null;
+  reason: string;
+  requested_by?: string;
+  acknowledgements?: string[];
+  exports?: StreamReplayActiveExportInput[];
+  cdc_views?: StreamReplayCDCViewInput[];
+  object_indices?: StreamReplayObjectIndexInput[];
+  consumers?: StreamReplayConsumerInput[];
+  computed_at?: string;
+}
+
+export interface StreamReplayDownstreamImpact {
+  kind: StreamReplayDownstreamKind;
+  resource_id: string;
+  resource_name?: string;
+  severity: StreamReplayImpactSeverity;
+  implication: string;
+  mitigation?: string;
+  warning_id?: string;
+}
+
+export interface StreamReplayPlan {
+  stream_id: string;
+  stream_rid?: string;
+  stream_name?: string;
+  status: StreamReplayPlanStatus | string;
+  reason?: string;
+  requested_by?: string;
+  from_offset?: number | null;
+  to_offset?: number | null;
+  estimated_records?: number | null;
+  confirmation_required: boolean;
+  acknowledgements_required: string[];
+  acknowledgements_satisfied: string[];
+  acknowledgements_missing: string[];
+  preconditions_satisfied: string[];
+  preconditions_blocking: string[];
+  impacts: StreamReplayDownstreamImpact[];
+  computed_at: string;
+}
+
+export function streamReplayDownstreamKindLabel(kind: StreamReplayDownstreamKind | string): string {
+  switch (kind) {
+    case 'streaming_export':
+      return 'Streaming export';
+    case 'cdc_archive_view':
+      return 'CDC archive view';
+    case 'object_index':
+      return 'Object index';
+    case 'duplicate_tolerant_consumer':
+      return 'Consumer';
+    default:
+      return kind;
+  }
+}
+
+export function streamReplayImpactSeverityLabel(severity: StreamReplayImpactSeverity | string): string {
+  switch (severity) {
+    case 'block':
+      return 'Block';
+    case 'warn':
+      return 'Warn';
+    case 'info':
+      return 'Info';
+    default:
+      return severity;
+  }
+}
+
+export function streamReplayPlanRequiresAcknowledgement(plan: StreamReplayPlan | null | undefined, warningId: string): boolean {
+  if (!plan) return false;
+  return plan.acknowledgements_missing.includes(warningId);
+}
+
+// SDC.47 — Dead-letter sinks and quarantine handling. Mirrors the backend
+// shapes; helpers classify failures, validate sink configuration, summarize
+// quarantine state by category, and build the replay plan client-side so the
+// UI can preview before submitting.
+export type QuarantineFailureCategory =
+  | 'schema_validation'
+  | 'serialization'
+  | 'permission_check'
+  | 'destination_write'
+  | 'unknown';
+
+export type DeadLetterSinkKind = 'dataset' | 'stream';
+
+export interface DeadLetterRedactionRule {
+  field: string;
+  replacement: string;
+  hash_sha256?: boolean;
+  description?: string;
+}
+
+export interface DeadLetterSink {
+  sync_def_id: string;
+  kind: DeadLetterSinkKind | string;
+  target_rid: string;
+  retention_days: number;
+  redaction_rules: DeadLetterRedactionRule[];
+  updated_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateDeadLetterSinkRequest {
+  kind: DeadLetterSinkKind;
+  target_rid: string;
+  retention_days: number;
+  redaction_rules: DeadLetterRedactionRule[];
+}
+
+export interface QuarantinedRecord {
+  id: string;
+  sync_def_id: string;
+  run_id?: string | null;
+  failure_category: QuarantineFailureCategory | string;
+  error_message: string;
+  record_key?: string | null;
+  redacted_payload: Record<string, unknown>;
+  redacted_headers: Record<string, unknown>;
+  recorded_at: string;
+  expires_at: string;
+  replay_requested_at?: string | null;
+  replay_requested_by?: string | null;
+}
+
+export interface QuarantineSummary {
+  sync_def_id: string;
+  total: number;
+  by_category: Partial<Record<QuarantineFailureCategory, number>>;
+  earliest?: string | null;
+  latest?: string | null;
+  next_expiry?: string | null;
+  records: QuarantinedRecord[];
+}
+
+export interface RecordQuarantineRequest {
+  run_id?: string;
+  failure_category?: QuarantineFailureCategory;
+  error_message: string;
+  record_key?: string;
+  payload?: Record<string, unknown>;
+  headers?: Record<string, unknown>;
+}
+
+export interface QuarantineReplayRequest {
+  record_ids: string[];
+  reason?: string;
+}
+
+export interface QuarantineReplayPlan {
+  sync_def_id: string;
+  records_matched: number;
+  records_expired: number;
+  record_ids: string[];
+  expired_ids: string[];
+  requires_fix: boolean;
+  blocking_reasons?: string[];
+  computed_at: string;
+}
+
+export function classifyQuarantineFailure(errorMessage: string | null | undefined): QuarantineFailureCategory {
+  const msg = (errorMessage ?? '').toLowerCase().trim();
+  if (!msg) return 'unknown';
+  if (['schema', 'validation', 'missing field', 'invalid type', 'schema mismatch'].some((m) => msg.includes(m))) {
+    return 'schema_validation';
+  }
+  if (['serializ', 'deserializ', 'parse', 'json', 'malformed', 'decode error'].some((m) => msg.includes(m))) {
+    return 'serialization';
+  }
+  if (['permission denied', 'forbidden', 'unauthorized', 'marking', 'policy', 'acl'].some((m) => msg.includes(m))) {
+    return 'permission_check';
+  }
+  if (['destination', 'write conflict', 'constraint', 'duplicate key', 'dataset', 'sink'].some((m) => msg.includes(m))) {
+    return 'destination_write';
+  }
+  return 'unknown';
+}
+
+export function quarantineFailureCategoryLabel(category: QuarantineFailureCategory | string): string {
+  switch (category) {
+    case 'schema_validation':
+      return 'Schema validation';
+    case 'serialization':
+      return 'Serialization';
+    case 'permission_check':
+      return 'Permission check';
+    case 'destination_write':
+      return 'Destination write';
+    case 'unknown':
+      return 'Unknown';
+    default:
+      return category;
+  }
+}
+
+export function validateDeadLetterSink(req: UpdateDeadLetterSinkRequest): string[] {
+  const errs: string[] = [];
+  if (req.kind !== 'dataset' && req.kind !== 'stream') {
+    errs.push('kind must be dataset or stream');
+  }
+  const target = req.target_rid?.trim() ?? '';
+  if (!target) {
+    errs.push('target_rid is required');
+  } else if (!target.startsWith('ri.')) {
+    errs.push('target_rid must start with ri.');
+  }
+  if (!Number.isFinite(req.retention_days) || req.retention_days < 1 || req.retention_days > 365) {
+    errs.push('retention_days must be between 1 and 365');
+  }
+  (req.redaction_rules ?? []).forEach((rule, index) => {
+    if (!rule.field || !rule.field.trim()) errs.push(`redaction_rules[${index}].field is required`);
+    if (rule.hash_sha256 && rule.replacement && rule.replacement.trim() !== '') {
+      errs.push(`redaction_rules[${index}]: hash_sha256 and replacement are mutually exclusive`);
+    }
+  });
+  return errs;
+}
+
+export function quarantineExpiresWithin(record: QuarantinedRecord, now: Date = new Date()): { expired: boolean; daysLeft: number } {
+  const expiresAt = new Date(record.expires_at);
+  const diffMs = expiresAt.getTime() - now.getTime();
+  const daysLeft = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+  return { expired: diffMs < 0, daysLeft };
+}
+
+export function buildQuarantineReplayPlanLocal(
+  syncDefID: string,
+  records: QuarantinedRecord[],
+  recordIDs: string[],
+  now: Date = new Date(),
+): QuarantineReplayPlan {
+  const plan: QuarantineReplayPlan = {
+    sync_def_id: syncDefID,
+    records_matched: 0,
+    records_expired: 0,
+    record_ids: [],
+    expired_ids: [],
+    requires_fix: false,
+    blocking_reasons: [],
+    computed_at: now.toISOString(),
+  };
+  if (!recordIDs || recordIDs.length === 0) {
+    plan.blocking_reasons!.push('quarantine_replay_no_records');
+    plan.requires_fix = true;
+    return plan;
+  }
+  const wanted = new Set(recordIDs);
+  for (const record of records) {
+    if (!wanted.has(record.id)) continue;
+    if (new Date(record.expires_at).getTime() < now.getTime()) {
+      plan.records_expired += 1;
+      plan.expired_ids.push(record.id);
+    } else {
+      plan.records_matched += 1;
+      plan.record_ids.push(record.id);
+    }
+  }
+  plan.record_ids.sort();
+  plan.expired_ids.sort();
+  if (plan.records_expired > 0) {
+    plan.requires_fix = true;
+    plan.blocking_reasons!.push('quarantine_replay_expired_records');
+  }
+  if (plan.records_matched === 0) {
+    plan.blocking_reasons!.push('quarantine_replay_no_eligible_records');
+    plan.requires_fix = true;
+  }
+  return plan;
+}
+
+export function sortStreamReplayImpactsBySeverity(impacts: StreamReplayDownstreamImpact[]): StreamReplayDownstreamImpact[] {
+  const rank = (sev: StreamReplayImpactSeverity | string): number => {
+    if (sev === 'block') return 0;
+    if (sev === 'warn') return 1;
+    return 2;
+  };
+  return [...impacts].sort((a, b) => rank(a.severity) - rank(b.severity));
+}
+
+export function streamMetricsWindowLabel(window: StreamMetricsWindow | string | undefined): string {
+  switch (window) {
+    case '1m':
+      return 'Last 1 minute';
+    case '5m':
+      return 'Last 5 minutes';
+    case '1h':
+      return 'Last hour';
+    case '1d':
+      return 'Last day';
+    default:
+      return String(window ?? '');
+  }
+}
+
+export function connectorCapabilityFamilyLabel(family: ConnectorCapabilityFamily | string): string {
+  switch (family) {
+    case 'relational_database':
+      return 'Relational database';
+    case 'data_warehouse':
+      return 'Data warehouse';
+    case 'object_store':
+      return 'Object store';
+    case 'file_transfer':
+      return 'File transfer';
+    case 'event_stream':
+      return 'Event stream';
+    case 'message_queue':
+      return 'Message queue';
+    case 'rest_api':
+      return 'REST API';
+    case 'foundry_to_foundry':
+      return 'Foundry-to-Foundry';
+    default:
+      return family;
+  }
+}
+
+export function summarizeMediaSetSyncUsage(usage: MediaSetSyncUsageSummary | null | undefined): string {
+  if (!usage || usage.run_count === 0) return 'No runs recorded yet';
+  const parts = [`${usage.run_count} run${usage.run_count === 1 ? '' : 's'}`];
+  parts.push(`${usage.total_accepted_files.toLocaleString()} files`);
+  parts.push(formatMediaSetSyncBytes(usage.total_bytes_accepted));
+  if (usage.total_dispatch_errors > 0) {
+    parts.push(`${usage.total_dispatch_errors} dispatch error${usage.total_dispatch_errors === 1 ? '' : 's'}`);
+  }
+  if (usage.total_schema_mismatch > 0) {
+    parts.push(`${usage.total_schema_mismatch} schema mismatch${usage.total_schema_mismatch === 1 ? '' : 'es'}`);
+  }
+  return parts.join(' · ');
+}
+
 // Registrations / discovery payloads ----------------------------------------
 
 export type RegistrationMode = 'sync' | 'zero_copy';
@@ -1314,6 +3330,30 @@ export const dataConnection = {
   testConnection(id: string): Promise<TestConnectionResult> {
     return api.post(`${BASE}/sources/${id}/test-connection`, {});
   },
+  getSourceGovernance(id: string): Promise<SourceGovernance> {
+    return api.get(`${BASE}/sources/${id}/permissions`);
+  },
+  updateSourceGovernance(id: string, body: UpdateSourceGovernanceRequest): Promise<SourceGovernance> {
+    return api.patch(`${BASE}/sources/${id}/permissions`, body);
+  },
+  async listSourceGovernanceAudit(id: string, limit = 100): Promise<SourceGovernanceAuditEvent[]> {
+    const response = await api.get<ApiListEnvelope<SourceGovernanceAuditEvent> | SourceGovernanceAuditEvent[]>(
+      `${BASE}/sources/${id}/audit?limit=${encodeURIComponent(String(limit))}`,
+    );
+    return listItems(response);
+  },
+  getSourceHealth(id: string): Promise<DataConnectionHealthSummary> {
+    return api.get(`${BASE}/sources/${id}/health`);
+  },
+  getSourceRetryPolicy(id: string): Promise<SourceRetryPolicy> {
+    return api.get(`${BASE}/sources/${id}/retry-policy`);
+  },
+  updateSourceRetryPolicy(id: string, body: UpdateSourceRetryPolicyRequest): Promise<SourceRetryPolicy> {
+    return api.put(`${BASE}/sources/${id}/retry-policy`, body);
+  },
+  getSourceRetryRecovery(id: string): Promise<RetryRecoverySummary> {
+    return api.get(`${BASE}/sources/${id}/retry-recovery`);
+  },
 
   // Registrations / discovery (Tarea 10 — wizard step 3) ----------------
   discoverSources(sourceId: string): Promise<{ sources: DiscoveredSource[] }> {
@@ -1366,14 +3406,28 @@ export const dataConnection = {
   registerConnectorAgent(body: RegisterConnectorAgentRequest): Promise<ConnectorAgent> {
     return api.post(`${BASE}/agents`, {
       ...body,
+      version: body.version ?? '',
+      environment: body.environment ?? '',
+      host: body.host ?? '',
       capabilities: body.capabilities ?? {},
       metadata: body.metadata ?? {},
+      connected_sources: body.connected_sources ?? [],
+      supported_connector_capabilities: body.supported_connector_capabilities ?? [],
+      assigned_proxy_policies: body.assigned_proxy_policies ?? [],
+      connection_failures: body.connection_failures ?? [],
     });
   },
   heartbeatConnectorAgent(id: string, body: ConnectorAgentHeartbeatRequest = {}): Promise<ConnectorAgent> {
     return api.post(`${BASE}/agents/${id}/heartbeat`, {
+      version: body.version ?? '',
+      environment: body.environment ?? '',
+      host: body.host ?? '',
       capabilities: body.capabilities ?? {},
       metadata: body.metadata ?? {},
+      connected_sources: body.connected_sources,
+      supported_connector_capabilities: body.supported_connector_capabilities,
+      assigned_proxy_policies: body.assigned_proxy_policies,
+      connection_failures: body.connection_failures,
     });
   },
   deleteConnectorAgent(id: string): Promise<void> {
@@ -1389,6 +3443,18 @@ export const dataConnection = {
   },
   detachPolicy(sourceId: string, policyId: string): Promise<void> {
     return api.delete(`${BASE}/sources/${sourceId}/egress-policies/${policyId}`);
+  },
+  getSourceCodeImport(sourceId: string): Promise<SourceCodeImport> {
+    return api.get(`${BASE}/sources/${sourceId}/code-imports`);
+  },
+  updateSourceCodeImport(sourceId: string, body: UpdateSourceCodeImportRequest): Promise<SourceCodeImport> {
+    return api.patch(`${BASE}/sources/${sourceId}/code-imports`, body);
+  },
+  resolveSourceCodeImportBuildStart(
+    sourceId: string,
+    body: ResolveSourceCodeImportBuildRequest = {},
+  ): Promise<SourceCodeImportBuildResolution> {
+    return api.post(`${BASE}/sources/${sourceId}/code-imports:resolve-build-start`, body);
   },
 
   // Egress policies (global) -----------------------------------------------
@@ -1423,6 +3489,29 @@ export const dataConnection = {
   },
   listRuns(syncId: string): Promise<SyncRun[]> {
     return api.get(`${BASE}/syncs/${syncId}/runs`);
+  },
+
+  // Exports ---------------------------------------------------------------
+  listExports(sourceId: string): Promise<DataExport[]> {
+    return api.get(`${BASE}/sources/${sourceId}/exports`);
+  },
+  createExport(sourceId: string, body: CreateDataExportRequest): Promise<DataExport> {
+    return api.post(`${BASE}/sources/${sourceId}/exports`, body);
+  },
+  getExport(exportId: string): Promise<DataExport> {
+    return api.get(`${BASE}/exports/${exportId}`);
+  },
+  updateExport(exportId: string, body: UpdateDataExportRequest): Promise<DataExport> {
+    return api.patch(`${BASE}/exports/${exportId}`, body);
+  },
+  runExport(exportId: string): Promise<DataExport> {
+    return api.post(`${BASE}/exports/${exportId}/run`, {});
+  },
+  startExport(exportId: string): Promise<DataExport> {
+    return api.post(`${BASE}/exports/${exportId}/start`, {});
+  },
+  stopExport(exportId: string): Promise<DataExport> {
+    return api.post(`${BASE}/exports/${exportId}/stop`, {});
   },
 
   // Streams ---------------------------------------------------------------
@@ -1468,8 +3557,8 @@ export const dataConnection = {
     return api.get(`${BASE}/sources/${sourceId}/webhooks/${webhookId}/invocations`);
   },
 
-  // Media-set syncs (P1.4) -----------------------------------------------
-  listMediaSetSyncs(sourceId: string): Promise<MediaSetSyncDef[]> {
+  // Media-set syncs (P1.4 + SDC.41 handoff history) ----------------------
+  listMediaSetSyncs(sourceId: string): Promise<MediaSetSyncWithUsage[]> {
     return api.get(`${BASE}/sources/${sourceId}/media-set-syncs`);
   },
   createMediaSetSync(
@@ -1477,6 +3566,55 @@ export const dataConnection = {
     body: CreateMediaSetSyncRequest
   ): Promise<MediaSetSyncDef> {
     return api.post(`${BASE}/sources/${sourceId}/media-set-syncs`, body);
+  },
+  async listMediaSetSyncRuns(syncId: string, limit = 100): Promise<MediaSetSyncRun[]> {
+    const response = await api.get<ApiListEnvelope<MediaSetSyncRun> | MediaSetSyncRun[]>(
+      `${BASE}/media-set-syncs/${syncId}/runs?limit=${encodeURIComponent(String(limit))}`,
+    );
+    return listItems(response);
+  },
+  getMediaSetSyncHandoffDelegation(): Promise<MediaSetSyncHandoffDelegation> {
+    return api.get(`${BASE}/media-set-syncs/handoff-delegation`);
+  },
+  getVirtualMediaHandoff(sourceId: string): Promise<VirtualMediaHandoffDescriptor> {
+    return api.get(`${BASE}/sources/${sourceId}/virtual-media-handoff`);
+  },
+  getListenerInboundDescriptor(sourceId: string): Promise<ListenerInboundDescriptor> {
+    return api.get(`${BASE}/sources/${sourceId}/listener-descriptor`);
+  },
+  async listConnectorCapabilityPacks(): Promise<ConnectorCapabilityPack[]> {
+    const response = await api.get<ApiListEnvelope<ConnectorCapabilityPack> | ConnectorCapabilityPack[]>(
+      `${BASE}/capability-packs`,
+    );
+    return listItems(response);
+  },
+  getConnectorCapabilityPack(connectorType: string): Promise<ConnectorCapabilityPack> {
+    return api.get(`${BASE}/capability-packs/${encodeURIComponent(connectorType)}`);
+  },
+  computeStreamMetricsSnapshot(input: StreamMetricsInput): Promise<StreamMetricsSnapshot> {
+    return api.post(`${BASE}/streams/metrics:compute`, input);
+  },
+  computeStreamReplayPlan(input: StreamReplayPlanRequest): Promise<StreamReplayPlan> {
+    return api.post(`${BASE}/streams/replay-plan:compute`, input);
+  },
+  getDeadLetterSink(syncId: string): Promise<DeadLetterSink> {
+    return api.get(`${BASE}/syncs/${syncId}/dead-letter`);
+  },
+  updateDeadLetterSink(syncId: string, body: UpdateDeadLetterSinkRequest): Promise<DeadLetterSink> {
+    return api.put(`${BASE}/syncs/${syncId}/dead-letter`, body);
+  },
+  listQuarantinedRecords(syncId: string, category?: QuarantineFailureCategory, limit = 100): Promise<QuarantineSummary> {
+    const params = new URLSearchParams();
+    if (category) params.set('category', category);
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    return api.get(`${BASE}/syncs/${syncId}/quarantine${query ? `?${query}` : ''}`);
+  },
+  recordQuarantinedRecord(syncId: string, body: RecordQuarantineRequest): Promise<QuarantinedRecord> {
+    return api.post(`${BASE}/syncs/${syncId}/quarantine`, body);
+  },
+  replayQuarantinedRecords(syncId: string, body: QuarantineReplayRequest): Promise<QuarantineReplayPlan> {
+    return api.post(`${BASE}/syncs/${syncId}/quarantine:replay`, body);
   },
 };
 
@@ -1557,7 +3695,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
   connector({
     type: 'mssql',
     name: 'Microsoft SQL Server',
-    description: 'SQL Server source for table syncs, incremental reads, and table exports.',
+    description: 'SQL Server source for table syncs, CDC handoff, incremental reads, and table exports.',
     capabilities: ['batch_sync', 'cdc_sync', 'table_export', 'exploration'],
     workers: ['foundry', 'agent'],
     workerCapabilities: {
@@ -1572,6 +3710,46 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     ],
     network: network(['direct_egress', 'agent_proxy', 'agent_worker'], [1433], 'Requires SQL Server port access from the selected worker.'),
     setupDocsUrl: `${DOC_BASE}/available-connectors/microsoft-sql-server/`,
+    family: 'RDBMS',
+  }),
+  connector({
+    type: 'oracle',
+    name: 'Oracle Database',
+    description: 'Oracle relational source for batch table syncs, CDC changelog streams, exports, and schema exploration.',
+    capabilities: ['batch_sync', 'cdc_sync', 'table_export', 'exploration'],
+    workers: ['foundry', 'agent'],
+    workerCapabilities: {
+      foundry: ['batch_sync', 'cdc_sync', 'table_export', 'exploration'],
+      agent: ['batch_sync', 'cdc_sync', 'exploration'],
+    },
+    available: false,
+    category: 'databases',
+    credentialFields: [
+      { key: 'username', label: 'Username', kind: 'username_password', required: true, secret: false },
+      { key: 'password', label: 'Password', kind: 'username_password', required: true, secret: true },
+    ],
+    network: network(['direct_egress', 'agent_proxy', 'agent_worker'], [1521, 2484], 'Requires Oracle listener access and CDC log access privileges.'),
+    setupDocsUrl: `${DOC_BASE}/available-connectors/oracle-database/`,
+    family: 'RDBMS',
+  }),
+  connector({
+    type: 'db2',
+    name: 'IBM Db2',
+    description: 'Db2 relational source for batch table syncs, CDC changelog streams, exports, and schema exploration.',
+    capabilities: ['batch_sync', 'cdc_sync', 'table_export', 'exploration'],
+    workers: ['foundry', 'agent'],
+    workerCapabilities: {
+      foundry: ['batch_sync', 'cdc_sync', 'table_export', 'exploration'],
+      agent: ['batch_sync', 'cdc_sync', 'exploration'],
+    },
+    available: false,
+    category: 'databases',
+    credentialFields: [
+      { key: 'username', label: 'Username', kind: 'username_password', required: true, secret: false },
+      { key: 'password', label: 'Password', kind: 'username_password', required: true, secret: true },
+    ],
+    network: network(['direct_egress', 'agent_proxy', 'agent_worker'], [50000], 'Requires Db2 listener access and configured log retention for CDC.'),
+    setupDocsUrl: `${DOC_BASE}/available-connectors/db2/`,
     family: 'RDBMS',
   }),
   connector({
@@ -1656,12 +3834,12 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
   connector({
     type: 'kafka',
     name: 'Apache Kafka',
-    description: 'Subscribe to Kafka topics through the streaming bridge and export records to topics.',
-    capabilities: ['streaming_sync', 'streaming_export', 'exploration'],
+    description: 'Subscribe to Kafka topics through the streaming bridge, including changelog-shaped CDC inputs, and export records to topics.',
+    capabilities: ['streaming_sync', 'cdc_sync', 'streaming_export', 'exploration'],
     workers: ['foundry', 'agent'],
     workerCapabilities: {
-      foundry: ['streaming_sync', 'streaming_export', 'exploration'],
-      agent: ['streaming_sync', 'exploration'],
+      foundry: ['streaming_sync', 'cdc_sync', 'streaming_export', 'exploration'],
+      agent: ['streaming_sync', 'cdc_sync', 'exploration'],
     },
     available: true,
     category: 'event_streams',
@@ -1677,8 +3855,8 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
   connector({
     type: 'kinesis',
     name: 'Amazon Kinesis',
-    description: 'Stream records from a Kinesis Data Stream via shard iterators and checkpoints.',
-    capabilities: ['streaming_sync'],
+    description: 'Stream records from a Kinesis Data Stream via shard iterators, checkpoints, and changelog-shaped CDC inputs.',
+    capabilities: ['streaming_sync', 'cdc_sync'],
     workers: ['foundry', 'agent'],
     available: true,
     category: 'event_streams',
@@ -2432,6 +4610,294 @@ export function streamReplayRangeLabel(replay: StreamReplayMetadata | null): str
   return `${replay.status}: ${start} → ${end}`;
 }
 
+function cdcPayloadValue(row: StreamLiveRow, column: string): unknown {
+  return row.payload?.[column];
+}
+
+function cdcValueKey(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function cdcOrderingNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) return parsed;
+    const timestamp = Date.parse(value.trim());
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+  return null;
+}
+
+function compareCdcOrderingValues(left: unknown, right: unknown): number {
+  const leftNumber = cdcOrderingNumber(left);
+  const rightNumber = cdcOrderingNumber(right);
+  if (leftNumber !== null && rightNumber !== null) return leftNumber - rightNumber;
+  return cdcValueKey(left).localeCompare(cdcValueKey(right), undefined, { numeric: true });
+}
+
+function cdcDeleteMarkerIsTrue(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') return ['true', 't', '1', 'yes', 'y', 'deleted', 'delete'].includes(value.trim().toLowerCase());
+  return false;
+}
+
+export function cdcPrimaryKeyForRow(row: StreamLiveRow, primaryKeyColumns: string[]): string {
+  return primaryKeyColumns.map((column) => `${column}=${cdcValueKey(cdcPayloadValue(row, column))}`).join('|');
+}
+
+export function cdcSchemaFieldResolutionRole(fieldName: string, metadata?: CdcSyncSettings | null): string | null {
+  if (!metadata) return null;
+  const normalized = fieldName.trim().toLowerCase();
+  const roles: string[] = [];
+  if (metadata.primary_key_columns.some((column) => column.trim().toLowerCase() === normalized)) roles.push('primary key');
+  if (metadata.ordering_column.trim().toLowerCase() === normalized) roles.push('ordering column');
+  if ((metadata.deletion_column ?? '').trim().toLowerCase() === normalized) roles.push('deletion marker');
+  return roles.length > 0 ? roles.join(', ') : null;
+}
+
+export function cdcResolutionStrategyLabel(metadata?: CdcSyncSettings | null): string {
+  if (!metadata) return 'No CDC primary key resolution strategy';
+  const primaryKeys = metadata.primary_key_columns.length > 0 ? metadata.primary_key_columns.join(', ') : 'unconfigured primary key';
+  const ordering = metadata.ordering_column || 'unconfigured ordering column';
+  const deletion = metadata.deletion_column ? `; remove rows where ${metadata.deletion_column} is true` : '; no deletion marker configured';
+  return `Group by ${primaryKeys}; choose the largest ${ordering}${deletion}.`;
+}
+
+export function cdcRequiredMetadataColumns(metadata: CdcSyncSettings): string[] {
+  return Array.from(new Set([
+    ...metadata.primary_key_columns,
+    metadata.ordering_column,
+    metadata.deletion_column ?? '',
+  ].map((column) => column.trim()).filter(Boolean)));
+}
+
+export function cdcOrderingSemanticsWarning(metadata: CdcSyncSettings): SyncValidationWarning | null {
+  const props = metadata.connector_metadata?.properties ?? {};
+  const hasManualBackfillFlag = ['manual_backfill', 'manually_backfilled', 'backfill', 'custom_changelog', 'custom_stream', 'requires_reorder']
+    .some((key) => props[key] === true || props[key] === 'true' || props[key] === 'yes');
+  const isCustomOrBackfilled = metadata.input_kind === 'streaming_middleware_changelog'
+    || metadata.start_position !== 'initial_snapshot'
+    || hasManualBackfillFlag;
+  if (!isCustomOrBackfilled) return null;
+  return {
+    code: 'cdc-ordering-preservation-before-object-indexing',
+    severity: 'warning',
+    message: 'Custom or manually backfilled CDC streams must preserve ordering semantics before object indexing; reorder or replay records so arrival order matches the configured ordering column.',
+  };
+}
+
+function cdcSurfaceLabel(surface: CdcDownstreamSurface): string {
+  switch (surface) {
+    case 'pipeline_builder':
+      return 'Pipeline Builder';
+    case 'ontology_indexing':
+      return 'Ontology indexing';
+    case 'stream_processing':
+      return 'Stream processing';
+    case 'archive_view':
+      return 'Archive view';
+    case 'data_health':
+      return 'Data Health';
+  }
+}
+
+function cdcDataHealthChecks(metadata: CdcSyncSettings): CdcDataHealthCheckDefinition[] {
+  const primaryKeys = metadata.primary_key_columns;
+  const required = cdcRequiredMetadataColumns(metadata);
+  const checks: CdcDataHealthCheckDefinition[] = [
+    { code: 'cdc-required-metadata-present', label: 'Required CDC metadata columns are present', severity: 'critical', columns: required },
+    { code: 'cdc-primary-key-not-null', label: 'Primary key columns are not null', severity: 'critical', columns: primaryKeys },
+    { code: 'cdc-ordering-not-null', label: 'Ordering column is not null and comparable', severity: 'critical', columns: [metadata.ordering_column] },
+    { code: 'cdc-archive-resolution-fresh', label: 'Archive/current-state resolution remains fresh', severity: 'warning', columns: required },
+  ];
+  if (metadata.deletion_column) {
+    checks.push({ code: 'cdc-deletion-marker-boolean', label: 'Deletion marker is boolean-shaped', severity: 'warning', columns: [metadata.deletion_column] });
+  }
+  return checks;
+}
+
+function cdcRequiredColumnsMissing(stream: Pick<DataConnectionStreamResource, 'schema'>, metadata: CdcSyncSettings): string[] {
+  const schemaNames = new Set(stream.schema.map((field) => field.name.trim().toLowerCase()).filter(Boolean));
+  return cdcRequiredMetadataColumns(metadata).filter((column) => !schemaNames.has(column.trim().toLowerCase()));
+}
+
+export function cdcDownstreamIntegrationMetadata(
+  stream: Pick<DataConnectionStreamResource, 'id' | 'name' | 'schema' | 'cdc_metadata' | 'live_view' | 'archive_view'>,
+): CdcDownstreamIntegrationMetadata | null {
+  const metadata = stream.cdc_metadata ?? null;
+  if (!metadata) return null;
+  const requiredColumns = cdcRequiredMetadataColumns(metadata);
+  const missingColumns = cdcRequiredColumnsMissing(stream, metadata);
+  const missingColumnWarnings = missingColumns.map((column): SyncValidationWarning => ({
+    code: 'cdc-required-column-missing',
+    severity: 'error',
+    message: `CDC metadata column ${column} is missing from the stream schema.`,
+  }));
+  const orderingWarning = cdcOrderingSemanticsWarning(metadata);
+  const baseWarnings = [...missingColumnWarnings, ...(orderingWarning ? [orderingWarning] : [])];
+  const archiveResolution = resolveCdcArchiveView(stream);
+  const source = metadata.source_table || metadata.source_topic || metadata.connector_metadata.source_table || metadata.connector_metadata.upstream_topic || 'CDC stream';
+  const outputStreamID = metadata.output_stream_id ?? metadata.connector_metadata.output_stream_id ?? null;
+  const columnStatus: CdcDownstreamIntegrationStatus = missingColumns.length > 0 ? 'blocked' : 'ready';
+  const ontologyStatus: CdcDownstreamIntegrationStatus = missingColumns.length > 0 ? 'blocked' : orderingWarning ? 'warning' : 'ready';
+  const targets: CdcDownstreamIntegrationTarget[] = [
+    {
+      surface: 'pipeline_builder',
+      label: cdcSurfaceLabel('pipeline_builder'),
+      status: columnStatus,
+      required_columns: requiredColumns,
+      metadata: {
+        key_by: {
+          primary_key_columns: metadata.primary_key_columns,
+          ordering_column: metadata.ordering_column,
+          deletion_column: metadata.deletion_column ?? null,
+        },
+        propagation_rule: 'Preserve primary key, ordering, and deletion columns unchanged to propagate CDC metadata to outputs.',
+        input_stream_id: outputStreamID,
+      },
+      warnings: missingColumnWarnings,
+    },
+    {
+      surface: 'ontology_indexing',
+      label: cdcSurfaceLabel('ontology_indexing'),
+      status: ontologyStatus,
+      required_columns: requiredColumns,
+      metadata: {
+        object_storage_resolution: 'arrival_order',
+        configured_archive_resolution: 'ordering_column',
+        ordering_column: metadata.ordering_column,
+        primary_key_columns: metadata.primary_key_columns,
+      },
+      warnings: [...missingColumnWarnings, ...(orderingWarning ? [orderingWarning] : [])],
+    },
+    {
+      surface: 'stream_processing',
+      label: cdcSurfaceLabel('stream_processing'),
+      status: columnStatus,
+      required_columns: requiredColumns,
+      metadata: {
+        state_key_columns: metadata.primary_key_columns,
+        ordering_column: metadata.ordering_column,
+        deletion_column: metadata.deletion_column ?? null,
+        source_start_position: metadata.start_position,
+      },
+      warnings: missingColumnWarnings,
+    },
+    {
+      surface: 'archive_view',
+      label: cdcSurfaceLabel('archive_view'),
+      status: columnStatus,
+      required_columns: requiredColumns,
+      metadata: {
+        resolution_strategy: cdcResolutionStrategyLabel(metadata),
+        current_state_rows: archiveResolution.archive_rows.length,
+        deleted_latest_rows: archiveResolution.deleted_rows.length,
+        uses_backend_archive_view: archiveResolution.used_backend_archive,
+      },
+      warnings: [...missingColumnWarnings, ...archiveResolution.warnings],
+    },
+    {
+      surface: 'data_health',
+      label: cdcSurfaceLabel('data_health'),
+      status: missingColumns.length > 0 ? 'blocked' : 'warning',
+      required_columns: requiredColumns,
+      metadata: {
+        monitored_columns: requiredColumns,
+        output_stream_id: outputStreamID,
+      },
+      warnings: baseWarnings,
+      recommended_checks: cdcDataHealthChecks(metadata),
+    },
+  ];
+  return {
+    stream_id: stream.id,
+    stream_name: stream.name,
+    source,
+    output_stream_id: outputStreamID,
+    primary_key_columns: metadata.primary_key_columns,
+    ordering_column: metadata.ordering_column,
+    deletion_column: metadata.deletion_column ?? null,
+    required_metadata_columns: requiredColumns,
+    propagated_metadata_columns: requiredColumns,
+    resolution_strategy: cdcResolutionStrategyLabel(metadata),
+    targets,
+    warnings: baseWarnings,
+  };
+}
+
+export function resolveCdcArchiveView(stream: Pick<DataConnectionStreamResource, 'cdc_metadata' | 'live_view' | 'archive_view'>): CdcResolvedArchiveView {
+  const metadata = stream.cdc_metadata ?? null;
+  const liveRows = [...(stream.live_view ?? [])].sort((left, right) => left.offset - right.offset);
+  const backendArchiveRows = [...(stream.archive_view ?? [])].sort((left, right) => left.offset - right.offset);
+  const warnings: SyncValidationWarning[] = [];
+  if (!metadata) {
+    return {
+      live_rows: liveRows,
+      archive_rows: backendArchiveRows,
+      deleted_rows: [],
+      primary_key_columns: [],
+      ordering_column: null,
+      deletion_column: null,
+      resolution_strategy: cdcResolutionStrategyLabel(null),
+      used_backend_archive: backendArchiveRows.length > 0,
+      warnings,
+    };
+  }
+  if (liveRows.length === 0 && backendArchiveRows.length > 0) {
+    warnings.push({ code: 'cdc-archive-backend-view', severity: 'warning', message: 'Live changelog rows are not loaded, so the backend-provided archive view is displayed.' });
+    return {
+      live_rows: liveRows,
+      archive_rows: backendArchiveRows,
+      deleted_rows: [],
+      primary_key_columns: metadata.primary_key_columns,
+      ordering_column: metadata.ordering_column,
+      deletion_column: metadata.deletion_column ?? null,
+      resolution_strategy: cdcResolutionStrategyLabel(metadata),
+      used_backend_archive: true,
+      warnings,
+    };
+  }
+
+  const latestByPrimaryKey = new Map<string, StreamLiveRow>();
+  for (const row of liveRows) {
+    const key = cdcPrimaryKeyForRow(row, metadata.primary_key_columns);
+    const current = latestByPrimaryKey.get(key);
+    if (!current) {
+      latestByPrimaryKey.set(key, row);
+      continue;
+    }
+    const orderingComparison = compareCdcOrderingValues(cdcPayloadValue(row, metadata.ordering_column), cdcPayloadValue(current, metadata.ordering_column));
+    if (orderingComparison > 0 || (orderingComparison === 0 && row.offset > current.offset)) {
+      latestByPrimaryKey.set(key, row);
+    }
+  }
+
+  const sortedLatest = [...latestByPrimaryKey.values()].sort((left, right) =>
+    cdcPrimaryKeyForRow(left, metadata.primary_key_columns).localeCompare(cdcPrimaryKeyForRow(right, metadata.primary_key_columns), undefined, { numeric: true }),
+  );
+  const deletedRows = metadata.deletion_column
+    ? sortedLatest.filter((row) => cdcDeleteMarkerIsTrue(cdcPayloadValue(row, metadata.deletion_column ?? '')))
+    : [];
+  const deletedOffsets = new Set(deletedRows.map((row) => row.offset));
+
+  return {
+    live_rows: liveRows,
+    archive_rows: sortedLatest.filter((row) => !deletedOffsets.has(row.offset)),
+    deleted_rows: deletedRows,
+    primary_key_columns: metadata.primary_key_columns,
+    ordering_column: metadata.ordering_column,
+    deletion_column: metadata.deletion_column ?? null,
+    resolution_strategy: cdcResolutionStrategyLabel(metadata),
+    used_backend_archive: false,
+    warnings,
+  };
+}
+
 export function datasetTransactionTypeForFileMode(mode: FileSyncMode): DatasetTransactionType {
   switch (mode) {
     case 'snapshot_mirror':
@@ -2459,6 +4925,850 @@ export function fileSyncModeLabel(mode: FileSyncMode): string {
 
 export function tableBatchSyncModeLabel(mode: TableBatchSyncMode): string {
   return mode === 'full_snapshot' ? 'Full snapshot' : 'Incremental';
+}
+
+export function dataExportTypeLabel(type: DataExportType): string {
+  switch (type) {
+    case 'file':
+      return 'File export';
+    case 'table':
+      return 'Table export';
+    case 'streaming':
+      return 'Streaming export';
+  }
+}
+
+export function dataExportModeLabel(mode: DataExportMode): string {
+  switch (mode) {
+    case 'snapshot':
+      return 'Snapshot';
+    case 'incremental':
+      return 'Incremental';
+    case 'mirror':
+      return 'Mirror dataset';
+    case 'full_snapshot':
+      return 'Full snapshot without truncation';
+    case 'full_snapshot_truncate':
+      return 'Full snapshot with truncation';
+    case 'incremental_truncate':
+      return 'Incremental with truncation';
+    case 'incremental_append_only':
+      return 'Incremental append only';
+    case 'continuous':
+      return 'Continuous';
+  }
+}
+
+export function sourceCodeImportRepositoryDisplay(repo: SourceCodeRepositoryImport): string {
+  return repo.rendered_display || repo.repository_name || repo.repository_rid || 'Unnamed repository import';
+}
+
+export function sourcePermissionRoleLabel(role: SourcePermissionRole): string {
+  switch (role) {
+    case 'source_view':
+      return 'Source view';
+    case 'source_edit':
+      return 'Source edit';
+    case 'source_use':
+      return 'Source use';
+    case 'source_owner':
+      return 'Source owner';
+    case 'webhook_execute':
+      return 'Webhook execution';
+    case 'sync_create':
+      return 'Sync creation';
+    case 'export_create':
+      return 'Export creation';
+    case 'code_import':
+      return 'Code import';
+  }
+}
+
+export function sourceGovernanceCan(governance: Pick<SourceGovernance, 'effective_roles' | 'role_definitions'> | null | undefined, role: SourcePermissionRole): boolean {
+  if (!governance) return false;
+  const granted = new Set<SourcePermissionRole>(governance.effective_roles ?? []);
+  if (granted.has(role)) return true;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const definition of governance.role_definitions ?? []) {
+      if (!granted.has(definition.role)) continue;
+      for (const implied of definition.implied_roles ?? []) {
+        if (!granted.has(implied)) {
+          granted.add(implied);
+          changed = true;
+        }
+      }
+    }
+  }
+  return granted.has(role);
+}
+
+export function sourceGovernanceVisibilitySummary(governance: Pick<SourceGovernance, 'visibility'> | null | undefined): string[] {
+  if (!governance) return [];
+  const visibility = governance.visibility;
+  return [
+    `Source metadata: ${(visibility.source_visibility_roles ?? []).map(sourcePermissionRoleLabel).join(', ') || 'none'}`,
+    `Credential metadata: ${(visibility.credential_visibility_roles ?? []).map(sourcePermissionRoleLabel).join(', ') || 'none'}`,
+    `External samples: ${(visibility.external_sample_visibility_roles ?? []).map(sourcePermissionRoleLabel).join(', ') || 'none'}`,
+    `Output datasets: ${visibility.output_dataset_permissions_enforced ? 'checked separately' : 'not enforced'} via ${visibility.output_dataset_permission_system || 'dataset-service'}`,
+    visibility.credential_values_visible ? 'Credential secret values visible' : 'Credential secret values remain write-only',
+    visibility.external_samples_persisted ? 'External samples may be persisted' : 'External samples are not persisted by default',
+  ];
+}
+
+export function sourceGovernanceGrantSummary(grant: SourcePermissionGrant): string {
+  const principal = grant.principal_name || grant.principal_id;
+  const roles = (grant.roles ?? []).map(sourcePermissionRoleLabel).join(', ') || 'no roles';
+  const expiry = grant.expires_at ? ` · expires ${grant.expires_at}` : '';
+  return `${principal} (${grant.principal_type}) · ${roles}${expiry}`;
+}
+
+export function sourceGovernanceAuditLabel(event: SourceGovernanceAuditEvent): string {
+  const actor = event.actor_id ? ` by ${event.actor_id}` : '';
+  const target = event.downstream_resource_rid || event.job_rid || event.principal_id || '';
+  const targetText = target ? ` · ${target}` : '';
+  return `${event.action || event.event_type}${actor}${targetText} · ${event.result}`;
+}
+
+export function connectorAgentCapabilitySummary(agent: ConnectorAgent): string[] {
+  const explicit = agent.supported_connector_capabilities ?? [];
+  if (explicit.length > 0) {
+    return explicit.map((entry) => `${entry.connector_type}: ${entry.capabilities.join(', ') || 'registered'}`);
+  }
+  const connectors = Array.isArray(agent.capabilities?.connectors) ? agent.capabilities.connectors.map(String) : [];
+  if (connectors.length > 0) {
+    return connectors.map((connector) => `${connector}: registered`);
+  }
+  return [];
+}
+
+export function connectorAgentHealthLabel(agent: ConnectorAgent): string {
+  const health = agent.health;
+  const bits = [health?.state || agent.status || 'unknown'];
+  if (agent.version) bits.push(`v${agent.version}`);
+  if (agent.environment) bits.push(agent.environment);
+  if (health?.failure_count) bits.push(`${health.failure_count} failure${health.failure_count === 1 ? '' : 's'}`);
+  if (health?.stale) bits.push('stale heartbeat');
+  return bits.join(' · ');
+}
+
+export function connectorAgentsForSource(agents: ConnectorAgent[], sourceId: string, policyIds: string[] = []): ConnectorAgent[] {
+  const policySet = new Set(policyIds);
+  return agents.filter((agent) => {
+    const sourceMatch = (agent.connected_sources ?? []).some((source) => source.source_id === sourceId);
+    const policyMatch = (agent.assigned_proxy_policies ?? []).some((policy) => policy.source_id === sourceId || (policy.policy_id && policySet.has(policy.policy_id)));
+    return sourceMatch || policyMatch;
+  });
+}
+
+export function connectorAgentFailuresForSource(agent: ConnectorAgent, sourceId: string, policyIds: string[] = []): AgentConnectionFailure[] {
+  const policySet = new Set(policyIds);
+  return (agent.connection_failures ?? []).filter((failure) => failure.source_id === sourceId || (failure.policy_id && policySet.has(failure.policy_id)));
+}
+
+export function dataConnectionHealthStateLabel(state: DataConnectionHealthState): string {
+  switch (state) {
+    case 'ok':
+      return 'OK';
+    case 'warning':
+      return 'Warning';
+    case 'critical':
+      return 'Critical';
+    case 'unknown':
+      return 'Unknown';
+  }
+}
+
+export function dataConnectionHealthSurfaceLabel(surface: DataConnectionHealthSurface): string {
+  switch (surface) {
+    case 'source':
+      return 'Source';
+    case 'agent':
+      return 'Agent';
+    case 'credential':
+      return 'Credential';
+    case 'network_policy':
+      return 'Network policy';
+    case 'sync':
+      return 'Sync';
+    case 'stream':
+      return 'Stream';
+    case 'export':
+      return 'Export';
+    case 'webhook':
+      return 'Webhook';
+    case 'cdc':
+      return 'CDC';
+    case 'virtual_table':
+      return 'Virtual table';
+    case 'schedule':
+      return 'Schedule';
+    case 'retry':
+      return 'Retry';
+  }
+}
+
+function healthStateRank(state: DataConnectionHealthState): number {
+  switch (state) {
+    case 'critical':
+      return 3;
+    case 'warning':
+      return 2;
+    case 'unknown':
+      return 1;
+    case 'ok':
+      return 0;
+  }
+}
+
+function healthStateForChecks(checks: DataConnectionHealthCheck[]): DataConnectionHealthState {
+  return checks.reduce<DataConnectionHealthState>((state, check) => (
+    healthStateRank(check.state) > healthStateRank(state) ? check.state : state
+  ), 'ok');
+}
+
+export function dataConnectionHealthCounts(checks: DataConnectionHealthCheck[]): DataConnectionHealthCounts {
+  return checks.reduce<DataConnectionHealthCounts>((counts, check) => {
+    counts[check.state] += 1;
+    return counts;
+  }, { ok: 0, warning: 0, critical: 0, unknown: 0 });
+}
+
+export function dataConnectionActionableHealthChecks(summary: Pick<DataConnectionHealthSummary, 'checks'>): DataConnectionHealthCheck[] {
+  return [...summary.checks]
+    .filter((check) => check.state !== 'ok')
+    .sort((left, right) => healthStateRank(right.state) - healthStateRank(left.state) || left.surface.localeCompare(right.surface) || left.code.localeCompare(right.code));
+}
+
+export function dataConnectionStreamHealthChecks(streams: DataConnectionStreamResource[], checkedAt?: string): DataConnectionHealthCheck[] {
+  if (streams.length === 0) {
+    return [{
+      code: 'streams_not_loaded',
+      label: 'Stream resources',
+      surface: 'stream',
+      severity: 'info',
+      state: 'ok',
+      message: 'No linked streams are loaded for this source.',
+      last_observed_at: checkedAt ?? null,
+      metadata: { client_generated_stream_check: true },
+    }];
+  }
+  return streams.flatMap((stream) => {
+    const checks: DataConnectionHealthCheck[] = [];
+    const healthState = stream.health?.state;
+    if (healthState && ['error', 'failed'].includes(healthState)) {
+      checks.push({
+        code: 'stream_health_error',
+        label: 'Stream health',
+        surface: 'stream',
+        severity: 'critical',
+        state: 'critical',
+        message: stream.health.message || 'Stream health is reporting an error.',
+        resource_id: stream.id,
+        resource_rid: stream.rid ?? stream.id,
+        resource_name: stream.name,
+        recommendation: 'Inspect stream offsets, checkpoints, and source sync history before restarting consumers.',
+        last_observed_at: stream.health.last_checked_at ?? checkedAt ?? null,
+        metadata: { client_generated_stream_check: true, health_state: healthState },
+      });
+    } else if (healthState && ['warning', 'stale'].includes(healthState)) {
+      checks.push({
+        code: 'stream_health_warning',
+        label: 'Stream health',
+        surface: 'stream',
+        severity: 'warning',
+        state: 'warning',
+        message: stream.health.message || 'Stream health is reporting a warning.',
+        resource_id: stream.id,
+        resource_rid: stream.rid ?? stream.id,
+        resource_name: stream.name,
+        recommendation: 'Inspect recent checkpoints and consumer lag.',
+        last_observed_at: stream.health.last_checked_at ?? checkedAt ?? null,
+        metadata: { client_generated_stream_check: true, health_state: healthState },
+      });
+    }
+    const lag = stream.offsets?.lag ?? 0;
+    if (lag > 0) {
+      checks.push({
+        code: 'stream_lag',
+        label: 'Stream lag',
+        surface: 'stream',
+        severity: lag >= 100_000 ? 'critical' : 'warning',
+        state: lag >= 100_000 ? 'critical' : 'warning',
+        message: `${stream.name} has ${lag} record(s) of stream lag.`,
+        resource_id: stream.id,
+        resource_rid: stream.rid ?? stream.id,
+        resource_name: stream.name,
+        recommendation: 'Scale consumers, inspect checkpoints, or replay from the last safe offset.',
+        last_observed_at: checkedAt ?? null,
+        metadata: { client_generated_stream_check: true, lag },
+      });
+    }
+    const failedCheckpoints = (stream.checkpoints ?? []).filter((checkpoint) => ['failed', 'error'].includes(String(checkpoint.status).toLowerCase()));
+    if (failedCheckpoints.length > 0) {
+      checks.push({
+        code: 'checkpoint_failure',
+        label: 'Checkpoint failures',
+        surface: 'stream',
+        severity: 'critical',
+        state: 'critical',
+        message: `${stream.name} has ${failedCheckpoints.length} failed checkpoint(s).`,
+        resource_id: stream.id,
+        resource_rid: stream.rid ?? stream.id,
+        resource_name: stream.name,
+        recommendation: 'Resume from the last completed checkpoint after fixing source or sink errors.',
+        last_observed_at: checkedAt ?? null,
+        metadata: { client_generated_stream_check: true, failed_checkpoint_count: failedCheckpoints.length },
+      });
+    }
+    if (checks.length === 0) {
+      checks.push({
+        code: 'stream_healthy',
+        label: 'Stream health',
+        surface: 'stream',
+        severity: 'info',
+        state: 'ok',
+        message: `${stream.name} has no client-visible lag or checkpoint failures.`,
+        resource_id: stream.id,
+        resource_rid: stream.rid ?? stream.id,
+        resource_name: stream.name,
+        last_observed_at: checkedAt ?? null,
+        metadata: { client_generated_stream_check: true },
+      });
+    }
+    return checks;
+  });
+}
+
+export function dataConnectionHealthSummaryWithStreamChecks(
+  summary: DataConnectionHealthSummary,
+  streams: DataConnectionStreamResource[],
+): DataConnectionHealthSummary {
+  const baseChecks = (summary.checks ?? []).filter((check) => !(check.metadata?.client_generated_stream_check === true));
+  const checks = [...baseChecks, ...dataConnectionStreamHealthChecks(streams, summary.checked_at)];
+  const counts = dataConnectionHealthCounts(checks);
+  const surfaces = Array.from(new Set(checks.map((check) => check.surface))).sort();
+  return {
+    ...summary,
+    state: healthStateForChecks(checks),
+    counts,
+    surfaces,
+    checks: checks.sort((left, right) => healthStateRank(right.state) - healthStateRank(left.state) || left.surface.localeCompare(right.surface) || left.code.localeCompare(right.code)),
+  };
+}
+
+export function sourceCodeImportPatternCoverage(patterns: ExternalTransformPattern[]): string[] {
+  return Array.from(new Set(patterns.flatMap((pattern) => pattern.alternative_for))).sort();
+}
+
+export function sourceCodeImportExampleKinds(patterns: ExternalTransformPattern[]): string[] {
+  return Array.from(new Set(patterns.map((pattern) => pattern.example_kind))).sort();
+}
+
+export function computeModuleAlternativeCoverage(alternatives: ComputeModuleAlternative[]): string[] {
+  return Array.from(new Set(alternatives.map((alternative) => alternative.alternative_for))).sort();
+}
+
+export function computeModuleAlternativeBlockers(alternatives: ComputeModuleAlternative[]): string[] {
+  return Array.from(new Set(alternatives.flatMap((alternative) => alternative.blockers))).sort();
+}
+
+export function computeModuleAlternativesAreBlocked(alternatives: ComputeModuleAlternative[]): boolean {
+  return alternatives.length > 0 && alternatives.every((alternative) => alternative.status === 'blocked');
+}
+
+export function sourceCodeImportExportPolicySummary(decision: SourceCodeImportExportPolicyDecision): string[] {
+  const parts = [
+    `policy ${decision.status}`,
+    decision.build_allowed ? 'build allowed' : 'build blocked',
+    decision.allow_foundry_inputs ? 'Foundry inputs enabled by source owner' : 'Foundry inputs disabled by source owner',
+  ];
+  if (decision.uses_foundry_inputs) {
+    parts.push(`${decision.foundry_inputs.length} Foundry input${decision.foundry_inputs.length === 1 ? '' : 's'} declared`);
+  } else {
+    parts.push('no Foundry inputs declared');
+  }
+  const missingMarkings = decision.missing_markings ?? [];
+  const missingOrganizations = decision.missing_organizations ?? [];
+  if (missingMarkings.length > 0) {
+    parts.push(`blocked markings ${missingMarkings.join(', ')}`);
+  }
+  if (missingOrganizations.length > 0) {
+    parts.push(`blocked organizations ${missingOrganizations.join(', ')}`);
+  }
+  return parts;
+}
+
+export function sourceCodeImportBuildStartSummary(resolution: SourceCodeImportBuildResolution): string[] {
+  const parts = [
+    `config ${resolution.config_hash}`,
+    `${resolution.credential_bindings.length} credential binding${resolution.credential_bindings.length === 1 ? '' : 's'}`,
+    `${resolution.egress_policy_bindings.length} egress policy binding${resolution.egress_policy_bindings.length === 1 ? '' : 's'}`,
+  ];
+  if (resolution.uses_live_configuration) {
+    parts.push('live source configuration is resolved at build start');
+  }
+  if (resolution.no_code_change_required) {
+    parts.push('credential, egress, and exportable-marking updates do not require code changes');
+  }
+  parts.push(...sourceCodeImportExportPolicySummary(resolution.export_policy_decision));
+  const markings = resolution.export_controls.allowed_markings;
+  const organizations = resolution.export_controls.allowed_organizations;
+  if (markings.length > 0 || organizations.length > 0) {
+    parts.push(`export controls ${markings.join(', ') || 'no markings'} / ${organizations.join(', ') || 'no organizations'}`);
+  } else {
+    parts.push('export controls are open');
+  }
+  return parts;
+}
+
+export function defaultExportModeForType(type: DataExportType): DataExportMode {
+  switch (type) {
+    case 'file':
+      return 'incremental';
+    case 'table':
+      return 'mirror';
+    case 'streaming':
+      return 'continuous';
+  }
+}
+
+export function exportCapabilityForType(type: DataExportType): ConnectorCapability {
+  switch (type) {
+    case 'file':
+      return 'file_export';
+    case 'table':
+      return 'table_export';
+    case 'streaming':
+      return 'streaming_export';
+  }
+}
+
+export function sourceSupportsExportType(source: Pick<Source, 'connector_type' | 'supported_capabilities'>, type: DataExportType): boolean {
+  const advertised = source.supported_capabilities ?? FALLBACK_CONNECTOR_CATALOG.find((entry) => entry.type === source.connector_type)?.capabilities ?? [];
+  return advertised.includes(exportCapabilityForType(type));
+}
+
+export function dataExportDestinationLabel(exp: Pick<DataExport, 'export_type' | 'destination_path' | 'destination_table' | 'destination_topic'>): string {
+  if (exp.export_type === 'file') return exp.destination_path || 'Destination path missing';
+  if (exp.export_type === 'table') return exp.destination_table || 'Destination table missing';
+  return exp.destination_topic || 'Destination topic missing';
+}
+
+export function dataExportInputLabel(exp: Pick<DataExport, 'export_type' | 'input_dataset_id' | 'input_dataset_rid' | 'input_stream_id'>): string {
+  if (exp.export_type === 'streaming') return exp.input_stream_id || 'Input stream missing';
+  return exp.input_dataset_rid || exp.input_dataset_id || 'Input dataset missing';
+}
+
+export function dataExportCanRun(exp: Pick<DataExport, 'export_type' | 'status'>): boolean {
+  return exp.export_type !== 'streaming' && exp.status !== 'running';
+}
+
+export function dataExportCanStart(exp: Pick<DataExport, 'export_type' | 'status'>): boolean {
+  return exp.export_type === 'streaming' && exp.status !== 'running';
+}
+
+export function dataExportCanStop(exp: Pick<DataExport, 'export_type' | 'status'>): boolean {
+  return exp.export_type === 'streaming' && exp.status === 'running';
+}
+
+export function dataExportScheduleLabel(exp: Pick<DataExport, 'schedule_cron' | 'schedule'>): string {
+  if (exp.schedule?.cron) {
+    return `${exp.schedule.name} · ${exp.schedule.cron}`;
+  }
+  return exp.schedule_cron || 'Manual';
+}
+
+export function dataExportHistoryHref(entry: Pick<DataExportHistoryEntry, 'build_id' | 'build_report_url'>): string | null {
+  if (entry.build_report_url) return entry.build_report_url;
+  if (!entry.build_id) return null;
+  return `/builds/${encodeURIComponent(entry.build_id)}`;
+}
+
+export function dataExportHistoryMetrics(entry: DataExportHistoryEntry): string {
+  const parts: string[] = [];
+  if (entry.files_written !== undefined || entry.files_skipped !== undefined || entry.bytes_written !== undefined) {
+    parts.push(`files ${entry.files_written ?? 0} written / ${entry.files_skipped ?? 0} skipped`);
+    if (entry.bytes_written !== undefined) parts.push(`${entry.bytes_written} bytes`);
+  }
+  if (entry.rows_written !== undefined) parts.push(`rows ${entry.rows_written}`);
+  if (entry.records_exported !== undefined || entry.records_skipped !== undefined) {
+    parts.push(`records ${entry.records_exported ?? 0} exported / ${entry.records_skipped ?? 0} skipped`);
+  }
+  if (entry.last_exported_offset) parts.push(`offset ${entry.last_exported_offset}`);
+  if (entry.high_watermark_transaction_id) parts.push(`high watermark ${entry.high_watermark_transaction_id}`);
+  if (entry.truncate_performed) parts.push('truncated destination');
+  if (entry.full_reexport) parts.push('full re-export');
+  parts.push(`retries ${entry.retry_attempts ?? 0}`);
+  return parts.join(' · ');
+}
+
+export function fileExportOverwriteBehaviorLabel(behavior: FileExportOverwriteBehavior): string {
+  switch (behavior) {
+    case 'overwrite_existing':
+      return 'Overwrite existing files';
+    case 'fail_if_exists':
+      return 'Fail if a file exists';
+    case 'skip_existing':
+      return 'Skip existing files';
+    case 'connector_default':
+      return 'Connector default';
+  }
+}
+
+export function defaultFileExportSettings(input: Partial<FileExportSettings> = {}, mode: DataExportMode = 'incremental', destinationPath = ''): FileExportSettings {
+  const settings: FileExportSettings = {
+    incremental_policy: input.incremental_policy ?? (mode === 'snapshot' ? 'full_snapshot' : 'modified_since_last_success'),
+    overwrite_behavior: input.overwrite_behavior ?? 'overwrite_existing',
+    destination_subfolder: input.destination_subfolder?.trim() || null,
+    preserve_directory_structure: input.preserve_directory_structure ?? true,
+    full_reexport_requested: input.full_reexport_requested ?? false,
+    full_reexport_strategy: input.full_reexport_strategy ?? 'create_new_export_or_overwrite_upstream',
+    source_files: input.source_files ?? [],
+    last_successful_transaction_id: input.last_successful_transaction_id ?? null,
+    last_successful_at: input.last_successful_at ?? null,
+    destination_subfolder_guidance: input.destination_subfolder_guidance ?? [],
+  };
+  settings.destination_subfolder_guidance = fileExportDestinationGuidance(destinationPath, settings);
+  return settings;
+}
+
+export function fileExportDestinationGuidance(destinationPath: string, settings: Pick<FileExportSettings, 'overwrite_behavior' | 'destination_subfolder' | 'full_reexport_requested'>): string[] {
+  const guidance = ['File exports copy raw dataset files and default to files modified since the last successful export transaction.'];
+  if (settings.full_reexport_requested) {
+    guidance.push('For a full re-export, create a new export or overwrite all files upstream; this run is marked to include the whole file manifest once.');
+  }
+  if (settings.overwrite_behavior === 'overwrite_existing' && !fileExportHasDedicatedSubfolder(destinationPath, settings.destination_subfolder ?? null)) {
+    guidance.push('Use a dedicated destination subfolder to avoid overwriting files owned by other systems.');
+  }
+  return guidance;
+}
+
+function fileExportHasDedicatedSubfolder(destinationPath: string, subfolder?: string | null): boolean {
+  if (subfolder?.trim()) return true;
+  let path = destinationPath.trim();
+  const schemeIndex = path.indexOf('://');
+  if (schemeIndex >= 0) {
+    path = path.slice(schemeIndex + 3);
+    const bucketSlash = path.indexOf('/');
+    path = bucketSlash >= 0 ? path.slice(bucketSlash + 1) : '';
+  }
+  path = path.replace(/^\/+|\/+$/g, '');
+  return path.includes('/');
+}
+
+export function resolveFileExportRunPlan(settingsInput: Partial<FileExportSettings>, destinationPath: string, nowIso: string): FileExportRunPlan {
+  const settings = defaultFileExportSettings(settingsInput, settingsInput.incremental_policy === 'full_snapshot' ? 'snapshot' : 'incremental', destinationPath);
+  const files = [...(settings.source_files ?? [])].sort((left, right) => {
+    const leftTime = left.modified_at ? Date.parse(left.modified_at) : Number.NEGATIVE_INFINITY;
+    const rightTime = right.modified_at ? Date.parse(right.modified_at) : Number.NEGATIVE_INFINITY;
+    if (leftTime !== rightTime) return leftTime - rightTime;
+    return left.path.localeCompare(right.path);
+  });
+  const lastSuccessfulAt = settings.last_successful_at ? Date.parse(settings.last_successful_at) : null;
+  const fullReexport = settings.full_reexport_requested || settings.incremental_policy === 'full_snapshot';
+  const exportedFiles: FileExportSourceFile[] = [];
+  const skippedFiles: FileExportSourceFile[] = [];
+  let bytesWritten = 0;
+  let highWatermark: string | null = settings.last_successful_transaction_id ?? null;
+  for (const file of files) {
+    const modifiedAt = file.modified_at ? Date.parse(file.modified_at) : null;
+    const shouldWrite = fullReexport || lastSuccessfulAt === null || modifiedAt === null || modifiedAt > lastSuccessfulAt;
+    if (shouldWrite) {
+      exportedFiles.push(file);
+      bytesWritten += file.size_bytes;
+      highWatermark = file.transaction_id ?? highWatermark;
+    } else {
+      skippedFiles.push(file);
+    }
+  }
+  void nowIso;
+  return {
+    incremental_policy: settings.incremental_policy,
+    overwrite_behavior: settings.overwrite_behavior,
+    destination_path: destinationPath,
+    destination_subfolder: settings.destination_subfolder ?? null,
+    files_considered: files.length,
+    files_written: exportedFiles.length,
+    files_skipped: skippedFiles.length,
+    bytes_written: bytesWritten,
+    full_reexport: fullReexport,
+    last_successful_at: settings.last_successful_at ?? null,
+    last_exported_transaction_id: highWatermark,
+    exported_files: exportedFiles,
+    skipped_files: skippedFiles,
+    destination_subfolder_advice: fileExportDestinationGuidance(destinationPath, settings),
+  };
+}
+
+export function tableExportModeRequiresTruncate(mode: DataExportMode): boolean {
+  return mode === 'mirror' || mode === 'full_snapshot_truncate' || mode === 'incremental_truncate';
+}
+
+export function defaultTableExportSettings(input: Partial<TableExportSettings> = {}, mode: DataExportMode = 'mirror'): TableExportSettings {
+  const settings: TableExportSettings = {
+    dataset_schema: normalizeTableExportColumns(input.dataset_schema ?? []),
+    destination_schema: normalizeTableExportColumns(input.destination_schema ?? []),
+    input_parquet_backed: input.input_parquet_backed ?? false,
+    destination_table_exists: input.destination_table_exists ?? false,
+    truncate_permission: input.truncate_permission ?? false,
+    exact_column_match: false,
+    row_count_estimate: input.row_count_estimate ?? null,
+    last_successful_transaction_id: input.last_successful_transaction_id ?? null,
+    last_successful_at: input.last_successful_at ?? null,
+    validation_issues: [],
+  };
+  settings.exact_column_match = tableExportColumnsExactlyMatch(settings.dataset_schema, settings.destination_schema);
+  settings.validation_issues = validateTableExportSettings(settings, mode);
+  return settings;
+}
+
+export function validateTableExportSettings(settingsInput: Partial<TableExportSettings>, mode: DataExportMode = 'mirror'): TableExportValidationIssue[] {
+  const settings: TableExportSettings = {
+    dataset_schema: normalizeTableExportColumns(settingsInput.dataset_schema ?? []),
+    destination_schema: normalizeTableExportColumns(settingsInput.destination_schema ?? []),
+    input_parquet_backed: settingsInput.input_parquet_backed ?? false,
+    destination_table_exists: settingsInput.destination_table_exists ?? false,
+    truncate_permission: settingsInput.truncate_permission ?? false,
+    exact_column_match: false,
+    row_count_estimate: settingsInput.row_count_estimate ?? null,
+    last_successful_transaction_id: settingsInput.last_successful_transaction_id ?? null,
+    last_successful_at: settingsInput.last_successful_at ?? null,
+    validation_issues: [],
+  };
+  settings.exact_column_match = tableExportColumnsExactlyMatch(settings.dataset_schema, settings.destination_schema);
+  const issues: TableExportValidationIssue[] = [];
+  const issue = (code: string, message: string, column?: string) => issues.push({ code, severity: 'error' as const, message, column });
+
+  if (!settings.input_parquet_backed) issue('input_not_parquet', 'table_export.input_parquet_backed must be true because table exports require Parquet-backed dataset files.');
+  if (!settings.destination_table_exists) issue('destination_table_missing', 'table_export.destination_table_exists must be true because OpenFoundry does not create external destination tables.');
+  if (tableExportModeRequiresTruncate(mode) && !settings.truncate_permission) issue('truncate_permission_missing', 'table_export.truncate_permission must be true for mirror or truncating table export modes.');
+  if (settings.dataset_schema.length === 0) issue('dataset_schema_missing', 'table_export.dataset_schema required for table exports.');
+  if (settings.destination_schema.length === 0) issue('destination_schema_missing', 'table_export.destination_schema required for table exports.');
+
+  issues.push(...tableExportColumnIssues(settings.dataset_schema, 'dataset_schema'));
+  issues.push(...tableExportColumnIssues(settings.destination_schema, 'destination_schema'));
+  issues.push(...tableExportSchemaMatchIssues(settings.dataset_schema, settings.destination_schema));
+  return issues;
+}
+
+export function resolveTableExportRunPlan(settingsInput: Partial<TableExportSettings>, mode: DataExportMode = 'mirror', nowIso = new Date().toISOString()): TableExportRunPlan {
+  const settings = defaultTableExportSettings(settingsInput, mode);
+  void nowIso;
+  const truncateRequired = tableExportModeRequiresTruncate(mode);
+  return {
+    export_mode: mode,
+    resolution_strategy: tableExportResolutionStrategy(mode),
+    rows_written: Math.max(0, settings.row_count_estimate ?? 0),
+    truncate_required: truncateRequired,
+    truncate_performed: truncateRequired,
+    input_parquet_backed: settings.input_parquet_backed,
+    destination_table_exists: settings.destination_table_exists,
+    exact_column_match: settings.exact_column_match,
+    last_successful_at: settings.last_successful_at ?? null,
+    validation_issues: settings.validation_issues ?? [],
+  };
+}
+
+function normalizeTableExportColumns(columns: TableExportColumn[]): TableExportColumn[] {
+  return columns.map((column) => ({
+    name: column.name?.trim() ?? '',
+    foundry_type: column.foundry_type?.trim() ?? '',
+    external_type: column.external_type?.trim() ?? '',
+    nullable: Boolean(column.nullable),
+  }));
+}
+
+function tableExportColumnIssues(columns: TableExportColumn[], field: 'dataset_schema' | 'destination_schema'): TableExportValidationIssue[] {
+  const issues: TableExportValidationIssue[] = [];
+  const seen = new Set<string>();
+  for (const [index, column] of columns.entries()) {
+    if (!column.name) {
+      issues.push({ code: `${field}_blank_column`, severity: 'error', message: `table_export.${field}[${index}].name cannot be blank.` });
+      continue;
+    }
+    if (seen.has(column.name)) {
+      issues.push({ code: `${field}_duplicate_column`, severity: 'error', message: `table_export.${field} cannot contain duplicate column ${column.name}.`, column: column.name });
+    }
+    seen.add(column.name);
+    if (tableExportTypeIsNested(column.foundry_type) || tableExportTypeIsNested(column.external_type)) {
+      issues.push({ code: `${field}_unsupported_nested_type`, severity: 'error', message: `Table exports do not support nested ARRAY, MAP, STRUCT, JSON, or object column types for ${column.name}.`, column: column.name });
+    }
+    if (!tableExportEffectiveType(column, field === 'dataset_schema')) {
+      issues.push({ code: `${field}_missing_type`, severity: 'error', message: `table_export.${field} column ${column.name} must define a type.`, column: column.name });
+    }
+  }
+  return issues;
+}
+
+function tableExportSchemaMatchIssues(dataset: TableExportColumn[], destination: TableExportColumn[]): TableExportValidationIssue[] {
+  const issues: TableExportValidationIssue[] = [];
+  if (dataset.length === 0 || destination.length === 0) return issues;
+  if (dataset.length !== destination.length) {
+    issues.push({ code: 'schema_column_count_mismatch', severity: 'error', message: 'table_export dataset_schema and destination_schema must contain the same number of columns.' });
+  }
+  const limit = Math.min(dataset.length, destination.length);
+  for (let index = 0; index < limit; index += 1) {
+    const left = dataset[index];
+    const right = destination[index];
+    if (left.name !== right.name) {
+      const caseSuffix = left.name.toLowerCase() === right.name.toLowerCase() ? ' including case' : '';
+      issues.push({ code: 'schema_column_name_mismatch', severity: 'error', message: `table_export column ${index} name mismatch: dataset "${left.name}" must exactly match destination "${right.name}"${caseSuffix}.`, column: left.name });
+    }
+    const datasetType = tableExportEffectiveType(left, true);
+    const destinationType = tableExportEffectiveType(right, false);
+    if (!tableExportTypesCompatible(datasetType, destinationType)) {
+      issues.push({ code: 'schema_column_type_mismatch', severity: 'error', message: `table_export column ${left.name} type mismatch: dataset "${datasetType}" must be compatible with destination "${destinationType}".`, column: left.name });
+    }
+  }
+  return issues;
+}
+
+function tableExportColumnsExactlyMatch(dataset: TableExportColumn[], destination: TableExportColumn[]): boolean {
+  if (dataset.length === 0 || dataset.length !== destination.length) return false;
+  return dataset.every((column, index) => column.name !== '' && column.name === destination[index].name && tableExportTypesCompatible(tableExportEffectiveType(column, true), tableExportEffectiveType(destination[index], false)));
+}
+
+function tableExportEffectiveType(column: TableExportColumn, dataset: boolean): string {
+  if (dataset) return column.foundry_type || column.external_type || '';
+  return column.external_type || column.foundry_type || '';
+}
+
+function tableExportTypesCompatible(datasetType: string, destinationType: string): boolean {
+  const left = tableExportTypeFamily(datasetType);
+  const right = tableExportTypeFamily(destinationType);
+  return Boolean(left && right && left === right);
+}
+
+function tableExportTypeFamily(value: string): string {
+  let normalized = value.trim().toLowerCase();
+  if (!normalized || tableExportTypeIsNested(normalized)) return '';
+  normalized = normalized.replace(/\(.*/, '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  if (['string', 'varchar', 'varchar2', 'char', 'character', 'text', 'nvarchar', 'nchar', 'ntext'].includes(normalized)) return 'string';
+  if (['boolean', 'bool', 'bit'].includes(normalized)) return 'boolean';
+  if (['byte', 'tinyint'].includes(normalized)) return 'tinyint';
+  if (['short', 'smallint', 'int2'].includes(normalized)) return 'smallint';
+  if (['integer', 'int', 'int4'].includes(normalized)) return 'integer';
+  if (['long', 'bigint', 'int8'].includes(normalized)) return 'bigint';
+  if (['float', 'float32', 'real'].includes(normalized)) return 'float';
+  if (['double', 'float64', 'double precision'].includes(normalized)) return 'double';
+  if (['decimal', 'numeric', 'number'].includes(normalized)) return 'decimal';
+  if (normalized === 'date') return 'date';
+  if (['timestamp', 'timestamp without time zone', 'timestamp with time zone', 'timestamptz', 'datetime'].includes(normalized)) return 'timestamp';
+  if (['binary', 'bytes', 'bytea', 'varbinary'].includes(normalized)) return 'binary';
+  return normalized;
+}
+
+function tableExportTypeIsNested(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return ['array', 'map', 'struct', 'list', 'record', 'object', 'json', 'variant'].some((token) => normalized.includes(token));
+}
+
+function tableExportResolutionStrategy(mode: DataExportMode): string {
+  switch (mode) {
+    case 'mirror':
+      return 'efficient_mirror';
+    case 'full_snapshot':
+      return 'full_dataset_without_truncation';
+    case 'full_snapshot_truncate':
+      return 'full_dataset_with_truncation';
+    case 'incremental':
+      return 'incremental';
+    case 'incremental_truncate':
+      return 'incremental_with_truncation';
+    case 'incremental_append_only':
+      return 'incremental_append_only';
+    default:
+      return 'table_export';
+  }
+}
+
+export function streamingExportReplayBehaviorLabel(behavior: StreamingExportReplayBehavior): string {
+  switch (behavior) {
+    case 'export_replayed_records':
+      return 'Export replayed records';
+    case 'skip_replayed_records':
+      return 'Do not export replayed records';
+  }
+}
+
+export function defaultStreamingExportSettings(input: Partial<StreamingExportSettings> = {}, scheduleConfigured = false): StreamingExportSettings {
+  const settings: StreamingExportSettings = {
+    replay_behavior: input.replay_behavior ?? 'export_replayed_records',
+    start_offset: input.start_offset ?? 'previous_export_offset',
+    start_offset_value: input.start_offset_value?.trim() || null,
+    last_exported_offset: input.last_exported_offset?.trim() || null,
+    last_checkpoint_id: input.last_checkpoint_id?.trim() || null,
+    schedule_restart_enabled: input.schedule_restart_enabled ?? scheduleConfigured,
+    restart_from_previous_offset: false,
+    records_exported_estimate: input.records_exported_estimate ?? null,
+    replayed_records_detected: input.replayed_records_detected ?? false,
+    last_started_at: input.last_started_at ?? null,
+    last_stopped_at: input.last_stopped_at ?? null,
+    warnings: [],
+  };
+  settings.restart_from_previous_offset = settings.start_offset === 'previous_export_offset';
+  settings.warnings = streamingExportWarnings(settings);
+  return settings;
+}
+
+export function validateStreamingExportSettings(settingsInput: Partial<StreamingExportSettings>): StreamingExportWarning[] {
+  const settings = defaultStreamingExportSettings(settingsInput);
+  const issues: StreamingExportWarning[] = [];
+  if (!['export_replayed_records', 'skip_replayed_records'].includes(settings.replay_behavior)) {
+    issues.push({ code: 'invalid_replay_behavior', severity: 'error', message: 'streaming_export.replay_behavior must be export_replayed_records or skip_replayed_records.' });
+  }
+  if (!['previous_export_offset', 'latest', 'earliest', 'explicit'].includes(settings.start_offset)) {
+    issues.push({ code: 'invalid_start_offset', severity: 'error', message: 'streaming_export.start_offset must be previous_export_offset, latest, earliest, or explicit.' });
+  }
+  if (settings.start_offset === 'explicit' && !settings.start_offset_value) {
+    issues.push({ code: 'explicit_offset_missing', severity: 'error', message: 'streaming_export.start_offset_value required when start_offset is explicit.' });
+  }
+  if (settings.records_exported_estimate !== null && settings.records_exported_estimate !== undefined && settings.records_exported_estimate < 0) {
+    issues.push({ code: 'invalid_records_estimate', severity: 'error', message: 'streaming_export.records_exported_estimate must be zero or a positive number.' });
+  }
+  return [...issues, ...streamingExportWarnings(settings)];
+}
+
+export function resolveStreamingExportStartPlan(settingsInput: Partial<StreamingExportSettings>, scheduleTriggered = false, nowIso = new Date().toISOString()): StreamingExportStartPlan {
+  const settings = defaultStreamingExportSettings(settingsInput, scheduleTriggered);
+  void nowIso;
+  return {
+    replay_behavior: settings.replay_behavior,
+    start_offset: settings.start_offset,
+    effective_start_offset: streamingExportEffectiveStartOffset(settings),
+    restart_from_previous_offset: settings.restart_from_previous_offset,
+    schedule_restart_enabled: settings.schedule_restart_enabled,
+    schedule_triggered: scheduleTriggered,
+    records_to_export: Math.max(0, settings.records_exported_estimate ?? 0),
+    duplicate_risk: settings.replay_behavior === 'export_replayed_records',
+    drop_risk: settings.replay_behavior === 'skip_replayed_records',
+    warnings: settings.warnings ?? [],
+  };
+}
+
+export function advanceStreamingExportOffset(settingsInput: Partial<StreamingExportSettings>): string | null {
+  const settings = defaultStreamingExportSettings(settingsInput);
+  const records = settings.records_exported_estimate ?? 0;
+  if (records <= 0) return settings.last_exported_offset ?? null;
+  if (!settings.last_exported_offset) return String(records);
+  const numeric = Number(settings.last_exported_offset);
+  if (Number.isInteger(numeric)) return String(numeric + records);
+  return settings.last_exported_offset;
+}
+
+function streamingExportWarnings(settings: Pick<StreamingExportSettings, 'replay_behavior'>): StreamingExportWarning[] {
+  if (settings.replay_behavior === 'skip_replayed_records') {
+    return [{ code: 'replay_drop_risk', severity: 'warning', message: 'Skipping replayed stream records can drop records because offsets are not guaranteed to match across replayed streams.' }];
+  }
+  return [{ code: 'replay_duplicate_risk', severity: 'warning', message: 'Exporting replayed stream records can duplicate records in the external destination; configure downstream consumers to tolerate duplicates.' }];
+}
+
+function streamingExportEffectiveStartOffset(settings: StreamingExportSettings): string | null {
+  if (settings.start_offset === 'previous_export_offset') return settings.last_exported_offset || 'latest';
+  if (settings.start_offset === 'explicit') return settings.start_offset_value ?? null;
+  return settings.start_offset;
 }
 
 export function parseGlobList(raw: string): string[] {
@@ -2524,6 +5834,120 @@ export function makeTableBatchSyncSettings(input: Omit<TableBatchSyncSettings, '
     warnings: [],
   };
   return { ...settings, warnings: validateTableBatchSyncSettings(settings) };
+}
+
+export const CDC_RELATIONAL_CONNECTORS = new Set(['postgresql', 'postgres', 'mssql', 'sqlserver', 'microsoft_sql_server', 'oracle', 'oracle_database', 'db2', 'ibm_db2']);
+export const CDC_CHANGELOG_STREAM_CONNECTORS = new Set(['kafka', 'streaming_kafka', 'kinesis', 'streaming_kinesis', 'pubsub', 'streaming_pubsub', 'google_pubsub', 'iot', 'streaming_external']);
+
+export function cdcInputKindForConnector(connectorType: string): CdcSyncInputKind | null {
+  const normalized = connectorType.trim().toLowerCase();
+  if (CDC_RELATIONAL_CONNECTORS.has(normalized)) return 'relational_connector';
+  if (CDC_CHANGELOG_STREAM_CONNECTORS.has(normalized)) return 'streaming_middleware_changelog';
+  return null;
+}
+
+export function connectorSupportsCdcSync(connectorType: string): boolean {
+  return cdcInputKindForConnector(connectorType) !== null;
+}
+
+function hasSchemaField(schema: SyncResourceSchemaField[], column: string): boolean {
+  const normalized = column.trim().toLowerCase();
+  return schema.some((field) => field.name.trim().toLowerCase() === normalized);
+}
+
+export function validateCdcSyncSetup(settings: CdcSyncSettings, connectorType?: string): SyncValidationWarning[] {
+  const warnings: SyncValidationWarning[] = [];
+  const supportedKind = connectorType ? cdcInputKindForConnector(connectorType) : settings.input_kind;
+  if (connectorType && supportedKind === null) {
+    warnings.push({ code: 'unsupported-cdc-connector', severity: 'error', message: `Connector ${connectorType} does not support CDC sync setup.` });
+  }
+  if (connectorType && supportedKind !== null && supportedKind !== settings.input_kind) {
+    warnings.push({ code: 'cdc-input-kind-mismatch', severity: 'warning', message: `Connector ${connectorType} is normally configured as ${supportedKind}.` });
+  }
+  if (settings.input_kind === 'relational_connector') {
+    if (!settings.source_table.trim()) {
+      warnings.push({ code: 'missing-cdc-source-table', severity: 'error', message: 'Select the source table for the CDC sync.' });
+    }
+    if (!settings.source_database_cdc_enabled) {
+      warnings.push({ code: 'database-cdc-not-enabled', severity: 'error', message: 'Confirm that the source database exposes changelog data before creating the CDC sync.' });
+    }
+    if (!settings.source_table_cdc_enabled) {
+      warnings.push({ code: 'table-cdc-not-enabled', severity: 'error', message: 'Confirm that the selected source table exposes changelog data before creating the CDC sync.' });
+    }
+  }
+  if (settings.input_kind === 'streaming_middleware_changelog') {
+    if (!(settings.source_topic ?? '').trim()) {
+      warnings.push({ code: 'missing-cdc-source-topic', severity: 'error', message: 'Select the topic, queue, or stream that carries changelog-shaped records.' });
+    }
+    if (!settings.changelog_input_validated) {
+      warnings.push({ code: 'changelog-shape-not-validated', severity: 'error', message: 'Validate that the streaming middleware input carries primary key, ordering, and deletion metadata.' });
+    }
+  }
+  if (settings.primary_key_columns.length === 0) {
+    warnings.push({ code: 'missing-cdc-primary-key', severity: 'error', message: 'CDC syncs require at least one primary key column.' });
+  }
+  if (!settings.ordering_column.trim()) {
+    warnings.push({ code: 'missing-cdc-ordering-column', severity: 'error', message: 'CDC syncs require an ordering column for archive/current-state resolution.' });
+  }
+  if (!settings.output_stream_location.trim() && !(settings.output_stream_id ?? '').trim()) {
+    warnings.push({ code: 'missing-cdc-output-stream', severity: 'error', message: 'Choose or create an output stream for changelog records.' });
+  }
+  if (['timestamp', 'lsn', 'offset'].includes(settings.start_position) && `${settings.start_position_value ?? ''}`.trim() === '') {
+    warnings.push({ code: 'missing-cdc-start-position-value', severity: 'error', message: `Start position ${settings.start_position} requires a value.` });
+  }
+  if (settings.deletion_column && settings.deletion_column.trim() === settings.ordering_column.trim()) {
+    warnings.push({ code: 'deletion-column-conflicts-ordering', severity: 'error', message: 'Deletion and ordering columns must be distinct.' });
+  }
+  const duplicatePrimaryKeys = settings.primary_key_columns.filter((column, index, columns) => columns.indexOf(column) !== index);
+  if (duplicatePrimaryKeys.length > 0) {
+    warnings.push({ code: 'duplicate-cdc-primary-key', severity: 'warning', message: `Duplicate primary key columns ignored: ${Array.from(new Set(duplicatePrimaryKeys)).join(', ')}.` });
+  }
+  if (settings.schema.length === 0) {
+    warnings.push({ code: 'missing-cdc-schema', severity: 'warning', message: 'The connector should derive and persist the output stream schema before the sync is started.' });
+  } else {
+    for (const column of settings.primary_key_columns) {
+      if (!hasSchemaField(settings.schema, column)) {
+        warnings.push({ code: 'cdc-primary-key-not-in-schema', severity: 'error', message: `Primary key column ${column} is not present in the captured schema.` });
+      }
+    }
+    if (settings.ordering_column && !hasSchemaField(settings.schema, settings.ordering_column)) {
+      warnings.push({ code: 'cdc-ordering-column-not-in-schema', severity: 'error', message: `Ordering column ${settings.ordering_column} is not present in the captured schema.` });
+    }
+    if (settings.deletion_column && !hasSchemaField(settings.schema, settings.deletion_column)) {
+      warnings.push({ code: 'cdc-deletion-column-not-in-schema', severity: 'error', message: `Deletion column ${settings.deletion_column} is not present in the captured schema.` });
+    }
+  }
+  return warnings;
+}
+
+export function makeCdcSyncSettings(input: Omit<CdcSyncSettings, 'primary_key_columns' | 'connector_metadata' | 'warnings'> & {
+  primary_key_columns: string[];
+  connector_metadata?: Partial<CdcConnectorDerivedMetadata>;
+}, connectorType: string): CdcSyncSettings {
+  const primaryKeys = Array.from(new Set(input.primary_key_columns.map((column) => column.trim()).filter(Boolean)));
+  const settings: CdcSyncSettings = {
+    ...input,
+    primary_key_columns: primaryKeys,
+    source_database: input.source_database?.trim() || null,
+    source_schema: input.source_schema?.trim() || null,
+    source_table: input.source_table.trim(),
+    source_topic: input.source_topic?.trim() || null,
+    ordering_column: input.ordering_column.trim(),
+    deletion_column: input.deletion_column?.trim() || null,
+    output_stream_id: input.output_stream_id?.trim() || null,
+    output_stream_location: input.output_stream_location.trim(),
+    connector_metadata: {
+      connector_type: connectorType,
+      source_database: input.source_database?.trim() || null,
+      source_schema: input.source_schema?.trim() || null,
+      source_table: input.source_table.trim() || null,
+      upstream_topic: input.source_topic?.trim() || null,
+      output_stream_id: input.output_stream_id?.trim() || null,
+      ...input.connector_metadata,
+    },
+    warnings: [],
+  };
+  return { ...settings, warnings: validateCdcSyncSetup(settings, connectorType) };
 }
 
 export function defaultOutputKindForCapability(capability: SyncCapabilityType): SyncOutputKind {

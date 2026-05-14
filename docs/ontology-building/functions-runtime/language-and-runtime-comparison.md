@@ -6,9 +6,9 @@ OpenFoundry already hints at a multi-runtime function future.
 
 | Runtime | Current repository signal | Likely role |
 | --- | --- | --- |
-| Rust native | service logic across the platform | control-plane and high-performance backend flows |
+| Go native | service logic across the platform | control-plane and high-performance backend flows |
 | Node runtime | `node_runtime_command` in ontology config | package simulation, JS/TS-oriented function execution |
-| Python-linked | `pyo3` in `ontology-service` | Python-assisted semantic logic and model-friendly operations |
+| Python sandbox | `libs/python-sidecar` (gRPC subprocess) consumed by `ontology-actions-service` for function execution and by `notebook-runtime-service` for notebooks | Python-assisted semantic logic and model-friendly operations |
 
 ## OpenFoundry current vs target
 

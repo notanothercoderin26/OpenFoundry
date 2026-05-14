@@ -30,7 +30,7 @@
 
 - Cassandra cluster running with `auth_runtime` keyspace at
   `NetworkTopologyStrategy {dc1: 3}` minimum (per
-  [`infra/k8s/platform/manifests/cassandra/keyspaces-job.yaml`](../../../infra/k8s/platform/manifests/cassandra/keyspaces-job.yaml)).
+  [`infra/helm/infra/manifests/cassandra/keyspaces-job.yaml`](../../../infra/helm/infra/manifests/cassandra/keyspaces-job.yaml)).
 - `identity-federation-service` deployed with **≥ 3 replicas** and
   PodDisruptionBudget `minAvailable: 2`.
 - `session-governance-service` deployed with the revocation tables

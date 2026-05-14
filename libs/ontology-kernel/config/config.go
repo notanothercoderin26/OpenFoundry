@@ -1,13 +1,8 @@
-// Package config is the Go port of `libs/ontology-kernel/src/config.rs`.
+// Package config holds the environment-driven configuration consumed
+// by every ontology-* binary.
 //
-// AppConfig is the environment-driven configuration consumed by every
-// ontology-* binary. The Rust source uses the `config` crate with
-// `Environment::default().separator("__")` so nested fields (none today)
-// would be flattened with `__` as the path separator. Today every field
-// is flat — the table reads scalar env vars by their UPPER_SNAKE name.
-//
-// Defaults match the Rust helper functions byte-for-byte; tests pin
-// each one.
+// Every field is flat: the table reads scalar env vars by their
+// UPPER_SNAKE name. Tests pin each default.
 package config
 
 import (
@@ -17,7 +12,7 @@ import (
 	"strings"
 )
 
-// AppConfig mirrors `struct AppConfig`.
+// AppConfig is the env-driven configuration shared by ontology-* binaries.
 type AppConfig struct {
 	Host                          string
 	Port                          uint16
@@ -34,7 +29,7 @@ type AppConfig struct {
 	ConnectorManagementServiceURL string
 }
 
-// Defaults mirror `default_*()` helpers in config.rs.
+// Defaults populate optional fields when the corresponding env var is unset.
 const (
 	DefaultHost                          = "0.0.0.0"
 	DefaultPort                          = uint16(50057)
@@ -68,18 +63,15 @@ func Default() AppConfig {
 	}
 }
 
-// FromEnv mirrors `AppConfig::from_env()`. Reads the same env vars the
-// Rust `config` crate would surface (UPPER_SNAKE names, no prefix).
-// Required fields without a default (DatabaseURL, JWTSecret) return an
-// error if absent — matching `try_deserialize` rejecting a missing
-// non-Option field.
+// FromEnv loads the configuration from process env vars (UPPER_SNAKE,
+// no prefix). Required fields without a default (DatabaseURL, JWTSecret)
+// return an error when unset.
 func FromEnv() (AppConfig, error) {
 	return FromGetenv(os.Getenv)
 }
 
 // FromGetenv is the testable inner that takes any `func(key) string`
-// resolver. Rust's `config` crate also accepts arbitrary providers
-// (env, file, etc.); we mirror that injection point.
+// resolver. Tests pass a stub map-backed getter.
 func FromGetenv(get func(string) string) (AppConfig, error) {
 	c := Default()
 

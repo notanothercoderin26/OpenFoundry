@@ -161,9 +161,8 @@ func (s *State) GetNotebook(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UpdateNotebook mirrors `pub async fn update_notebook`. PATCH +
-// PUT route through the same handler — the Rust crate registers them
-// against the same axum function.
+// UpdateNotebook handles both PATCH and PUT against the same path —
+// both verbs are routed through this handler.
 func (s *State) UpdateNotebook(w http.ResponseWriter, r *http.Request) {
 	id, err := pathUUID(r, "notebook_id")
 	if err != nil {

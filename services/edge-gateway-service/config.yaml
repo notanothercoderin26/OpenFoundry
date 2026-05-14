@@ -33,8 +33,8 @@ rate_limit:
   bucket_ttl_secs: 300
   redis_key_prefix: "openfoundry:ratelimit"
 
-# Upstream URLs use the Rust crate's localhost defaults. Override per
-# field in production via Helm values.
+# Upstream URLs default to localhost ports for dev / docker-compose.
+# Override per field in production via Helm values.
 upstream:
   identity_federation_service_url: "http://localhost:50112"
   authorization_policy_service_url: "http://localhost:50093"

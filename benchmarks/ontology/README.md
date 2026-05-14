@@ -17,41 +17,41 @@ that S1.8.c locks in:
 | P50 | < 5 ms | `http_req_duration{group:read-by-id}` p(50) < 5 |
 | P95 | < 20 ms | `http_req_duration` p(95) < 20 |
 | P99 | < 50 ms | `http_req_duration` p(99) < 50 |
-| Sostenido | 5 000 RPS | `iterations_per_second` ≥ 5000 |
-| Errores | < 0.1 % | `http_req_failed` rate < 0.001 |
+| Sustained | 5 000 RPS | `iterations_per_second` ≥ 5000 |
+| Errors | < 0.1 % | `http_req_failed` rate < 0.001 |
 
 The thresholds are wired into [`k6/ontology-mix.js`](k6/ontology-mix.js)
 and the run aborts early if breached.
 
 ## Authorization mix
 
-50 % de los reads se ejecutan con `X-Consistency: strong` (LOCAL_QUORUM,
-bypass cache) y 50 % con `X-Consistency: eventual` (LOCAL_ONE + cache
-moka — ver S1.5.a/d). Esto asegura cobertura del path con cache caliente
-y del path quorum-bound. Todas las requests llevan `Authorization:
-Bearer ${OF_BENCH_TOKEN}` para ejercer los middleware de
-`auth-middleware` y la evaluación Cedar de `authz-cedar`.
+50 % of reads run with `X-Consistency: strong` (LOCAL_QUORUM,
+cache bypass) and 50 % with `X-Consistency: eventual` (LOCAL_ONE + moka
+cache — see S1.5.a/d). This ensures coverage of both the hot-cache path
+and the quorum-bound path. All requests carry `Authorization:
+Bearer ${OF_BENCH_TOKEN}` to exercise the `auth-middleware` middleware
+and the Cedar evaluation in `authz-cedar`.
 
 ## Layout
 
 ```
 benchmarks/ontology/
-├── README.md                       # este archivo
+├── README.md                       # this file
 ├── k6/
-│   ├── ontology-mix.js             # harness primario (RPS-shaped, threshold-aware)
-│   └── seed.sh                     # poblar ids fixture vía API
+│   ├── ontology-mix.js             # primary harness (RPS-shaped, threshold-aware)
+│   └── seed.sh                     # populate fixture ids via the API
 ├── scenarios/
-│   └── ontology-mix.json           # latency-only baseline para `of-cli bench`
+│   └── ontology-mix.json           # latency-only baseline for `of-cli bench`
 └── runbooks/
     ├── hot-partitions.md           # S1.8.d — `nodetool tablestats` workflow
-    └── iteration-playbook.md       # S1.8.e — qué tocar si el SLO no cumple
+    └── iteration-playbook.md       # S1.8.e — what to tweak if the SLO fails
 ```
 
-## Cómo correr
+## How to run
 
-### k6 (camino canónico, 5 000 RPS sostenidos)
+### k6 (canonical path, 5 000 sustained RPS)
 
-Requiere k6 1.0+ (`brew install k6` o `docker run grafana/k6`).
+Requires k6 1.0+ (`brew install k6` or `docker run grafana/k6`).
 
 ```bash
 export OF_BENCH_BASE_URL=https://ontology.dev.openfoundry.local
@@ -64,39 +64,39 @@ export OF_BENCH_ACTION_ID=<action-id-fixture>
 just bench-ontology
 ```
 
-Resultados a `benchmarks/results/ontology-mix-k6.json` (formato k6
-nativo), `benchmarks/results/ontology-mix-summary.json` y
-`benchmarks/results/ontology-mix-metadata.json`. La receta llama a
-[`scripts/run-s1-baseline.sh`](scripts/run-s1-baseline.sh), que hace
-preflight de variables/dataset, ejecuta k6 y genera
-`benchmarks/results/adr-0012-s1-baseline.md` con la tabla que se pega en
-ADR-0012. Para Grafana basta apuntar el data source de Prometheus al
-exporter de k6 (`--out experimental-prometheus-rw`).
+Results land in `benchmarks/results/ontology-mix-k6.json` (k6 native
+format), `benchmarks/results/ontology-mix-summary.json` and
+`benchmarks/results/ontology-mix-metadata.json`. The recipe calls
+[`scripts/run-s1-baseline.sh`](scripts/run-s1-baseline.sh), which
+preflight-checks variables/dataset, runs k6 and generates
+`benchmarks/results/adr-0012-s1-baseline.md` with the table that gets
+pasted into ADR-0012. For Grafana, just point the Prometheus data source
+at the k6 exporter (`--out experimental-prometheus-rw`).
 
-### `of-cli bench` (sequential latency baseline, sin RPS shape)
+### `of-cli bench` (sequential latency baseline, no RPS shape)
 
-Útil para regresión rápida en CI; mide warmup×1 + medidas×5 sin
-mantener carga concurrente. No pretende validar el SLO de 5 000 RPS,
-sino atrapar regresiones de latencia mediana.
+Useful for quick regression in CI; measures warmup×1 + samples×5 without
+maintaining concurrent load. It is not meant to validate the 5 000 RPS
+SLO, only to catch regressions in median latency.
 
 ```bash
-just bench-critical-paths   # ya existente, no toca este harness
-cargo run -p of-cli -- bench run \
+make bench-critical-paths   # ya existente, no toca este harness
+go run ./tools/of-cli bench run \
   --scenario benchmarks/ontology/scenarios/ontology-mix.json \
   --output benchmarks/results/ontology-mix-baseline.json
 ```
 
-## Cassandra observability durante el run
+## Cassandra observability during the run
 
-Mientras corre el k6, en una segunda shell (apunta a cualquier nodo
-del 3-node cluster):
+While k6 is running, in a second shell (point it at any node of the
+3-node cluster):
 
 ```bash
 watch -n5 'kubectl exec -n data cassandra-0 -- nodetool tablestats \
   ontology_objects ontology_indexes actions_log | grep -E "Read|Write|Tombstone|Bloom|Compaction"'
 ```
 
-Y al final del run:
+And at the end of the run:
 
 ```bash
 kubectl exec -n data cassandra-0 -- nodetool tablestats -F json \
@@ -104,56 +104,56 @@ kubectl exec -n data cassandra-0 -- nodetool tablestats -F json \
   > benchmarks/results/ontology-mix-tablestats.json
 ```
 
-El runbook [`runbooks/hot-partitions.md`](runbooks/hot-partitions.md)
-explica qué métricas mirar (S1.8.d).
+The [`runbooks/hot-partitions.md`](runbooks/hot-partitions.md) runbook
+explains which metrics to watch (S1.8.d).
 
-## Convenciones
+## Conventions
 
-* IDs UUIDv7 (orden temporal). El fixture loader (`k6/seed.sh`)
-  produce `object-ids.txt` para que el harness elija aleatoriamente.
-* `tenant_id` es **único por run** para no contaminar particiones de
-  benchmarks anteriores; el cleanup posterior es un `TRUNCATE … USING
-  TIMESTAMP …` documentado en el runbook de iteración.
-* El harness asume que el read service expone el endpoint por puerto
-  HTTP plano (substrate de S1.5); el gateway TLS se prueba en la
-  smoke suite, no aquí.
+* UUIDv7 ids (temporal order). The fixture loader (`k6/seed.sh`)
+  produces `object-ids.txt` so the harness can pick randomly.
+* `tenant_id` is **unique per run** so it doesn't contaminate
+  partitions from prior benchmarks; subsequent cleanup is a
+  `TRUNCATE … USING TIMESTAMP …` documented in the iteration runbook.
+* The harness assumes the read service exposes the endpoint over plain
+  HTTP (the S1.5 substrate); the TLS gateway is tested in the smoke
+  suite, not here.
 
 ## Running against a live cluster
 
-Para poblar la tabla A.4 de
+To populate table A.4 of
 [`docs/architecture/adr/ADR-0012-data-plane-slos.md`](../../docs/architecture/adr/ADR-0012-data-plane-slos.md)
-y cerrar el gate **G-S1** del
+and close the **G-S1** gate from
 [`migration-plan-cassandra-foundry-parity.md`](../../migration-plan-cassandra-foundry-parity.md)
-hay que correr el harness **dentro del cluster**. Lanzarlo desde el
-laptop introduce 10–40 ms de jitter WAN que enmascara el SLO P99 < 50
-ms, así que el camino soportado es Job + PVC en
+the harness must be run **inside the cluster**. Running it from a
+laptop introduces 10–40 ms of WAN jitter that masks the P99 < 50 ms
+SLO, so the supported path is a Job + PVC under
 `infra/k8s/bench/`:
 
-| Manifest | Contenido |
+| Manifest | Contents |
 |---|---|
-| [`infra/k8s/bench/ontology-bench-namespace.yaml`](../../infra/k8s/bench/ontology-bench-namespace.yaml) | Namespace `openfoundry-bench`, RBAC (`bench-runner` SA con `pods/exec` en `cassandra` ns), PVC `bench-artefacts` (5 GiB RWO), `CronJob ontology-bench-k6` con `suspend: true` ejecutando k6 0.55. |
-| [`infra/k8s/bench/ontology-bench-credentials.yaml`](../../infra/k8s/bench/ontology-bench-credentials.yaml) | `ExternalSecret` que proyecta desde Vault (`secret/data/openfoundry/bench/ontology-bench-token`) un JWT firmado por identity-federation con `tenant=bench-tenant` y los scopes mínimos. |
-| [`infra/k8s/bench/ontology-bench-seed-job.yaml`](../../infra/k8s/bench/ontology-bench-seed-job.yaml) | Job idempotente que inserta 50 000 objetos (5 000 × 10 type_ids `bench-type-T01…T10`, mismo shape que el IT de `libs/cassandra-kernel`) y luego invoca `seed.sh` para harvestear `object-ids.txt`. |
+| [`infra/k8s/bench/ontology-bench-namespace.yaml`](../../infra/k8s/bench/ontology-bench-namespace.yaml) | Namespace `openfoundry-bench`, RBAC (`bench-runner` SA with `pods/exec` in the `cassandra` ns), PVC `bench-artefacts` (5 GiB RWO), `CronJob ontology-bench-k6` with `suspend: true` running k6 0.55. |
+| [`infra/k8s/bench/ontology-bench-credentials.yaml`](../../infra/k8s/bench/ontology-bench-credentials.yaml) | `ExternalSecret` that projects from Vault (`secret/data/openfoundry/bench/ontology-bench-token`) a JWT signed by identity-federation with `tenant=bench-tenant` and the minimum required scopes. |
+| [`infra/k8s/bench/ontology-bench-seed-job.yaml`](../../infra/k8s/bench/ontology-bench-seed-job.yaml) | Idempotent Job that inserts 50 000 objects (5 000 × 10 type_ids `bench-type-T01…T10`, same shape as the `libs/cassandra-kernel` IT) and then invokes `seed.sh` to harvest `object-ids.txt`. |
 
 ### 1. Bootstrap
 
 ```bash
-# Crea el namespace, RBAC, PVC y el CronJob k6 (suspendido).
+# Create the namespace, RBAC, PVC and the (suspended) k6 CronJob.
 kubectl apply -f infra/k8s/bench/ontology-bench-namespace.yaml
 
-# Proyecta el JWT desde Vault (requiere external-secrets operator).
+# Project the JWT from Vault (requires the external-secrets operator).
 kubectl apply -f infra/k8s/bench/ontology-bench-credentials.yaml
 
-# Empuja los scripts canónicos del repo a un ConfigMap. Re-ejecuta
-# este comando cada vez que cambies ontology-mix.js o seed.sh: los
-# manifests intencionalmente NO embeben el contenido para evitar drift.
+# Push the repo's canonical scripts into a ConfigMap. Re-run this
+# command whenever you change ontology-mix.js or seed.sh: the
+# manifests intentionally DO NOT embed the contents, to avoid drift.
 kubectl -n openfoundry-bench create configmap bench-k6-scripts \
   --from-file=ontology-mix.js=benchmarks/ontology/k6/ontology-mix.js \
   --from-file=seed.sh=benchmarks/ontology/k6/seed.sh \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-### 2. Poblar el tenant (seed Job)
+### 2. Populate the tenant (seed Job)
 
 ```bash
 kubectl apply -f infra/k8s/bench/ontology-bench-seed-job.yaml
@@ -162,15 +162,14 @@ kubectl -n openfoundry-bench wait --for=condition=complete \
 kubectl -n openfoundry-bench logs -l app.kubernetes.io/name=ontology-bench-seed --tail=-1
 ```
 
-El Job sale con código 2 si el harvest se queda > 10 % por debajo de
-los 50 000 esperados (síntoma de que el tenant fue truncado a media
-ejecución). El resumen JSON queda en `/data/results/seed-summary.json`
-del PVC.
+The Job exits with code 2 if the harvest falls > 10 % below the
+expected 50 000 (a symptom that the tenant was truncated mid-run).
+The JSON summary lands at `/data/results/seed-summary.json` on the PVC.
 
-### 3. Disparar el bench k6
+### 3. Trigger the k6 bench
 
-El `CronJob` está `suspend: true` por diseño — operadores lanzan una
-ejecución puntual con `kubectl create job --from`:
+The `CronJob` is `suspend: true` by design — operators kick off a
+one-off run with `kubectl create job --from`:
 
 ```bash
 kubectl -n openfoundry-bench create job \
@@ -182,17 +181,17 @@ kubectl -n openfoundry-bench wait --for=condition=complete \
 kubectl -n openfoundry-bench logs -l app.kubernetes.io/name=ontology-bench-k6 --tail=-1
 ```
 
-k6 escribe en el PVC:
+k6 writes to the PVC:
 
-* `/data/results/ontology-mix-k6.json` — output JSON nativo de k6.
+* `/data/results/ontology-mix-k6.json` — k6 native JSON output.
 * `/data/results/ontology-mix-summary.json` — `--summary-export`,
-  útil para CI dashboards.
+  useful for CI dashboards.
 
-### 4. Recoger artefactos del PVC
+### 4. Collect artefacts from the PVC
 
-El PVC es `ReadWriteOnce`, así que no se puede montar en dos pods a la
-vez. Para extraer los JSON al disco local levantamos un pod efímero
-(`tar` + `kubectl cp` no funciona contra PVCs no montados):
+The PVC is `ReadWriteOnce`, so it can't be mounted in two pods at
+once. To extract the JSON to local disk we spin up an ephemeral pod
+(`tar` + `kubectl cp` doesn't work against unmounted PVCs):
 
 ```bash
 kubectl -n openfoundry-bench run bench-fetch \
@@ -210,7 +209,7 @@ kubectl -n openfoundry-bench run bench-fetch \
   }' \
   --image=busybox:1.37 -- sh
 
-# en otra shell:
+# in another shell:
 kubectl -n openfoundry-bench cp \
   bench-fetch:/data/results/ontology-mix-k6.json \
   benchmarks/results/ontology-mix-k6.json
@@ -219,12 +218,12 @@ kubectl -n openfoundry-bench cp \
   benchmarks/results/ontology-mix-summary.json
 ```
 
-### 5. Snapshot de `nodetool tablestats` post-run
+### 5. `nodetool tablestats` snapshot post-run
 
-El `bench-runner` SA tiene `pods/exec` en el namespace `cassandra`
-(via `RoleBinding bench-cassandra-exec`). Lanzamos un pod sidecar
-efímero en `openfoundry-bench` que ejerce ese permiso y persiste el
-JSON al mismo PVC:
+The `bench-runner` SA has `pods/exec` in the `cassandra` namespace
+(via `RoleBinding bench-cassandra-exec`). We launch an ephemeral
+sidecar pod in `openfoundry-bench` that exercises that permission and
+persists the JSON to the same PVC:
 
 ```bash
 kubectl -n openfoundry-bench run bench-tablestats \
@@ -244,7 +243,7 @@ kubectl -n openfoundry-bench run bench-tablestats \
   }' -- sh
 ```
 
-Tras lo cual se copia con el mismo patrón del paso 4
+Afterwards copy it with the same pattern as step 4
 (`bench-fetch:/data/results/ontology-mix-tablestats.json` →
 `benchmarks/results/`).
 
@@ -253,16 +252,16 @@ Tras lo cual se copia con el mismo patrón del paso 4
 ```bash
 kubectl -n openfoundry-bench delete job ontology-bench-seed
 kubectl -n openfoundry-bench delete job -l app.kubernetes.io/name=ontology-bench-k6
-# El PVC se conserva para diff entre runs; bórralo cuando hayas
-# ingresado los artefactos en benchmarks/results/.
+# The PVC is kept so we can diff between runs; delete it once you've
+# checked the artefacts into benchmarks/results/.
 kubectl -n openfoundry-bench delete pvc bench-artefacts
-# Y ejecutar el TRUNCATE documentado en runbooks/iteration-playbook.md
-# contra el keyspace `ontology_objects` (tenant_id = 'bench-tenant').
+# And run the TRUNCATE documented in runbooks/iteration-playbook.md
+# against the `ontology_objects` keyspace (tenant_id = 'bench-tenant').
 ```
 
-> **Aviso G-S1.** Hasta que los tres JSON
+> **G-S1 notice.** Until the three JSON files
 > (`ontology-mix-k6.json`, `ontology-mix-summary.json`,
-> `ontology-mix-tablestats.json`) vivan bajo `benchmarks/results/`
-> y la tabla A.4 del ADR-0012 esté completa, el gate G-S1 sigue
-> abierto. La ejecución real se hace en el Prompt 3 — este Prompt
-> sólo entrega el harness in-cluster.
+> `ontology-mix-tablestats.json`) live under `benchmarks/results/`
+> and table A.4 of ADR-0012 is complete, gate G-S1 stays open. The
+> real execution happens in Prompt 3 — this Prompt only ships the
+> in-cluster harness.

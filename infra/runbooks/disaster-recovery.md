@@ -1,62 +1,62 @@
 # Disaster Recovery Runbook
 
-Fecha: 25 de abril de 2026
+Date: April 25, 2026
 
-## Objetivo
+## Objective
 
-Recuperar OpenFoundry ante pérdida parcial o total del plano de control, minimizando RTO y evitando restores inconsistentes entre PostgreSQL y object storage.
+Recover OpenFoundry after a partial or total loss of the control plane, minimizing RTO and avoiding inconsistent restores between PostgreSQL and object storage.
 
-## Dependencias
+## Dependencies
 
-- Snapshots o dumps recientes de PostgreSQL
-- Backup del bucket principal de artefactos/datasets
-- Credenciales para el cluster o el host de Compose
-- Manifiestos Helm/Terraform del entorno afectado
+- Recent PostgreSQL snapshots or dumps
+- Backup of the main artifact/dataset bucket
+- Credentials for the cluster or the Compose host
+- Helm/Terraform manifests for the affected environment
 
-## Orden de recuperación
+## Recovery order
 
-1. Restaurar red, DNS, registry y secretos base
-2. Restaurar PostgreSQL
-3. Restaurar object storage
-4. Levantar servicios stateless
-5. Verificar migraciones
-6. Reanudar schedulers, sync engines y reconciliadores
-7. Ejecutar smoke checks funcionales
+1. Restore network, DNS, registry, and base secrets
+2. Restore PostgreSQL
+3. Restore object storage
+4. Bring up stateless services
+5. Verify migrations
+6. Resume schedulers, sync engines, and reconcilers
+7. Run functional smoke checks
 
-## Procedimiento Compose
+## Compose procedure
 
-1. Parar schedulers y reconciliadores para evitar escritura nueva
-2. Restaurar PostgreSQL con `infra/scripts/postgres_restore.sh`
-3. Restaurar buckets con `infra/scripts/minio_restore.sh`
-4. Levantar `docker compose` con los mismos perfiles usados antes del incidente
-5. Verificar salud de:
+1. Stop schedulers and reconcilers to prevent new writes
+2. Restore PostgreSQL with `infra/scripts/postgres_restore.sh`
+3. Restore buckets with `infra/scripts/minio_restore.sh`
+4. Bring up `docker compose` using the same profiles that were in use before the incident
+5. Verify the health of:
    - `gateway`
    - `identity-federation-service`
    - `data-asset-catalog-service`
    - `ontology-service`
    - `marketplace-service`
 
-## Procedimiento Kubernetes
+## Kubernetes procedure
 
-1. Escalar a `0` workloads con mutación o background jobs
-2. Restaurar volúmenes o snapshots administrados
-3. Reaplicar chart base y overlays de entorno
-4. Rehabilitar cronjobs, reconcilers y autoscaling
-5. Reejecutar checks de smoke y rutas críticas
+1. Scale workloads with mutating logic or background jobs to `0`
+2. Restore managed volumes or snapshots
+3. Reapply the base chart and environment overlays
+4. Re-enable cronjobs, reconcilers, and autoscaling
+5. Re-run smoke checks and critical paths
 
-## Smoke checks obligatorios
+## Mandatory smoke checks
 
-- Login y emisión de token
-- Listado de datasets
-- Listado de ontology object types
-- Preview de pipeline
-- Consulta de fleets DevOps
-- Chat o AI provider health si el entorno lo usa
+- Login and token issuance
+- Dataset listing
+- Ontology object types listing
+- Pipeline preview
+- DevOps fleets query
+- Chat or AI provider health, if the environment uses it
 
-## Criterio de salida
+## Exit criteria
 
-- Todos los servicios críticos en `healthy`
-- PostgreSQL restaurado con migraciones alineadas
-- Object storage accesible y con paths esperados
-- Al menos un flujo `dataset -> ontology -> app` válido
-- Al menos un `fleet sync` de prueba bloqueado o permitido por gates según lo esperado
+- All critical services `healthy`
+- PostgreSQL restored with migrations aligned
+- Object storage reachable and with the expected paths
+- At least one valid `dataset -> ontology -> app` flow
+- At least one test `fleet sync` blocked or permitted by gates as expected

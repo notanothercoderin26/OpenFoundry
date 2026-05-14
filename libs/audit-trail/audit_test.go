@@ -81,12 +81,12 @@ func TestEventIDDifferentRequestIDDifferentID(t *testing.T) {
 	assert.NotEqual(t, id1.EventID, id2.EventID)
 }
 
-// TestEventIDMatchesCrossLanguageGolden locks the v5 derivation against
-// the same RFC 4122 SHA-1 namespace/name combination that the Rust
-// crate uses. The expected UUIDs were computed with Python's
-// uuid.uuid5 (RFC 4122 SHA-1) — the same algorithm as Rust uuid v5
-// — so a regression here means Go and Rust services would compute
-// different event_ids and the outbox idempotency would silently break.
+// TestEventIDMatchesCrossLanguageGolden locks the v5 derivation
+// against a stable RFC 4122 SHA-1 namespace/name combination. The
+// expected UUIDs were computed with Python's uuid.uuid5 (RFC 4122
+// SHA-1) — a regression here means producers in any language would
+// compute different event_ids and outbox idempotency would silently
+// break.
 func TestEventIDMatchesCrossLanguageGolden(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

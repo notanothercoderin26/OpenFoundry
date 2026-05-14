@@ -13,7 +13,7 @@ import (
 )
 
 // Wire-format invariants: PrimaryItem + SecondaryItem JSON shape
-// preserved 1:1 with the Rust crate.
+// pinned for SDK consumers.
 func TestPrimaryJSONShape(t *testing.T) {
 	t.Parallel()
 	p := models.PrimaryItem{

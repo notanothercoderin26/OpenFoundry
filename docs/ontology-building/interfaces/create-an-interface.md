@@ -17,7 +17,7 @@ Based on `CreateInterfaceRequest`, OpenFoundry currently supports:
 ```text
 designer
   -> POST /api/v1/ontology/interfaces
-  -> ontology-service persists ontology_interfaces row
+  -> ontology-definition-service persists ontology_interfaces row
   -> owner_id comes from authenticated subject
   -> interface becomes available for interface-property authoring and type binding
 ```

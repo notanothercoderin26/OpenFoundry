@@ -6,24 +6,25 @@ OpenFoundry supports multiple operating profiles ranging from local development 
 
 The local stack lives under `infra/`:
 
-- `infra/docker-compose.yml`
+- `infra/compose/docker-compose.yml`
 - `infra/docker-compose.dev.yml`
 
 These files provide the backing services needed for day-to-day development and smoke execution. The `just infra-up` and `just dev-stack` commands are the normal contributor entrypoints. A monitoring overlay will be reintroduced as part of the formal observability work (T17); see `docs/observability/index.md`.
 
 ## Kubernetes Via Helm
 
-Kubernetes delivery now uses five release-aligned charts under
-`infra/k8s/helm/`:
+Kubernetes delivery now uses six release-aligned charts under
+`infra/helm/apps/`:
 
 - `of-platform`
 - `of-data-engine`
 - `of-ontology`
 - `of-ml-aip`
 - `of-apps-ops`
+- `of-web` — `apps/web` React 19 + Vite frontend
 
 Cross-release environment posture lives under
-`infra/k8s/helm/profiles/`:
+`infra/helm/apps/profiles/`:
 
 - `values-dev.yaml`
 - `values-staging.yaml`
@@ -38,8 +39,8 @@ Each release keeps its own service-specific `values-{dev,staging,prod}.yaml`.
 The supported operator entrypoints are:
 
 ```bash
-cd infra/k8s/helm && helmfile -e prod apply
-cd infra/k8s/helm && helmfile -e prod template > /tmp/openfoundry-prod.yaml
+cd infra/helm/apps && helmfile -e prod apply
+cd infra/helm/apps && helmfile -e prod template > /tmp/openfoundry-prod.yaml
 ```
 
 The Helm CI workflows lint every release and render the full bundle for
@@ -56,7 +57,7 @@ The custom provider directory also contains `provider.schema.json`, which is tre
 
 ## Docker Images
 
-Selected services are published through `docker-publish.yml` using their service-local Dockerfiles. The workflow currently focuses on a subset of core services such as `gateway`, `auth-service`, `dataset-service`, `sql-bi-gateway-service`, `pipeline-service`, and `ontology-service`.
+Selected services are published through `docker-publish.yml` using their service-local Dockerfiles. The workflow currently focuses on a subset of core services such as `edge-gateway-service`, `identity-federation-service`, `dataset-versioning-service`, `sql-bi-gateway-service`, `pipeline-build-service`, and the ontology services (`ontology-definition-service`, `ontology-query-service`, `ontology-actions-service`).
 
 ## Release Model
 

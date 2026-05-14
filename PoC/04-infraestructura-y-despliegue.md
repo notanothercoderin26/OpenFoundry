@@ -1,40 +1,40 @@
-# 04 — Infraestructura y despliegue
+# 04 — Infrastructure and deployment
 
-> Mover ≥ 1 TB de forma creíble exige una infraestructura proporcionada. Una laptop "pelada" hace que la demo sea lenta y poco creíble. Aquí están las **3 opciones** (local, on-prem dedicado, cloud), con costes y comandos.
+> Moving ≥ 1 TB credibly requires proportionate infrastructure. A bare-bones laptop makes the demo slow and unconvincing. Here are the **3 options** (local, dedicated on-prem, cloud), with costs and commands.
 
 ---
 
-## 🎚️ Opción A — Local en laptop potente (solo ensayos)
+## 🎚️ Option A — Local on a powerful laptop (rehearsals only)
 
-**Útil para:** desarrollo, ensayos sin red, prototipos.
-**No recomendado** para la demo final con cliente.
+**Useful for:** development, offline rehearsals, prototypes.
+**Not recommended** for the final customer demo.
 
-| Componente | Mínimo |
+| Component | Minimum |
 |---|---|
-| CPU | 12 cores (Apple M2 Max o Ryzen 7) |
+| CPU | 12 cores (Apple M2 Max or Ryzen 7) |
 | RAM | 64 GB |
-| Disco | 2 TB NVMe libres |
-| OS | macOS 14+ o Linux con kernel ≥ 6 |
+| Disk | 2 TB NVMe free |
+| OS | macOS 14+ or Linux with kernel ≥ 6 |
 
-Limitación clave: **no puedes mover 1 TB de NOAA en local en tiempo razonable**. En esta opción, *el TB es un dataset montado read-only desde un disco USB SSD pre-cargado*.
+Key limitation: **you cannot move 1 TB of NOAA locally in a reasonable time**. In this option, *the TB is a read-only dataset mounted from a pre-loaded USB SSD*.
 
 ---
 
-## 🖥️ Opción B — Servidor dedicado (Hetzner / OVH / propio)
+## 🖥️ Option B — Dedicated server (Hetzner / OVH / our own)
 
-**Útil para:** demo en remoto controlado por nosotros, ensayos repetidos, coste fijo.
-**Recomendado** si la demo será en remoto vía pantalla compartida.
+**Useful for:** remote demo controlled by us, repeated rehearsals, fixed cost.
+**Recommended** if the demo will be remote over screen share.
 
-### Hardware sugerido (1 nodo)
-- **Hetzner AX102** o equivalente:
+### Suggested hardware (1 node)
+- **Hetzner AX102** or equivalent:
   - AMD Ryzen 9 7950X3D (16C/32T)
   - 128 GB DDR5 ECC
-  - 2× NVMe 1.92 TB (RAID-1) para sistema + 4× SSD 7.68 TB (RAID-10) para datos
+  - 2× NVMe 1.92 TB (RAID-1) for system + 4× SSD 7.68 TB (RAID-10) for data
   - 1 Gbit unmetered
-- **Coste:** ~150 €/mes
-- **Localización:** Helsinki o Falkenstein (latencia OK desde Europa).
+- **Cost:** ~€150/month
+- **Location:** Helsinki or Falkenstein (latency OK from Europe).
 
-### Layout en disco
+### Disk layout
 ```
 /data/minio        → 4 TB (RAID-10)  → object storage
 /data/postgres     → 200 GB
@@ -43,7 +43,7 @@ Limitación clave: **no puedes mover 1 TB de NOAA en local en tiempo razonable**
 /var/lib/docker    → 100 GB
 ```
 
-### Despliegue
+### Deployment
 ```bash
 # Provisión
 ssh root@poc-server
@@ -63,65 +63,65 @@ docker compose ps
 
 ---
 
-## ☁️ Opción C — Cloud (AWS, recomendado para demo "wow")
+## ☁️ Option C — Cloud (AWS, recommended for the "wow" demo)
 
-**Útil para:** demo presencial con muchos asistentes, demos repetidas, máxima fiabilidad de red.
-**Recomendado** para la presentación final al cliente.
+**Useful for:** in-person demo with many attendees, repeated demos, maximum network reliability.
+**Recommended** for the final customer presentation.
 
-### Topología AWS
-| Recurso | Tamaño | Coste aprox/día encendido |
+### AWS topology
+| Resource | Size | Approx cost/day when on |
 |---|---|---|
 | 1× EC2 `m6i.2xlarge` (control plane + Postgres + Redis + Keycloak) | 8 vCPU, 32 GB | $9 |
-| 3× EC2 `r6i.4xlarge` (workers Spark + servicios pesados) | 16 vCPU, 128 GB c/u | $90 |
+| 3× EC2 `r6i.4xlarge` (Spark workers + heavy services) | 16 vCPU, 128 GB each | $90 |
 | EBS gp3, 2 TB total | 16k IOPS | $7 |
-| S3 `acme-poc` | 1.5 TB stored | $35/mes (no/día) |
-| MSK Serverless (Kafka gestionado) | Bajo throughput | $20 |
+| S3 `acme-poc` | 1.5 TB stored | $35/month (not/day) |
+| MSK Serverless (managed Kafka) | Low throughput | $20 |
 | OpenSearch t3.medium x 2 | | $10 |
 | ALB + Route53 + ACM | | $2 |
-| **Total encendido (8h demo)** | | **~$45/día** |
-| Total siempre encendido (mes) | | ~$3.500/mes |
+| **Total on (8h demo)** | | **~$45/day** |
+| Total always on (month) | | ~$3,500/month |
 
-> **Apagar entre demos**. Stop EC2 + scale-to-zero MSK reduce coste a ~$50/mes (solo storage).
+> **Turn off between demos**. Stopping EC2 + scale-to-zero MSK cuts cost to ~$50/month (storage only).
 
-### Región
-**`us-east-1`** — para no pagar egress de los buckets `noaa-*-bdp-pds` (están allí).
+### Region
+**`us-east-1`** — to avoid paying egress on the `noaa-*-bdp-pds` buckets (they live there).
 
-### Despliegue (Terraform + Helm)
-> A construir cuando se ejecute la PoC. Tareas pendientes:
+### Deployment (Terraform + Helm)
+> To be built when the PoC is executed. Pending tasks:
 
-1. `infra/terraform/poc-aviation/` con: VPC, subnets, EKS o EC2 ASG, S3, MSK, IAM, Route53.
-2. `infra/helm/poc-aviation/values.yaml` con los 15 servicios habilitados.
-3. `make poc-up` y `make poc-down` en el `Makefile` raíz para idempotencia.
+1. `infra/terraform/poc-aviation/` with: VPC, subnets, EKS or EC2 ASG, S3, MSK, IAM, Route53.
+2. `infra/helm/poc-aviation/values.yaml` that activates only the necessary Helm releases from `infra/helm/apps/` (`of-platform`, `of-data-engine`, `of-ontology`, `of-ml-aip`, `of-apps-ops`, `of-web`) with the subset's services.
+3. `make poc-up` and `make poc-down` in the root `Makefile` for idempotency (the monorepo already has `make build-services` and `make ci`).
 
 ---
 
-## 🌐 DNS y certificados
+## 🌐 DNS and certificates
 
-Para la demo, registrar dos URLs:
-- `poc.openfoundry.dev` → UI principal (Workshop App + dashboards).
+For the demo, register two URLs:
+- `poc.openfoundry.dev` → main UI (Workshop App + dashboards).
 - `keycloak.poc.openfoundry.dev` → login.
 
-Certificados via **Let's Encrypt** (cert-manager si Kubernetes; certbot si compose).
+Certificates via **Let's Encrypt** (cert-manager if Kubernetes; certbot if compose).
 
 ---
 
-## 🔌 Conectividad de red mínima
+## 🔌 Minimum network connectivity
 
-| Endpoint externo | Por qué | Mínimo recomendado |
+| External endpoint | Why | Recommended minimum |
 |---|---|---|
-| `opensky-network.org` | Streaming live | latencia < 200 ms |
-| `*.s3.amazonaws.com` (NOAA) | Descarga batch | 1 Gbps |
+| `opensky-network.org` | Live streaming | latency < 200 ms |
+| `*.s3.amazonaws.com` (NOAA) | Batch download | 1 Gbps |
 | `transtats.bts.gov` | BTS | 100 Mbps |
-| Azure OpenAI (si fallback) | LLM | latencia < 500 ms |
-| Cliente final (asistentes) | Acceso UI | 10 Mbps por participante |
+| Azure OpenAI (if fallback) | LLM | latency < 500 ms |
+| End customer (attendees) | UI access | 10 Mbps per participant |
 
 ---
 
-## 📈 Sizing de cómputo (Spark)
+## 📈 Compute sizing (Spark)
 
-Para que las queries de la demo respondan en < 2 s y los pipelines en < 3 min:
+So that demo queries respond in < 2 s and pipelines in < 3 min:
 
-| Recurso | Configuración |
+| Resource | Configuration |
 |---|---|
 | `spark.executor.instances` | 12 |
 | `spark.executor.memory` | 8g |
@@ -134,37 +134,37 @@ Para que las queries de la demo respondan en < 2 s y los pipelines en < 3 min:
 
 ---
 
-## 🔐 Secretos
+## 🔐 Secrets
 
-Guardar **fuera del repo** (usar `.env` no commiteado, AWS Secrets Manager o Vault si producción):
+Keep **outside the repo** (use `.env` not committed, AWS Secrets Manager, or Vault if production):
 - `OPENSKY_USER`, `OPENSKY_PASS`
 - `KEYCLOAK_ADMIN_PASS`
 - `MINIO_ROOT_USER`, `MINIO_ROOT_PASS`
 - `POSTGRES_PASSWORD`
-- `AZURE_OPENAI_API_KEY` (si usamos fallback)
-- `OLLAMA_HOST` (interno)
+- `AZURE_OPENAI_API_KEY` (if we use the fallback)
+- `OLLAMA_HOST` (internal)
 
-Verificar antes de la demo: `grep -RIn "PASSWORD\|API_KEY\|SECRET" PoC/ infra/` debe devolver **0 resultados** salvo plantillas con `<placeholder>`.
-
----
-
-## 📊 Observabilidad mínima
-
-Tres dashboards de Grafana visibles **solo a los presentadores** (no al cliente, salvo el Acto 6):
-
-1. **Health overview** — uptime de los 15 servicios, error rate.
-2. **Pipeline throughput** — filas procesadas/min, lag de Kafka, particiones Iceberg.
-3. **Query latency** — p50/p95/p99 de `ontology-query-service` y `geospatial-intelligence-service`.
-
-Grabar capturas de pantalla durante el ensayo final, **se usan en el Acto 7 (cierre)** para mostrar números reales.
+Check before the demo: `grep -RIn "PASSWORD\|API_KEY\|SECRET" PoC/ infra/` must return **0 results** except templates with `<placeholder>`.
 
 ---
 
-## ✅ Acciones concretas (cuando se ejecute la PoC)
+## 📊 Minimum observability
 
-1. Decidir A vs B vs C según presupuesto y modalidad de demo.
-2. Si C: lanzar Terraform 1 semana antes y dejar `terraform destroy` listo.
-3. Si B: provisionar Hetzner 2 semanas antes para tener tiempo de reinstalar si algo falla.
-4. Configurar DNS y certificados 5 días antes (TTL bajos para poder cambiar el día D).
-5. Provisionar Grafana y validar que los 3 dashboards reciben datos.
-6. Guardar `terraform.tfstate` o el snapshot del servidor — la noche antes de la demo, **snapshot completo** para poder restaurar en 15 min.
+Three Grafana dashboards visible **only to the presenters** (not to the customer, except in Act 6). Metrics come from `/metrics` (lib `observability`, OTel + Prometheus) in each service:
+
+1. **Health overview** — uptime of the subset (~17 services), error rate.
+2. **Pipeline throughput** — rows processed/min, Kafka lag (Strimzi), Iceberg partitions (Lakekeeper).
+3. **Query latency** — p50/p95/p99 for `ontology-query-service` and `ontology-exploratory-analysis-service` (geospatial + time-series).
+
+Capture screenshots during the final rehearsal — **they are used in Act 7 (close)** to show real numbers.
+
+---
+
+## ✅ Concrete actions (when the PoC is executed)
+
+1. Decide on A vs B vs C based on budget and demo modality.
+2. If C: launch Terraform 1 week ahead and have `terraform destroy` ready.
+3. If B: provision Hetzner 2 weeks ahead so there's time to reinstall if something fails.
+4. Configure DNS and certificates 5 days ahead (low TTLs so we can change on the day).
+5. Provision Grafana and confirm the 3 dashboards are receiving data.
+6. Save the `terraform.tfstate` or the server snapshot — the night before the demo, take a **full snapshot** so we can restore in 15 min.

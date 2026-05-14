@@ -28,12 +28,15 @@ shape rather than rolling its own scheduler.
 | 1 | **Pipeline batch** | Long-running batch transforms (Iceberg writes, large scans, compute-intensive Python / Spark / SQL nodes) | [`services/pipeline-build-service`](../../services/pipeline-build-service) submitting [`services/pipeline-runner`](../../services/pipeline-runner) SparkApplication CRs | Spark Operator + Iceberg + per-node `pipeline_runs` state in `pg-runtime-config.pipeline_authoring` |
 | 2 | **Reindex / backfill** | Pull every row of a Cassandra keyspace into Kafka without starving the live consumer group | [`services/reindex-coordinator-service`](../../services/reindex-coordinator-service) | Kafka `ontology.reindex.requested.v1` + `pg-runtime-config.reindex_jobs.resume_token` cursor + Cassandra paged scan |
 | 3 | **Automate (single-step condition → effect)** | "When X happens, call Y" — the Foundry "Automate" primitive (cron / event-driven action invocation) | [`services/workflow-automation-service`](../../services/workflow-automation-service) | Kafka `automate.condition.v1` consumer + `workflow_automation.automation_runs` state machine + `automate.outcome.v1` outbox publish |
-| 4 | **Saga (multi-step with compensation)** | Multi-step business flow where step N's failure must roll back step N-1, N-2, … in LIFO order (cleanup, retention, dependency-aware operations) | [`services/automation-operations-service`](../../services/automation-operations-service) using `libs/saga::SagaRunner` | Kafka `saga.step.requested.v1` consumer + `saga.state` table per service + `saga.step.{completed,failed,compensated}.v1` outbox events |
-| 5 | **Approval (long-lived human-in-the-loop)** | Wait for a human (or set of humans) to decide; deadline → expire | [`services/approvals-service`](../../services/approvals-service) + `approvals-timeout-sweep` k8s CronJob | `audit_compliance.approval_requests` state machine + `approval.{requested,completed,expired}.v1` outbox events |
+| 4 | **Saga (multi-step with compensation)** | Multi-step business flow where step N's failure must roll back step N-1, N-2, … in LIFO order (cleanup, retention, dependency-aware operations) | [`services/workflow-automation-service/internal/automationoperations`](../../services/workflow-automation-service/internal/automationoperations) using `libs/saga.Runner` (legacy `automation-operations-service` absorbed in S8) | Kafka `saga.step.requested.v1` consumer + `saga.state` table per service + `saga.step.{completed,failed,compensated}.v1` outbox events |
+| 5 | **Approval (long-lived human-in-the-loop)** | Wait for a human (or set of humans) to decide; deadline → expire | [`services/workflow-automation-service/internal/approvals`](../../services/workflow-automation-service/internal/approvals) + [`cmd/approvals-timeout-sweep`](../../services/workflow-automation-service/cmd/approvals-timeout-sweep) k8s CronJob (legacy `approvals-service` absorbed in S8) | `workflow_automation.approval_requests` state machine + `approval.{requested,decided,completed,expired}.v1` outbox events |
 
-The five patterns map one-for-one onto the five Go Temporal workers
-the migration retired: `pipeline`, `reindex`, `workflow-automation`,
+The five patterns map one-for-one onto the five Temporal workers the
+migration retired: `pipeline`, `reindex`, `workflow-automation`,
 `automation-ops`, `approvals` — pattern 1, 2, 3, 4, 5 respectively.
+Patterns 3, 4 and 5 are hosted by the single consolidated
+`workflow-automation-service` binary (S8 / ADR-0030); patterns 1 and 2
+keep their own services.
 
 If the work you have to do does **not** fit one of these patterns,
 that is a signal to reconsider the design before reaching for a new
@@ -54,28 +57,26 @@ notifications) make about events.
 Every outbox event carries a deterministic `event_id` derived from
 the aggregate identity + the event kind. The pattern is:
 
-```rust
-pub fn derive_outbox_event_id(aggregate_id: Uuid, kind: &str) -> Uuid {
-    let mut buf = Vec::with_capacity(17 + kind.len());
-    buf.extend_from_slice(aggregate_id.as_bytes());
-    buf.push(b'|');
-    buf.extend_from_slice(kind.as_bytes());
-    Uuid::new_v5(&SERVICE_NAMESPACE, &buf)
+```go
+func DeriveOutboxEventID(aggregateID uuid.UUID, kind string) uuid.UUID {
+    buf := make([]byte, 0, 17+len(kind))
+    buf = append(buf, aggregateID[:]...)
+    buf = append(buf, '|')
+    buf = append(buf, kind...)
+    return uuid.NewSHA1(serviceNamespace, buf)
 }
 ```
 
-`SERVICE_NAMESPACE` is a hard-coded `Uuid::from_bytes([…])` constant
-generated once with `uuidgen` and pinned forever in the service's
-`event.rs`. The same `(aggregate_id, kind)` pair always produces
-the same `event_id`, which is what makes the outbox helper's
+`serviceNamespace` is a hard-coded `uuid.UUID` constant generated
+once with `uuidgen` and pinned forever in the service's `event.go`.
+The same `(aggregateID, kind)` pair always produces the same
+`event_id`, which is what makes the outbox helper's
 `INSERT … ON CONFLICT DO NOTHING` collapse retries onto one row.
 
 Reference implementations:
 
-- `services/approvals-service::event::derive_outbox_event_id`
-- `services/automation-operations-service::event::derive_request_event_id`
-- `services/workflow-automation-service::event::derive_event_id_for_run`
-- `services/reindex-coordinator-service::event::derive_request_event_id`
+- `services/workflow-automation-service/internal/event.DeriveEventIDForRun`
+- `services/reindex-coordinator-service/internal/event.DeriveRequestEventID`
 
 ### 2.2 Record-before-process idempotency
 
@@ -83,16 +84,17 @@ Every Kafka consumer that does anything side-effecting (HTTP calls,
 state-machine writes, DB updates other than the dedup row itself)
 records the inbound event's `event_id` in
 `<bounded_context>.processed_events` **before** dispatching the
-side effect. The `libs/idempotency::PgIdempotencyStore` is the
-canonical helper:
+side effect. The `idempotency.PgIdempotencyStore` from
+[`libs/idempotency`](../../libs/idempotency) is the canonical helper:
 
-```rust
-match self.idempotency.check_and_record(event_id).await? {
-    Outcome::AlreadyProcessed => {
-        // Skip — another delivery already did the work.
-        return Ok("deduped");
-    }
-    Outcome::FirstSeen => {}
+```go
+outcome, err := s.idempotency.CheckAndRecord(ctx, eventID)
+if err != nil {
+    return err
+}
+if outcome == idempotency.AlreadyProcessed {
+    // Skip — another delivery already did the work.
+    return nil
 }
 // proceed with side effect...
 ```
@@ -120,20 +122,28 @@ Domain events go to Kafka via the per-service `outbox.events` table
 (captured by Debezium's EventRouter SMT), never via direct Kafka
 producer calls inside the same transaction as a state write.
 
-```rust
-let mut tx = pool.begin().await?;
+```go
+tx, err := pool.Begin(ctx)
+if err != nil {
+    return err
+}
+defer tx.Rollback(ctx)
 
 // 1. Apply the state-machine transition.
-state_machine_apply(&mut tx, ...).await?;
+if err := stateMachineApply(ctx, tx, ...); err != nil {
+    return err
+}
 
 // 2. Enqueue the outbox event in the SAME transaction.
-let event = OutboxEvent::new(event_id, "automation_run", run_id, topic, payload)
-    .with_header("x-audit-correlation-id", correlation_id);
-outbox::enqueue(&mut tx, event).await?;
+event := outbox.NewEvent(eventID, "automation_run", runID, topic, payload).
+    WithHeader("x-audit-correlation-id", correlationID)
+if err := outbox.Enqueue(ctx, tx, event); err != nil {
+    return err
+}
 
 // 3. Commit. The Postgres WAL now carries both writes; Debezium
 //    will publish the outbox row to Kafka.
-tx.commit().await?;
+return tx.Commit(ctx)
 ```
 
 The invariant is that the state-machine write and the matching
@@ -141,8 +151,9 @@ outbox event commit atomically. A consumer downstream sees
 "row in terminal state" if and only if "outbox event is enqueued",
 which Debezium will eventually deliver.
 
-Reference: `libs/outbox::enqueue` is the canonical helper. It
-INSERTs and immediately DELETEs the row in the same transaction —
+Reference: [`libs/outbox`](../../libs/outbox)'s `Enqueue` is the
+canonical helper. It INSERTs and immediately DELETEs the row in the
+same transaction —
 the EventRouter SMT picks the INSERT off the WAL even though the
 row never lands in the table at steady state. Consequence: the
 table is steady-state empty on a healthy cluster.
@@ -152,24 +163,29 @@ table is steady-state empty on a healthy cluster.
 Effect dispatchers (HTTP calls into other services from a saga
 step or a Foundry-pattern condition consumer) use **explicit
 retry envelopes**, not Temporal-style automatic activity retries.
-The pattern is `tokio::time::sleep` + a max-attempts counter:
+The pattern is `time.Sleep` + a max-attempts counter:
 
-```rust
-const MAX_ATTEMPTS: u32 = 5;
-let mut delay = Duration::from_secs(1);
+```go
+const maxAttempts = 5
+delay := time.Second
 
-for attempt in 1..=MAX_ATTEMPTS {
-    match effect_dispatcher.call(&request).await {
-        Ok(response) => return Ok(response),
-        Err(err) if !err.is_retryable() => return Err(err),
-        Err(err) if attempt == MAX_ATTEMPTS => {
-            return Err(EffectDispatchError::Exhausted { attempts: attempt, source: err });
-        }
-        Err(_) => {
-            tokio::time::sleep(delay).await;
-            delay = (delay * 2).min(Duration::from_secs(60));
-        }
+for attempt := 1; attempt <= maxAttempts; attempt++ {
+    resp, err := dispatcher.Call(ctx, request)
+    if err == nil {
+        return resp, nil
     }
+    if !errors.Is(err, ErrRetryable) {
+        return nil, err
+    }
+    if attempt == maxAttempts {
+        return nil, fmt.Errorf("effect dispatch exhausted after %d attempts: %w", attempt, err)
+    }
+    select {
+    case <-time.After(delay):
+    case <-ctx.Done():
+        return nil, ctx.Err()
+    }
+    delay = min(delay*2, 60*time.Second)
 }
 ```
 
@@ -180,9 +196,9 @@ lands in `failed`; idempotency at the `processed_events` table
 prevents the retry attempts from re-charging on Kafka redelivery.
 
 Reference implementation:
-[`services/workflow-automation-service::domain::effect_dispatcher`](../../services/workflow-automation-service/src/domain/effect_dispatcher.rs).
+[`services/workflow-automation-service/internal/domain/effectdispatcher`](../../services/workflow-automation-service/internal/domain/effectdispatcher).
 
-### 2.5 State machine wrapping (`libs/state-machine::PgStore`)
+### 2.5 State machine wrapping (`libs/state-machine`)
 
 Every multi-state aggregate persisted in a Postgres row uses the
 `libs/state-machine` helper rather than hand-rolled `UPDATE`
@@ -190,19 +206,20 @@ statements. The helper provides:
 
 - Optimistic concurrency via a `version BIGINT` column bumped on
   every apply — two callers racing on the same row produce at
-  most one successful UPDATE, the loser sees `StoreError::Stale`
-  and reloads.
+  most one successful UPDATE, the loser sees `ErrStale` and reloads.
 - A `state TEXT` column that stays in sync with the JSON `state_data`
-  blob via the `StateMachine::state_str` mapping.
-- A `timeout_sweep(now)` helper for cron-driven `Pending → Expired`
+  blob via the `StateMachine.StateStr` mapping.
+- A `TimeoutSweep(ctx, now)` helper for cron-driven `Pending → Expired`
   transitions (used by `approvals-timeout-sweep`).
 
-Reference table shape lives in
-[`libs/state-machine/migrations/0001_state_machine_template.sql`](../../libs/state-machine/migrations/0001_state_machine_template.sql).
-Each consuming service ships a migration that mirrors the
-template + adds projected columns the read-side query needs.
+Each consuming service ships its own migration that mirrors the
+template + adds projected columns the read-side query needs — see
+e.g.
+[`services/workflow-automation-service/internal/repo/migrations/20260505020000_saga_state_and_outbox.sql`](../../services/workflow-automation-service/internal/repo/migrations/20260505020000_saga_state_and_outbox.sql)
+and
+[`services/workflow-automation-service/internal/repo/migrations/20260505030000_approval_requests_state_machine.sql`](../../services/workflow-automation-service/internal/repo/migrations/20260505030000_approval_requests_state_machine.sql).
 
-### 2.6 Saga orchestration (`libs/saga::SagaRunner`)
+### 2.6 Saga orchestration (`libs/saga`)
 
 Multi-step flows with compensation use the saga helper instead of
 chained state machines. The runner:
@@ -221,20 +238,20 @@ chained state machines. The runner:
   emits `saga.completed.v1` or `saga.aborted.v1` accordingly.
 
 The chaos test at
-[`services/automation-operations-service/tests/saga_chaos.rs`](../../services/automation-operations-service/tests/saga_chaos.rs)
-is the executable specification of this contract — forces step 2
-of a 3-step saga to fail and asserts the outbox emission order
-+ final `saga.state.status='compensated'`.
+[`services/workflow-automation-service/internal/automationoperations/saga_consumer_test.go`](../../services/workflow-automation-service/internal/automationoperations/saga_consumer_test.go)
+(integration build tag) is the executable specification of this
+contract — forces step 2 of a 3-step saga to fail and asserts the
+outbox emission order + final `saga.state.status='compensated'`.
 
 ### 2.7 Search-attribute / correlation propagation
 
 Every Foundry-pattern event carries an `x-audit-correlation-id`
 header that propagates from the inbound HTTP request span all the
-way to every downstream effect call's HTTP header. The Rust
-helpers (`outbox::enqueue` + every reference effect dispatcher) do
-this automatically when the consumer constructs the outbox event
-with the appropriate header. Audit consumers stitch a single
-flow together by `correlation_id` rather than by Kafka offsets.
+way to every downstream effect call's HTTP header. The Go helpers
+(`outbox.Enqueue` + every reference effect dispatcher) do this
+automatically when the consumer constructs the outbox event with the
+appropriate header. Audit consumers stitch a single flow together by
+`correlation_id` rather than by Kafka offsets.
 
 ### 2.8 Topic naming convention
 
@@ -259,64 +276,68 @@ Pick a pattern from §1 first. The decision tree:
 ```text
 Is the work batch (single deterministic transform, can take >1 min)?
   → Pattern 1 (pipeline). Add a `transform_type` to
-    pipeline-build-service::domain::engine; ship a SparkApplication
+    `pipeline-build-service`'s engine; ship a SparkApplication
     template if Spark-runnable.
 
 Is it a one-shot full-keyspace scan (push every record through Kafka)?
   → Pattern 2 (reindex). Probably means extending
-    reindex-coordinator-service with a new request topic + a new
+    `reindex-coordinator-service` with a new request topic + a new
     target keyspace; the cursor/throttle mechanics stay.
 
 Is it "when condition X fires, call HTTP endpoint Y"?
   → Pattern 3 (automate). Add an entry to the
-    workflow-automation-service consumer's effect dispatcher; the
+    `workflow-automation-service` consumer's effect dispatcher; the
     condition consumer + outbox publishing are already wired.
 
 Is it "a sequence of steps, where step N's failure must roll back
 N-1, N-2, … in LIFO order"?
-  → Pattern 4 (saga). Implement `libs/saga::SagaStep` for each step
-    + a step graph in `automation-operations-service::domain::dispatcher`.
+  → Pattern 4 (saga). Implement `saga.Step` for each step + a step
+    graph in `workflow-automation-service/internal/automationoperations/dispatcher.go`.
     Compensation MUST be safe to invoke after a successful execute.
 
 Does it wait for a human (or set of humans) to decide, with a
 deadline?
-  → Pattern 5 (approval). Use approvals-service's HTTP API; the
-    state machine, the outbox, and the timeout-sweep CronJob are
-    already wired.
+  → Pattern 5 (approval). Use `workflow-automation-service`'s
+    `/api/v1/approvals` HTTP surface; the state machine, the
+    outbox, and the `approvals-timeout-sweep` CronJob are already
+    wired.
 ```
 
 For any of the five patterns, the code-shape is roughly:
 
-1. Define the wire format in the service's `src/event.rs` —
-   typed structs with serde `#[derive]`s and round-trip tests.
-2. Add the topic constants to `src/topics.rs` with a
-   `topic_constants_match_helm_provisioning` test.
+1. Define the wire format in the package's `event.go` — typed
+   structs with `encoding/json` tags and round-trip tests.
+2. Add the topic constants to `topics.go` with a
+   `TestTopicConstantsMatchHelmProvisioning` test.
 3. Declare the topic + DLQ in
    [`infra/helm/infra/kafka-cluster/values.yaml`](../../infra/helm/infra/kafka-cluster/values.yaml).
 4. Migrate the state-machine table or saga schema (per
    §2.5 / §2.6).
-5. Wire the consumer / handler / cron in `src/main.rs` (or
-   `src/bin/<entrypoint>.rs`).
-6. Ship a chaos test for the failure path (mirror the saga chaos
-   test from `automation-operations-service`).
+5. Wire the consumer / handler / cron in `cmd/<service>/main.go`
+   (or a sibling `cmd/<entrypoint>/main.go`).
+6. Ship a chaos / failure-path test (mirror the saga step-fails
+   pattern in
+   [`services/workflow-automation-service/internal/automationoperations/event_test.go`](../../services/workflow-automation-service/internal/automationoperations/event_test.go)
+   and the step-level test in
+   [`steps/retention_sweep_test.go`](../../services/workflow-automation-service/internal/automationoperations/steps/retention_sweep_test.go)).
 
 Anti-patterns to reject in code review:
 
 - **Direct Kafka producer calls inside an HTTP handler that also
-  writes a state-machine row.** Always go through `outbox::enqueue`
+  writes a state-machine row.** Always go through `outbox.Enqueue`
   in the same transaction; the direct producer breaks the atomicity
   invariant of §2.3.
 - **Hand-rolled `UPDATE state SET status = 'completed' WHERE id =
-  …` without a `version` guard.** Use `libs/state-machine::PgStore`
-  or an equivalent optimistic-concurrency UPDATE with `version`
-  columns.
-- **`tokio::spawn` of fire-and-forget side-effecting tasks from
-  inside a handler.** The detached future has no idempotency
-  story; route through outbox + a consumer instead.
+  …` without a `version` guard.** Use `libs/state-machine`'s
+  `PgStore` or an equivalent optimistic-concurrency UPDATE with
+  `version` columns.
+- **`go func() { ... }()` of fire-and-forget side-effecting tasks
+  from inside a handler.** The detached goroutine has no
+  idempotency story; route through outbox + a consumer instead.
 - **`task_type` (or equivalent dispatch key) as a free-form string
-  with no enum / match arm.** Every Foundry-pattern dispatcher has
-  a compile-time match on the dispatch key; an unknown value lands
-  the work in `failed` rather than silently no-op.
+  with no typed enum / switch.** Every Foundry-pattern dispatcher
+  has a compile-time switch on the dispatch key; an unknown value
+  lands the work in `failed` rather than silently no-op.
 
 ## 4. Comparison with Palantir Foundry
 
@@ -349,7 +370,7 @@ assume these without re-checking:
 1. **Outbox is steady-state empty.** Any row in `outbox.events`
    for more than a few seconds is either a Debezium outage or a
    producer bug. Both
-   [`infra/helm/apps/of-platform/values.yaml::approvalsTimeoutSweep`](../../infra/helm/apps/of-platform/values.yaml)
+   [`infra/helm/apps/of-platform/values.yaml`](../../infra/helm/apps/of-platform/values.yaml) (`approvalsTimeoutSweep` block)
    and the existing per-service Prometheus rules alert on this.
 2. **Every event has a deterministic `event_id`.** Operators
    replaying a Kafka topic for forensic purposes can trust that
@@ -384,12 +405,15 @@ Two integration test surfaces cover the runtime substrate:
   each ship `it-postgres`-feature integration tests that boot a
   Postgres testcontainer, apply the migration, and round-trip the
   primitive end-to-end.
-- **`services/automation-operations-service::saga_chaos`** is the
-  full-stack chaos test: forces step 2 of a 3-step saga to fail
-  and verifies the outbox emission order + the final
+- **`services/workflow-automation-service/internal/automationoperations`**
+  carries the full-stack chaos coverage: a step-2-fails fixture in
+  [`event_test.go`](../../services/workflow-automation-service/internal/automationoperations/event_test.go)
+  and the executable saga consumer in
+  [`saga_consumer.go`](../../services/workflow-automation-service/internal/automationoperations/saga_consumer.go)
+  verify the outbox emission order + the final
   `saga.state.status = 'compensated'`. CI runs both surfaces via
-  the [`integration-foundry-pattern.yml`](../../.github/workflows/integration-foundry-pattern.yml)
-  workflow on every PR that touches the substrate.
+  the `integration` job (`go test -tags=integration ./...`) in
+  [`.github/workflows/openfoundry-go.yml`](../../.github/workflows/openfoundry-go.yml).
 
 Spark-side end-to-end (real SparkApplication submission against a
 kind cluster + Spark Operator) is FASE 11 — the unit-level
@@ -409,8 +433,8 @@ PR-time CI.
 * **DLQ** — `__dlq.<topic>`. Receives messages a consumer
   cannot process after N redeliveries. 14-day retention.
 * **Effect** — the side-effecting HTTP call a Foundry-pattern
-  consumer makes. Always typed as the `EffectDispatcher` trait
-  in the consumer's `src/domain/`.
+  consumer makes. Always typed as the `EffectDispatcher` interface
+  in the consumer's `internal/domain/effectdispatcher` package.
 * **EventRouter SMT** — Debezium's Single Message Transform that
   turns an `outbox.events` INSERT WAL record into a Kafka record
   on the `topic` field's value.
@@ -422,13 +446,14 @@ PR-time CI.
   side effect, so a crash between record and complete still skips
   the side effect on next delivery (operator action resolves the
   half-applied state).
-* **Saga** — a sequence of `libs/saga::SagaStep`s with LIFO
-  compensation on failure. Each step is pure async (no DB
-  access); the runner persists progress to `saga.state` between
-  steps.
-* **State machine** — a `libs/state-machine::PgStore`-backed row
-  with explicit allowed-transition rules + `version` for
-  optimistic concurrency.
+* **Saga** — a sequence of `saga.Step`s (from
+  [`libs/saga`](../../libs/saga)) with LIFO compensation on failure.
+  Each step is pure (no DB access); the runner persists progress to
+  `saga.state` between steps.
+* **State machine** — a row backed by
+  [`libs/state-machine`](../../libs/state-machine)'s `PgStore` with
+  explicit allowed-transition rules + `version` for optimistic
+  concurrency.
 
 ## 9. Authoritative reference
 
@@ -437,9 +462,9 @@ that own each pattern:
 
 - Pattern 1: [`services/pipeline-build-service`](../../services/pipeline-build-service)
 - Pattern 2: [`services/reindex-coordinator-service`](../../services/reindex-coordinator-service)
-- Pattern 3: [`services/workflow-automation-service`](../../services/workflow-automation-service)
-- Pattern 4: [`services/automation-operations-service`](../../services/automation-operations-service)
-- Pattern 5: [`services/approvals-service`](../../services/approvals-service)
+- Pattern 3: [`services/workflow-automation-service`](../../services/workflow-automation-service) (root package + `internal/domain/conditionconsumer`)
+- Pattern 4: [`services/workflow-automation-service/internal/automationoperations`](../../services/workflow-automation-service/internal/automationoperations)
+- Pattern 5: [`services/workflow-automation-service/internal/approvals`](../../services/workflow-automation-service/internal/approvals) + [`cmd/approvals-timeout-sweep`](../../services/workflow-automation-service/cmd/approvals-timeout-sweep)
 
 Helper crates (consumed by every pattern):
 

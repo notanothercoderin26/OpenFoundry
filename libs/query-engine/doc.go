@@ -1,12 +1,8 @@
-// Package queryengine ports `libs/query-engine/src/lib.rs` to Go.
-//
-// The Rust crate is a thin wrapper around DataFusion that
-// sql-bi-gateway-service uses for local SQL execution (the path that
-// runs `SELECT 1`-style probes from BI clients before any backend is
-// federated). Go has no production-quality DataFusion equivalent, so
-// this package provides a deliberately-minimal substitute: a literal
-// evaluator for the `SELECT <expr-list>` shape used by BI client
-// probes, returning Apache Arrow record batches.
+// Package queryengine is sql-bi-gateway-service's local SQL evaluator
+// for the `SELECT 1`-style probes BI clients run before any backend
+// is federated. Deliberately minimal: a literal evaluator for the
+// `SELECT <expr-list>` shape used by BI client probes, returning
+// Apache Arrow record batches.
 //
 // What it handles
 //
@@ -29,7 +25,5 @@
 // forwarded to sql-warehousing-service over Flight SQL rather than
 // being executed here. The literal evaluator exists so BI-client
 // connection probes (Tableau, Superset, JDBC) succeed even when no
-// warehousing endpoint is configured — matching the Rust behaviour
-// where DataFusion folds `SELECT 1` into a single int64 batch
-// without touching any catalog.
+// warehousing endpoint is configured.
 package queryengine

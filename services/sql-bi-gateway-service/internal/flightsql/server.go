@@ -1,15 +1,11 @@
 // Package flightsql implements the gateway's primary surface — an
 // Apache Arrow Flight SQL gRPC server on `cfg.Port` (default 50133).
 //
-// 1:1 port of services/sql-bi-gateway-service/src/flight_sql.rs.
-//
-// The Rust crate runs a tonic Flight SQL server backed by DataFusion;
-// this package runs a github.com/apache/arrow-go/v18/arrow/flight
-// Flight SQL server backed by [queryengine.QueryContext]
-// (a literal-SELECT evaluator that mirrors DataFusion's behaviour for
-// `SELECT 1`-style probes) and delegates anything richer to the
-// configured warehousing endpoint or the per-backend Flight SQL
-// front (Vespa / Postgres / Trino) — same dispatch rules as Rust.
+// Runs a github.com/apache/arrow-go/v18/arrow/flight Flight SQL
+// server backed by [queryengine.QueryContext] (a literal-SELECT
+// evaluator suitable for BI-client `SELECT 1`-style probes), and
+// delegates anything richer to the configured warehousing endpoint
+// or the per-backend Flight SQL front (Vespa / Postgres / Trino).
 //
 // Auth, routing and audit are wired uniformly: every gRPC handler
 // pulls the incoming `authorization: Bearer <jwt>` header through
