@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -11,10 +12,41 @@ import (
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/ontology-definition-service/internal/models"
-	"github.com/openfoundry/openfoundry-go/services/ontology-definition-service/internal/repo"
 )
 
-type Handlers struct{ Repo *repo.Repo }
+// Store is the minimal surface the HTTP handlers need from the repo
+// layer. Defined here (consumer-side) so tests can swap in an in-memory
+// fake without spinning up Postgres. The concrete *repo.Repo satisfies
+// this interface implicitly.
+type Store interface {
+	ListObjectTypes(ctx context.Context) ([]models.ObjectType, error)
+	GetObjectType(ctx context.Context, id uuid.UUID) (*models.ObjectType, error)
+	CreateObjectType(ctx context.Context, body *models.CreateObjectTypeRequest, ownerID uuid.UUID) (*models.ObjectType, error)
+	UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.UpdateObjectTypeRequest) (*models.ObjectType, error)
+	DeleteObjectType(ctx context.Context, id uuid.UUID) (bool, error)
+
+	ListProperties(ctx context.Context, typeID uuid.UUID) ([]models.Property, error)
+	CreateProperty(ctx context.Context, typeID uuid.UUID, body *models.CreatePropertyRequest) (*models.Property, error)
+
+	ListLinkTypes(ctx context.Context, objectTypeID *uuid.UUID) ([]models.LinkType, error)
+	GetLinkType(ctx context.Context, id uuid.UUID) (*models.LinkType, error)
+	CreateLinkType(ctx context.Context, body *models.CreateLinkTypeRequest, ownerID uuid.UUID) (*models.LinkType, error)
+	UpdateLinkType(ctx context.Context, id uuid.UUID, body *models.UpdateLinkTypeRequest) (*models.LinkType, error)
+	DeleteLinkType(ctx context.Context, id uuid.UUID) (bool, error)
+
+	ListObjectTypeGroups(ctx context.Context, search string, limit, offset int64) ([]models.ObjectTypeGroup, int64, error)
+	GetObjectTypeGroup(ctx context.Context, id uuid.UUID) (*models.ObjectTypeGroup, error)
+	CreateObjectTypeGroup(ctx context.Context, body *models.CreateObjectTypeGroupRequest, ownerID uuid.UUID) (*models.ObjectTypeGroup, error)
+	UpdateObjectTypeGroup(ctx context.Context, id uuid.UUID, body *models.UpdateObjectTypeGroupRequest, actorID uuid.UUID) (*models.ObjectTypeGroup, error)
+	DeleteObjectTypeGroup(ctx context.Context, id uuid.UUID) (bool, error)
+	AddObjectTypeToGroup(ctx context.Context, groupID, objectTypeID uuid.UUID) (*models.ObjectTypeGroup, error)
+	RemoveObjectTypeFromGroup(ctx context.Context, groupID, objectTypeID uuid.UUID) (*models.ObjectTypeGroup, error)
+
+	ListInterfaces(ctx context.Context, page, perPage int, search string) ([]models.OntologyInterface, int, error)
+	ListSharedPropertyTypes(ctx context.Context, page, perPage int, search string) ([]models.SharedPropertyType, int, error)
+}
+
+type Handlers struct{ Repo Store }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

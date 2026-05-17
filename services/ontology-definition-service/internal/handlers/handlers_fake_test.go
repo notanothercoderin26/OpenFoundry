@@ -1,0 +1,1026 @@
+package handlers_test
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/services/ontology-definition-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/ontology-definition-service/internal/models"
+)
+
+// fakeStore is an in-memory implementation of handlers.Store. It is
+// intentionally simple — just enough to exercise the handler bodies
+// (auth, validation, success, not-found). It does not aim to mirror
+// the Postgres semantics of the real repo.
+type fakeStore struct {
+	objectTypes  map[uuid.UUID]*models.ObjectType
+	properties   map[uuid.UUID][]models.Property
+	linkTypes    map[uuid.UUID]*models.LinkType
+	groups       map[uuid.UUID]*models.ObjectTypeGroup
+	interfaces   []models.OntologyInterface
+	sharedProps  []models.SharedPropertyType
+	listOTErr    error
+	listLTErr    error
+	listGrpErr   error
+	listIfaceErr error
+	listSPErr    error
+	listPropErr  error
+}
+
+func newFakeStore() *fakeStore {
+	return &fakeStore{
+		objectTypes: map[uuid.UUID]*models.ObjectType{},
+		properties:  map[uuid.UUID][]models.Property{},
+		linkTypes:   map[uuid.UUID]*models.LinkType{},
+		groups:      map[uuid.UUID]*models.ObjectTypeGroup{},
+	}
+}
+
+func (f *fakeStore) ListObjectTypes(_ context.Context) ([]models.ObjectType, error) {
+	if f.listOTErr != nil {
+		return nil, f.listOTErr
+	}
+	out := make([]models.ObjectType, 0, len(f.objectTypes))
+	for _, v := range f.objectTypes {
+		out = append(out, *v)
+	}
+	return out, nil
+}
+
+func (f *fakeStore) GetObjectType(_ context.Context, id uuid.UUID) (*models.ObjectType, error) {
+	v, ok := f.objectTypes[id]
+	if !ok {
+		return nil, nil
+	}
+	return v, nil
+}
+
+func (f *fakeStore) CreateObjectType(_ context.Context, body *models.CreateObjectTypeRequest, ownerID uuid.UUID) (*models.ObjectType, error) {
+	id := uuid.New()
+	if body.ID != nil && *body.ID != uuid.Nil {
+		id = *body.ID
+	}
+	v := &models.ObjectType{
+		ID: id, Name: body.Name, DisplayName: body.DisplayName,
+		Description: body.Description, OwnerID: ownerID,
+		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	models.EnrichObjectTypeMetadata(v, nil)
+	f.objectTypes[id] = v
+	return v, nil
+}
+
+func (f *fakeStore) UpdateObjectType(_ context.Context, id uuid.UUID, body *models.UpdateObjectTypeRequest) (*models.ObjectType, error) {
+	v, ok := f.objectTypes[id]
+	if !ok {
+		return nil, nil
+	}
+	if body.DisplayName != nil {
+		v.DisplayName = *body.DisplayName
+	}
+	if body.Description != nil {
+		v.Description = *body.Description
+	}
+	models.EnrichObjectTypeMetadata(v, nil)
+	return v, nil
+}
+
+func (f *fakeStore) DeleteObjectType(_ context.Context, id uuid.UUID) (bool, error) {
+	if _, ok := f.objectTypes[id]; !ok {
+		return false, nil
+	}
+	delete(f.objectTypes, id)
+	return true, nil
+}
+
+func (f *fakeStore) ListProperties(_ context.Context, typeID uuid.UUID) ([]models.Property, error) {
+	if f.listPropErr != nil {
+		return nil, f.listPropErr
+	}
+	return append([]models.Property(nil), f.properties[typeID]...), nil
+}
+
+func (f *fakeStore) CreateProperty(_ context.Context, typeID uuid.UUID, body *models.CreatePropertyRequest) (*models.Property, error) {
+	p := models.Property{
+		ID: uuid.New(), ObjectTypeID: typeID, Name: body.Name,
+		DisplayName: body.DisplayName, PropertyType: body.PropertyType,
+		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	if p.DisplayName == "" {
+		p.DisplayName = p.Name
+	}
+	models.EnrichPropertyMetadata(&p)
+	f.properties[typeID] = append(f.properties[typeID], p)
+	return &p, nil
+}
+
+func (f *fakeStore) ListLinkTypes(_ context.Context, objectTypeID *uuid.UUID) ([]models.LinkType, error) {
+	if f.listLTErr != nil {
+		return nil, f.listLTErr
+	}
+	out := make([]models.LinkType, 0, len(f.linkTypes))
+	for _, v := range f.linkTypes {
+		if objectTypeID != nil && v.SourceTypeID != *objectTypeID && v.TargetTypeID != *objectTypeID {
+			continue
+		}
+		out = append(out, *v)
+	}
+	return out, nil
+}
+
+func (f *fakeStore) GetLinkType(_ context.Context, id uuid.UUID) (*models.LinkType, error) {
+	v, ok := f.linkTypes[id]
+	if !ok {
+		return nil, nil
+	}
+	return v, nil
+}
+
+func (f *fakeStore) CreateLinkType(_ context.Context, body *models.CreateLinkTypeRequest, ownerID uuid.UUID) (*models.LinkType, error) {
+	id := uuid.New()
+	v := &models.LinkType{
+		ID: id, Name: body.Name, DisplayName: body.DisplayName,
+		SourceTypeID: body.SourceTypeID, TargetTypeID: body.TargetTypeID,
+		Cardinality: body.Cardinality, Visibility: body.Visibility,
+		OwnerID: ownerID, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	if v.Cardinality == "" {
+		v.Cardinality = "many_to_many"
+	}
+	if v.Visibility == "" {
+		v.Visibility = "normal"
+	}
+	if v.DisplayName == "" {
+		v.DisplayName = v.Name
+	}
+	f.linkTypes[id] = v
+	return v, nil
+}
+
+func (f *fakeStore) UpdateLinkType(_ context.Context, id uuid.UUID, body *models.UpdateLinkTypeRequest) (*models.LinkType, error) {
+	v, ok := f.linkTypes[id]
+	if !ok {
+		return nil, nil
+	}
+	if body.DisplayName != nil {
+		v.DisplayName = *body.DisplayName
+	}
+	if body.Cardinality != nil && *body.Cardinality != "" {
+		v.Cardinality = *body.Cardinality
+	}
+	if body.Visibility != nil && *body.Visibility != "" {
+		v.Visibility = *body.Visibility
+	}
+	return v, nil
+}
+
+func (f *fakeStore) DeleteLinkType(_ context.Context, id uuid.UUID) (bool, error) {
+	if _, ok := f.linkTypes[id]; !ok {
+		return false, nil
+	}
+	delete(f.linkTypes, id)
+	return true, nil
+}
+
+func (f *fakeStore) ListObjectTypeGroups(_ context.Context, _ string, _, _ int64) ([]models.ObjectTypeGroup, int64, error) {
+	if f.listGrpErr != nil {
+		return nil, 0, f.listGrpErr
+	}
+	out := make([]models.ObjectTypeGroup, 0, len(f.groups))
+	for _, v := range f.groups {
+		out = append(out, *v)
+	}
+	return out, int64(len(out)), nil
+}
+
+func (f *fakeStore) GetObjectTypeGroup(_ context.Context, id uuid.UUID) (*models.ObjectTypeGroup, error) {
+	v, ok := f.groups[id]
+	if !ok {
+		return nil, nil
+	}
+	return v, nil
+}
+
+func (f *fakeStore) CreateObjectTypeGroup(_ context.Context, body *models.CreateObjectTypeGroupRequest, ownerID uuid.UUID) (*models.ObjectTypeGroup, error) {
+	id := uuid.New()
+	if body.ID != nil && *body.ID != uuid.Nil {
+		id = *body.ID
+	}
+	v := &models.ObjectTypeGroup{
+		ID: id, Name: body.Name, DisplayName: body.DisplayName,
+		Description: body.Description, Visibility: body.Visibility,
+		Status: body.Status, OwnerID: ownerID,
+		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		ObjectTypeIDs: append([]uuid.UUID(nil), body.ObjectTypeIDs...),
+	}
+	if v.Visibility == "" {
+		v.Visibility = "normal"
+	}
+	if v.Status == "" {
+		v.Status = "active"
+	}
+	v.ObjectTypeCount = len(v.ObjectTypeIDs)
+	f.groups[id] = v
+	return v, nil
+}
+
+func (f *fakeStore) UpdateObjectTypeGroup(_ context.Context, id uuid.UUID, body *models.UpdateObjectTypeGroupRequest, _ uuid.UUID) (*models.ObjectTypeGroup, error) {
+	v, ok := f.groups[id]
+	if !ok {
+		return nil, nil
+	}
+	if body.DisplayName != nil {
+		v.DisplayName = *body.DisplayName
+	}
+	if body.Status != nil && *body.Status != "" {
+		v.Status = *body.Status
+	}
+	return v, nil
+}
+
+func (f *fakeStore) DeleteObjectTypeGroup(_ context.Context, id uuid.UUID) (bool, error) {
+	if _, ok := f.groups[id]; !ok {
+		return false, nil
+	}
+	delete(f.groups, id)
+	return true, nil
+}
+
+func (f *fakeStore) AddObjectTypeToGroup(_ context.Context, groupID, objectTypeID uuid.UUID) (*models.ObjectTypeGroup, error) {
+	v, ok := f.groups[groupID]
+	if !ok {
+		return nil, nil
+	}
+	for _, existing := range v.ObjectTypeIDs {
+		if existing == objectTypeID {
+			return v, nil
+		}
+	}
+	v.ObjectTypeIDs = append(v.ObjectTypeIDs, objectTypeID)
+	v.ObjectTypeCount = len(v.ObjectTypeIDs)
+	return v, nil
+}
+
+func (f *fakeStore) RemoveObjectTypeFromGroup(_ context.Context, groupID, objectTypeID uuid.UUID) (*models.ObjectTypeGroup, error) {
+	v, ok := f.groups[groupID]
+	if !ok {
+		return nil, nil
+	}
+	out := v.ObjectTypeIDs[:0]
+	for _, existing := range v.ObjectTypeIDs {
+		if existing != objectTypeID {
+			out = append(out, existing)
+		}
+	}
+	v.ObjectTypeIDs = out
+	v.ObjectTypeCount = len(v.ObjectTypeIDs)
+	return v, nil
+}
+
+func (f *fakeStore) ListInterfaces(_ context.Context, _, _ int, _ string) ([]models.OntologyInterface, int, error) {
+	if f.listIfaceErr != nil {
+		return nil, 0, f.listIfaceErr
+	}
+	return append([]models.OntologyInterface(nil), f.interfaces...), len(f.interfaces), nil
+}
+
+func (f *fakeStore) ListSharedPropertyTypes(_ context.Context, _, _ int, _ string) ([]models.SharedPropertyType, int, error) {
+	if f.listSPErr != nil {
+		return nil, 0, f.listSPErr
+	}
+	return append([]models.SharedPropertyType(nil), f.sharedProps...), len(f.sharedProps), nil
+}
+
+// authed produces a request that already has Claims attached, mimicking
+// what authmw.Middleware would do on a real protected route.
+func authed(method, target string, body string) *http.Request {
+	var r io.Reader
+	if body != "" {
+		r = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, target, r)
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), &authmw.Claims{Sub: uuid.New()}))
+	return req
+}
+
+func newRouter(h *handlers.Handlers) *chi.Mux {
+	r := chi.NewRouter()
+	r.Get("/object-types", h.ListObjectTypes)
+	r.Post("/object-types", h.CreateObjectType)
+	r.Get("/object-types/{id}", h.GetObjectType)
+	r.Patch("/object-types/{id}", h.UpdateObjectType)
+	r.Delete("/object-types/{id}", h.DeleteObjectType)
+	r.Get("/object-types/{id}/properties", h.ListProperties)
+	r.Post("/object-types/{id}/properties", h.CreateProperty)
+
+	r.Get("/links", h.ListLinkTypes)
+	r.Post("/links", h.CreateLinkType)
+	r.Get("/links/{id}", h.GetLinkType)
+	r.Patch("/links/{id}", h.UpdateLinkType)
+	r.Delete("/links/{id}", h.DeleteLinkType)
+
+	r.Get("/object-type-groups", h.ListObjectTypeGroups)
+	r.Post("/object-type-groups", h.CreateObjectTypeGroup)
+	r.Get("/object-type-groups/{id}", h.GetObjectTypeGroup)
+	r.Patch("/object-type-groups/{id}", h.UpdateObjectTypeGroup)
+	r.Delete("/object-type-groups/{id}", h.DeleteObjectTypeGroup)
+	r.Post("/object-type-groups/{id}/object-types/{objectTypeId}", h.AddObjectTypeToGroup)
+	r.Delete("/object-type-groups/{id}/object-types/{objectTypeId}", h.RemoveObjectTypeFromGroup)
+
+	r.Get("/interfaces", h.ListInterfaces)
+	r.Get("/shared-property-types", h.ListSharedPropertyTypes)
+	return r
+}
+
+// ── Object types ────────────────────────────────────────────────────────
+
+func TestListObjectTypesHappyPath(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.CreateObjectType(context.Background(),
+		&models.CreateObjectTypeRequest{Name: "Asset", DisplayName: "Asset"}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, authed("GET", "/object-types", ""))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Asset")
+}
+
+func TestListObjectTypesRepoError(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	store.listOTErr = errors.New("boom")
+	r := newRouter(&handlers.Handlers{Repo: store})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, authed("GET", "/object-types", ""))
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestGetObjectTypeRequiresAuth(t *testing.T) {
+	t.Parallel()
+	r := newRouter(&handlers.Handlers{Repo: newFakeStore()})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/object-types/"+uuid.New().String(), nil))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestGetObjectTypeBadUUID(t *testing.T) {
+	t.Parallel()
+	r := newRouter(&handlers.Handlers{Repo: newFakeStore()})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, authed("GET", "/object-types/not-a-uuid", ""))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestGetObjectTypeNotFound(t *testing.T) {
+	t.Parallel()
+	r := newRouter(&handlers.Handlers{Repo: newFakeStore()})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, authed("GET", "/object-types/"+uuid.New().String(), ""))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestGetObjectTypeHappyPath(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateObjectType(context.Background(),
+		&models.CreateObjectTypeRequest{Name: "Asset", DisplayName: "Asset"}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, authed("GET", "/object-types/"+v.ID.String(), ""))
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestCreateObjectTypeInvalidJSON(t *testing.T) {
+	t.Parallel()
+	r := newRouter(&handlers.Handlers{Repo: newFakeStore()})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, authed("POST", "/object-types", "{not json"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestCreateObjectTypeHappyPath(t *testing.T) {
+	t.Parallel()
+	r := newRouter(&handlers.Handlers{Repo: newFakeStore()})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, authed("POST", "/object-types",
+		`{"name":"Asset","display_name":"Asset"}`))
+	assert.Equal(t, http.StatusCreated, rec.Code)
+}
+
+func TestUpdateObjectTypeAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateObjectType(context.Background(),
+		&models.CreateObjectTypeRequest{Name: "Asset", DisplayName: "Asset"}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("PATCH", "/object-types/"+v.ID.String(), strings.NewReader(`{}`)))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad uuid", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/object-types/bogus", `{}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid body", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/object-types/"+v.ID.String(), `{not json`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/object-types/"+uuid.New().String(), `{"description":"x"}`))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/object-types/"+v.ID.String(), `{"description":"updated"}`))
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "updated")
+	})
+}
+
+func TestDeleteObjectTypeAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateObjectType(context.Background(),
+		&models.CreateObjectTypeRequest{Name: "Asset", DisplayName: "Asset"}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("DELETE", "/object-types/"+v.ID.String(), nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad uuid", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE", "/object-types/bogus", ""))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE", "/object-types/"+uuid.New().String(), ""))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE", "/object-types/"+v.ID.String(), ""))
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+	})
+}
+
+// ── Properties ──────────────────────────────────────────────────────────
+
+func TestListPropertiesAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateObjectType(context.Background(),
+		&models.CreateObjectTypeRequest{Name: "Asset", DisplayName: "Asset"}, uuid.New())
+	_, _ = store.CreateProperty(context.Background(), v.ID,
+		&models.CreatePropertyRequest{Name: "label", PropertyType: "string"})
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("GET", "/object-types/"+v.ID.String()+"/properties", nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad uuid", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/object-types/bogus/properties", ""))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/object-types/"+v.ID.String()+"/properties", ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "label")
+	})
+}
+
+func TestCreatePropertyAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateObjectType(context.Background(),
+		&models.CreateObjectTypeRequest{Name: "Asset", DisplayName: "Asset"}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("POST", "/object-types/"+v.ID.String()+"/properties",
+			strings.NewReader(`{"name":"x","property_type":"string"}`)))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad uuid", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/object-types/bogus/properties",
+			`{"name":"x","property_type":"string"}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid body", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/object-types/"+v.ID.String()+"/properties",
+			`{not json`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("missing fields", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/object-types/"+v.ID.String()+"/properties",
+			`{"name":"","property_type":""}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/object-types/"+v.ID.String()+"/properties",
+			`{"name":"label","property_type":"string"}`))
+		assert.Equal(t, http.StatusCreated, rec.Code)
+	})
+}
+
+// ── Link types ──────────────────────────────────────────────────────────
+
+func TestListLinkTypesAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	src := uuid.New()
+	tgt := uuid.New()
+	_, _ = store.CreateLinkType(context.Background(),
+		&models.CreateLinkTypeRequest{Name: "owns", SourceTypeID: src, TargetTypeID: tgt}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("GET", "/links", nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad filter", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/links?object_type_id=bogus", ""))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("happy unfiltered", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/links", ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "owns")
+	})
+	t.Run("happy filtered", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/links?object_type_id="+src.String(), ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "owns")
+	})
+}
+
+func TestGetLinkTypeAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateLinkType(context.Background(),
+		&models.CreateLinkTypeRequest{Name: "owns", SourceTypeID: uuid.New(), TargetTypeID: uuid.New()}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("GET", "/links/"+v.ID.String(), nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad uuid", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/links/bogus", ""))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/links/"+uuid.New().String(), ""))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/links/"+v.ID.String(), ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+}
+
+func TestCreateLinkTypeAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	r := newRouter(&handlers.Handlers{Repo: store})
+	src := uuid.New().String()
+	tgt := uuid.New().String()
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("POST", "/links",
+			strings.NewReader(`{"name":"owns","source_type_id":"`+src+`","target_type_id":"`+tgt+`"}`)))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("invalid body", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/links", `{not json`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("missing required", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/links", `{"name":""}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid cardinality", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/links",
+			`{"name":"x","source_type_id":"`+src+`","target_type_id":"`+tgt+`","cardinality":"wat"}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid visibility", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/links",
+			`{"name":"x","source_type_id":"`+src+`","target_type_id":"`+tgt+`","visibility":"wat"}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/links",
+			`{"name":"owns","source_type_id":"`+src+`","target_type_id":"`+tgt+`","cardinality":"one_to_many","visibility":"normal"}`))
+		assert.Equal(t, http.StatusCreated, rec.Code)
+	})
+}
+
+func TestUpdateLinkTypeAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateLinkType(context.Background(),
+		&models.CreateLinkTypeRequest{Name: "owns", SourceTypeID: uuid.New(), TargetTypeID: uuid.New()}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("PATCH", "/links/"+v.ID.String(), strings.NewReader(`{}`)))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad uuid", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/links/bogus", `{}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid body", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/links/"+v.ID.String(), `{not json`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid cardinality", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/links/"+v.ID.String(), `{"cardinality":"wat"}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid visibility", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/links/"+v.ID.String(), `{"visibility":"wat"}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/links/"+uuid.New().String(), `{"display_name":"x"}`))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/links/"+v.ID.String(),
+			`{"display_name":"renamed","cardinality":"one_to_one","visibility":"hidden"}`))
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+}
+
+func TestDeleteLinkTypeAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateLinkType(context.Background(),
+		&models.CreateLinkTypeRequest{Name: "owns", SourceTypeID: uuid.New(), TargetTypeID: uuid.New()}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("DELETE", "/links/"+v.ID.String(), nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad uuid", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE", "/links/bogus", ""))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE", "/links/"+uuid.New().String(), ""))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE", "/links/"+v.ID.String(), ""))
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+	})
+}
+
+// ── Object type groups ──────────────────────────────────────────────────
+
+func TestListObjectTypeGroupsAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.CreateObjectTypeGroup(context.Background(),
+		&models.CreateObjectTypeGroupRequest{Name: "core"}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("GET", "/object-type-groups", nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("happy with paging", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/object-type-groups?page=2&per_page=500&search=foo", ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+	t.Run("happy clamped", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/object-type-groups?page=-1&per_page=-1", ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+}
+
+func TestGetObjectTypeGroupAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateObjectTypeGroup(context.Background(),
+		&models.CreateObjectTypeGroupRequest{Name: "core"}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("GET", "/object-type-groups/"+v.ID.String(), nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad uuid", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/object-type-groups/bogus", ""))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/object-type-groups/"+uuid.New().String(), ""))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/object-type-groups/"+v.ID.String(), ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+}
+
+func TestCreateObjectTypeGroupAll(t *testing.T) {
+	t.Parallel()
+	r := newRouter(&handlers.Handlers{Repo: newFakeStore()})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("POST", "/object-type-groups",
+			strings.NewReader(`{"name":"core"}`)))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("invalid body", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/object-type-groups", `{not json`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("missing name", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/object-type-groups", `{"name":""}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid visibility", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/object-type-groups", `{"name":"core","visibility":"wat"}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid status", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/object-type-groups", `{"name":"core","status":"wat"}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST", "/object-type-groups",
+			`{"name":"core","visibility":"normal","status":"active"}`))
+		assert.Equal(t, http.StatusCreated, rec.Code)
+	})
+}
+
+func TestUpdateObjectTypeGroupAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateObjectTypeGroup(context.Background(),
+		&models.CreateObjectTypeGroupRequest{Name: "core"}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("PATCH", "/object-type-groups/"+v.ID.String(), strings.NewReader(`{}`)))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad uuid", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/object-type-groups/bogus", `{}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid body", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/object-type-groups/"+v.ID.String(), `{not json`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid visibility", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/object-type-groups/"+v.ID.String(), `{"visibility":"wat"}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("invalid status", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/object-type-groups/"+v.ID.String(), `{"status":"wat"}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/object-type-groups/"+uuid.New().String(), `{"display_name":"x"}`))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("PATCH", "/object-type-groups/"+v.ID.String(),
+			`{"display_name":"Core","status":"experimental","visibility":"hidden"}`))
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+}
+
+func TestDeleteObjectTypeGroupAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateObjectTypeGroup(context.Background(),
+		&models.CreateObjectTypeGroupRequest{Name: "core"}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("DELETE", "/object-type-groups/"+v.ID.String(), nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("bad uuid", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE", "/object-type-groups/bogus", ""))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE", "/object-type-groups/"+uuid.New().String(), ""))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE", "/object-type-groups/"+v.ID.String(), ""))
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+	})
+}
+
+func TestAddRemoveObjectTypeToGroup(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	v, _ := store.CreateObjectTypeGroup(context.Background(),
+		&models.CreateObjectTypeGroupRequest{Name: "core"}, uuid.New())
+	ot, _ := store.CreateObjectType(context.Background(),
+		&models.CreateObjectTypeRequest{Name: "Asset", DisplayName: "Asset"}, uuid.New())
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("add: auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("POST",
+			"/object-type-groups/"+v.ID.String()+"/object-types/"+ot.ID.String(), nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("add: bad group id", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST",
+			"/object-type-groups/bogus/object-types/"+ot.ID.String(), ""))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("add: bad object type id", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST",
+			"/object-type-groups/"+v.ID.String()+"/object-types/bogus", ""))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("add: group not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST",
+			"/object-type-groups/"+uuid.New().String()+"/object-types/"+ot.ID.String(), ""))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("add: happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("POST",
+			"/object-type-groups/"+v.ID.String()+"/object-types/"+ot.ID.String(), ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("remove: auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("DELETE",
+			"/object-type-groups/"+v.ID.String()+"/object-types/"+ot.ID.String(), nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("remove: group not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE",
+			"/object-type-groups/"+uuid.New().String()+"/object-types/"+ot.ID.String(), ""))
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("remove: happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("DELETE",
+			"/object-type-groups/"+v.ID.String()+"/object-types/"+ot.ID.String(), ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+}
+
+// ── Interfaces + shared property types ──────────────────────────────────
+
+func TestListInterfacesAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	store.interfaces = []models.OntologyInterface{
+		{ID: uuid.New(), Name: "Identifiable", DisplayName: "Identifiable"},
+	}
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("GET", "/interfaces", nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/interfaces?page=1&per_page=10&search=Id", ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "Identifiable")
+	})
+	t.Run("clamped per_page", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/interfaces?per_page=9999", ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+	t.Run("repo error", func(t *testing.T) {
+		store.listIfaceErr = errors.New("db down")
+		defer func() { store.listIfaceErr = nil }()
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/interfaces", ""))
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	})
+}
+
+func TestListSharedPropertyTypesAll(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	store.sharedProps = []models.SharedPropertyType{
+		{ID: uuid.New(), Name: "iso_currency", DisplayName: "ISO Currency", PropertyType: "string"},
+	}
+	r := newRouter(&handlers.Handlers{Repo: store})
+
+	t.Run("auth", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("GET", "/shared-property-types", nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+	t.Run("happy", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/shared-property-types", ""))
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "iso_currency")
+	})
+	t.Run("repo error", func(t *testing.T) {
+		store.listSPErr = errors.New("db down")
+		defer func() { store.listSPErr = nil }()
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, authed("GET", "/shared-property-types", ""))
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	})
+}
+
+// Compile-time guard: fakeStore satisfies handlers.Store.
+var _ handlers.Store = (*fakeStore)(nil)
