@@ -70,7 +70,16 @@ func Evaluate(
 	if err != nil {
 		return nil, fmt.Errorf("list policies: %w", err)
 	}
-	views, err := r.ListEnabledRestrictedViewsMatching(ctx, resource, action)
+	// Tenant isolation: only restricted_views owned by the caller's
+	// tenant participate in the evaluation. A claim without OrgID
+	// resolves to uuid.Nil, which matches zero rows by construction —
+	// this is the intended default-deny posture for unauthenticated
+	// or system contexts.
+	tenantID := uuid.Nil
+	if claims != nil && claims.OrgID != nil {
+		tenantID = *claims.OrgID
+	}
+	views, err := r.ListEnabledRestrictedViewsMatching(ctx, tenantID, resource, action)
 	if err != nil {
 		return nil, fmt.Errorf("list restricted views: %w", err)
 	}
