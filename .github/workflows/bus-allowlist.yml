@@ -1,0 +1,38 @@
+name: CI — Bus topic allowlist
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/**/*.go"
+      - "tools/bus-allowlist/**"
+      - ".github/bus-allowlist.yaml"
+      - ".github/workflows/bus-allowlist.yml"
+      - "go.mod"
+      - "go.sum"
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/**/*.go"
+      - "tools/bus-allowlist/**"
+      - ".github/bus-allowlist.yaml"
+      - ".github/workflows/bus-allowlist.yml"
+      - "go.mod"
+      - "go.sum"
+
+jobs:
+  bus-allowlist:
+    name: Bus topic allowlist
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify per-service bus topic allowlist
+        run: go run ./tools/bus-allowlist
+      - name: Run bus-allowlist unit tests
+        run: go test ./tools/bus-allowlist/...

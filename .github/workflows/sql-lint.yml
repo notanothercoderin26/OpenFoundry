@@ -1,0 +1,42 @@
+name: CI — SQL Sprintf lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/connector-management-service/**/*.go"
+      - "tools/sql-lint/**"
+      - ".sqlsafe-allowlist.txt"
+      - ".github/workflows/sql-lint.yml"
+      - "go.mod"
+      - "go.sum"
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/connector-management-service/**/*.go"
+      - "tools/sql-lint/**"
+      - ".sqlsafe-allowlist.txt"
+      - ".github/workflows/sql-lint.yml"
+      - "go.mod"
+      - "go.sum"
+
+jobs:
+  sql-lint:
+    name: sql-sprintf lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Run sql-lint unit tests
+        run: go test ./tools/sql-lint/...
+      - name: Scan connector adapters
+        run: |
+          go run ./tools/sql-lint \
+            -allowlist .sqlsafe-allowlist.txt \
+            -v \
+            services/connector-management-service/internal/adapters

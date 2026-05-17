@@ -212,6 +212,10 @@ MCP_TOOL_REGISTRY: list[dict[str, Any]] = [
         "operation_id": "open_foundry.ontology.OntologyService.CreateLinkType",
     },
     {
+        "name": "openfoundry.ontology.createobject",
+        "operation_id": "open_foundry.ontology.OntologyObjectService.CreateObject",
+    },
+    {
         "name": "openfoundry.ontology.createobjecttype",
         "operation_id": "open_foundry.ontology.OntologyService.CreateObjectType",
     },
@@ -224,8 +228,16 @@ MCP_TOOL_REGISTRY: list[dict[str, Any]] = [
         "operation_id": "open_foundry.ontology.OntologyService.DeleteLinkType",
     },
     {
+        "name": "openfoundry.ontology.deleteobject",
+        "operation_id": "open_foundry.ontology.OntologyObjectService.DeleteObject",
+    },
+    {
         "name": "openfoundry.ontology.deleteobjecttype",
         "operation_id": "open_foundry.ontology.OntologyService.DeleteObjectType",
+    },
+    {
+        "name": "openfoundry.ontology.getobject",
+        "operation_id": "open_foundry.ontology.OntologyObjectService.GetObject",
     },
     {
         "name": "openfoundry.ontology.getobjecttype",
@@ -240,6 +252,10 @@ MCP_TOOL_REGISTRY: list[dict[str, Any]] = [
         "operation_id": "open_foundry.ontology.OntologyService.ListObjectTypes",
     },
     {
+        "name": "openfoundry.ontology.listobjects",
+        "operation_id": "open_foundry.ontology.OntologyObjectService.ListObjects",
+    },
+    {
         "name": "openfoundry.ontology.listproperties",
         "operation_id": "open_foundry.ontology.OntologyService.ListProperties",
     },
@@ -248,8 +264,20 @@ MCP_TOOL_REGISTRY: list[dict[str, Any]] = [
         "operation_id": "open_foundry.ontology.OntologyService.MaterializeBinding",
     },
     {
+        "name": "openfoundry.ontology.searchobjects",
+        "operation_id": "open_foundry.ontology.OntologyObjectService.SearchObjects",
+    },
+    {
+        "name": "openfoundry.ontology.traverselinks",
+        "operation_id": "open_foundry.ontology.OntologyObjectService.TraverseLinks",
+    },
+    {
         "name": "openfoundry.ontology.unbinddataset",
         "operation_id": "open_foundry.ontology.OntologyService.UnbindDataset",
+    },
+    {
+        "name": "openfoundry.ontology.updateobject",
+        "operation_id": "open_foundry.ontology.OntologyObjectService.UpdateObject",
     },
     {
         "name": "openfoundry.ontology.updateobjecttype",
@@ -368,12 +396,80 @@ MCP_TOOL_REGISTRY: list[dict[str, Any]] = [
         "operation_id": "runtime.PythonRuntimeService.ExecutePipelineTransform",
     },
     {
+        "name": "openfoundry.marketplaceV1.createproduct",
+        "operation_id": "open_foundry.marketplace.v1.MarketplaceProductService.CreateProduct",
+    },
+    {
+        "name": "openfoundry.aiV1.disablemodel",
+        "operation_id": "open_foundry.ai.v1.LlmCatalogService.DisableModel",
+    },
+    {
+        "name": "openfoundry.aiV1.enablemodel",
+        "operation_id": "open_foundry.ai.v1.LlmCatalogService.EnableModel",
+    },
+    {
+        "name": "openfoundry.auditV1.exportevents",
+        "operation_id": "open_foundry.audit.v1.AuditService.ExportEvents",
+    },
+    {
+        "name": "openfoundry.aiV1.getmodel",
+        "operation_id": "open_foundry.ai.v1.LlmCatalogService.GetModel",
+    },
+    {
+        "name": "openfoundry.marketplaceV1.getproduct",
+        "operation_id": "open_foundry.marketplace.v1.MarketplaceProductService.GetProduct",
+    },
+    {
+        "name": "openfoundry.marketplaceV1.installproduct",
+        "operation_id": "open_foundry.marketplace.v1.MarketplaceProductService.InstallProduct",
+    },
+    {
+        "name": "openfoundry.aiV1.invoke",
+        "operation_id": "open_foundry.ai.v1.LlmCatalogService.Invoke",
+    },
+    {
+        "name": "openfoundry.aiV1.invokestream",
+        "operation_id": "open_foundry.ai.v1.LlmCatalogService.InvokeStream",
+    },
+    {
+        "name": "openfoundry.marketplaceV1.listinstallations",
+        "operation_id": "open_foundry.marketplace.v1.MarketplaceProductService.ListInstallations",
+    },
+    {
+        "name": "openfoundry.aiV1.listmodels",
+        "operation_id": "open_foundry.ai.v1.LlmCatalogService.ListModels",
+    },
+    {
+        "name": "openfoundry.marketplaceV1.listproducts",
+        "operation_id": "open_foundry.marketplace.v1.MarketplaceProductService.ListProducts",
+    },
+    {
         "name": "openfoundry.openfoundryStreamingRouterV1.publish",
         "operation_id": "openfoundry.streaming.router.v1.EventRouter.Publish",
     },
     {
+        "name": "openfoundry.marketplaceV1.publishversion",
+        "operation_id": "open_foundry.marketplace.v1.MarketplaceProductService.PublishVersion",
+    },
+    {
+        "name": "openfoundry.auditV1.queryevents",
+        "operation_id": "open_foundry.audit.v1.AuditService.QueryEvents",
+    },
+    {
+        "name": "openfoundry.auditV1.recordevent",
+        "operation_id": "open_foundry.audit.v1.AuditService.RecordEvent",
+    },
+    {
+        "name": "openfoundry.aiV1.registermodel",
+        "operation_id": "open_foundry.ai.v1.LlmCatalogService.RegisterModel",
+    },
+    {
         "name": "openfoundry.openfoundryStreamingRouterV1.subscribe",
         "operation_id": "openfoundry.streaming.router.v1.EventRouter.Subscribe",
+    },
+    {
+        "name": "openfoundry.marketplaceV1.uninstall",
+        "operation_id": "open_foundry.marketplace.v1.MarketplaceProductService.Uninstall",
     },
     {
         "name": "openfoundry.adminV2.getcontrolpanel",

@@ -62,6 +62,30 @@ func TestBatchResponseJSONShape(t *testing.T) {
 	assert.Equal(t, true, first["ok"])
 }
 
+func TestMoveRequestCMP6JSONShape(t *testing.T) {
+	t.Parallel()
+	targetProjectID := uuid.New()
+	targetFolderID := uuid.New()
+	body := workspace.MoveRequest{
+		TargetProjectID:           &targetProjectID,
+		TargetFolderID:            &targetFolderID,
+		TargetProjectRID:          stringPtr("ri.compass.main.project." + targetProjectID.String()),
+		TargetFolderRID:           stringPtr("ri.compass.main.folder." + targetFolderID.String()),
+		ConfirmAccessPolicyChange: true,
+		ConfirmMarkingChange:      true,
+	}
+	out, err := json.Marshal(body)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	for _, k := range []string{
+		"target_project_id", "target_folder_id", "target_project_rid", "target_folder_rid",
+		"confirm_access_policy_change", "confirm_marking_change",
+	} {
+		assert.Contains(t, view, k)
+	}
+}
+
 // ─── Move ────────────────────────────────────────────────────────────
 
 func TestMoveResourceRequiresAuth(t *testing.T) {
@@ -139,6 +163,23 @@ func TestMoveResourceBindingRequiresTargetProjectID(t *testing.T) {
 	h.MoveResource(rec, req)
 	assert.Equal(t, 400, rec.Code)
 	assert.Contains(t, rec.Body.String(), "target_project_id")
+}
+
+func TestMoveFolderAcrossProjectRequiresAccessPolicyConfirmation(t *testing.T) {
+	t.Parallel()
+	h := &workspace.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New(), Roles: []string{"admin"}}
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("kind", "ontology_folder")
+	rctx.URLParams.Add("id", uuid.New().String())
+	body := `{"target_project_id":"` + uuid.New().String() + `"}`
+	req := httptest.NewRequest("POST", "/x/move", strings.NewReader(body))
+	req = req.WithContext(authmw.ContextWithClaims(
+		context.WithValue(req.Context(), chi.RouteCtxKey, rctx), c))
+	rec := httptest.NewRecorder()
+	h.MoveResource(rec, req)
+	assert.Equal(t, 409, rec.Code)
+	assert.Contains(t, rec.Body.String(), "confirm_access_policy_change")
 }
 
 // ─── Rename ──────────────────────────────────────────────────────────
@@ -254,6 +295,8 @@ func TestSoftDeleteRejectsUnsupportedKind(t *testing.T) {
 	assert.Equal(t, 400, rec.Code)
 	assert.Contains(t, rec.Body.String(), "soft delete is not supported")
 }
+
+func stringPtr(value string) *string { return &value }
 
 // ─── Batch ───────────────────────────────────────────────────────────
 

@@ -11,6 +11,7 @@ import {
   getMe,
   login as apiLogin,
   refreshToken,
+  selectScopedSession,
   startSsoLogin as apiStartSsoLogin,
   type LoginResponse,
   type MfaRequiredResponse,
@@ -227,6 +228,19 @@ async function completeTokenCallback(resp: TokenResponse): Promise<{ status: 'au
   }
 }
 
+async function switchScopedSession(presetId: string | null): Promise<void> {
+  setSnapshot({ loading: true });
+  try {
+    const resp = await selectScopedSession(presetId);
+    await finalizeSession(resp);
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
+  } finally {
+    setSnapshot({ loading: false });
+  }
+}
+
 async function handleSsoCallback(payload: {
   code?: string;
   state?: string;
@@ -309,6 +323,7 @@ export const auth = {
   startSsoLogin,
   handleSsoCallback,
   completeTokenCallback,
+  switchScopedSession,
   logout,
   clearPendingChallenge,
   updateCurrentUserProfile,

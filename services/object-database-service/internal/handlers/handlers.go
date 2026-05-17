@@ -27,6 +27,9 @@ type Handlers struct {
 	// Production wiring passes a client that hits
 	// ontology-definition-service.
 	Schemas PropertySchemaResolver
+	// ObjectTypes resolves restricted-view-backed object type metadata so
+	// object reads inherit datasource row policies without per-request hints.
+	ObjectTypes ObjectTypePolicyResolver
 }
 
 // --- request / response wire types --------------------------------------

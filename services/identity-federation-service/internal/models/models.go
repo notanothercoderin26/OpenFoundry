@@ -78,13 +78,13 @@ const (
 // MFA fields stay in the type so the wire shape stays stable when the
 // slice 3 path lights up.
 type LoginResponse struct {
-	Status          LoginStatus `json:"status"`
-	AccessToken     string      `json:"access_token,omitempty"`
-	RefreshToken    string      `json:"refresh_token,omitempty"`
-	TokenType       string      `json:"token_type,omitempty"`
-	ExpiresIn       int64       `json:"expires_in,omitempty"`
-	ChallengeToken  string      `json:"challenge_token,omitempty"`
-	Methods         []string    `json:"methods,omitempty"`
+	Status         LoginStatus `json:"status"`
+	AccessToken    string      `json:"access_token,omitempty"`
+	RefreshToken   string      `json:"refresh_token,omitempty"`
+	TokenType      string      `json:"token_type,omitempty"`
+	ExpiresIn      int64       `json:"expires_in,omitempty"`
+	ChallengeToken string      `json:"challenge_token,omitempty"`
+	Methods        []string    `json:"methods,omitempty"`
 }
 
 // RefreshRequest mirrors `handlers::token::RefreshRequest`.
@@ -102,11 +102,12 @@ type TokenResponse struct {
 
 // RefreshTokenRow is the persisted row in `refresh_tokens`.
 type RefreshTokenRow struct {
-	ID         uuid.UUID
-	UserID     uuid.UUID
-	TokenHash  string
-	FamilyID   uuid.UUID
-	IssuedAt   time.Time
-	ExpiresAt  time.Time
-	RevokedAt  *time.Time
+	ID           uuid.UUID
+	UserID       uuid.UUID
+	TokenHash    string
+	FamilyID     uuid.UUID
+	SessionScope json.RawMessage
+	IssuedAt     time.Time
+	ExpiresAt    time.Time
+	RevokedAt    *time.Time
 }

@@ -1,6 +1,6 @@
 //go:build integration
 
-// Integration coverage for the per-tenant scoping the 0014 migration
+// Integration coverage for the per-tenant scoping the 0017 migration
 // introduces on restricted_views. Verifies that every CRUD entry
 // point in this repo honours the tenant boundary: cross-tenant Get
 // returns nil, cross-tenant Update/Delete are silent no-ops, and a

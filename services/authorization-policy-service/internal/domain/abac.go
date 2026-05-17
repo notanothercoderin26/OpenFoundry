@@ -4,30 +4,54 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/observability"
+	"github.com/openfoundry/openfoundry-go/libs/restrictedview"
 	"github.com/openfoundry/openfoundry-go/services/authorization-policy-service/internal/repo"
 )
+
+// abacConditionUnmarshalErrors counts ABAC policy / restricted-view rows
+// whose `conditions` payload failed to JSON-decode. The evaluator
+// treats those rows as default-deny (policyMatches returns false);
+// the counter exists so the malformed-row rate is observable instead
+// of silently degrading authorization.
+var abacConditionUnmarshalErrors = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "authzpolicy_abac_condition_unmarshal_errors_total",
+		Help: "ABAC policy / restricted-view rows whose condition JSON failed to decode; policyMatches returns false (default-deny).",
+	},
+	[]string{"tenant_id", "policy_id"},
+)
+
+// RegisterMetrics wires the domain-level ABAC metrics on the supplied
+// observability metrics registry. Call once at service boot.
+func RegisterMetrics(o *observability.Metrics) {
+	o.Register(abacConditionUnmarshalErrors)
+}
 
 // EvaluationResult mirrors the Rust EvaluationResult shape byte-for-byte.
 // Carried by POST /api/v1/policy-evaluations as the response body.
 type EvaluationResult struct {
-	Allowed                    bool                        `json:"allowed"`
-	MatchedPolicyIDs           []uuid.UUID                 `json:"matched_policy_ids"`
-	DenyPolicyIDs              []uuid.UUID                 `json:"deny_policy_ids"`
-	RowFilter                  *string                     `json:"row_filter"`
-	HiddenColumns              []string                    `json:"hidden_columns"`
-	MatchedRestrictedViewIDs   []uuid.UUID                 `json:"matched_restricted_view_ids"`
-	RestrictedViews            []EvaluationRestrictedView  `json:"restricted_views"`
-	DenyReasons                []string                    `json:"deny_reasons"`
-	AllowedOrgIDs              []uuid.UUID                 `json:"allowed_org_ids"`
-	AllowedMarkings            []string                    `json:"allowed_markings"`
-	EffectiveClearance         *string                     `json:"effective_clearance"`
-	ConsumerMode               bool                        `json:"consumer_mode"`
+	Allowed                          bool                       `json:"allowed"`
+	MatchedPolicyIDs                 []uuid.UUID                `json:"matched_policy_ids"`
+	DenyPolicyIDs                    []uuid.UUID                `json:"deny_policy_ids"`
+	RowFilter                        *string                    `json:"row_filter"`
+	HiddenColumns                    []string                   `json:"hidden_columns"`
+	MatchedRestrictedViewIDs         []uuid.UUID                `json:"matched_restricted_view_ids"`
+	RestrictedViews                  []EvaluationRestrictedView `json:"restricted_views"`
+	DenyReasons                      []string                   `json:"deny_reasons"`
+	AllowedOrgIDs                    []uuid.UUID                `json:"allowed_org_ids"`
+	AllowedMarkings                  []string                   `json:"allowed_markings"`
+	EffectiveClearance               *string                    `json:"effective_clearance"`
+	ConsumerMode                     bool                       `json:"consumer_mode"`
+	HistoricalIdentitySnapshotCaveat string                     `json:"historical_identity_snapshot_caveat"`
 }
 
 // EvaluationRestrictedView is the per-view row attached to an evaluation.
@@ -51,34 +75,30 @@ type EvaluationRestrictedView struct {
 // gate write paths via Cedar, ABAC is read-time row filtering + view
 // scoping. Decision matrix matches the Rust impl byte-for-byte:
 //
-//   1. Org isolation + classification boundary checks → deny_reasons.
-//   2. For each policy whose conditions match: allow → matched, with
-//      optional row_filter; deny → deny_policy_ids.
-//   3. For each restricted view: scope checks (org/markings/guest/
-//      scoped IDs), accumulate row_filter + hidden_columns +
-//      consumer_mode_enabled.
-//   4. Final allowed = no denies AND (admin OR no controls OR something
-//      matched).
+//  1. Org isolation + classification boundary checks → deny_reasons.
+//  2. For each policy whose conditions match: allow → matched, with
+//     optional row_filter; deny → deny_policy_ids.
+//  3. For each restricted view: scope checks (org/markings/guest/
+//     scoped IDs), accumulate row_filter + hidden_columns +
+//     consumer_mode_enabled.
+//  4. Final allowed = no denies AND (admin OR no controls OR something
+//     matched).
 func Evaluate(
 	ctx context.Context,
 	r *repo.Repo,
 	claims *authmw.Claims,
+	tenantID uuid.UUID,
 	resource, action string,
 	resourceAttributes json.RawMessage,
 ) (*EvaluationResult, error) {
-	policies, err := r.ListEnabledABACPoliciesMatching(ctx, resource, action)
+	policies, err := r.ListEnabledABACPoliciesMatching(ctx, tenantID, resource, action)
 	if err != nil {
 		return nil, fmt.Errorf("list policies: %w", err)
 	}
 	// Tenant isolation: only restricted_views owned by the caller's
-	// tenant participate in the evaluation. A claim without OrgID
-	// resolves to uuid.Nil, which matches zero rows by construction —
-	// this is the intended default-deny posture for unauthenticated
-	// or system contexts.
-	tenantID := uuid.Nil
-	if claims != nil && claims.OrgID != nil {
-		tenantID = *claims.OrgID
-	}
+	// tenant participate in the evaluation. A tenantID of uuid.Nil
+	// matches zero rows by construction — the intended default-deny
+	// posture for unauthenticated or system contexts.
 	views, err := r.ListEnabledRestrictedViewsMatching(ctx, tenantID, resource, action)
 	if err != nil {
 		return nil, fmt.Errorf("list restricted views: %w", err)
@@ -115,8 +135,13 @@ func Evaluate(
 		}
 	}
 
+	tenantIDStr := ""
+	if claims.OrgID != nil {
+		tenantIDStr = claims.OrgID.String()
+	}
+
 	for _, p := range policies {
-		if !policyMatches(p.Conditions, subjectCtx, resourceAttrs) {
+		if !policyMatches(p.Conditions, subjectCtx, resourceAttrs, tenantIDStr, p.ID.String()) {
 			continue
 		}
 		if strings.EqualFold(p.Effect, "deny") {
@@ -133,7 +158,7 @@ func Evaluate(
 	}
 
 	for _, v := range views {
-		if !policyMatches(v.Conditions, subjectCtx, resourceAttrs) {
+		if !policyMatches(v.Conditions, subjectCtx, resourceAttrs, tenantIDStr, v.ID.String()) {
 			continue
 		}
 		if !claims.HasRole("admin") && len(scopedViewIDs) > 0 {
@@ -168,6 +193,11 @@ func Evaluate(
 				continue
 			}
 		}
+		rvDecision := restrictedview.EvaluateRow(claims, restrictedViewPolicyFromRepo(v), resourceAttrs)
+		if !rvDecision.Allowed {
+			denyReasons = append(denyReasons, rvDecision.DenyReasons...)
+			continue
+		}
 		matchedViewIDs = append(matchedViewIDs, v.ID)
 		if v.RowFilter != nil && *v.RowFilter != "" {
 			rendered := renderRowFilter(*v.RowFilter, subjectCtx, resourceAttrs)
@@ -179,9 +209,9 @@ func Evaluate(
 		consumerMode = consumerMode || v.ConsumerModeEnabled
 		evalViews = append(evalViews, EvaluationRestrictedView{
 			ID: v.ID, Name: v.Name, RowFilter: v.RowFilter,
-			HiddenColumns:   append([]string(nil), v.HiddenColumns...),
-			AllowedOrgIDs:   append([]uuid.UUID(nil), v.AllowedOrgIDs...),
-			AllowedMarkings: append([]string(nil), v.AllowedMarkings...),
+			HiddenColumns:       append([]string(nil), v.HiddenColumns...),
+			AllowedOrgIDs:       append([]uuid.UUID(nil), v.AllowedOrgIDs...),
+			AllowedMarkings:     append([]string(nil), v.AllowedMarkings...),
 			ConsumerModeEnabled: v.ConsumerModeEnabled,
 			AllowGuestAccess:    v.AllowGuestAccess,
 		})
@@ -207,18 +237,19 @@ func Evaluate(
 	}
 
 	return &EvaluationResult{
-		Allowed:                  allowed,
-		MatchedPolicyIDs:         emptyUUIDSlice(matched),
-		DenyPolicyIDs:            emptyUUIDSlice(denyIDs),
-		RowFilter:                finalRowFilter,
-		HiddenColumns:            emptyStringSlice(hiddenCols),
-		MatchedRestrictedViewIDs: emptyUUIDSlice(matchedViewIDs),
-		RestrictedViews:          emptyViewSlice(evalViews),
-		DenyReasons:              emptyStringSlice(denyReasons),
-		AllowedOrgIDs:            emptyUUIDSlice(claims.AllowedOrgIDs()),
-		AllowedMarkings:          emptyStringSlice(claims.AllowedMarkings()),
-		EffectiveClearance:       clearancePtr,
-		ConsumerMode:             consumerMode,
+		Allowed:                          allowed,
+		MatchedPolicyIDs:                 emptyUUIDSlice(matched),
+		DenyPolicyIDs:                    emptyUUIDSlice(denyIDs),
+		RowFilter:                        finalRowFilter,
+		HiddenColumns:                    emptyStringSlice(hiddenCols),
+		MatchedRestrictedViewIDs:         emptyUUIDSlice(matchedViewIDs),
+		RestrictedViews:                  emptyViewSlice(evalViews),
+		DenyReasons:                      emptyStringSlice(denyReasons),
+		AllowedOrgIDs:                    emptyUUIDSlice(claims.AllowedOrgIDs()),
+		AllowedMarkings:                  emptyStringSlice(claims.AllowedMarkings()),
+		EffectiveClearance:               clearancePtr,
+		ConsumerMode:                     consumerMode,
+		HistoricalIdentitySnapshotCaveat: restrictedview.HistoricalIdentitySnapshotCaveat,
 	}, nil
 }
 
@@ -262,13 +293,41 @@ func decodeAttrs(raw json.RawMessage) ctxMap {
 	return out
 }
 
-func policyMatches(conditions json.RawMessage, subject, resource ctxMap) bool {
+func restrictedViewPolicyFromRepo(v repo.RestrictedView) restrictedview.Policy {
+	return restrictedview.Policy{
+		ID:                  v.ID.String(),
+		Conditions:          v.Conditions,
+		RowFilter:           v.RowFilter,
+		HiddenColumns:       append([]string(nil), v.HiddenColumns...),
+		MarkingColumns:      append([]string(nil), v.MarkingColumns...),
+		AllowedOrgIDs:       append([]uuid.UUID(nil), v.AllowedOrgIDs...),
+		AllowedMarkings:     append([]string(nil), v.AllowedMarkings...),
+		ConsumerModeEnabled: v.ConsumerModeEnabled,
+		AllowGuestAccess:    v.AllowGuestAccess,
+	}
+}
+
+// policyMatches reports whether the supplied condition payload matches
+// the request context. The original Rust port returned `true` when the
+// payload failed to JSON-decode — a default-allow that turned a single
+// corrupt `conditions` cell into a universal match across every
+// caller. We flip that to default-deny: a malformed row is logged at
+// ERROR with the policy / restricted-view ID, bumps the
+// `authzpolicy_abac_condition_unmarshal_errors_total` counter, and
+// silently drops out of the match set.
+func policyMatches(conditions json.RawMessage, subject, resource ctxMap, tenantID, policyID string) bool {
 	if len(conditions) == 0 {
 		return true
 	}
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(conditions, &root); err != nil {
-		return true
+		slog.Error("malformed_abac_condition",
+			slog.String("policy_id", policyID),
+			slog.String("tenant_id", tenantID),
+			slog.Any("err", err),
+		)
+		abacConditionUnmarshalErrors.WithLabelValues(tenantID, policyID).Inc()
+		return false
 	}
 	return matchSelector(root["subject"], subject, resource) &&
 		matchSelector(root["resource"], resource, subject)

@@ -363,6 +363,12 @@ public final class OpenFoundryClient {
         return request("POST", "/api/v1/ontology/create-link-type", pathParams, queryParams, bodyJson);
     }
 
+    public String ontologyOntologyobjectCreateobject(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/ontology/create-object", pathParams, queryParams, bodyJson);
+    }
+
     public String ontologyOntologyCreateobjecttype(String bodyJson) throws IOException, InterruptedException {
         Map<String, Object> pathParams = Map.of();
         Map<String, Object> queryParams = Map.of();
@@ -382,11 +388,27 @@ public final class OpenFoundryClient {
         return request("DELETE", "/api/v1/ontology/delete-link-type", pathParams, queryParams, null);
     }
 
+    public String ontologyOntologyobjectDeleteobject(String objectTypeId, String primaryKey) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = new LinkedHashMap<>();
+        if (objectTypeId != null) { queryParams.put("object_type_id", objectTypeId); }
+        if (primaryKey != null) { queryParams.put("primary_key", primaryKey); }
+        return request("DELETE", "/api/v1/ontology/delete-object", pathParams, queryParams, null);
+    }
+
     public String ontologyOntologyDeleteobjecttype(String id) throws IOException, InterruptedException {
         Map<String, Object> pathParams = Map.of();
         Map<String, Object> queryParams = new LinkedHashMap<>();
         if (id != null) { queryParams.put("id", id); }
         return request("DELETE", "/api/v1/ontology/delete-object-type", pathParams, queryParams, null);
+    }
+
+    public String ontologyOntologyobjectGetobject(String objectTypeId, String primaryKey) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = new LinkedHashMap<>();
+        if (objectTypeId != null) { queryParams.put("object_type_id", objectTypeId); }
+        if (primaryKey != null) { queryParams.put("primary_key", primaryKey); }
+        return request("GET", "/api/v1/ontology/get-object", pathParams, queryParams, null);
     }
 
     public String ontologyOntologyGetobjecttype(String id) throws IOException, InterruptedException {
@@ -412,6 +434,17 @@ public final class OpenFoundryClient {
         return request("GET", "/api/v1/ontology/list-object-types", pathParams, queryParams, null);
     }
 
+    public String ontologyOntologyobjectListobjects(String cursor, String filters, String objectTypeId, Long pageSize, String sort) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = new LinkedHashMap<>();
+        if (cursor != null) { queryParams.put("cursor", cursor); }
+        if (filters != null) { queryParams.put("filters", filters); }
+        if (objectTypeId != null) { queryParams.put("object_type_id", objectTypeId); }
+        if (pageSize != null) { queryParams.put("page_size", pageSize); }
+        if (sort != null) { queryParams.put("sort", sort); }
+        return request("GET", "/api/v1/ontology/list-objects", pathParams, queryParams, null);
+    }
+
     public String ontologyOntologyListproperties(String objectTypeId) throws IOException, InterruptedException {
         Map<String, Object> pathParams = Map.of();
         Map<String, Object> queryParams = new LinkedHashMap<>();
@@ -425,10 +458,28 @@ public final class OpenFoundryClient {
         return request("POST", "/api/v1/ontology/materialize-binding", pathParams, queryParams, bodyJson);
     }
 
+    public String ontologyOntologyobjectSearchobjects(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/ontology/search-objects", pathParams, queryParams, bodyJson);
+    }
+
+    public String ontologyOntologyobjectTraverselinks(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/ontology/traverse-links", pathParams, queryParams, bodyJson);
+    }
+
     public String ontologyOntologyUnbinddataset(String bodyJson) throws IOException, InterruptedException {
         Map<String, Object> pathParams = Map.of();
         Map<String, Object> queryParams = Map.of();
         return request("POST", "/api/v1/ontology/unbind-dataset", pathParams, queryParams, bodyJson);
+    }
+
+    public String ontologyOntologyobjectUpdateobject(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("PATCH", "/api/v1/ontology/update-object", pathParams, queryParams, bodyJson);
     }
 
     public String ontologyOntologyUpdateobjecttype(String bodyJson) throws IOException, InterruptedException {
@@ -625,16 +676,129 @@ public final class OpenFoundryClient {
         return request("POST", "/api/v1/runtime/execute-pipeline-transform", pathParams, queryParams, bodyJson);
     }
 
+    public String v1MarketplaceproductCreateproduct(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/create-product", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1LlmcatalogDisablemodel(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/disable-model", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1LlmcatalogEnablemodel(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/enable-model", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1AuditExportevents(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/export-events", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1LlmcatalogGetmodel(String rid) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = new LinkedHashMap<>();
+        if (rid != null) { queryParams.put("rid", rid); }
+        return request("GET", "/api/v1/v1/get-model", pathParams, queryParams, null);
+    }
+
+    public String v1MarketplaceproductGetproduct(String rid) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = new LinkedHashMap<>();
+        if (rid != null) { queryParams.put("rid", rid); }
+        return request("GET", "/api/v1/v1/get-product", pathParams, queryParams, null);
+    }
+
+    public String v1MarketplaceproductInstallproduct(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/install-product", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1LlmcatalogInvoke(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/invoke", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1LlmcatalogInvokestream(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/invoke-stream", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1MarketplaceproductListinstallations(Long limit, Long offset, String productRid, String targetWorkspaceRid) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = new LinkedHashMap<>();
+        if (limit != null) { queryParams.put("limit", limit); }
+        if (offset != null) { queryParams.put("offset", offset); }
+        if (productRid != null) { queryParams.put("product_rid", productRid); }
+        if (targetWorkspaceRid != null) { queryParams.put("target_workspace_rid", targetWorkspaceRid); }
+        return request("GET", "/api/v1/v1/list-installations", pathParams, queryParams, null);
+    }
+
+    public String v1LlmcatalogListmodels(Boolean onlyEnabled, String provider) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = new LinkedHashMap<>();
+        if (onlyEnabled != null) { queryParams.put("only_enabled", onlyEnabled); }
+        if (provider != null) { queryParams.put("provider", provider); }
+        return request("GET", "/api/v1/v1/list-models", pathParams, queryParams, null);
+    }
+
+    public String v1MarketplaceproductListproducts(Long limit, Long offset, String status) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = new LinkedHashMap<>();
+        if (limit != null) { queryParams.put("limit", limit); }
+        if (offset != null) { queryParams.put("offset", offset); }
+        if (status != null) { queryParams.put("status", status); }
+        return request("GET", "/api/v1/v1/list-products", pathParams, queryParams, null);
+    }
+
     public String v1EventrouterPublish(String bodyJson) throws IOException, InterruptedException {
         Map<String, Object> pathParams = Map.of();
         Map<String, Object> queryParams = Map.of();
         return request("POST", "/api/v1/v1/publish", pathParams, queryParams, bodyJson);
     }
 
+    public String v1MarketplaceproductPublishversion(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/publish-version", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1AuditQueryevents(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/query-events", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1AuditRecordevent(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/record-event", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1LlmcatalogRegistermodel(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/register-model", pathParams, queryParams, bodyJson);
+    }
+
     public String v1EventrouterSubscribe(String bodyJson) throws IOException, InterruptedException {
         Map<String, Object> pathParams = Map.of();
         Map<String, Object> queryParams = Map.of();
         return request("POST", "/api/v1/v1/subscribe", pathParams, queryParams, bodyJson);
+    }
+
+    public String v1MarketplaceproductUninstall(String bodyJson) throws IOException, InterruptedException {
+        Map<String, Object> pathParams = Map.of();
+        Map<String, Object> queryParams = Map.of();
+        return request("POST", "/api/v1/v1/uninstall", pathParams, queryParams, bodyJson);
     }
 
     public String adminV2Getcontrolpanel() throws IOException, InterruptedException {

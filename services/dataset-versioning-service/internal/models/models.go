@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/openfoundry/openfoundry-go/libs/restrictedview"
 )
 
 func sortUUIDsAscending(ids []uuid.UUID) {
@@ -668,11 +670,11 @@ type MergeBranchBody struct {
 // MergeBranchResult is the JSON returned by the merge endpoint. Mirrors
 // proto MergeBranchResponse.
 type MergeBranchResult struct {
-	Branch                      RuntimeBranch `json:"branch"`
-	PreviousHeadTransactionRID  *string       `json:"previous_head_transaction_rid"`
-	NewHeadTransactionRID       *string       `json:"new_head_transaction_rid"`
-	FastForwarded               bool          `json:"fast_forwarded"`
-	AlreadyMerged               bool          `json:"already_merged"`
+	Branch                     RuntimeBranch `json:"branch"`
+	PreviousHeadTransactionRID *string       `json:"previous_head_transaction_rid"`
+	NewHeadTransactionRID      *string       `json:"new_head_transaction_rid"`
+	FastForwarded              bool          `json:"fast_forwarded"`
+	AlreadyMerged              bool          `json:"already_merged"`
 }
 
 type FoundryBranch struct {
@@ -1684,7 +1686,28 @@ func ValidateDatasetSchema(schema DatasetSchema) []string {
 	for _, field := range normalized.Fields {
 		errs = append(errs, validateSchemaField(field, "field", true, seen)...)
 	}
+	errs = append(errs, restrictedview.ValidateMarkingBackedSchema(restrictedViewSchemaFields(normalized.Fields), nil)...)
 	return errs
+}
+
+func restrictedViewSchemaFields(fields []Field) []restrictedview.SchemaField {
+	out := make([]restrictedview.SchemaField, 0, len(fields))
+	for _, field := range fields {
+		var arraySubType *restrictedview.SchemaField
+		if field.ArraySubType != nil {
+			converted := restrictedViewSchemaFields([]Field{*field.ArraySubType})
+			if len(converted) > 0 {
+				arraySubType = &converted[0]
+			}
+		}
+		out = append(out, restrictedview.SchemaField{
+			Name:           strings.TrimSpace(field.Name),
+			Type:           strings.ToUpper(strings.TrimSpace(string(field.Type))),
+			ArraySubType:   arraySubType,
+			CustomMetadata: field.CustomMetadata,
+		})
+	}
+	return out
 }
 
 func validateSchemaField(field Field, path string, requireName bool, seen map[string]bool) []string {

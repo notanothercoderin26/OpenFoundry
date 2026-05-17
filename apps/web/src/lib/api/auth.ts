@@ -1,4 +1,25 @@
 import api from './client';
+import type { ScopedSessionPreset } from './control-panel';
+
+export interface SessionScope {
+  allowed_methods?: string[];
+  allowed_path_prefixes?: string[];
+  allowed_subject_ids?: string[];
+  allowed_org_ids?: string[];
+  workspace?: string | null;
+  classification_clearance?: string | null;
+  allowed_markings?: string[];
+  restricted_view_ids?: string[];
+  consumer_mode?: boolean;
+  guest_email?: string | null;
+  guest_display_name?: string | null;
+}
+
+export interface ActiveScopedSession {
+  id: string;
+  name: string;
+  allowed_markings: string[];
+}
 
 export interface UserProfile {
   id: string;
@@ -13,6 +34,8 @@ export interface UserProfile {
   mfa_enabled: boolean;
   mfa_enforced: boolean;
   auth_source: string;
+  session_kind?: string | null;
+  session_scope?: SessionScope | null;
   created_at: string;
 }
 
@@ -21,6 +44,22 @@ export interface TokenResponse {
   refresh_token: string;
   token_type: string;
   expires_in: number;
+}
+
+export interface ScopedSessionOption extends ScopedSessionPreset {
+  selectable: boolean;
+  missing_markings: string[];
+}
+
+export interface ScopedSessionOptionsResponse {
+  enabled: boolean;
+  allow_no_scoped_session: boolean;
+  always_show_selector: boolean;
+  no_scoped_session_available: boolean;
+  bypass_allowed: boolean;
+  active_scoped_session?: ActiveScopedSession | null;
+  full_allowed_markings: string[];
+  presets: ScopedSessionOption[];
 }
 
 export interface LoginRequest {
@@ -258,6 +297,14 @@ export interface LoginTroubleshootResponse {
 
 export function getMe() {
   return api.get<UserProfile>('/users/me');
+}
+
+export function getScopedSessionOptions() {
+  return api.get<ScopedSessionOptionsResponse>('/auth/scoped-sessions');
+}
+
+export function selectScopedSession(presetId: string | null) {
+  return api.post<TokenResponse>('/auth/scoped-sessions/select', { preset_id: presetId });
 }
 
 export function refreshToken(refresh_token: string) {

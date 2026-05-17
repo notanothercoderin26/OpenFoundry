@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.10
 #
 # OpenFoundry Go service — multi-stage, distroless static, nonroot.
-# See services/template/Dockerfile for the rationale; this file is a
+# See docs/templates/service-skeleton/Dockerfile for the rationale; this file is a
 # parameterised copy with SERVICE_NAME defaulted to knowledge-index-service.
 
 ARG GO_VERSION=1.26.3

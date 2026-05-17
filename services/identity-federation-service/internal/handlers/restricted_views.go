@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/restrictedview"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/models"
 )
 
@@ -157,7 +158,7 @@ func validateCreateRestrictedViewRequest(body *models.CreateRestrictedViewReques
 	if body.Enabled == nil {
 		return fmt.Errorf("enabled is required")
 	}
-	return validateRestrictedViewJSONFields(body.HiddenColumns, body.AllowedOrgIDs, body.AllowedMarkings)
+	return validateRestrictedViewJSONFields(body.HiddenColumns, body.MarkingColumns, body.AllowedOrgIDs, body.AllowedMarkings, body.BackingDatasetSchema)
 }
 
 func validateUpdateRestrictedViewRequest(body *models.UpdateRestrictedViewRequest, requireFull bool) error {
@@ -187,11 +188,14 @@ func validateUpdateRestrictedViewRequest(body *models.UpdateRestrictedViewReques
 		}
 		body.Action = &action
 	}
-	return validateRestrictedViewJSONFields(body.HiddenColumns, body.AllowedOrgIDs, body.AllowedMarkings)
+	return validateRestrictedViewJSONFields(body.HiddenColumns, body.MarkingColumns, body.AllowedOrgIDs, body.AllowedMarkings, body.BackingDatasetSchema)
 }
 
-func validateRestrictedViewJSONFields(hiddenColumns, allowedOrgIDs, allowedMarkings json.RawMessage) error {
+func validateRestrictedViewJSONFields(hiddenColumns, markingColumns, allowedOrgIDs, allowedMarkings, backingDatasetSchema json.RawMessage) error {
 	if err := validateRestrictedViewStringArray(hiddenColumns, "hidden_columns", false); err != nil {
+		return err
+	}
+	if err := validateRestrictedViewStringArray(markingColumns, "marking_columns", false); err != nil {
 		return err
 	}
 	if len(allowedOrgIDs) > 0 {
@@ -200,7 +204,10 @@ func validateRestrictedViewJSONFields(hiddenColumns, allowedOrgIDs, allowedMarki
 			return fmt.Errorf("allowed_org_ids must be an array of UUIDs")
 		}
 	}
-	return validateRestrictedViewStringArray(allowedMarkings, "allowed_markings", true)
+	if err := validateRestrictedViewStringArray(allowedMarkings, "allowed_markings", true); err != nil {
+		return err
+	}
+	return validateRestrictedViewBackingDatasetSchema(markingColumns, backingDatasetSchema)
 }
 
 func validateRestrictedViewStringArray(raw json.RawMessage, field string, validateMarkings bool) error {
@@ -216,14 +223,37 @@ func validateRestrictedViewStringArray(raw json.RawMessage, field string, valida
 		if trimmed == "" {
 			return fmt.Errorf("%s cannot contain empty values", field)
 		}
-		if validateMarkings && !isRestrictedViewMarking(trimmed) {
-			return fmt.Errorf("invalid marking '%s', valid markings: [public confidential pii]", trimmed)
+		if validateMarkings && !isRestrictedViewMarkingID(trimmed) {
+			return fmt.Errorf("invalid marking '%s', expected a marking UUID or one of [public confidential pii]", trimmed)
 		}
 	}
 	return nil
 }
 
-func isRestrictedViewMarking(value string) bool {
+func validateRestrictedViewBackingDatasetSchema(markingColumns, backingDatasetSchema json.RawMessage) error {
+	if len(backingDatasetSchema) == 0 {
+		return nil
+	}
+	fields, err := restrictedview.SchemaFromJSON(backingDatasetSchema)
+	if err != nil {
+		return err
+	}
+	columns := []string{}
+	if len(markingColumns) > 0 {
+		if err := json.Unmarshal(markingColumns, &columns); err != nil {
+			return fmt.Errorf("marking_columns must be an array of strings")
+		}
+	}
+	if errs := restrictedview.ValidateMarkingBackedSchema(fields, columns); len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func isRestrictedViewMarkingID(value string) bool {
+	if _, err := uuid.Parse(strings.TrimSpace(value)); err == nil {
+		return true
+	}
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "public", "confidential", "pii":
 		return true

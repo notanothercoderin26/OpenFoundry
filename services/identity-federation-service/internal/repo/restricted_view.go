@@ -16,7 +16,7 @@ import (
 func (r *Repo) ListRestrictedViews(ctx context.Context, tenantID uuid.UUID) ([]models.RestrictedView, error) {
 	rows, err := r.Pool.Query(ctx,
 		`SELECT id, tenant_id, name, description, resource, action, conditions, row_filter,
-		        hidden_columns, allowed_org_ids, allowed_markings,
+		        hidden_columns, marking_columns, allowed_org_ids, allowed_markings,
 		        consumer_mode_enabled, allow_guest_access, enabled,
 		        created_by, created_at, updated_at
 		 FROM restricted_views
@@ -42,7 +42,7 @@ func (r *Repo) ListRestrictedViews(ctx context.Context, tenantID uuid.UUID) ([]m
 func (r *Repo) GetRestrictedView(ctx context.Context, id, tenantID uuid.UUID) (*models.RestrictedView, error) {
 	row := r.Pool.QueryRow(ctx,
 		`SELECT id, tenant_id, name, description, resource, action, conditions, row_filter,
-		        hidden_columns, allowed_org_ids, allowed_markings,
+		        hidden_columns, marking_columns, allowed_org_ids, allowed_markings,
 		        consumer_mode_enabled, allow_guest_access, enabled,
 		        created_by, created_at, updated_at
 		 FROM restricted_views
@@ -61,6 +61,7 @@ func (r *Repo) CreateRestrictedView(ctx context.Context, body *models.CreateRest
 	id := uuid.New()
 	conditions := defaultJSON(body.Conditions, "{}")
 	hidden := defaultJSON(body.HiddenColumns, "[]")
+	markingColumns := defaultJSON(body.MarkingColumns, "[]")
 	orgIDs := defaultJSON(body.AllowedOrgIDs, "[]")
 	markings := defaultJSON(body.AllowedMarkings, "[]")
 	consumerMode := derefBool(body.ConsumerModeEnabled, false)
@@ -70,11 +71,11 @@ func (r *Repo) CreateRestrictedView(ctx context.Context, body *models.CreateRest
 	_, err := r.Pool.Exec(ctx,
 		`INSERT INTO restricted_views (
 		    id, tenant_id, name, description, resource, action, conditions, row_filter,
-		    hidden_columns, allowed_org_ids, allowed_markings,
+		    hidden_columns, marking_columns, allowed_org_ids, allowed_markings,
 		    consumer_mode_enabled, allow_guest_access, enabled, created_by
-		 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+		 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 		id, tenantID, body.Name, body.Description, body.Resource, body.Action,
-		conditions, body.RowFilter, hidden, orgIDs, markings,
+		conditions, body.RowFilter, hidden, markingColumns, orgIDs, markings,
 		consumerMode, allowGuest, enabled, creator,
 	)
 	if err != nil {
@@ -118,6 +119,9 @@ func (r *Repo) UpdateRestrictedView(ctx context.Context, id, tenantID uuid.UUID,
 	if len(body.HiddenColumns) > 0 {
 		merged.HiddenColumns = body.HiddenColumns
 	}
+	if len(body.MarkingColumns) > 0 {
+		merged.MarkingColumns = body.MarkingColumns
+	}
 	if len(body.AllowedOrgIDs) > 0 {
 		merged.AllowedOrgIDs = body.AllowedOrgIDs
 	}
@@ -137,13 +141,13 @@ func (r *Repo) UpdateRestrictedView(ctx context.Context, id, tenantID uuid.UUID,
 	_, err = r.Pool.Exec(ctx,
 		`UPDATE restricted_views SET
 		    name=$3, description=$4, resource=$5, action=$6, conditions=$7, row_filter=$8,
-		    hidden_columns=$9, allowed_org_ids=$10, allowed_markings=$11,
-		    consumer_mode_enabled=$12, allow_guest_access=$13, enabled=$14,
+		    hidden_columns=$9, marking_columns=$10, allowed_org_ids=$11, allowed_markings=$12,
+		    consumer_mode_enabled=$13, allow_guest_access=$14, enabled=$15,
 		    updated_at=NOW()
 		 WHERE id=$1 AND tenant_id=$2`,
 		id, tenantID, merged.Name, merged.Description, merged.Resource, merged.Action,
 		merged.Conditions, merged.RowFilter, merged.HiddenColumns,
-		merged.AllowedOrgIDs, merged.AllowedMarkings,
+		merged.MarkingColumns, merged.AllowedOrgIDs, merged.AllowedMarkings,
 		merged.ConsumerModeEnabled, merged.AllowGuestAccess, merged.Enabled,
 	)
 	if err != nil {
@@ -164,7 +168,7 @@ func scanRestrictedView(r rowLikeRV) (*models.RestrictedView, error) {
 	err := r.Scan(
 		&v.ID, &v.TenantID, &v.Name, &v.Description, &v.Resource, &v.Action,
 		&v.Conditions, &v.RowFilter, &v.HiddenColumns,
-		&v.AllowedOrgIDs, &v.AllowedMarkings,
+		&v.MarkingColumns, &v.AllowedOrgIDs, &v.AllowedMarkings,
 		&v.ConsumerModeEnabled, &v.AllowGuestAccess, &v.Enabled,
 		&v.CreatedBy, &v.CreatedAt, &v.UpdatedAt,
 	)

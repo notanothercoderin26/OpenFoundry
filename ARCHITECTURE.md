@@ -7,9 +7,10 @@ links below.
 ## Stack at a glance
 
 - **Backend:** Go (single module rooted at `github.com/openfoundry/openfoundry-go`)
-  with 42 service binaries under [`services/`](services/) (plus
-  [`services/template/`](services/template/) as boilerplate) and 33
-  shared packages under [`libs/`](libs/).
+  with 42 service binaries under [`services/`](services/) and 33
+  shared packages under [`libs/`](libs/). New services are bootstrapped
+  from the textual skeleton in
+  [`docs/templates/service-skeleton/`](docs/templates/service-skeleton/).
 - **Frontend:** React 19 + Vite + TypeScript in [`apps/web/`](apps/web/).
 - **Contracts:** Protobuf in [`proto/`](proto/), Go code generated to
   [`libs/proto-gen/`](libs/proto-gen/) via `buf` (run `make gen`).
@@ -90,7 +91,47 @@ and must not drift:
   ([`libs/auth-middleware/claims.go`](libs/auth-middleware/claims.go)).
 - Resource RID format
   (`ri.<service>.<instance>.<type>.<uuid>` for platform-minted resources;
-  [`libs/core-models/rid`](libs/core-models/rid) is the shared parser).
+  [`libs/core-models/rid`](libs/core-models/rid) is the shared parser and
+  registry-reserving minter).
+- Resource type registry
+  ([`libs/core-models/resource`](libs/core-models/resource) owns display names,
+  owning services, icons, actions, RID namespace mapping, open-app URLs, and
+  unknown-type placeholders).
+- Compass project resource
+  ([`services/tenancy-organizations-service`](services/tenancy-organizations-service)
+  owns project RIDs, parent Space RIDs, organization/marking RIDs, default queue
+  assignment, resource-level grant toggles, and per-role policies).
+- Compass folder resource
+  ([`services/tenancy-organizations-service`](services/tenancy-organizations-service)
+  owns folder RIDs, project/parent/space RID projection, trash status, and
+  folder-scope grant overrides on top of project policy inheritance).
+- Compass move/rename
+  ([`services/tenancy-organizations-service/internal/workspace`](services/tenancy-organizations-service/internal/workspace)
+  updates parentage, names, slugs, and derived breadcrumbs while preserving
+  project/folder RIDs; cross-project folder moves require policy/marking
+  confirmations).
+- Compass search index
+  ([`services/tenancy-organizations-service/internal/workspace`](services/tenancy-organizations-service/internal/workspace)
+  projects project/folder resources into `compass_resource_search_index` and
+  emits `compass.resource.search.updated.v1` outbox events on lifecycle
+  mutations so search backends can consume changes without resource-table
+  polling).
+- Compass search API
+  ([`GET /api/v1/compass/search`](services/tenancy-organizations-service/internal/workspace)
+  intersects all results with project visibility, accepts text/type/project/
+  owner/marking filters, and returns opaque cursor pages ordered by score,
+  last-modified time, and RID).
+- Compass search UI shell
+  ([`apps/web/src/routes/search/SearchPage.tsx`](apps/web/src/routes/search/SearchPage.tsx)
+  preserves the Quicksearch-style global shell, combines ontology search with
+  permission-aware Compass resource search, loads recents/favorites for
+  jump-to mode, shows marking badges, and resolves resource "Open with"
+  actions through the frontend resource type registry).
+- Compass breadcrumbs
+  ([`apps/web/src/lib/components/workspace/ProjectBreadcrumb.tsx`](apps/web/src/lib/components/workspace/ProjectBreadcrumb.tsx)
+  builds the standard project/folder path from current resource metadata,
+  links every ancestor to its open location, and exposes copy-RID actions for
+  project and folder crumbs).
 - Dataset RID format `ri.foundry.main.dataset.<uuid-v7>`.
 - Transaction state / type tokens (`open|committed|aborted`,
   `snapshot|append|update|delete`).

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.10
 #
 # cipher-service — multi-stage, distroless static, nonroot.
-# Mirrors services/template/Dockerfile; the only override is SERVICE_NAME.
+# Mirrors docs/templates/service-skeleton/Dockerfile; the only override is SERVICE_NAME.
 #
 # Build context MUST be the openfoundry-go monorepo root:
 #   docker build -f services/cipher-service/Dockerfile \

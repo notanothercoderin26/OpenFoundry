@@ -6,6 +6,7 @@ import { useAuth } from '@stores/auth';
 import { buildAuthReturnToPath, rememberAuthReturnTo, withAuthReturnTo } from '@/lib/auth/redirects';
 
 import { Sidebar } from './Sidebar';
+import { ScopedSessionBanner } from './ScopedSessionBanner';
 import { Toaster } from './Toaster';
 import { Topbar } from './Topbar';
 import { CommandPalette } from './ui/CommandPalette';
@@ -50,6 +51,7 @@ export function AppShell() {
       <Sidebar />
       <main className="of-main">
         <Topbar />
+        <ScopedSessionBanner />
         <Outlet />
       </main>
       <CommandPalette />

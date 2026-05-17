@@ -36,6 +36,7 @@ import {
 } from '@/lib/api/workspace';
 import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
 import { MoveDialog } from '@/lib/components/workspace/MoveDialog';
+import { buildProjectFolderBreadcrumbItems, ProjectBreadcrumb } from '@/lib/components/workspace/ProjectBreadcrumb';
 import { RenameDialog } from '@/lib/components/workspace/RenameDialog';
 import { ResourceDetailsPanel, type ResourceSummary } from '@/lib/components/workspace/ResourceDetailsPanel';
 import { ResourcePermissionsDrawer } from '@/lib/components/workspace/ResourcePermissionsDrawer';
@@ -420,6 +421,11 @@ export function ProjectDetailPage() {
     return projectResources.find((entry) => resourceKey(entry.binding.resource_kind, entry.binding.resource_id) === highlightedKey) ?? null;
   }, [highlightedKey, projectResources]);
 
+  const breadcrumbItems = useMemo(
+    () => (project ? buildProjectFolderBreadcrumbItems(project) : []),
+    [project],
+  );
+
   const projectShareSummary: ResourceSummary | null = project
     ? {
         id: project.id,
@@ -746,6 +752,7 @@ export function ProjectDetailPage() {
         }}
       >
         <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+          <ProjectBreadcrumb items={breadcrumbItems} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{
               display: 'inline-flex',

@@ -5,7 +5,7 @@ import { BulkActionsToolbar, type BulkAction } from '@/lib/components/workspace/
 import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
 import { FolderTree } from '@/lib/components/workspace/FolderTree';
 import { MoveDialog } from '@/lib/components/workspace/MoveDialog';
-import { ProjectBreadcrumb } from '@/lib/components/workspace/ProjectBreadcrumb';
+import { buildProjectFolderBreadcrumbItems, ProjectBreadcrumb } from '@/lib/components/workspace/ProjectBreadcrumb';
 import { RenameDialog } from '@/lib/components/workspace/RenameDialog';
 import { ResourceDetailsPanel, type ResourceSummary } from '@/lib/components/workspace/ResourceDetailsPanel';
 import { RowActionsMenu } from '@/lib/components/workspace/RowActionsMenu';
@@ -98,21 +98,6 @@ function formatDate(value: string | null | undefined) {
   }
 }
 
-function buildFolderPath(folders: OntologyProjectFolder[], folderId: string) {
-  const byId = new Map(folders.map((folder) => [folder.id, folder]));
-  const path: OntologyProjectFolder[] = [];
-  const seen = new Set<string>();
-  let cursor: string | null = folderId;
-  while (cursor && !seen.has(cursor)) {
-    const folder = byId.get(cursor);
-    if (!folder) break;
-    seen.add(cursor);
-    path.unshift(folder);
-    cursor = folder.parent_folder_id;
-  }
-  return path;
-}
-
 function isDescendantFolder(folders: OntologyProjectFolder[], sourceId: string, targetId: string | null) {
   if (!targetId) return false;
   const byId = new Map(folders.map((folder) => [folder.id, folder]));
@@ -180,7 +165,14 @@ export function ProjectFolderPage() {
     () => folders.filter((f) => f.parent_folder_id === folderId).sort((a, b) => a.name.localeCompare(b.name)),
     [folders, folderId],
   );
-  const folderPath = useMemo(() => buildFolderPath(folders, folderId), [folders, folderId]);
+  const breadcrumbItems = useMemo(
+    () => (project ? buildProjectFolderBreadcrumbItems(project, folders, folderId) : []),
+    [folders, folderId, project],
+  );
+  const breadcrumbLocation = useMemo(
+    () => breadcrumbItems.filter((item) => item.kind === 'project' || item.kind === 'folder').map((item) => item.label).join(' / '),
+    [breadcrumbItems],
+  );
   const items = useMemo<ExplorerItem[]>(() => {
     const folderItems: FolderExplorerItem[] = childFolders.map((child) => ({
       key: `folder:${child.id}`,
@@ -261,7 +253,7 @@ export function ProjectFolderPage() {
       kind: item.shareKind,
       description: item.description,
       owner_id: item.ownerId,
-      location: folderPath.map((part) => part.name).join(' / '),
+      location: breadcrumbLocation,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
       tags: item.type === 'folder' ? ['folder'] : [item.binding.resource_kind, 'project-binding'],
@@ -440,15 +432,7 @@ export function ProjectFolderPage() {
   return (
     <section className="of-page" style={{ padding: 24, display: 'grid', gap: 16 }}>
       <ProjectBreadcrumb
-        items={[
-          { id: 'projects', label: 'Projects', href: '/projects' },
-          { id: project.id, label: project.display_name || project.slug, href: `/projects/${project.id}` },
-          ...folderPath.map((part) => ({
-            id: part.id,
-            label: part.name,
-            href: `/projects/${project.id}/${part.id}`,
-          })),
-        ]}
+        items={breadcrumbItems}
         onNavigate={(item) => {
           if (item.href) navigate(item.href);
         }}
@@ -458,7 +442,7 @@ export function ProjectFolderPage() {
         <div>
           <h1 className="of-heading-xl">{folder.name}</h1>
           <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
-            {folder.id} - slug: {folder.slug} - parent: {folder.parent_folder_id ?? 'root'}
+            {folder.rid} - slug: {folder.slug} - parent: {folder.parent_folder_rid || 'project'}
             {folder.description && ` - ${folder.description}`}
           </p>
         </div>

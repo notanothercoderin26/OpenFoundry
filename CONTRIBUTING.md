@@ -54,7 +54,7 @@ Filter issues by [`good first issue`](../../labels/good%20first%20issue) or
 
 | Path | Purpose |
 |------|---------|
-| [`services/`](services/) | One Go binary per microservice (`cmd/<svc>/main.go`). Copy from [`services/template/`](services/template/) when adding a new one. |
+| [`services/`](services/) | One Go binary per microservice (`cmd/<svc>/main.go`). Copy from [`docs/templates/service-skeleton/`](docs/templates/service-skeleton/) when adding a new one. |
 | [`libs/`](libs/) | Shared Go packages (auth, observability, kernels, storage abstractions). |
 | [`apps/web/`](apps/web/) | React 19 + Vite + TypeScript frontend. |
 | [`proto/`](proto/) | Protobuf contracts; source of truth for RPC and SDKs. |
@@ -228,10 +228,12 @@ Breaking proto changes must additionally:
 We try to keep services consistent. Before adding a new one:
 
 1. Open a `new service` issue and get approval from a Platform CODEOWNER.
-2. Copy [`services/template/`](services/template/) as the starting
-   point — it ships the `cmd/<svc>/main.go`, `internal/server`,
-   `internal/config` and `internal/handler/health` skeletons plus a
-   distroless `Dockerfile`.
+2. Copy [`docs/templates/service-skeleton/`](docs/templates/service-skeleton/)
+   into `services/<your-service>/` as the starting point — it ships
+   the `cmd/<svc>/main.go`, `internal/server`, `internal/config` and
+   `internal/handler/health` skeletons plus a distroless `Dockerfile`.
+   The skeleton's `.go` files carry `//go:build ignore` so the toolchain
+   ignores them in place; drop that constraint after you copy.
 3. Register the service in:
    - [`infra/helm/apps/`](infra/helm/apps/) — chart that ships it.
    - [`infra/argocd/apps/`](infra/argocd/apps/) — GitOps app.

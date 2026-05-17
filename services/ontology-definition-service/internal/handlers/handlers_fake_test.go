@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -74,7 +75,19 @@ func (f *fakeStore) CreateObjectType(_ context.Context, body *models.CreateObjec
 	v := &models.ObjectType{
 		ID: id, Name: body.Name, DisplayName: body.DisplayName,
 		Description: body.Description, OwnerID: ownerID,
-		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		BackingDatasetID:                      body.BackingDatasetID,
+		BackingDatasetRID:                     body.BackingDatasetRID,
+		BackingDatasourceType:                 stringPtrValue(body.BackingDatasourceType),
+		BackingRestrictedViewID:               firstStringPtr(body.BackingRestrictedViewID, body.RestrictedViewID),
+		RestrictedViewPolicy:                  body.RestrictedViewPolicy,
+		RestrictedViewPolicyVersion:           intPtrValue(body.RestrictedViewPolicyVersion),
+		RestrictedViewRegisteredPolicyVersion: intPtrValue(body.RestrictedViewRegisteredPolicyVersion),
+		RestrictedViewIndexedPolicyVersion:    intPtrValue(body.RestrictedViewIndexedPolicyVersion),
+		RestrictedViewStorageMode:             stringPtrValue(body.RestrictedViewStorageMode),
+		RestrictedViewPolicyUpdatedAt:         body.RestrictedViewPolicyUpdatedAt,
+		RestrictedViewRegisteredAt:            body.RestrictedViewRegisteredAt,
+		RestrictedViewIndexedAt:               body.RestrictedViewIndexedAt,
+		CreatedAt:                             time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
 	models.EnrichObjectTypeMetadata(v, nil)
 	f.objectTypes[id] = v
@@ -91,6 +104,31 @@ func (f *fakeStore) UpdateObjectType(_ context.Context, id uuid.UUID, body *mode
 	}
 	if body.Description != nil {
 		v.Description = *body.Description
+	}
+	if body.BackingDatasourceType != nil {
+		v.BackingDatasourceType = *body.BackingDatasourceType
+		if *body.BackingDatasourceType == "dataset" {
+			v.BackingRestrictedViewID = nil
+			v.RestrictedViewID = nil
+		}
+	}
+	if body.BackingRestrictedViewID != nil || body.RestrictedViewID != nil {
+		v.BackingRestrictedViewID = firstStringPtr(body.BackingRestrictedViewID, body.RestrictedViewID)
+	}
+	if len(body.RestrictedViewPolicy) > 0 {
+		v.RestrictedViewPolicy = body.RestrictedViewPolicy
+	}
+	if body.RestrictedViewPolicyVersion != nil {
+		v.RestrictedViewPolicyVersion = *body.RestrictedViewPolicyVersion
+	}
+	if body.RestrictedViewRegisteredPolicyVersion != nil {
+		v.RestrictedViewRegisteredPolicyVersion = *body.RestrictedViewRegisteredPolicyVersion
+	}
+	if body.RestrictedViewIndexedPolicyVersion != nil {
+		v.RestrictedViewIndexedPolicyVersion = *body.RestrictedViewIndexedPolicyVersion
+	}
+	if body.RestrictedViewStorageMode != nil {
+		v.RestrictedViewStorageMode = *body.RestrictedViewStorageMode
 	}
 	models.EnrichObjectTypeMetadata(v, nil)
 	return v, nil
@@ -305,13 +343,44 @@ func (f *fakeStore) ListSharedPropertyTypes(_ context.Context, _, _ int, _ strin
 // authed produces a request that already has Claims attached, mimicking
 // what authmw.Middleware would do on a real protected route.
 func authed(method, target string, body string) *http.Request {
+	return authedWithClaims(method, target, body, &authmw.Claims{Sub: uuid.New()})
+}
+
+func authedWithClaims(method, target string, body string, claims *authmw.Claims) *http.Request {
 	var r io.Reader
 	if body != "" {
 		r = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, target, r)
-	req = req.WithContext(authmw.ContextWithClaims(context.Background(), &authmw.Claims{Sub: uuid.New()}))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), claims))
 	return req
+}
+
+func authedWithPermissions(method, target string, body string, permissions ...string) *http.Request {
+	return authedWithClaims(method, target, body, &authmw.Claims{Sub: uuid.New(), Permissions: permissions})
+}
+
+func firstStringPtr(values ...*string) *string {
+	for _, value := range values {
+		if value != nil && strings.TrimSpace(*value) != "" {
+			return value
+		}
+	}
+	return nil
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func intPtrValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func newRouter(h *handlers.Handlers) *chi.Mux {
@@ -417,6 +486,53 @@ func TestCreateObjectTypeHappyPath(t *testing.T) {
 	r.ServeHTTP(rec, authed("POST", "/object-types",
 		`{"name":"Asset","display_name":"Asset"}`))
 	assert.Equal(t, http.StatusCreated, rec.Code)
+}
+
+func TestCreateRestrictedViewBackedObjectTypeRequiresDatasourcePermissions(t *testing.T) {
+	t.Parallel()
+	r := newRouter(&handlers.Handlers{Repo: newFakeStore()})
+	body := `{"name":"Ticket","display_name":"Ticket","backing_datasource_type":"restricted_view","restricted_view_id":"rv.ticket_rows"}`
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, authed("POST", "/object-types", body))
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ontology:manage")
+}
+
+func TestCreateRestrictedViewBackedObjectTypeReturnsPropagationStatus(t *testing.T) {
+	t.Parallel()
+	r := newRouter(&handlers.Handlers{Repo: newFakeStore()})
+	body := `{
+		"name":"Ticket",
+		"display_name":"Ticket",
+		"backing_datasource_type":"restricted_view",
+		"restricted_view_id":"rv.ticket_rows",
+		"restricted_view_policy":{"kind":"granular_policy","version":1,"root":{"id":"root","type":"group","operator":"and","children":[]}},
+		"restricted_view_policy_version":4,
+		"restricted_view_registered_policy_version":2,
+		"restricted_view_indexed_policy_version":1,
+		"restricted_view_storage_mode":"foundry_object_storage"
+	}`
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, authedWithPermissions("POST", "/object-types", body,
+		"ontology:manage",
+		"object_type_datasource:manage",
+		"dataset:read",
+		"restricted_view:read",
+		"restricted_view_policy:read",
+		"restricted_view_policy:edit",
+	))
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
+	var got models.ObjectType
+	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, "restricted_view", got.BackingDatasourceType)
+	if assert.NotNil(t, got.RestrictedViewID) {
+		assert.Equal(t, "rv.ticket_rows", *got.RestrictedViewID)
+	}
+	if assert.NotNil(t, got.RestrictedViewPropagationStatus) {
+		assert.True(t, got.RestrictedViewPropagationStatus.RequiresReregistration)
+		assert.True(t, got.RestrictedViewPropagationStatus.RequiresReindex)
+	}
 }
 
 func TestUpdateObjectTypeAll(t *testing.T) {

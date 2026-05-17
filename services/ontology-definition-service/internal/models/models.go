@@ -7,6 +7,7 @@
 package models
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -20,33 +21,56 @@ type ListResponse[T any] struct {
 
 // ObjectType mirrors `ontology_schema.object_types` rows.
 type ObjectType struct {
-	ID                      uuid.UUID  `json:"id"`
-	RID                     string     `json:"rid"`
-	Name                    string     `json:"name"`
-	APIName                 string     `json:"api_name"`
-	DisplayName             string     `json:"display_name"`
-	PluralDisplayName       *string    `json:"plural_display_name"`
-	Description             string     `json:"description"`
-	PrimaryKeyProperty      *string    `json:"primary_key_property"`
-	PrimaryKey              string     `json:"primary_key"`
-	TitleProperty           *string    `json:"title_property"`
-	Icon                    *string    `json:"icon"`
-	Color                   *string    `json:"color"`
-	Status                  string     `json:"status"`
-	Visibility              string     `json:"visibility"`
-	Editable                bool       `json:"editable"`
-	BackingDatasetID        *uuid.UUID `json:"backing_dataset_id,omitempty"`
-	BackingDatasetRID       *string    `json:"backing_dataset_rid,omitempty"`
-	PipelineRID             *string    `json:"pipeline_rid,omitempty"`
-	ManagedBy               *string    `json:"managed_by,omitempty"`
-	Properties              []Property `json:"properties"`
-	PropertyCount           int        `json:"property_count"`
-	SearchablePropertyNames []string   `json:"searchable_property_names"`
-	GeoPointPropertyNames   []string   `json:"geopoint_property_names"`
-	GeoShapePropertyNames   []string   `json:"geoshape_property_names"`
-	OwnerID                 uuid.UUID  `json:"owner_id"`
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	ID                                    uuid.UUID                        `json:"id"`
+	RID                                   string                           `json:"rid"`
+	Name                                  string                           `json:"name"`
+	APIName                               string                           `json:"api_name"`
+	DisplayName                           string                           `json:"display_name"`
+	PluralDisplayName                     *string                          `json:"plural_display_name"`
+	Description                           string                           `json:"description"`
+	PrimaryKeyProperty                    *string                          `json:"primary_key_property"`
+	PrimaryKey                            string                           `json:"primary_key"`
+	TitleProperty                         *string                          `json:"title_property"`
+	Icon                                  *string                          `json:"icon"`
+	Color                                 *string                          `json:"color"`
+	Status                                string                           `json:"status"`
+	Visibility                            string                           `json:"visibility"`
+	Editable                              bool                             `json:"editable"`
+	BackingDatasetID                      *uuid.UUID                       `json:"backing_dataset_id,omitempty"`
+	BackingDatasetRID                     *string                          `json:"backing_dataset_rid,omitempty"`
+	BackingDatasourceType                 string                           `json:"backing_datasource_type,omitempty"`
+	BackingRestrictedViewID               *string                          `json:"backing_restricted_view_id,omitempty"`
+	RestrictedViewID                      *string                          `json:"restricted_view_id,omitempty"`
+	RestrictedViewPolicy                  json.RawMessage                  `json:"restricted_view_policy,omitempty"`
+	RestrictedViewPolicyVersion           int                              `json:"restricted_view_policy_version,omitempty"`
+	RestrictedViewRegisteredPolicyVersion int                              `json:"restricted_view_registered_policy_version,omitempty"`
+	RestrictedViewIndexedPolicyVersion    int                              `json:"restricted_view_indexed_policy_version,omitempty"`
+	RestrictedViewStorageMode             string                           `json:"restricted_view_storage_mode,omitempty"`
+	RestrictedViewPolicyUpdatedAt         *time.Time                       `json:"restricted_view_policy_updated_at,omitempty"`
+	RestrictedViewRegisteredAt            *time.Time                       `json:"restricted_view_registered_at,omitempty"`
+	RestrictedViewIndexedAt               *time.Time                       `json:"restricted_view_indexed_at,omitempty"`
+	RestrictedViewPropagationStatus       *RestrictedViewPropagationStatus `json:"restricted_view_propagation_status,omitempty"`
+	PipelineRID                           *string                          `json:"pipeline_rid,omitempty"`
+	ManagedBy                             *string                          `json:"managed_by,omitempty"`
+	Properties                            []Property                       `json:"properties"`
+	PropertyCount                         int                              `json:"property_count"`
+	SearchablePropertyNames               []string                         `json:"searchable_property_names"`
+	GeoPointPropertyNames                 []string                         `json:"geopoint_property_names"`
+	GeoShapePropertyNames                 []string                         `json:"geoshape_property_names"`
+	OwnerID                               uuid.UUID                        `json:"owner_id"`
+	CreatedAt                             time.Time                        `json:"created_at"`
+	UpdatedAt                             time.Time                        `json:"updated_at"`
+}
+
+type RestrictedViewPropagationStatus struct {
+	RestrictedViewID        *string  `json:"restricted_view_id"`
+	StorageMode             string   `json:"storage_mode"`
+	PolicyVersion           int      `json:"policy_version"`
+	RegisteredPolicyVersion int      `json:"registered_policy_version"`
+	IndexedPolicyVersion    int      `json:"indexed_policy_version"`
+	RequiresReregistration  bool     `json:"requires_reregistration"`
+	RequiresReindex         bool     `json:"requires_reindex"`
+	Warnings                []string `json:"warnings"`
 }
 
 // EnrichObjectTypeMetadata fills the Foundry-like metadata fields that
@@ -68,6 +92,7 @@ func EnrichObjectTypeMetadata(objectType *ObjectType, properties []Property) {
 	if objectType.Visibility == "" {
 		objectType.Visibility = "normal"
 	}
+	enrichRestrictedViewBackingMetadata(objectType)
 	if objectType.PluralDisplayName == nil || strings.TrimSpace(*objectType.PluralDisplayName) == "" {
 		plural := defaultPluralDisplayName(objectType.DisplayName, objectType.Name)
 		objectType.PluralDisplayName = &plural
@@ -118,6 +143,58 @@ func EnrichObjectTypeMetadata(objectType *ObjectType, properties []Property) {
 	objectType.SearchablePropertyNames = uniqueNonEmptyStrings(searchable)
 	objectType.GeoPointPropertyNames = uniqueNonEmptyStrings(geoPoints)
 	objectType.GeoShapePropertyNames = uniqueNonEmptyStrings(geoShapes)
+}
+
+func enrichRestrictedViewBackingMetadata(objectType *ObjectType) {
+	datasourceType := strings.ToLower(strings.TrimSpace(objectType.BackingDatasourceType))
+	if datasourceType == "" {
+		if objectType.BackingRestrictedViewID != nil && strings.TrimSpace(*objectType.BackingRestrictedViewID) != "" {
+			datasourceType = "restricted_view"
+		} else {
+			datasourceType = "dataset"
+		}
+	}
+	objectType.BackingDatasourceType = datasourceType
+	if datasourceType != "restricted_view" {
+		objectType.RestrictedViewID = nil
+		objectType.RestrictedViewPropagationStatus = nil
+		return
+	}
+	if objectType.RestrictedViewID == nil && objectType.BackingRestrictedViewID != nil {
+		trimmed := strings.TrimSpace(*objectType.BackingRestrictedViewID)
+		if trimmed != "" {
+			objectType.RestrictedViewID = &trimmed
+			objectType.BackingRestrictedViewID = &trimmed
+		}
+	}
+	if strings.TrimSpace(objectType.RestrictedViewStorageMode) == "" {
+		objectType.RestrictedViewStorageMode = "remote"
+	}
+	localMode := isLocalRestrictedViewStorageMode(objectType.RestrictedViewStorageMode)
+	requiresReregistration := localMode && objectType.RestrictedViewPolicyVersion > objectType.RestrictedViewRegisteredPolicyVersion
+	requiresReindex := localMode && objectType.RestrictedViewPolicyVersion > objectType.RestrictedViewIndexedPolicyVersion
+	warnings := []string{}
+	if requiresReregistration {
+		warnings = append(warnings, "Restricted-view policy changed after Object Storage V1 registration; re-register this object type before relying on local object reads.")
+	}
+	if requiresReindex {
+		warnings = append(warnings, "Restricted-view policy changed after indexing; re-index downstream object applications so row-level outcomes match the latest policy.")
+	}
+	objectType.RestrictedViewPropagationStatus = &RestrictedViewPropagationStatus{
+		RestrictedViewID:        objectType.RestrictedViewID,
+		StorageMode:             objectType.RestrictedViewStorageMode,
+		PolicyVersion:           objectType.RestrictedViewPolicyVersion,
+		RegisteredPolicyVersion: objectType.RestrictedViewRegisteredPolicyVersion,
+		IndexedPolicyVersion:    objectType.RestrictedViewIndexedPolicyVersion,
+		RequiresReregistration:  requiresReregistration,
+		RequiresReindex:         requiresReindex,
+		Warnings:                warnings,
+	}
+}
+
+func isLocalRestrictedViewStorageMode(mode string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	return strings.Contains(normalized, "local") || strings.Contains(normalized, "object_storage") || strings.Contains(normalized, "indexed")
 }
 
 func defaultPluralDisplayName(displayName, name string) string {
@@ -213,33 +290,55 @@ func uniqueNonEmptyStrings(values []string) []string {
 }
 
 type CreateObjectTypeRequest struct {
-	ID                 *uuid.UUID `json:"id,omitempty"`
-	Name               string     `json:"name"`
-	DisplayName        string     `json:"display_name"`
-	PluralDisplayName  *string    `json:"plural_display_name,omitempty"`
-	Description        string     `json:"description,omitempty"`
-	PrimaryKeyProperty *string    `json:"primary_key_property,omitempty"`
-	Icon               *string    `json:"icon,omitempty"`
-	Color              *string    `json:"color,omitempty"`
-	Editable           *bool      `json:"editable,omitempty"`
-	BackingDatasetID   *uuid.UUID `json:"backing_dataset_id,omitempty"`
-	BackingDatasetRID  *string    `json:"backing_dataset_rid,omitempty"`
-	PipelineRID        *string    `json:"pipeline_rid,omitempty"`
-	ManagedBy          *string    `json:"managed_by,omitempty"`
+	ID                                    *uuid.UUID      `json:"id,omitempty"`
+	Name                                  string          `json:"name"`
+	DisplayName                           string          `json:"display_name"`
+	PluralDisplayName                     *string         `json:"plural_display_name,omitempty"`
+	Description                           string          `json:"description,omitempty"`
+	PrimaryKeyProperty                    *string         `json:"primary_key_property,omitempty"`
+	Icon                                  *string         `json:"icon,omitempty"`
+	Color                                 *string         `json:"color,omitempty"`
+	Editable                              *bool           `json:"editable,omitempty"`
+	BackingDatasetID                      *uuid.UUID      `json:"backing_dataset_id,omitempty"`
+	BackingDatasetRID                     *string         `json:"backing_dataset_rid,omitempty"`
+	BackingDatasourceType                 *string         `json:"backing_datasource_type,omitempty"`
+	BackingRestrictedViewID               *string         `json:"backing_restricted_view_id,omitempty"`
+	RestrictedViewID                      *string         `json:"restricted_view_id,omitempty"`
+	RestrictedViewPolicy                  json.RawMessage `json:"restricted_view_policy,omitempty"`
+	RestrictedViewPolicyVersion           *int            `json:"restricted_view_policy_version,omitempty"`
+	RestrictedViewRegisteredPolicyVersion *int            `json:"restricted_view_registered_policy_version,omitempty"`
+	RestrictedViewIndexedPolicyVersion    *int            `json:"restricted_view_indexed_policy_version,omitempty"`
+	RestrictedViewStorageMode             *string         `json:"restricted_view_storage_mode,omitempty"`
+	RestrictedViewPolicyUpdatedAt         *time.Time      `json:"restricted_view_policy_updated_at,omitempty"`
+	RestrictedViewRegisteredAt            *time.Time      `json:"restricted_view_registered_at,omitempty"`
+	RestrictedViewIndexedAt               *time.Time      `json:"restricted_view_indexed_at,omitempty"`
+	PipelineRID                           *string         `json:"pipeline_rid,omitempty"`
+	ManagedBy                             *string         `json:"managed_by,omitempty"`
 }
 
 type UpdateObjectTypeRequest struct {
-	DisplayName        *string    `json:"display_name,omitempty"`
-	PluralDisplayName  *string    `json:"plural_display_name,omitempty"`
-	Description        *string    `json:"description,omitempty"`
-	PrimaryKeyProperty *string    `json:"primary_key_property,omitempty"`
-	Icon               *string    `json:"icon,omitempty"`
-	Color              *string    `json:"color,omitempty"`
-	Editable           *bool      `json:"editable,omitempty"`
-	BackingDatasetID   *uuid.UUID `json:"backing_dataset_id,omitempty"`
-	BackingDatasetRID  *string    `json:"backing_dataset_rid,omitempty"`
-	PipelineRID        *string    `json:"pipeline_rid,omitempty"`
-	ManagedBy          *string    `json:"managed_by,omitempty"`
+	DisplayName                           *string         `json:"display_name,omitempty"`
+	PluralDisplayName                     *string         `json:"plural_display_name,omitempty"`
+	Description                           *string         `json:"description,omitempty"`
+	PrimaryKeyProperty                    *string         `json:"primary_key_property,omitempty"`
+	Icon                                  *string         `json:"icon,omitempty"`
+	Color                                 *string         `json:"color,omitempty"`
+	Editable                              *bool           `json:"editable,omitempty"`
+	BackingDatasetID                      *uuid.UUID      `json:"backing_dataset_id,omitempty"`
+	BackingDatasetRID                     *string         `json:"backing_dataset_rid,omitempty"`
+	BackingDatasourceType                 *string         `json:"backing_datasource_type,omitempty"`
+	BackingRestrictedViewID               *string         `json:"backing_restricted_view_id,omitempty"`
+	RestrictedViewID                      *string         `json:"restricted_view_id,omitempty"`
+	RestrictedViewPolicy                  json.RawMessage `json:"restricted_view_policy,omitempty"`
+	RestrictedViewPolicyVersion           *int            `json:"restricted_view_policy_version,omitempty"`
+	RestrictedViewRegisteredPolicyVersion *int            `json:"restricted_view_registered_policy_version,omitempty"`
+	RestrictedViewIndexedPolicyVersion    *int            `json:"restricted_view_indexed_policy_version,omitempty"`
+	RestrictedViewStorageMode             *string         `json:"restricted_view_storage_mode,omitempty"`
+	RestrictedViewPolicyUpdatedAt         *time.Time      `json:"restricted_view_policy_updated_at,omitempty"`
+	RestrictedViewRegisteredAt            *time.Time      `json:"restricted_view_registered_at,omitempty"`
+	RestrictedViewIndexedAt               *time.Time      `json:"restricted_view_indexed_at,omitempty"`
+	PipelineRID                           *string         `json:"pipeline_rid,omitempty"`
+	ManagedBy                             *string         `json:"managed_by,omitempty"`
 }
 
 // Property mirrors `ontology_schema.properties` rows.

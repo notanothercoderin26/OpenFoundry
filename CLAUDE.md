@@ -24,7 +24,7 @@ docs/archive/    Historical migration logs — DO NOT READ unless asked
 tools/           CLIs (of-cli, route-audit, lint helpers)
 ```
 
-Per-service shape (uniform — copy from `services/template/`):
+Per-service shape (uniform — copy from `docs/templates/service-skeleton/`):
 
 ```
 services/<svc>/
@@ -157,7 +157,8 @@ For runtime architecture, prefer:
 
 ## Adding a new service
 
-Copy `services/template/`, register it in:
+Copy `docs/templates/service-skeleton/` into `services/<name>/` (drop
+the `//go:build ignore` headers on the copies), then register it in:
 
 - `infra/helm/apps/<chart>/` if it ships in a release
 - `services/edge-gateway-service/internal/proxy/router_table.go` if it

@@ -1,0 +1,66 @@
+name: data-residency
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/**/internal/repo/migrations/**.sql"
+      - "services/**/internal/handlers/**.go"
+      - "services/**/internal/handler/**.go"
+      - "tools/data-residency/**"
+      - ".github/data-residency-allowlist.yaml"
+      - ".github/workflows/data-residency.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/**/internal/repo/migrations/**.sql"
+      - "services/**/internal/handlers/**.go"
+      - "services/**/internal/handler/**.go"
+      - "tools/data-residency/**"
+      - ".github/data-residency-allowlist.yaml"
+      - ".github/workflows/data-residency.yml"
+
+jobs:
+  data-residency:
+    name: data-residency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so `git diff origin/main...HEAD` resolves on PRs
+          # and on direct pushes to main.
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Determine base ref
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ref=origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=HEAD~1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure base ref is fetched
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          fi
+
+      - name: Build tool
+        run: go build -o ./bin/data-residency ./tools/data-residency
+
+      - name: Run data-residency gate (new migrations only, all handler queries)
+        run: |
+          ./bin/data-residency \
+            -allowlist .github/data-residency-allowlist.yaml \
+            -repo-root . \
+            -gate-new-only \
+            -base-ref "${{ steps.base.outputs.ref }}" \
+            -format text
+
+      - name: Run data-residency tests
+        run: go test ./tools/data-residency/...

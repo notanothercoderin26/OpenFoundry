@@ -1,0 +1,149 @@
+name: pyiceberg E2E
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/iceberg-catalog-service/**"
+      - "services/dataset-versioning-service/**"
+      - "tests/integration/pyiceberg/**"
+      - ".github/workflows/pyiceberg-e2e.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/iceberg-catalog-service/**"
+      - "services/dataset-versioning-service/**"
+      - "tests/integration/pyiceberg/**"
+      - ".github/workflows/pyiceberg-e2e.yml"
+
+jobs:
+  e2e:
+    name: pyiceberg lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openfoundry
+          POSTGRES_PASSWORD: openfoundry
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openfoundry"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+    env:
+      ICEBERG_CATALOG_PORT: "50118"
+      DATASET_VERSIONING_PORT: "50117"
+      ICEBERG_CATALOG_URL: http://localhost:50118
+      JWT_SECRET: openfoundry-dev-secret
+      LOG_DIR: ${{ github.workspace }}/.pyiceberg-e2e-logs
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tests/integration/pyiceberg/requirements.txt
+
+      - name: prepare log directory
+        run: mkdir -p "$LOG_DIR"
+
+      - name: create per-service databases
+        env:
+          PGPASSWORD: openfoundry
+        run: |
+          psql -h localhost -U openfoundry -d postgres \
+            -c "CREATE DATABASE openfoundry_iceberg_catalog;" \
+            -c "CREATE DATABASE openfoundry_dataset_service;"
+
+      - name: build go services
+        run: |
+          go build -o ./bin/iceberg-catalog-service \
+            ./services/iceberg-catalog-service/cmd/iceberg-catalog-service
+          go build -o ./bin/dataset-versioning-service \
+            ./services/dataset-versioning-service/cmd/dataset-versioning-service
+
+      - name: start dataset-versioning-service
+        env:
+          DATABASE_URL: postgres://openfoundry:openfoundry@localhost:5432/openfoundry_dataset_service
+          HOST: 0.0.0.0
+          PORT: ${{ env.DATASET_VERSIONING_PORT }}
+        run: |
+          ./bin/dataset-versioning-service \
+            >"$LOG_DIR/dataset-versioning-service.log" 2>&1 &
+          echo $! > "$LOG_DIR/dataset-versioning-service.pid"
+
+      - name: start iceberg-catalog-service
+        env:
+          DATABASE_URL: postgres://openfoundry:openfoundry@localhost:5432/openfoundry_iceberg_catalog
+          HOST: 0.0.0.0
+          PORT: ${{ env.ICEBERG_CATALOG_PORT }}
+          METRICS_ADDR: 0.0.0.0:9118
+        run: |
+          ./bin/iceberg-catalog-service \
+            >"$LOG_DIR/iceberg-catalog-service.log" 2>&1 &
+          echo $! > "$LOG_DIR/iceberg-catalog-service.pid"
+
+      - name: wait for iceberg-catalog-service /health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf "http://localhost:${ICEBERG_CATALOG_PORT}/health" >/dev/null; then
+              echo "iceberg-catalog-service healthy after ${i} attempts"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::iceberg-catalog-service did not become healthy in 120s"
+          exit 1
+
+      - name: wait for dataset-versioning-service /health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf "http://localhost:${DATASET_VERSIONING_PORT}/health" >/dev/null; then
+              echo "dataset-versioning-service healthy after ${i} attempts"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::dataset-versioning-service did not become healthy in 120s"
+          exit 1
+
+      - name: install python deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ./python
+          python -m pip install -r tests/integration/pyiceberg/requirements.txt
+
+      - name: run pyiceberg suite
+        run: pytest tests/integration/pyiceberg/ -v --tb=short
+
+      - name: collect service logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyiceberg-e2e-logs
+          path: ${{ env.LOG_DIR }}
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: stop services
+        if: always()
+        run: |
+          for pid_file in "$LOG_DIR"/*.pid; do
+            [ -f "$pid_file" ] || continue
+            pid="$(cat "$pid_file")"
+            kill "$pid" 2>/dev/null || true
+          done

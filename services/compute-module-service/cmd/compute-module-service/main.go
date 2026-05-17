@@ -2,7 +2,7 @@
 // project-placement API described in
 // docs/migration/foundry-compute-modules-1to1-checklist.md (CM.1).
 //
-// The entrypoint mirrors services/template: config → observability →
+// The entrypoint mirrors docs/templates/service-skeleton: config → observability →
 // server. Persistence is in-memory by default; a Postgres
 // implementation is wired through internal/repo when DATABASE_URL is
 // set.

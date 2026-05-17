@@ -2,7 +2,7 @@
 
 // Integration coverage for the cross-tenant restricted_views isolation
 // fix in this service's read path. The schema is owned by
-// identity-federation-service (slice 7a + 0014 follow-up); the
+// identity-federation-service (slice 7a + 0017 follow-up); the
 // authorization-policy-service repo is read-only against the same
 // table. We can't import the identity-federation internal package
 // from here, so the test stands up the minimal schema inline — close
@@ -11,7 +11,7 @@
 //
 // Asserts the tenancy contract: a row authored by tenant A must not
 // appear in a tenant B evaluation, even when (resource, action)
-// matches via wildcards. Pre-0014 the query ignored tenant_id and
+// matches via wildcards. Pre-0017 the query ignored tenant_id and
 // returned every enabled row — this test fails loudly if anyone
 // reintroduces that bug.
 
@@ -46,6 +46,7 @@ CREATE TABLE restricted_views (
     conditions            JSONB NOT NULL DEFAULT '{}'::jsonb,
     row_filter            TEXT,
     hidden_columns        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    marking_columns       JSONB NOT NULL DEFAULT '[]'::jsonb,
     allowed_org_ids       JSONB NOT NULL DEFAULT '[]'::jsonb,
     allowed_markings      JSONB NOT NULL DEFAULT '[]'::jsonb,
     consumer_mode_enabled BOOLEAN NOT NULL DEFAULT false,

@@ -31,14 +31,17 @@ class OpenFoundryClient:
         self.retry_backoff_seconds = retry_backoff_seconds
         self.user_agent = user_agent
         self.adminV2 = _OperationNamespace(getcontrolpanel=self.admin_v2_getcontrolpanel, updatecontrolpanel=self.admin_v2_updatecontrolpanel, listgroups=self.admin_v2_listgroups, creategroup=self.admin_v2_creategroup, updategroup=self.admin_v2_updategroup, listpermissions=self.admin_v2_listpermissions, createpermission=self.admin_v2_createpermission, listpolicies=self.admin_v2_listpolicies, createpolicy=self.admin_v2_createpolicy, evaluatepolicy=self.admin_v2_evaluatepolicy, updatepolicy=self.admin_v2_updatepolicy, listroles=self.admin_v2_listroles, createrole=self.admin_v2_createrole, updaterole=self.admin_v2_updaterole, listusers=self.admin_v2_listusers, getcurrentuser=self.admin_v2_getcurrentuser, updateuser=self.admin_v2_updateuser)
+        self.aiV1 = _OperationNamespace(disablemodel=self.v1_llmcatalog_disablemodel, enablemodel=self.v1_llmcatalog_enablemodel, getmodel=self.v1_llmcatalog_getmodel, invoke=self.v1_llmcatalog_invoke, invokestream=self.v1_llmcatalog_invokestream, listmodels=self.v1_llmcatalog_listmodels, registermodel=self.v1_llmcatalog_registermodel)
+        self.auditV1 = _OperationNamespace(exportevents=self.v1_audit_exportevents, queryevents=self.v1_audit_queryevents, recordevent=self.v1_audit_recordevent)
         self.auth = _OperationNamespace(assignrole=self.auth_rbac_assignrole, getme=self.auth_auth_getme, listroles=self.auth_rbac_listroles, login=self.auth_auth_login, refreshtoken=self.auth_auth_refreshtoken, register=self.auth_auth_register)
         self.common = _OperationNamespace(check=self.common_health_check)
         self.dataIntegration = _OperationNamespace(cancelingestjob=self.data_integration_ingestjob_cancelingestjob, createconnection=self.data_integration_connector_createconnection, deleteconnection=self.data_integration_connector_deleteconnection, getingestjob=self.data_integration_ingestjob_getingestjob, inferschema=self.data_integration_connector_inferschema, listconnections=self.data_integration_connector_listconnections, listingestjobs=self.data_integration_ingestjob_listingestjobs, queueingestjob=self.data_integration_ingestjob_queueingestjob, syncconnection=self.data_integration_connector_syncconnection, testconnection=self.data_integration_connector_testconnection, watchingestjob=self.data_integration_ingestjob_watchingestjob)
         self.dataset = _OperationNamespace(createdataset=self.dataset_dataset_createdataset, deletedataset=self.dataset_dataset_deletedataset, getdataset=self.dataset_dataset_getdataset, getversions=self.dataset_dataset_getversions, listdatasets=self.dataset_dataset_listdatasets, previewdata=self.dataset_dataset_previewdata, updatedataset=self.dataset_dataset_updatedataset)
         self.filesystemV2 = _OperationNamespace(getdatasetfilesystem=self.filesystem_v2_getdatasetfilesystem)
+        self.marketplaceV1 = _OperationNamespace(createproduct=self.v1_marketplaceproduct_createproduct, getproduct=self.v1_marketplaceproduct_getproduct, installproduct=self.v1_marketplaceproduct_installproduct, listinstallations=self.v1_marketplaceproduct_listinstallations, listproducts=self.v1_marketplaceproduct_listproducts, publishversion=self.v1_marketplaceproduct_publishversion, uninstall=self.v1_marketplaceproduct_uninstall)
         self.mediaSet = _OperationNamespace(aborttransaction=self.media_set_mediaset_aborttransaction, committransaction=self.media_set_mediaset_committransaction, createmediaset=self.media_set_mediaset_createmediaset, deletemediaitem=self.media_set_mediaset_deletemediaitem, deletemediaset=self.media_set_mediaset_deletemediaset, generatepresigneddownloadurl=self.media_set_mediaset_generatepresigneddownloadurl, generatepresigneduploadurl=self.media_set_mediaset_generatepresigneduploadurl, getmediaitem=self.media_set_mediaset_getmediaitem, getmediaset=self.media_set_mediaset_getmediaset, listaccesspatterns=self.media_set_accesspattern_listaccesspatterns, listmediaitems=self.media_set_mediaset_listmediaitems, listmediasets=self.media_set_mediaset_listmediasets, opentransaction=self.media_set_mediaset_opentransaction, registeraccesspattern=self.media_set_accesspattern_registeraccesspattern, registervirtualmediaitem=self.media_set_mediaset_registervirtualmediaitem, runaccesspattern=self.media_set_accesspattern_runaccesspattern)
         self.notebook = _OperationNamespace(createnotebook=self.notebook_notebook_createnotebook, createsession=self.notebook_kernel_createsession, deletenotebook=self.notebook_notebook_deletenotebook, getnotebook=self.notebook_notebook_getnotebook, listnotebooks=self.notebook_notebook_listnotebooks, listsessions=self.notebook_kernel_listsessions, stopsession=self.notebook_kernel_stopsession, updatenotebook=self.notebook_notebook_updatenotebook)
-        self.ontology = _OperationNamespace(binddataset=self.ontology_ontology_binddataset, createlinktype=self.ontology_ontology_createlinktype, createobjecttype=self.ontology_ontology_createobjecttype, createproperty=self.ontology_ontology_createproperty, deletelinktype=self.ontology_ontology_deletelinktype, deleteobjecttype=self.ontology_ontology_deleteobjecttype, getobjecttype=self.ontology_ontology_getobjecttype, listlinktypes=self.ontology_ontology_listlinktypes, listobjecttypes=self.ontology_ontology_listobjecttypes, listproperties=self.ontology_ontology_listproperties, materializebinding=self.ontology_ontology_materializebinding, unbinddataset=self.ontology_ontology_unbinddataset, updateobjecttype=self.ontology_ontology_updateobjecttype)
+        self.ontology = _OperationNamespace(binddataset=self.ontology_ontology_binddataset, createlinktype=self.ontology_ontology_createlinktype, createobject=self.ontology_ontologyobject_createobject, createobjecttype=self.ontology_ontology_createobjecttype, createproperty=self.ontology_ontology_createproperty, deletelinktype=self.ontology_ontology_deletelinktype, deleteobject=self.ontology_ontologyobject_deleteobject, deleteobjecttype=self.ontology_ontology_deleteobjecttype, getobject=self.ontology_ontologyobject_getobject, getobjecttype=self.ontology_ontology_getobjecttype, listlinktypes=self.ontology_ontology_listlinktypes, listobjecttypes=self.ontology_ontology_listobjecttypes, listobjects=self.ontology_ontologyobject_listobjects, listproperties=self.ontology_ontology_listproperties, materializebinding=self.ontology_ontology_materializebinding, searchobjects=self.ontology_ontologyobject_searchobjects, traverselinks=self.ontology_ontologyobject_traverselinks, unbinddataset=self.ontology_ontology_unbinddataset, updateobject=self.ontology_ontologyobject_updateobject, updateobjecttype=self.ontology_ontology_updateobjecttype)
         self.openfoundryStreamingRouterV1 = _OperationNamespace(publish=self.v1_eventrouter_publish, subscribe=self.v1_eventrouter_subscribe)
         self.pipeline = _OperationNamespace(createpipeline=self.pipeline_pipeline_createpipeline, createschedule=self.pipeline_schedule_createschedule, deletepipeline=self.pipeline_pipeline_deletepipeline, deleteschedule=self.pipeline_schedule_deleteschedule, getdatasetlineage=self.pipeline_lineage_getdatasetlineage, getfulllineage=self.pipeline_lineage_getfulllineage, getpipeline=self.pipeline_pipeline_getpipeline, getrun=self.pipeline_scheduleruns_getrun, getschedule=self.pipeline_schedule_getschedule, listpipelines=self.pipeline_pipeline_listpipelines, listruns=self.pipeline_scheduleruns_listruns, listschedules=self.pipeline_schedule_listschedules, previewnextfires=self.pipeline_schedule_previewnextfires, recordlineage=self.pipeline_lineage_recordlineage, runschedulenow=self.pipeline_schedule_runschedulenow, triggerrun=self.pipeline_pipeline_triggerrun, updatepipeline=self.pipeline_pipeline_updatepipeline, updateschedule=self.pipeline_schedule_updateschedule)
         self.query = _OperationNamespace(deletesavedquery=self.query_query_deletesavedquery, executequery=self.query_query_executequery, explainquery=self.query_query_explainquery, listsavedqueries=self.query_query_listsavedqueries, savequery=self.query_query_savequery)
@@ -203,6 +206,9 @@ class OpenFoundryClient:
     def ontology_ontology_createlinktype(self, body: models.CreateLinkTypeRequest, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("POST", "/api/v1/ontology/create-link-type", None, None, body, headers=headers)
 
+    def ontology_ontologyobject_createobject(self, body: models.CreateObjectRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/ontology/create-object", None, None, body, headers=headers)
+
     def ontology_ontology_createobjecttype(self, body: models.CreateObjectTypeRequest, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("POST", "/api/v1/ontology/create-object-type", None, None, body, headers=headers)
 
@@ -212,8 +218,14 @@ class OpenFoundryClient:
     def ontology_ontology_deletelinktype(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("DELETE", "/api/v1/ontology/delete-link-type", None, {"id": id}, None, headers=headers)
 
+    def ontology_ontologyobject_deleteobject(self, object_type_id: str | None = None, primary_key: str | None = None, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("DELETE", "/api/v1/ontology/delete-object", None, {"object_type_id": object_type_id, "primary_key": primary_key}, None, headers=headers)
+
     def ontology_ontology_deleteobjecttype(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("DELETE", "/api/v1/ontology/delete-object-type", None, {"id": id}, None, headers=headers)
+
+    def ontology_ontologyobject_getobject(self, object_type_id: str | None = None, primary_key: str | None = None, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("GET", "/api/v1/ontology/get-object", None, {"object_type_id": object_type_id, "primary_key": primary_key}, None, headers=headers)
 
     def ontology_ontology_getobjecttype(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("GET", "/api/v1/ontology/get-object-type", None, {"id": id}, None, headers=headers)
@@ -224,14 +236,26 @@ class OpenFoundryClient:
     def ontology_ontology_listobjecttypes(self, pagination: PageRequest | None = None, search: str | None = None, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("GET", "/api/v1/ontology/list-object-types", None, {"pagination": pagination, "search": search}, None, headers=headers)
 
+    def ontology_ontologyobject_listobjects(self, cursor: str | None = None, filters: list[PropertyFilter] | None = None, object_type_id: str | None = None, page_size: int | None = None, sort: list[PropertySort] | None = None, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("GET", "/api/v1/ontology/list-objects", None, {"cursor": cursor, "filters": filters, "object_type_id": object_type_id, "page_size": page_size, "sort": sort}, None, headers=headers)
+
     def ontology_ontology_listproperties(self, object_type_id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("GET", "/api/v1/ontology/list-properties", None, {"object_type_id": object_type_id}, None, headers=headers)
 
     def ontology_ontology_materializebinding(self, body: models.MaterializeBindingRequest, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("POST", "/api/v1/ontology/materialize-binding", None, None, body, headers=headers)
 
+    def ontology_ontologyobject_searchobjects(self, body: models.SearchObjectsRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/ontology/search-objects", None, None, body, headers=headers)
+
+    def ontology_ontologyobject_traverselinks(self, body: models.TraverseLinksRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/ontology/traverse-links", None, None, body, headers=headers)
+
     def ontology_ontology_unbinddataset(self, body: models.UnbindDatasetRequest, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("POST", "/api/v1/ontology/unbind-dataset", None, None, body, headers=headers)
+
+    def ontology_ontologyobject_updateobject(self, body: models.UpdateObjectRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("PATCH", "/api/v1/ontology/update-object", None, None, body, headers=headers)
 
     def ontology_ontology_updateobjecttype(self, body: models.UpdateObjectTypeRequest, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("PATCH", "/api/v1/ontology/update-object-type", None, None, body, headers=headers)
@@ -320,11 +344,62 @@ class OpenFoundryClient:
     def runtime_pythonruntime_executepipelinetransform(self, body: models.ExecutePipelineTransformRequest, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("POST", "/api/v1/runtime/execute-pipeline-transform", None, None, body, headers=headers)
 
+    def v1_marketplaceproduct_createproduct(self, body: models.CreateProductRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/create-product", None, None, body, headers=headers)
+
+    def v1_llmcatalog_disablemodel(self, body: models.DisableModelRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/disable-model", None, None, body, headers=headers)
+
+    def v1_llmcatalog_enablemodel(self, body: models.EnableModelRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/enable-model", None, None, body, headers=headers)
+
+    def v1_audit_exportevents(self, body: models.ExportEventsRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/export-events", None, None, body, headers=headers)
+
+    def v1_llmcatalog_getmodel(self, rid: Uuid | None = None, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("GET", "/api/v1/v1/get-model", None, {"rid": rid}, None, headers=headers)
+
+    def v1_marketplaceproduct_getproduct(self, rid: str | None = None, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("GET", "/api/v1/v1/get-product", None, {"rid": rid}, None, headers=headers)
+
+    def v1_marketplaceproduct_installproduct(self, body: models.InstallProductRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/install-product", None, None, body, headers=headers)
+
+    def v1_llmcatalog_invoke(self, body: models.InvokeRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/invoke", None, None, body, headers=headers)
+
+    def v1_llmcatalog_invokestream(self, body: models.InvokeRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/invoke-stream", None, None, body, headers=headers)
+
+    def v1_marketplaceproduct_listinstallations(self, limit: int | None = None, offset: int | None = None, product_rid: str | None = None, target_workspace_rid: str | None = None, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("GET", "/api/v1/v1/list-installations", None, {"limit": limit, "offset": offset, "product_rid": product_rid, "target_workspace_rid": target_workspace_rid}, None, headers=headers)
+
+    def v1_llmcatalog_listmodels(self, only_enabled: bool | None = None, provider: Provider | None = None, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("GET", "/api/v1/v1/list-models", None, {"only_enabled": only_enabled, "provider": provider}, None, headers=headers)
+
+    def v1_marketplaceproduct_listproducts(self, limit: int | None = None, offset: int | None = None, status: ProductStatus | None = None, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("GET", "/api/v1/v1/list-products", None, {"limit": limit, "offset": offset, "status": status}, None, headers=headers)
+
     def v1_eventrouter_publish(self, body: models.PublishRequest, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("POST", "/api/v1/v1/publish", None, None, body, headers=headers)
 
+    def v1_marketplaceproduct_publishversion(self, body: models.PublishVersionRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/publish-version", None, None, body, headers=headers)
+
+    def v1_audit_queryevents(self, body: models.QueryEventsRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/query-events", None, None, body, headers=headers)
+
+    def v1_audit_recordevent(self, body: models.RecordEventRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/record-event", None, None, body, headers=headers)
+
+    def v1_llmcatalog_registermodel(self, body: models.RegisterModelRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/register-model", None, None, body, headers=headers)
+
     def v1_eventrouter_subscribe(self, body: models.SubscribeRequest, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("POST", "/api/v1/v1/subscribe", None, None, body, headers=headers)
+
+    def v1_marketplaceproduct_uninstall(self, body: models.UninstallRequest, headers: Mapping[str, str] | None = None) -> Any:
+        return self._request("POST", "/api/v1/v1/uninstall", None, None, body, headers=headers)
 
     def admin_v2_getcontrolpanel(self, headers: Mapping[str, str] | None = None) -> Any:
         return self._request("GET", "/api/v2/admin/control-panel", None, None, None, headers=headers)
@@ -485,26 +560,40 @@ class OpenFoundryClient:
                 return self.ontology_ontology_binddataset(payload.get('body', payload), headers=headers)
             case "open_foundry.ontology.OntologyService.CreateLinkType":
                 return self.ontology_ontology_createlinktype(payload.get('body', payload), headers=headers)
+            case "open_foundry.ontology.OntologyObjectService.CreateObject":
+                return self.ontology_ontologyobject_createobject(payload.get('body', payload), headers=headers)
             case "open_foundry.ontology.OntologyService.CreateObjectType":
                 return self.ontology_ontology_createobjecttype(payload.get('body', payload), headers=headers)
             case "open_foundry.ontology.OntologyService.CreateProperty":
                 return self.ontology_ontology_createproperty(payload.get('body', payload), headers=headers)
             case "open_foundry.ontology.OntologyService.DeleteLinkType":
                 return self.ontology_ontology_deletelinktype((payload.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.ontology.OntologyObjectService.DeleteObject":
+                return self.ontology_ontologyobject_deleteobject((payload.get('query') or {}).get("object_type_id"), (payload.get('query') or {}).get("primary_key"), headers=headers)
             case "open_foundry.ontology.OntologyService.DeleteObjectType":
                 return self.ontology_ontology_deleteobjecttype((payload.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.ontology.OntologyObjectService.GetObject":
+                return self.ontology_ontologyobject_getobject((payload.get('query') or {}).get("object_type_id"), (payload.get('query') or {}).get("primary_key"), headers=headers)
             case "open_foundry.ontology.OntologyService.GetObjectType":
                 return self.ontology_ontology_getobjecttype((payload.get('query') or {}).get("id"), headers=headers)
             case "open_foundry.ontology.OntologyService.ListLinkTypes":
                 return self.ontology_ontology_listlinktypes((payload.get('query') or {}).get("object_type_id"), (payload.get('query') or {}).get("pagination"), headers=headers)
             case "open_foundry.ontology.OntologyService.ListObjectTypes":
                 return self.ontology_ontology_listobjecttypes((payload.get('query') or {}).get("pagination"), (payload.get('query') or {}).get("search"), headers=headers)
+            case "open_foundry.ontology.OntologyObjectService.ListObjects":
+                return self.ontology_ontologyobject_listobjects((payload.get('query') or {}).get("cursor"), (payload.get('query') or {}).get("filters"), (payload.get('query') or {}).get("object_type_id"), (payload.get('query') or {}).get("page_size"), (payload.get('query') or {}).get("sort"), headers=headers)
             case "open_foundry.ontology.OntologyService.ListProperties":
                 return self.ontology_ontology_listproperties((payload.get('query') or {}).get("object_type_id"), headers=headers)
             case "open_foundry.ontology.OntologyService.MaterializeBinding":
                 return self.ontology_ontology_materializebinding(payload.get('body', payload), headers=headers)
+            case "open_foundry.ontology.OntologyObjectService.SearchObjects":
+                return self.ontology_ontologyobject_searchobjects(payload.get('body', payload), headers=headers)
+            case "open_foundry.ontology.OntologyObjectService.TraverseLinks":
+                return self.ontology_ontologyobject_traverselinks(payload.get('body', payload), headers=headers)
             case "open_foundry.ontology.OntologyService.UnbindDataset":
                 return self.ontology_ontology_unbinddataset(payload.get('body', payload), headers=headers)
+            case "open_foundry.ontology.OntologyObjectService.UpdateObject":
+                return self.ontology_ontologyobject_updateobject(payload.get('body', payload), headers=headers)
             case "open_foundry.ontology.OntologyService.UpdateObjectType":
                 return self.ontology_ontology_updateobjecttype(payload.get('body', payload), headers=headers)
             case "open_foundry.pipeline.PipelineService.CreatePipeline":
@@ -563,10 +652,44 @@ class OpenFoundryClient:
                 return self.runtime_pythonruntime_executenotebookcell(payload.get('body', payload), headers=headers)
             case "runtime.PythonRuntimeService.ExecutePipelineTransform":
                 return self.runtime_pythonruntime_executepipelinetransform(payload.get('body', payload), headers=headers)
+            case "open_foundry.marketplace.v1.MarketplaceProductService.CreateProduct":
+                return self.v1_marketplaceproduct_createproduct(payload.get('body', payload), headers=headers)
+            case "open_foundry.ai.v1.LlmCatalogService.DisableModel":
+                return self.v1_llmcatalog_disablemodel(payload.get('body', payload), headers=headers)
+            case "open_foundry.ai.v1.LlmCatalogService.EnableModel":
+                return self.v1_llmcatalog_enablemodel(payload.get('body', payload), headers=headers)
+            case "open_foundry.audit.v1.AuditService.ExportEvents":
+                return self.v1_audit_exportevents(payload.get('body', payload), headers=headers)
+            case "open_foundry.ai.v1.LlmCatalogService.GetModel":
+                return self.v1_llmcatalog_getmodel((payload.get('query') or {}).get("rid"), headers=headers)
+            case "open_foundry.marketplace.v1.MarketplaceProductService.GetProduct":
+                return self.v1_marketplaceproduct_getproduct((payload.get('query') or {}).get("rid"), headers=headers)
+            case "open_foundry.marketplace.v1.MarketplaceProductService.InstallProduct":
+                return self.v1_marketplaceproduct_installproduct(payload.get('body', payload), headers=headers)
+            case "open_foundry.ai.v1.LlmCatalogService.Invoke":
+                return self.v1_llmcatalog_invoke(payload.get('body', payload), headers=headers)
+            case "open_foundry.ai.v1.LlmCatalogService.InvokeStream":
+                return self.v1_llmcatalog_invokestream(payload.get('body', payload), headers=headers)
+            case "open_foundry.marketplace.v1.MarketplaceProductService.ListInstallations":
+                return self.v1_marketplaceproduct_listinstallations((payload.get('query') or {}).get("limit"), (payload.get('query') or {}).get("offset"), (payload.get('query') or {}).get("product_rid"), (payload.get('query') or {}).get("target_workspace_rid"), headers=headers)
+            case "open_foundry.ai.v1.LlmCatalogService.ListModels":
+                return self.v1_llmcatalog_listmodels((payload.get('query') or {}).get("only_enabled"), (payload.get('query') or {}).get("provider"), headers=headers)
+            case "open_foundry.marketplace.v1.MarketplaceProductService.ListProducts":
+                return self.v1_marketplaceproduct_listproducts((payload.get('query') or {}).get("limit"), (payload.get('query') or {}).get("offset"), (payload.get('query') or {}).get("status"), headers=headers)
             case "openfoundry.streaming.router.v1.EventRouter.Publish":
                 return self.v1_eventrouter_publish(payload.get('body', payload), headers=headers)
+            case "open_foundry.marketplace.v1.MarketplaceProductService.PublishVersion":
+                return self.v1_marketplaceproduct_publishversion(payload.get('body', payload), headers=headers)
+            case "open_foundry.audit.v1.AuditService.QueryEvents":
+                return self.v1_audit_queryevents(payload.get('body', payload), headers=headers)
+            case "open_foundry.audit.v1.AuditService.RecordEvent":
+                return self.v1_audit_recordevent(payload.get('body', payload), headers=headers)
+            case "open_foundry.ai.v1.LlmCatalogService.RegisterModel":
+                return self.v1_llmcatalog_registermodel(payload.get('body', payload), headers=headers)
             case "openfoundry.streaming.router.v1.EventRouter.Subscribe":
                 return self.v1_eventrouter_subscribe(payload.get('body', payload), headers=headers)
+            case "open_foundry.marketplace.v1.MarketplaceProductService.Uninstall":
+                return self.v1_marketplaceproduct_uninstall(payload.get('body', payload), headers=headers)
             case "rest.admin.v2.getControlPanel":
                 return self.admin_v2_getcontrolpanel(headers=headers)
             case "rest.admin.v2.updateControlPanel":

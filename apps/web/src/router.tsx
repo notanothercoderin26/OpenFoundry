@@ -307,6 +307,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/control-panel/MarkingCategoriesPage')).MarkingCategoriesPage }),
       },
       {
+        path: 'control-panel/scoped-sessions',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/ScopedSessionsPage')).ScopedSessionsPage }),
+      },
+      {
         path: 'functions',
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionsPage')).FunctionsPage }),
       },

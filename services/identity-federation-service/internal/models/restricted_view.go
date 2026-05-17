@@ -24,6 +24,7 @@ type RestrictedView struct {
 	Conditions          json.RawMessage `json:"conditions"`
 	RowFilter           *string         `json:"row_filter,omitempty"`
 	HiddenColumns       json.RawMessage `json:"hidden_columns"`
+	MarkingColumns      json.RawMessage `json:"marking_columns"`
 	AllowedOrgIDs       json.RawMessage `json:"allowed_org_ids"`
 	AllowedMarkings     json.RawMessage `json:"allowed_markings"`
 	ConsumerModeEnabled bool            `json:"consumer_mode_enabled"`
@@ -36,33 +37,37 @@ type RestrictedView struct {
 
 // CreateRestrictedViewRequest is the body of POST /restricted-views.
 type CreateRestrictedViewRequest struct {
-	Name                string          `json:"name"`
-	Description         *string         `json:"description,omitempty"`
-	Resource            string          `json:"resource"`
-	Action              string          `json:"action"`
-	Conditions          json.RawMessage `json:"conditions,omitempty"`
-	RowFilter           *string         `json:"row_filter,omitempty"`
-	HiddenColumns       json.RawMessage `json:"hidden_columns,omitempty"`
-	AllowedOrgIDs       json.RawMessage `json:"allowed_org_ids,omitempty"`
-	AllowedMarkings     json.RawMessage `json:"allowed_markings,omitempty"`
-	ConsumerModeEnabled *bool           `json:"consumer_mode_enabled,omitempty"`
-	AllowGuestAccess    *bool           `json:"allow_guest_access,omitempty"`
-	Enabled             *bool           `json:"enabled,omitempty"`
+	Name                 string          `json:"name"`
+	Description          *string         `json:"description,omitempty"`
+	Resource             string          `json:"resource"`
+	Action               string          `json:"action"`
+	Conditions           json.RawMessage `json:"conditions,omitempty"`
+	RowFilter            *string         `json:"row_filter,omitempty"`
+	HiddenColumns        json.RawMessage `json:"hidden_columns,omitempty"`
+	MarkingColumns       json.RawMessage `json:"marking_columns,omitempty"`
+	AllowedOrgIDs        json.RawMessage `json:"allowed_org_ids,omitempty"`
+	AllowedMarkings      json.RawMessage `json:"allowed_markings,omitempty"`
+	BackingDatasetSchema json.RawMessage `json:"backing_dataset_schema,omitempty"`
+	ConsumerModeEnabled  *bool           `json:"consumer_mode_enabled,omitempty"`
+	AllowGuestAccess     *bool           `json:"allow_guest_access,omitempty"`
+	Enabled              *bool           `json:"enabled,omitempty"`
 }
 
 // UpdateRestrictedViewRequest mirrors CreateRestrictedViewRequest but
 // every field is optional — unset fields preserve current values.
 type UpdateRestrictedViewRequest struct {
-	Name                *string         `json:"name,omitempty"`
-	Description         *string         `json:"description,omitempty"`
-	Resource            *string         `json:"resource,omitempty"`
-	Action              *string         `json:"action,omitempty"`
-	Conditions          json.RawMessage `json:"conditions,omitempty"`
-	RowFilter           *string         `json:"row_filter,omitempty"`
-	HiddenColumns       json.RawMessage `json:"hidden_columns,omitempty"`
-	AllowedOrgIDs       json.RawMessage `json:"allowed_org_ids,omitempty"`
-	AllowedMarkings     json.RawMessage `json:"allowed_markings,omitempty"`
-	ConsumerModeEnabled *bool           `json:"consumer_mode_enabled,omitempty"`
-	AllowGuestAccess    *bool           `json:"allow_guest_access,omitempty"`
-	Enabled             *bool           `json:"enabled,omitempty"`
+	Name                 *string         `json:"name,omitempty"`
+	Description          *string         `json:"description,omitempty"`
+	Resource             *string         `json:"resource,omitempty"`
+	Action               *string         `json:"action,omitempty"`
+	Conditions           json.RawMessage `json:"conditions,omitempty"`
+	RowFilter            *string         `json:"row_filter,omitempty"`
+	HiddenColumns        json.RawMessage `json:"hidden_columns,omitempty"`
+	MarkingColumns       json.RawMessage `json:"marking_columns,omitempty"`
+	AllowedOrgIDs        json.RawMessage `json:"allowed_org_ids,omitempty"`
+	AllowedMarkings      json.RawMessage `json:"allowed_markings,omitempty"`
+	BackingDatasetSchema json.RawMessage `json:"backing_dataset_schema,omitempty"`
+	ConsumerModeEnabled  *bool           `json:"consumer_mode_enabled,omitempty"`
+	AllowGuestAccess     *bool           `json:"allow_guest_access,omitempty"`
+	Enabled              *bool           `json:"enabled,omitempty"`
 }

@@ -1,0 +1,102 @@
+# Per-service Kafka topic / NATS subject allowlist for the bus-contract
+# CI gate (tools/bus-allowlist).
+#
+# Each entry under `services.<name>.topics` is a bus topic that may
+# appear as a direct string literal anywhere inside that service's Go
+# source tree (services/<name>/**.go, excluding *_test.go). The gate
+# fails when a service uses a topic not enumerated here, or when the
+# YAML lists a topic that is not used.
+#
+# Scope: only literals whose first dot-segment matches a known bus
+# domain prefix (audit, ai, lineage, saga, approval, automate,
+# ontology, ontology-indexer, foundry, of, openfoundry.streams,
+# dataset.branch) are considered "bus topics". Event-type discriminator
+# strings, permission action names, schema-version tags and config
+# keys are out of scope by design.
+#
+# Wildcards: `*` is a glob over one or more characters. The
+# ingestion-replication-service hot buffer composes its subject as
+# `openfoundry.streams.<uuid>` at runtime; the source carries the
+# format string `openfoundry.streams.%s`, which the gate normalises to
+# `openfoundry.streams.*` before allowlist lookup.
+#
+# This is a FLOOR list. It captures what is in use today. Adding a new
+# topic to a service is allowed, but the YAML MUST be updated in the
+# same PR. The gate is not (yet) used to drive topic reductions.
+
+version: 1
+
+services:
+  agent-runtime-service:
+    topics:
+      - ai.events.v1
+
+  ai-sink:
+    topics:
+      - ai.events.v1
+
+  audit-compliance-service:
+    topics:
+      # NATS subjects the collector catalog renders. The service is
+      # coupled to these subject contracts even though it does not
+      # actively publish or subscribe to them today — the audit
+      # gateway middleware does.
+      - of.audit.auth
+      - of.audit.datasets
+      - of.audit.gateway
+      - of.audit.notifications
+      - of.audit.workflows
+
+  audit-sink:
+    topics:
+      - audit.events.v1
+
+  code-repository-review-service:
+    topics:
+      - foundry.branch.events.v1
+      - foundry.global.branch.promote.requested.v1
+
+  dataset-versioning-service:
+    topics:
+      - foundry.branch.events.v1
+
+  ingestion-replication-service:
+    topics:
+      - openfoundry.streams.*
+
+  lineage-service:
+    topics:
+      - lineage.events
+      - lineage.events.v1
+
+  ontology-actions-service:
+    topics:
+      - ontology.actions.applied.v1
+
+  ontology-indexer:
+    topics:
+      - ontology-indexer.dlq.v1
+      - ontology.links.changed.v1
+      - ontology.objects.changed.v1
+
+  reindex-coordinator-service:
+    topics:
+      - ontology.reindex.completed.v1
+      - ontology.reindex.requested.v1
+      - ontology.reindex.v1
+
+  workflow-automation-service:
+    topics:
+      - approval.completed.v1
+      - approval.decided.v1
+      - approval.expired.v1
+      - approval.requested.v1
+      - automate.condition.v1
+      - automate.outcome.v1
+      - saga.aborted.v1
+      - saga.compensate.v1
+      - saga.completed.v1
+      - saga.step.compensated.v1
+      - saga.step.completed.v1
+      - saga.step.failed.v1
+      - saga.step.requested.v1
