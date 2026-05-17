@@ -428,9 +428,26 @@ services:
   # S8 / ADR-0030 (B21) — `product-distribution-service` merged →
   # `federation-product-exchange-service`. No Deployment renders here.
 
-  # S8 / ADR-0030 (C4) — `report-service` retired (legacy); domain
-  # covered by the absorbed `document-reporting` module in
-  # `notebook-runtime-service`. No Deployment renders here.
+  # S8.6 — `report-service` rescaffolded as a stub binary because the
+  # edge gateway still routes `/api/v1/reports*` to a dedicated upstream
+  # (router_table.go `u.Report` branch) and was returning 502s. The S8 /
+  # ADR-0030 (C4) retirement remains the long-term plan (domain moves
+  # into the absorbed `document-reporting` module in
+  # `notebook-runtime-service`); until that wiring lands, this Deployment
+  # serves a structured 501 envelope so the frontend renders a typed
+  # error instead.
+  report-service:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: "200m"
+        memory: 256Mi
 
   # S8 / ADR-0030 (B20) — `scenario-simulation-service` merged →
   # `ontology-exploratory-analysis-service` (lives in `of-ontology`).

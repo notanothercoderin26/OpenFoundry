@@ -98,7 +98,10 @@ services:
       DATABASE_READ_URL:
         secretName: notification-alerting-db-dsn
         key: reader_url
-  # S8 / ADR-0030 (C4): report-service retired (legacy).
+  # S8.6 — report-service rescaffolded as a stub backing /api/v1/reports*.
+  # See values.yaml for the long-term retirement context.
+  report-service:
+    replicas: 1
   # S8 / ADR-0030 (B20): scenario-simulation-service merged →
   # ontology-exploratory-analysis-service.
   sdk-generation-service:
