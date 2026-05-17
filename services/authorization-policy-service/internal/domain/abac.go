@@ -10,24 +10,26 @@ import (
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/restrictedview"
 	"github.com/openfoundry/openfoundry-go/services/authorization-policy-service/internal/repo"
 )
 
 // EvaluationResult mirrors the Rust EvaluationResult shape byte-for-byte.
 // Carried by POST /api/v1/policy-evaluations as the response body.
 type EvaluationResult struct {
-	Allowed                    bool                        `json:"allowed"`
-	MatchedPolicyIDs           []uuid.UUID                 `json:"matched_policy_ids"`
-	DenyPolicyIDs              []uuid.UUID                 `json:"deny_policy_ids"`
-	RowFilter                  *string                     `json:"row_filter"`
-	HiddenColumns              []string                    `json:"hidden_columns"`
-	MatchedRestrictedViewIDs   []uuid.UUID                 `json:"matched_restricted_view_ids"`
-	RestrictedViews            []EvaluationRestrictedView  `json:"restricted_views"`
-	DenyReasons                []string                    `json:"deny_reasons"`
-	AllowedOrgIDs              []uuid.UUID                 `json:"allowed_org_ids"`
-	AllowedMarkings            []string                    `json:"allowed_markings"`
-	EffectiveClearance         *string                     `json:"effective_clearance"`
-	ConsumerMode               bool                        `json:"consumer_mode"`
+	Allowed                          bool                       `json:"allowed"`
+	MatchedPolicyIDs                 []uuid.UUID                `json:"matched_policy_ids"`
+	DenyPolicyIDs                    []uuid.UUID                `json:"deny_policy_ids"`
+	RowFilter                        *string                    `json:"row_filter"`
+	HiddenColumns                    []string                   `json:"hidden_columns"`
+	MatchedRestrictedViewIDs         []uuid.UUID                `json:"matched_restricted_view_ids"`
+	RestrictedViews                  []EvaluationRestrictedView `json:"restricted_views"`
+	DenyReasons                      []string                   `json:"deny_reasons"`
+	AllowedOrgIDs                    []uuid.UUID                `json:"allowed_org_ids"`
+	AllowedMarkings                  []string                   `json:"allowed_markings"`
+	EffectiveClearance               *string                    `json:"effective_clearance"`
+	ConsumerMode                     bool                       `json:"consumer_mode"`
+	HistoricalIdentitySnapshotCaveat string                     `json:"historical_identity_snapshot_caveat"`
 }
 
 // EvaluationRestrictedView is the per-view row attached to an evaluation.
@@ -51,14 +53,14 @@ type EvaluationRestrictedView struct {
 // gate write paths via Cedar, ABAC is read-time row filtering + view
 // scoping. Decision matrix matches the Rust impl byte-for-byte:
 //
-//   1. Org isolation + classification boundary checks → deny_reasons.
-//   2. For each policy whose conditions match: allow → matched, with
-//      optional row_filter; deny → deny_policy_ids.
-//   3. For each restricted view: scope checks (org/markings/guest/
-//      scoped IDs), accumulate row_filter + hidden_columns +
-//      consumer_mode_enabled.
-//   4. Final allowed = no denies AND (admin OR no controls OR something
-//      matched).
+//  1. Org isolation + classification boundary checks → deny_reasons.
+//  2. For each policy whose conditions match: allow → matched, with
+//     optional row_filter; deny → deny_policy_ids.
+//  3. For each restricted view: scope checks (org/markings/guest/
+//     scoped IDs), accumulate row_filter + hidden_columns +
+//     consumer_mode_enabled.
+//  4. Final allowed = no denies AND (admin OR no controls OR something
+//     matched).
 func Evaluate(
 	ctx context.Context,
 	r *repo.Repo,
@@ -159,6 +161,11 @@ func Evaluate(
 				continue
 			}
 		}
+		rvDecision := restrictedview.EvaluateRow(claims, restrictedViewPolicyFromRepo(v), resourceAttrs)
+		if !rvDecision.Allowed {
+			denyReasons = append(denyReasons, rvDecision.DenyReasons...)
+			continue
+		}
 		matchedViewIDs = append(matchedViewIDs, v.ID)
 		if v.RowFilter != nil && *v.RowFilter != "" {
 			rendered := renderRowFilter(*v.RowFilter, subjectCtx, resourceAttrs)
@@ -170,9 +177,9 @@ func Evaluate(
 		consumerMode = consumerMode || v.ConsumerModeEnabled
 		evalViews = append(evalViews, EvaluationRestrictedView{
 			ID: v.ID, Name: v.Name, RowFilter: v.RowFilter,
-			HiddenColumns:   append([]string(nil), v.HiddenColumns...),
-			AllowedOrgIDs:   append([]uuid.UUID(nil), v.AllowedOrgIDs...),
-			AllowedMarkings: append([]string(nil), v.AllowedMarkings...),
+			HiddenColumns:       append([]string(nil), v.HiddenColumns...),
+			AllowedOrgIDs:       append([]uuid.UUID(nil), v.AllowedOrgIDs...),
+			AllowedMarkings:     append([]string(nil), v.AllowedMarkings...),
 			ConsumerModeEnabled: v.ConsumerModeEnabled,
 			AllowGuestAccess:    v.AllowGuestAccess,
 		})
@@ -198,18 +205,19 @@ func Evaluate(
 	}
 
 	return &EvaluationResult{
-		Allowed:                  allowed,
-		MatchedPolicyIDs:         emptyUUIDSlice(matched),
-		DenyPolicyIDs:            emptyUUIDSlice(denyIDs),
-		RowFilter:                finalRowFilter,
-		HiddenColumns:            emptyStringSlice(hiddenCols),
-		MatchedRestrictedViewIDs: emptyUUIDSlice(matchedViewIDs),
-		RestrictedViews:          emptyViewSlice(evalViews),
-		DenyReasons:              emptyStringSlice(denyReasons),
-		AllowedOrgIDs:            emptyUUIDSlice(claims.AllowedOrgIDs()),
-		AllowedMarkings:          emptyStringSlice(claims.AllowedMarkings()),
-		EffectiveClearance:       clearancePtr,
-		ConsumerMode:             consumerMode,
+		Allowed:                          allowed,
+		MatchedPolicyIDs:                 emptyUUIDSlice(matched),
+		DenyPolicyIDs:                    emptyUUIDSlice(denyIDs),
+		RowFilter:                        finalRowFilter,
+		HiddenColumns:                    emptyStringSlice(hiddenCols),
+		MatchedRestrictedViewIDs:         emptyUUIDSlice(matchedViewIDs),
+		RestrictedViews:                  emptyViewSlice(evalViews),
+		DenyReasons:                      emptyStringSlice(denyReasons),
+		AllowedOrgIDs:                    emptyUUIDSlice(claims.AllowedOrgIDs()),
+		AllowedMarkings:                  emptyStringSlice(claims.AllowedMarkings()),
+		EffectiveClearance:               clearancePtr,
+		ConsumerMode:                     consumerMode,
+		HistoricalIdentitySnapshotCaveat: restrictedview.HistoricalIdentitySnapshotCaveat,
 	}, nil
 }
 
@@ -251,6 +259,20 @@ func decodeAttrs(raw json.RawMessage) ctxMap {
 		return ctxMap{}
 	}
 	return out
+}
+
+func restrictedViewPolicyFromRepo(v repo.RestrictedView) restrictedview.Policy {
+	return restrictedview.Policy{
+		ID:                  v.ID.String(),
+		Conditions:          v.Conditions,
+		RowFilter:           v.RowFilter,
+		HiddenColumns:       append([]string(nil), v.HiddenColumns...),
+		MarkingColumns:      append([]string(nil), v.MarkingColumns...),
+		AllowedOrgIDs:       append([]uuid.UUID(nil), v.AllowedOrgIDs...),
+		AllowedMarkings:     append([]string(nil), v.AllowedMarkings...),
+		ConsumerModeEnabled: v.ConsumerModeEnabled,
+		AllowGuestAccess:    v.AllowGuestAccess,
+	}
 }
 
 func policyMatches(conditions json.RawMessage, subject, resource ctxMap) bool {

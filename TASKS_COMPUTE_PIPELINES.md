@@ -642,7 +642,7 @@ can see.
 
 **Prompt**:
 > Create `services/code-workspaces-service/` (cloning
-> `services/template/`). Endpoints:
+> `docs/templates/service-skeleton/`). Endpoints:
 > - `POST /workspaces {type: "jupyterlab"|"vscode"|"rstudio", profile_id,
 >    repo_id?, branch?, environment_id}`.
 > - `GET /workspaces/{id}` returns `{state, url, last_active_at, idle_ttl}`.

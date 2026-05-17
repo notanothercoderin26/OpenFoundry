@@ -8,6 +8,7 @@ package repo
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -53,7 +54,11 @@ type Repo struct{ Pool *pgxpool.Pool }
 const objectTypeSelect = `SELECT id, name, display_name, description,
 	primary_key_property, icon, color, owner_id, created_at, updated_at,
 	plural_display_name, editable, backing_dataset_id, backing_dataset_rid,
-	pipeline_rid, managed_by
+	backing_datasource_type, backing_restricted_view_id, restricted_view_policy,
+	restricted_view_policy_version, restricted_view_registered_policy_version,
+	restricted_view_indexed_policy_version, restricted_view_storage_mode,
+	restricted_view_policy_updated_at, restricted_view_registered_at,
+	restricted_view_indexed_at, pipeline_rid, managed_by
 	FROM ontology_schema.object_types`
 
 func (r *Repo) ListObjectTypes(ctx context.Context) ([]models.ObjectType, error) {
@@ -97,20 +102,49 @@ func (r *Repo) CreateObjectType(ctx context.Context, body *models.CreateObjectTy
 	if body.Editable != nil {
 		editable = *body.Editable
 	}
+	datasourceType := normalizeBackingDatasourceType(ptrString(body.BackingDatasourceType), body.BackingRestrictedViewID, body.RestrictedViewID)
+	restrictedViewID := firstNonEmptyStringPtr(body.RestrictedViewID, body.BackingRestrictedViewID)
+	if datasourceType != "restricted_view" {
+		restrictedViewID = nil
+	}
+	policy := normalizeJSONRaw(body.RestrictedViewPolicy)
+	policyVersion := intValue(body.RestrictedViewPolicyVersion)
+	registeredPolicyVersion := intValue(body.RestrictedViewRegisteredPolicyVersion)
+	indexedPolicyVersion := intValue(body.RestrictedViewIndexedPolicyVersion)
+	storageMode := normalizedStorageMode(ptrString(body.RestrictedViewStorageMode))
+	policyUpdatedAt := body.RestrictedViewPolicyUpdatedAt
+	if len(policy) > 0 && string(policy) != "{}" && policyUpdatedAt == nil {
+		now := time.Now().UTC()
+		policyUpdatedAt = &now
+	}
 	row := r.Pool.QueryRow(ctx,
 		`INSERT INTO ontology_schema.object_types
 		    (id, name, display_name, description, primary_key_property,
 		     icon, color, owner_id, plural_display_name, editable,
-		     backing_dataset_id, backing_dataset_rid, pipeline_rid, managed_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		     backing_dataset_id, backing_dataset_rid, backing_datasource_type,
+		     backing_restricted_view_id, restricted_view_policy,
+		     restricted_view_policy_version, restricted_view_registered_policy_version,
+		     restricted_view_indexed_policy_version, restricted_view_storage_mode,
+		     restricted_view_policy_updated_at, restricted_view_registered_at,
+		     restricted_view_indexed_at, pipeline_rid, managed_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+		         $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 		 RETURNING id, name, display_name, description, primary_key_property,
 		           icon, color, owner_id, created_at, updated_at,
 		           plural_display_name, editable, backing_dataset_id,
-		           backing_dataset_rid, pipeline_rid, managed_by`,
+		           backing_dataset_rid, backing_datasource_type,
+		           backing_restricted_view_id, restricted_view_policy,
+		           restricted_view_policy_version, restricted_view_registered_policy_version,
+		           restricted_view_indexed_policy_version, restricted_view_storage_mode,
+		           restricted_view_policy_updated_at, restricted_view_registered_at,
+		           restricted_view_indexed_at, pipeline_rid, managed_by`,
 		id, strings.TrimSpace(body.Name), body.DisplayName, body.Description,
 		body.PrimaryKeyProperty, body.Icon, body.Color, ownerID,
 		body.PluralDisplayName, editable, body.BackingDatasetID,
-		body.BackingDatasetRID, body.PipelineRID, body.ManagedBy,
+		body.BackingDatasetRID, datasourceType, restrictedViewID, policy,
+		policyVersion, registeredPolicyVersion, indexedPolicyVersion, storageMode,
+		policyUpdatedAt, body.RestrictedViewRegisteredAt,
+		body.RestrictedViewIndexedAt, body.PipelineRID, body.ManagedBy,
 	)
 	v, err := scanObjectType(row)
 	if err != nil {
@@ -161,6 +195,54 @@ func (r *Repo) UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.
 	if body.BackingDatasetRID != nil {
 		backingDatasetRID = body.BackingDatasetRID
 	}
+	datasourceType := current.BackingDatasourceType
+	if body.BackingDatasourceType != nil {
+		datasourceType = normalizeBackingDatasourceType(*body.BackingDatasourceType, body.BackingRestrictedViewID, body.RestrictedViewID)
+	}
+	if datasourceType == "" {
+		datasourceType = normalizeBackingDatasourceType("", current.BackingRestrictedViewID, nil)
+	}
+	restrictedViewID := current.BackingRestrictedViewID
+	if body.RestrictedViewID != nil || body.BackingRestrictedViewID != nil {
+		restrictedViewID = firstNonEmptyStringPtr(body.RestrictedViewID, body.BackingRestrictedViewID)
+	}
+	if datasourceType != "restricted_view" {
+		restrictedViewID = nil
+	}
+	policy := current.RestrictedViewPolicy
+	policyUpdatedAt := current.RestrictedViewPolicyUpdatedAt
+	if len(body.RestrictedViewPolicy) > 0 {
+		policy = normalizeJSONRaw(body.RestrictedViewPolicy)
+		policyUpdatedAt = body.RestrictedViewPolicyUpdatedAt
+		if policyUpdatedAt == nil {
+			now := time.Now().UTC()
+			policyUpdatedAt = &now
+		}
+	}
+	policyVersion := current.RestrictedViewPolicyVersion
+	if body.RestrictedViewPolicyVersion != nil {
+		policyVersion = *body.RestrictedViewPolicyVersion
+	}
+	registeredPolicyVersion := current.RestrictedViewRegisteredPolicyVersion
+	if body.RestrictedViewRegisteredPolicyVersion != nil {
+		registeredPolicyVersion = *body.RestrictedViewRegisteredPolicyVersion
+	}
+	indexedPolicyVersion := current.RestrictedViewIndexedPolicyVersion
+	if body.RestrictedViewIndexedPolicyVersion != nil {
+		indexedPolicyVersion = *body.RestrictedViewIndexedPolicyVersion
+	}
+	storageMode := current.RestrictedViewStorageMode
+	if body.RestrictedViewStorageMode != nil {
+		storageMode = normalizedStorageMode(*body.RestrictedViewStorageMode)
+	}
+	restrictedViewRegisteredAt := current.RestrictedViewRegisteredAt
+	if body.RestrictedViewRegisteredAt != nil {
+		restrictedViewRegisteredAt = body.RestrictedViewRegisteredAt
+	}
+	restrictedViewIndexedAt := current.RestrictedViewIndexedAt
+	if body.RestrictedViewIndexedAt != nil {
+		restrictedViewIndexedAt = body.RestrictedViewIndexedAt
+	}
 	pipelineRID := current.PipelineRID
 	if body.PipelineRID != nil {
 		pipelineRID = body.PipelineRID
@@ -174,14 +256,35 @@ func (r *Repo) UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.
 		    display_name = $2, description = $3, primary_key_property = $4,
 		    icon = $5, color = $6, updated_at = $7,
 		    plural_display_name = $8, editable = $9, backing_dataset_id = $10,
-		    backing_dataset_rid = $11, pipeline_rid = $12, managed_by = $13
+		    backing_dataset_rid = $11, backing_datasource_type = $12,
+		    backing_restricted_view_id = $13, restricted_view_policy = $14,
+		    restricted_view_policy_version = $15,
+		    restricted_view_registered_policy_version = $16,
+		    restricted_view_indexed_policy_version = $17,
+		    restricted_view_storage_mode = $18,
+		    restricted_view_policy_updated_at = $19,
+		    restricted_view_registered_at = $20,
+		    restricted_view_indexed_at = $21,
+		    pipeline_rid = $22, managed_by = $23
 		  WHERE id = $1
 		  RETURNING id, name, display_name, description, primary_key_property,
 		            icon, color, owner_id, created_at, updated_at,
 		            plural_display_name, editable, backing_dataset_id,
-		            backing_dataset_rid, pipeline_rid, managed_by`,
+		            backing_dataset_rid, backing_datasource_type,
+		            backing_restricted_view_id, restricted_view_policy,
+		            restricted_view_policy_version,
+		            restricted_view_registered_policy_version,
+		            restricted_view_indexed_policy_version,
+		            restricted_view_storage_mode,
+		            restricted_view_policy_updated_at,
+		            restricted_view_registered_at,
+		            restricted_view_indexed_at, pipeline_rid, managed_by`,
 		id, dn, desc, pk, icon, color, time.Now().UTC(),
-		plural, editable, backingDatasetID, backingDatasetRID, pipelineRID, managedBy,
+		plural, editable, backingDatasetID, backingDatasetRID,
+		datasourceType, restrictedViewID, policy, policyVersion,
+		registeredPolicyVersion, indexedPolicyVersion, storageMode,
+		policyUpdatedAt, restrictedViewRegisteredAt, restrictedViewIndexedAt,
+		pipelineRID, managedBy,
 	)
 	v, err := scanObjectType(row)
 	if err != nil {
@@ -205,12 +308,81 @@ func scanObjectType(r rowLikeT) (*models.ObjectType, error) {
 	if err := r.Scan(&v.ID, &v.Name, &v.DisplayName, &v.Description,
 		&v.PrimaryKeyProperty, &v.Icon, &v.Color, &v.OwnerID,
 		&v.CreatedAt, &v.UpdatedAt, &v.PluralDisplayName, &v.Editable,
-		&v.BackingDatasetID, &v.BackingDatasetRID, &v.PipelineRID,
+		&v.BackingDatasetID, &v.BackingDatasetRID, &v.BackingDatasourceType,
+		&v.BackingRestrictedViewID, &v.RestrictedViewPolicy,
+		&v.RestrictedViewPolicyVersion,
+		&v.RestrictedViewRegisteredPolicyVersion,
+		&v.RestrictedViewIndexedPolicyVersion,
+		&v.RestrictedViewStorageMode,
+		&v.RestrictedViewPolicyUpdatedAt,
+		&v.RestrictedViewRegisteredAt,
+		&v.RestrictedViewIndexedAt, &v.PipelineRID,
 		&v.ManagedBy); err != nil {
 		return nil, err
 	}
 	models.EnrichObjectTypeMetadata(v, nil)
 	return v, nil
+}
+
+func ptrString(ptr *string) string {
+	if ptr == nil {
+		return ""
+	}
+	return *ptr
+}
+
+func firstNonEmptyStringPtr(values ...*string) *string {
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		trimmed := strings.TrimSpace(*value)
+		if trimmed != "" {
+			return &trimmed
+		}
+	}
+	return nil
+}
+
+func normalizeBackingDatasourceType(raw string, restrictedViewIDs ...*string) string {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	switch normalized {
+	case "restricted_view", "restricted-view", "rv":
+		return "restricted_view"
+	case "dataset", "":
+		for _, id := range restrictedViewIDs {
+			if id != nil && strings.TrimSpace(*id) != "" {
+				return "restricted_view"
+			}
+		}
+		return "dataset"
+	default:
+		return normalized
+	}
+}
+
+func normalizedStorageMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "foundry_object_storage", "local_storage", "local_index", "remote", "none":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return "remote"
+	}
+}
+
+func intValue(ptr *int) int {
+	if ptr == nil || *ptr < 0 {
+		return 0
+	}
+	return *ptr
+}
+
+func normalizeJSONRaw(raw []byte) json.RawMessage {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return json.RawMessage("{}")
+	}
+	return json.RawMessage(trimmed)
 }
 
 func (r *Repo) enrichObjectTypeMetadata(ctx context.Context, objectType *models.ObjectType) error {

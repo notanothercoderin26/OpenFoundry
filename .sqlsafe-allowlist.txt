@@ -1,0 +1,26 @@
+# sql-lint allowlist — one 'path:line' per line.
+#
+# Suppresses pre-existing fmt.Sprintf+SQL hits so PRs only gate *new*
+# violations. The QW-01/02/03 hardening tracks are landing sanitizers
+# for these call sites; once a hit is genuinely safe, remove its line
+# from this file so future regressions get caught.
+#
+# Captured against main at 2026-05-17 by:
+#   go run ./tools/sql-lint -allowlist .sqlsafe-allowlist.txt \
+#       -write-allowlist services/connector-management-service/internal/adapters
+#
+# Note: hits in salesforce/adapter.go (soqlQuery / boundedSOQL) are
+# not allowlisted because they already call validateSOQLIdentifier in
+# the same block — the linter recognises them as sanitized.
+
+# bigquery: buildQuery + buildPreviewQuery — validateSelectorParts is
+# called in scope but its name doesn't match validate*Identifier; the
+# selector parts validator delegates to identifier checks internally.
+services/connector-management-service/internal/adapters/bigquery/adapter.go:777
+services/connector-management-service/internal/adapters/bigquery/adapter.go:794
+services/connector-management-service/internal/adapters/bigquery/adapter.go:799
+
+# snowflake: buildPreviewQuery — qualifyTable() runs the per-segment
+# validateSnowflakeIdentifier checks; the linter only sees qualifyTable
+# in this function's body.
+services/connector-management-service/internal/adapters/snowflake/adapter.go:665

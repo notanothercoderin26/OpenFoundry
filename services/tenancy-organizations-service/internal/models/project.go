@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/openfoundry/openfoundry-go/libs/core-models/rid"
 )
 
 // OntologyProjectRole mirrors the Rust `OntologyProjectRole` enum:
@@ -20,6 +22,13 @@ const (
 	OntologyProjectRoleViewer     OntologyProjectRole = "viewer"
 	OntologyProjectRoleEditor     OntologyProjectRole = "editor"
 	OntologyProjectRoleOwner      OntologyProjectRole = "owner"
+)
+
+const (
+	DefaultProjectSpaceRID       = "ri.compass.main.folder.default-space"
+	FolderResourceType           = "FOLDER"
+	FolderTrashStatusNotTrashed  = "NOT_TRASHED"
+	FolderTrashStatusDirectTrash = "DIRECTLY_TRASHED"
 )
 
 // Rank returns the lattice rank: discoverer=1 < viewer=2 < editor=3 < owner=4.
@@ -51,6 +60,16 @@ func ParseOntologyProjectRole(value string) (OntologyProjectRole, error) {
 		return OntologyProjectRoleOwner, nil
 	}
 	return "", fmt.Errorf("ontology_project_role '%s' is not supported; expected one of: discoverer, viewer, editor, owner", value)
+}
+
+// ProjectRIDFromID builds the stable Compass RID for an OpenFoundry project.
+func ProjectRIDFromID(id uuid.UUID) string {
+	return rid.MustNewUUID("compass", rid.DefaultInstance, "project", id).String()
+}
+
+// FolderRIDFromID builds the stable Compass RID for an OpenFoundry folder.
+func FolderRIDFromID(id uuid.UUID) string {
+	return rid.MustNewUUID("compass", rid.DefaultInstance, "folder", id).String()
 }
 
 // OntologyProject mirrors `models::project::OntologyProject` (Rust).
@@ -106,22 +125,31 @@ type OntologyProjectResourceBinding struct {
 
 // OntologyProjectFolder mirrors `models::project::OntologyProjectFolder`.
 type OntologyProjectFolder struct {
-	ID             uuid.UUID  `json:"id"`
-	ProjectID      uuid.UUID  `json:"project_id"`
-	ParentFolderID *uuid.UUID `json:"parent_folder_id"`
-	Name           string     `json:"name"`
-	Slug           string     `json:"slug"`
-	Description    string     `json:"description"`
-	CreatedBy      uuid.UUID  `json:"created_by"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID                      uuid.UUID  `json:"id"`
+	RID                     string     `json:"rid"`
+	ProjectID               uuid.UUID  `json:"project_id"`
+	ProjectRID              string     `json:"project_rid"`
+	ParentFolderID          *uuid.UUID `json:"parent_folder_id"`
+	ParentFolderRID         string     `json:"parent_folder_rid"`
+	SpaceRID                string     `json:"space_rid"`
+	Type                    string     `json:"type"`
+	TrashStatus             string     `json:"trash_status"`
+	InheritsProjectPolicies bool       `json:"inherits_project_policies"`
+	PolicyOverridesAllowed  bool       `json:"policy_overrides_allowed"`
+	Name                    string     `json:"name"`
+	Slug                    string     `json:"slug"`
+	Description             string     `json:"description"`
+	CreatedBy               uuid.UUID  `json:"created_by"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
 // CreateOntologyProjectFolderRequest is the body of POST /projects/:id/folders.
 type CreateOntologyProjectFolderRequest struct {
-	Name           string     `json:"name"`
-	Description    *string    `json:"description,omitempty"`
-	ParentFolderID *uuid.UUID `json:"parent_folder_id,omitempty"`
+	Name            string     `json:"name"`
+	Description     *string    `json:"description,omitempty"`
+	ParentFolderID  *uuid.UUID `json:"parent_folder_id,omitempty"`
+	ParentFolderRID *string    `json:"parent_folder_rid,omitempty"`
 }
 
 // CreateOntologyProjectRequest is the body of POST /projects.

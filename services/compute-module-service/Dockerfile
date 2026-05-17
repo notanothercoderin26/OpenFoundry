@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.10
 #
 # OpenFoundry Go service — multi-stage, distroless static, nonroot.
-# See services/template/Dockerfile for the full cache-strategy
+# See docs/templates/service-skeleton/Dockerfile for the full cache-strategy
 # explanation; this file is a per-service override that pins
 # SERVICE_NAME so the binary path and config copy resolve correctly.
 

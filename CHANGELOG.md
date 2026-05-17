@@ -26,7 +26,20 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 - _(add entries here)_
 
 ### Changed
-- _(add entries here)_
+- **Service skeleton relocated.** The reference scaffold previously at
+  `services/template/` now lives at `docs/templates/service-skeleton/`
+  as textual reference; every `.go` file in the skeleton carries
+  `//go:build ignore` so the Go toolchain skips it in place. Net
+  effect: `go build ./...`, `go test ./...` and `make build-services`
+  no longer compile the placeholder `template` binary, and the
+  `wildcard services/*` Makefile loop drops one entry. To create a
+  new service, copy the skeleton into `services/<name>/` and remove
+  the `//go:build ignore` headers (full instructions in
+  [`docs/templates/service-skeleton/README.md`](docs/templates/service-skeleton/README.md)).
+  Doc references in `README.md`, `CONTRIBUTING.md`, `CLAUDE.md`,
+  `ARCHITECTURE.md`, ADR-0045, `docs/reference/repository-layout.md`,
+  `docs/developer-toolchain/project-init/`, `docs/poc-online-retail/`
+  and the `TASKS_*` files were updated to the new path.
 
 ### Deprecated
 - _(add entries here)_

@@ -1,5 +1,5 @@
 // Package server wires the HTTP router and lifecycle for
-// compute-module-service. Matches the shape of services/template so
+// compute-module-service. Matches the shape of docs/templates/service-skeleton so
 // platform tooling (k8s probes, capability scrapers, OTel pipelines)
 // is uniform across the Go service fleet.
 package server

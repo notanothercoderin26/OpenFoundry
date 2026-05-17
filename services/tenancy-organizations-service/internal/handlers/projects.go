@@ -26,8 +26,10 @@ import (
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/ids"
+	"github.com/openfoundry/openfoundry-go/libs/core-models/rid"
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/domain"
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/models"
+	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/workspace"
 )
 
 // ProjectsHandlers owns the ontology-project HTTP surface. The Pool
@@ -36,6 +38,12 @@ import (
 type ProjectsHandlers struct {
 	Pool *pgxpool.Pool
 }
+
+const folderSelectColumns = `f.id, f.rid, f.project_id, f.parent_folder_id,
+        COALESCE(parent.rid, 'ri.compass.main.project.' || f.project_id::text),
+        COALESCE(p.space_rid, 'ri.compass.main.folder.default-space'),
+        f.name, f.slug, f.description, f.created_by, f.is_deleted,
+        COALESCE(p.resource_level_role_grants_allowed, TRUE), f.created_at, f.updated_at`
 
 // ─── slug + folder-name normalisation ───────────────────────────────────
 
@@ -140,12 +148,19 @@ func isASCIIAlphaNum(r rune) bool {
 // ─── helpers ────────────────────────────────────────────────────────────
 
 func parseUUIDParam(w http.ResponseWriter, r *http.Request, name, label string) (uuid.UUID, bool) {
-	id, err := uuid.Parse(chi.URLParam(r, name))
-	if err != nil {
-		writeJSONErr(w, http.StatusBadRequest, "invalid "+label)
-		return uuid.Nil, false
+	raw := chi.URLParam(r, name)
+	id, err := uuid.Parse(raw)
+	if err == nil {
+		return id, true
 	}
-	return id, true
+	parsedRID, ridErr := rid.ParseUUID(raw)
+	if ridErr == nil {
+		if parsed, ok := parsedRID.UUID(); ok {
+			return parsed, true
+		}
+	}
+	writeJSONErr(w, http.StatusBadRequest, "invalid "+label)
+	return uuid.Nil, false
 }
 
 func authClaims(w http.ResponseWriter, r *http.Request) (*authmw.Claims, bool) {
@@ -175,6 +190,10 @@ func loadProject(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models
 // reused by loadProject (single) and ListProjects (rows).
 type projectScannable interface {
 	Scan(dest ...any) error
+}
+
+type folderQueryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 // scanProjectRow is the shared scan path used by loadProject and any
@@ -207,23 +226,110 @@ func scanProjectRow(row projectScannable) (*models.OntologyProject, error) {
 	return p, nil
 }
 
-func loadProjectFolder(ctx context.Context, pool *pgxpool.Pool, projectID, folderID uuid.UUID) (*models.OntologyProjectFolder, error) {
-	row := pool.QueryRow(ctx,
-		`SELECT id, project_id, parent_folder_id, name, slug, description, created_by, created_at, updated_at
-		 FROM ontology_project_folders
-		 WHERE project_id = $1 AND id = $2 AND is_deleted = FALSE`,
+func loadProjectFolder(ctx context.Context, q folderQueryRower, projectID, folderID uuid.UUID) (*models.OntologyProjectFolder, error) {
+	row := q.QueryRow(ctx,
+		`SELECT `+folderSelectColumns+`
+		   FROM ontology_project_folders f
+		   JOIN ontology_projects p ON p.id = f.project_id
+		   LEFT JOIN ontology_project_folders parent ON parent.id = f.parent_folder_id
+		  WHERE f.project_id = $1 AND f.id = $2 AND f.is_deleted = FALSE`,
 		projectID, folderID,
 	)
+	return scanProjectFolderRow(row)
+}
+
+func scanProjectFolderRow(row projectScannable) (*models.OntologyProjectFolder, error) {
 	f := &models.OntologyProjectFolder{}
-	err := row.Scan(&f.ID, &f.ProjectID, &f.ParentFolderID, &f.Name, &f.Slug,
-		&f.Description, &f.CreatedBy, &f.CreatedAt, &f.UpdatedAt)
+	var isDeleted bool
+	err := row.Scan(
+		&f.ID, &f.RID, &f.ProjectID, &f.ParentFolderID,
+		&f.ParentFolderRID, &f.SpaceRID,
+		&f.Name, &f.Slug, &f.Description, &f.CreatedBy, &isDeleted,
+		&f.PolicyOverridesAllowed, &f.CreatedAt, &f.UpdatedAt,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to load ontology project folder: %s", err)
 	}
+	if strings.TrimSpace(f.RID) == "" {
+		f.RID = models.FolderRIDFromID(f.ID)
+	}
+	f.ProjectRID = models.ProjectRIDFromID(f.ProjectID)
+	if strings.TrimSpace(f.SpaceRID) == "" {
+		f.SpaceRID = models.DefaultProjectSpaceRID
+	}
+	if strings.TrimSpace(f.ParentFolderRID) == "" {
+		f.ParentFolderRID = f.ProjectRID
+	}
+	f.Type = models.FolderResourceType
+	f.TrashStatus = models.FolderTrashStatusNotTrashed
+	if isDeleted {
+		f.TrashStatus = models.FolderTrashStatusDirectTrash
+	}
+	f.InheritsProjectPolicies = true
 	return f, nil
+}
+
+func parseFolderRIDLocator(value, field string) (uuid.UUID, error) {
+	parsed, err := rid.ParseUUID(strings.TrimSpace(value))
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%s must be a valid folder RID: %s", field, err)
+	}
+	if parsed.Service != "compass" || parsed.ResourceType != "folder" {
+		return uuid.Nil, fmt.Errorf("%s must be a compass folder RID", field)
+	}
+	id, ok := parsed.UUID()
+	if !ok {
+		return uuid.Nil, fmt.Errorf("%s must carry a UUID locator", field)
+	}
+	return id, nil
+}
+
+func resolveProjectFolderParent(
+	ctx context.Context,
+	q folderQueryRower,
+	projectID uuid.UUID,
+	projectRID string,
+	folder *models.CreateOntologyProjectFolderRequest,
+) (*uuid.UUID, int, string, error) {
+	var parentID *uuid.UUID
+	if folder.ParentFolderID != nil {
+		parentID = folder.ParentFolderID
+	}
+	if folder.ParentFolderRID != nil {
+		parentRID := strings.TrimSpace(*folder.ParentFolderRID)
+		if parentRID == "" {
+			return nil, http.StatusBadRequest, "parent_folder_rid must be a non-empty RID", nil
+		}
+		if parentRID == projectRID {
+			if parentID != nil {
+				return nil, http.StatusBadRequest, "parent_folder_id must be omitted when parent_folder_rid is the project RID", nil
+			}
+			return nil, 0, "", nil
+		}
+		id, err := parseFolderRIDLocator(parentRID, "parent_folder_rid")
+		if err != nil {
+			return nil, http.StatusBadRequest, err.Error(), nil
+		}
+		if parentID != nil && *parentID != id {
+			return nil, http.StatusBadRequest, "parent_folder_id and parent_folder_rid refer to different folders", nil
+		}
+		parentID = &id
+	}
+	if parentID == nil {
+		return nil, 0, "", nil
+	}
+	parent, err := loadProjectFolder(ctx, q, projectID, *parentID)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	if parent == nil {
+		return nil, http.StatusNotFound, "ontology project parent folder not found", nil
+	}
+	out := *parentID
+	return &out, 0, "", nil
 }
 
 func insertProjectFolder(
@@ -231,6 +337,7 @@ func insertProjectFolder(
 	tx pgx.Tx,
 	projectID, createdBy uuid.UUID,
 	folder *models.CreateOntologyProjectFolderRequest,
+	parentFolderID *uuid.UUID,
 ) (*models.OntologyProjectFolder, error) {
 	name, err := normalizeFolderName(folder.Name)
 	if err != nil {
@@ -244,20 +351,23 @@ func insertProjectFolder(
 	if folder.Description != nil {
 		description = *folder.Description
 	}
+	folderID := ids.New()
+	folderRID := models.FolderRIDFromID(folderID)
 	row := tx.QueryRow(ctx,
-		`INSERT INTO ontology_project_folders (
-		     id, project_id, parent_folder_id, name, slug, description, created_by
+		`WITH inserted AS (
+		     INSERT INTO ontology_project_folders (
+		         id, rid, project_id, parent_folder_id, name, slug, description, created_by
+		     )
+		     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		     RETURNING *
 		 )
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, project_id, parent_folder_id, name, slug, description, created_by, created_at, updated_at`,
-		ids.New(), projectID, folder.ParentFolderID, name, slug, description, createdBy,
+		 SELECT `+folderSelectColumns+`
+		   FROM inserted f
+		   JOIN ontology_projects p ON p.id = f.project_id
+		   LEFT JOIN ontology_project_folders parent ON parent.id = f.parent_folder_id`,
+		folderID, folderRID, projectID, parentFolderID, name, slug, description, createdBy,
 	)
-	out := &models.OntologyProjectFolder{}
-	if err := row.Scan(&out.ID, &out.ProjectID, &out.ParentFolderID, &out.Name,
-		&out.Slug, &out.Description, &out.CreatedBy, &out.CreatedAt, &out.UpdatedAt); err != nil {
-		return nil, fmt.Errorf("failed to create ontology project folder: %s", err)
-	}
-	return out, nil
+	return scanProjectFolderRow(row)
 }
 
 func ensureProjectOwnerOrAdmin(project *models.OntologyProject, claims *authmw.Claims) error {
@@ -447,21 +557,40 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 	defer tx.Rollback(context.Background())
 
 	projectID := ids.New()
+	projectRID := models.ProjectRIDFromID(projectID)
 	if _, err := tx.Exec(r.Context(),
 		`INSERT INTO ontology_projects
-		   (id, slug, display_name, description, workspace_slug, owner_id,
+		   (id, rid, slug, display_name, description, workspace_slug, owner_id,
 		    default_role, point_of_contact_user_id, point_of_contact_email, "references")
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
-		projectID, slug, displayName, description, workspaceSlug, claims.Sub,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)`,
+		projectID, projectRID, slug, displayName, description, workspaceSlug, claims.Sub,
 		string(defaultRole), body.PointOfContactUserID, body.PointOfContactEmail, refsJSON,
 	); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to create ontology project: %s", err))
 		return
 	}
+	if err := workspace.UpsertProjectSearchIndexTx(r.Context(), tx, projectID, workspace.ResourceSearchEventCreated); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project: %s", err))
+		return
+	}
 
 	for i := range body.Folders {
-		if _, err := insertProjectFolder(r.Context(), tx, projectID, claims.Sub, &body.Folders[i]); err != nil {
+		parentFolderID, status, msg, err := resolveProjectFolderParent(r.Context(), tx, projectID, projectRID, &body.Folders[i])
+		if err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if status != 0 {
+			writeJSONErr(w, status, msg)
+			return
+		}
+		folder, err := insertProjectFolder(r.Context(), tx, projectID, claims.Sub, &body.Folders[i], parentFolderID)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := workspace.UpsertFolderSearchIndexTx(r.Context(), tx, folder.ID, workspace.ResourceSearchEventCreated); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project folder: %s", err))
 			return
 		}
 	}
@@ -631,7 +760,14 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if _, err := h.Pool.Exec(r.Context(),
+	tx, err := h.Pool.Begin(r.Context())
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to start ontology project transaction: %s", err))
+		return
+	}
+	defer tx.Rollback(context.Background())
+
+	if _, err := tx.Exec(r.Context(),
 		`UPDATE ontology_projects
 		 SET display_name = COALESCE($2, display_name),
 		     description = COALESCE($3, description),
@@ -646,6 +782,14 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		string(defaultRole), pocUserID, pocEmail, refsJSON,
 	); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to update ontology project: %s", err))
+		return
+	}
+	if err := workspace.UpsertProjectSearchIndexTx(r.Context(), tx, id, workspace.ResourceSearchEventUpdated); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project: %s", err))
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit ontology project transaction: %s", err))
 		return
 	}
 	updated, err := loadProject(r.Context(), h.Pool, id)
@@ -684,13 +828,27 @@ func (h *ProjectsHandlers) DeleteProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cmd, err := h.Pool.Exec(r.Context(), `DELETE FROM ontology_projects WHERE id = $1`, id)
+	tx, err := h.Pool.Begin(r.Context())
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to start ontology project transaction: %s", err))
+		return
+	}
+	defer tx.Rollback(context.Background())
+	if err := workspace.DeleteProjectSearchIndexTx(r.Context(), tx, id, workspace.ResourceSearchEventPurged); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to remove ontology project from search index: %s", err))
+		return
+	}
+	cmd, err := tx.Exec(r.Context(), `DELETE FROM ontology_projects WHERE id = $1`, id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete ontology project: %s", err))
 		return
 	}
 	if cmd.RowsAffected() == 0 {
 		writeJSONErr(w, http.StatusNotFound, "ontology project not found")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit ontology project transaction: %s", err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -875,10 +1033,12 @@ func (h *ProjectsHandlers) ListProjectFolders(w http.ResponseWriter, r *http.Req
 	}
 
 	rows, err := h.Pool.Query(r.Context(),
-		`SELECT id, project_id, parent_folder_id, name, slug, description, created_by, created_at, updated_at
-		 FROM ontology_project_folders
-		 WHERE project_id = $1 AND is_deleted = FALSE
-		 ORDER BY created_at ASC`,
+		`SELECT `+folderSelectColumns+`
+		   FROM ontology_project_folders f
+		   JOIN ontology_projects p ON p.id = f.project_id
+		   LEFT JOIN ontology_project_folders parent ON parent.id = f.parent_folder_id
+		  WHERE f.project_id = $1 AND f.is_deleted = FALSE
+		  ORDER BY f.created_at ASC`,
 		id,
 	)
 	if err != nil {
@@ -889,13 +1049,12 @@ func (h *ProjectsHandlers) ListProjectFolders(w http.ResponseWriter, r *http.Req
 
 	out := make([]models.OntologyProjectFolder, 0)
 	for rows.Next() {
-		var f models.OntologyProjectFolder
-		if err := rows.Scan(&f.ID, &f.ProjectID, &f.ParentFolderID, &f.Name,
-			&f.Slug, &f.Description, &f.CreatedBy, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		f, err := scanProjectFolderRow(rows)
+		if err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list ontology project folders: %s", err))
 			return
 		}
-		out = append(out, f)
+		out = append(out, *f)
 	}
 	if err := rows.Err(); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list ontology project folders: %s", err))
@@ -936,16 +1095,14 @@ func (h *ProjectsHandlers) CreateProjectFolder(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if body.ParentFolderID != nil {
-		parent, err := loadProjectFolder(r.Context(), h.Pool, projectID, *body.ParentFolderID)
-		if err != nil {
-			writeJSONErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if parent == nil {
-			writeJSONErr(w, http.StatusNotFound, "ontology project parent folder not found")
-			return
-		}
+	parentFolderID, status, msg, err := resolveProjectFolderParent(r.Context(), h.Pool, projectID, models.ProjectRIDFromID(projectID), &body)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if status != 0 {
+		writeJSONErr(w, status, msg)
+		return
 	}
 
 	tx, err := h.Pool.Begin(r.Context())
@@ -955,11 +1112,15 @@ func (h *ProjectsHandlers) CreateProjectFolder(w http.ResponseWriter, r *http.Re
 	}
 	defer tx.Rollback(context.Background())
 
-	folder, err := insertProjectFolder(r.Context(), tx, projectID, claims.Sub, &body)
+	folder, err := insertProjectFolder(r.Context(), tx, projectID, claims.Sub, &body, parentFolderID)
 	if err != nil {
 		// normalize_folder_name / folder_slug_from_name surface as 500 in
 		// the Rust source (db_error). We mirror that to keep parity.
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := workspace.UpsertFolderSearchIndexTx(r.Context(), tx, folder.ID, workspace.ResourceSearchEventCreated); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project folder: %s", err))
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {

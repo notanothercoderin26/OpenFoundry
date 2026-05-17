@@ -1,0 +1,400 @@
+# Data residency allowlist for OpenFoundry services.
+#
+# Replaces the legacy Rust-era .github/data-residency-allowlist.toml gate
+# (see CLAUDE.md). Two things are gated by tools/data-residency:
+#
+#  1. Migration residency: every NEW migration under
+#     services/<svc>/internal/repo/migrations/*.sql must declare its
+#     residency tag on the first line as `-- residency: <region>`. The
+#     region must be in the service's `regions` list (or in
+#     `default_regions` if the service doesn't override).
+#
+#  2. Restricted-table access: any direct .Query/.Exec/.QueryRow call from
+#     handler-tier code (services/<svc>/internal/handlers/, /handler/)
+#     that names a table in `restricted_tables` must come from a service
+#     listed under that table's `allowed_services`. Direct queries on
+#     restricted tables from non-allowed services are not permitted —
+#     route them through the owning service.
+#
+# The legacy backlog of 195 migrations predates the gate. They are listed
+# under each service's `grandfathered_migrations` and are exempt from the
+# residency header requirement; we enforce the new gate only on additions
+# (the workflow runs the tool with --gate-new-only against origin/main).
+#
+# Adding a new migration:
+#   1. Put `-- residency: us-east-1` (or another permitted region) as the
+#      file's first line.
+#   2. Run `go run ./tools/data-residency check` locally to verify.
+#
+# Adding a service to a restricted table's allowed_services should go
+# through ADR review (see docs/architecture/adr/).
+
+version: 1
+
+default_regions:
+  - us-east-1
+  - us-west-2
+  - eu-west-1
+  - eu-central-1
+  - ap-southeast-1
+
+default_marking_tags:
+  - public
+  - internal
+
+services:
+  agent-runtime-service:
+    regions: [us-east-1, us-west-2, eu-west-1, eu-central-1]
+    marking_tags: [public, internal, restricted]
+    grandfathered_migrations:
+      - 20260422161500_ai_platform_foundation.sql
+      - 20260425113000_p5_ai_runtime.sql
+      - 20260425184500_llm_governance_benchmarks.sql
+      - 20260425201000_agent_studio_native_tools.sql
+      - 20260426043000_phase1_native_agent_tools.sql
+      - 20260427070200_agent_runtime_foundation.sql
+      - 20260513090000_aip_logic_files.sql
+      - 20260513093000_aip_logic_versions.sql
+      - 20260513100000_aip_logic_user_scoped_runs.sql
+      - 20260513103000_aip_eval_suites.sql
+      - 20260513110000_aip_eval_test_cases.sql
+      - 20260513113000_aip_logic_run_history_dataset.sql
+      - 20260513120000_aip_logic_project_scoped_settings.sql
+
+  ai-evaluation-service:
+    grandfathered_migrations:
+      - 20260427070400_app_generation_foundation.sql
+      - 20260427070600_15_mcp_servers_foundation.sql
+
+  application-composition-service:
+    grandfathered_migrations:
+      - 20260422101500_app_builder_foundation.sql
+      - 20260425204500_workshop_experience_expansion.sql
+      - 20260427070600_08_composition_views_foundation.sql
+      - 20260427070600_11_developer_applications_foundation.sql
+      - 20260427070600_13_managed_workspaces_foundation.sql
+      - 20260427070600_14_custom_endpoint_sets_foundation.sql
+      - 20260511004100_app_permissions_audit.sql
+
+  audit-compliance-service:
+    regions: [us-east-1, eu-west-1, eu-central-1]
+    marking_tags: [public, internal, pii, restricted]
+    grandfathered_migrations:
+      - 0001_audit_foundation.sql
+      - 0002_sds_foundation.sql
+      - 0003_retention_policy_foundation.sql
+      - 0004_lineage_deletion_foundation.sql
+      - 0005_retention_system_policies.sql
+      - 0006_saga_audit_log.sql
+      - 0007_sg16_audit_log_event_model.sql
+      - 0008_sg17_audit_delivery_basics.sql
+
+  audit-sink:
+    regions: [us-east-1, eu-west-1, eu-central-1]
+    marking_tags: [public, internal, pii, restricted]
+    grandfathered_migrations:
+      - 20260517000001_audit_events.sql
+
+  authorization-policy-service:
+    regions: [us-east-1, us-west-2, eu-west-1, eu-central-1]
+    marking_tags: [public, internal, pii, restricted]
+    grandfathered_migrations:
+      - 0001_cedar_policies.sql
+      - 0002_abac_policies.sql
+      - 0003_security_governance.sql
+      - 0004_checkpoints_purpose.sql
+      - 0005_cipher.sql
+      - 0006_network_boundary.sql
+      - 0007_rbac_policy_management.sql
+      - 0008_sg7_role_sets_and_operations.sql
+      - 0009_sg11_marking_categories.sql
+      - 0010_sg12_markings.sql
+      - 0011_sg13_marking_permission_model.sql
+      - 0012_sg14_marking_enforcement_inheritance.sql
+      - 0013_sg15_marking_aware_build_outputs.sql
+      - 0014_sg19_restricted_view_operations.sql
+
+  code-repository-review-service:
+    grandfathered_migrations:
+      - 20260427070600_22_code_security_scans_foundation.sql
+      - 20260428080000_code_repository_review_foundation.sql
+      - 20260504000031_global_branches.sql
+
+  compute-module-service:
+    grandfathered_migrations:
+      - 0001_compute_modules.sql
+
+  connector-management-service:
+    grandfathered_migrations:
+      - 20260419100002_initial_connectors.sql
+      - 20260424201000_sync_jobs_runtime.sql
+      - 20260425153000_enterprise_connectivity.sql
+      - 20260430120000_data_connection_mvp.sql
+      - 20260430140000_sync_runs_ingest_job_id.sql
+      - 20260501100000_sync_runs_dataset_version.sql
+      - 20260503010000_outbox.sql
+      - 20260503120000_drop_sync_jobs_runtime.sql
+      - 20260504000120_virtual_tables_init.sql
+      - 20260504000121_auto_registration.sql
+      - 20260504000122_update_detection.sql
+      - 20260505100000_media_set_syncs.sql
+      - 20260511103000_webhook_invocation_history.sql
+      - 20260511104500_inbound_listener_events.sql
+      - 20260513000001_cdc_sync_setup.sql
+      - 20260513000002_data_exports.sql
+      - 20260513000003_file_export_settings.sql
+      - 20260513000004_table_export_settings.sql
+      - 20260513000005_streaming_export_settings.sql
+      - 20260513000006_source_code_imports.sql
+      - 20260513000007_agent_registry_heartbeat.sql
+      - 20260513000008_source_permissions_governance.sql
+      - 20260513000009_data_connection_health_checks.sql
+      - 20260513000010_retry_recovery_policies.sql
+      - 20260514000001_media_set_sync_runs.sql
+      - 20260514000002_dead_letter_quarantine.sql
+
+  dataset-versioning-service:
+    grandfathered_migrations:
+      - 20260419100001_initial_datasets.sql
+      - 20260419100002_reserved_compatibility_slot.sql
+      - 20260421103000_data_catalog_quality.sql
+      - 20260421174000_dataset_branches.sql
+      - 20260424213000_dataset_branch_merge_metadata.sql
+      - 20260425173000_dataset_views_transactions.sql
+      - 20260501000001_versioning_init.sql
+      - 20260501000002_transaction_invariants.sql
+      - 20260501120000_dataset_rid_compat.sql
+      - 20260502000001_dataset_branches_v2.sql
+      - 20260502120000_dataset_markings.sql
+      - 20260503000001_schema_per_view.sql
+      - 20260503000002_dataset_files.sql
+      - 20260503000004_dataset_health.sql
+      - 20260503130000_dataset_foundry_model.sql
+      - 20260504000010_branches_unify.sql
+      - 20260504000030_branch_retention.sql
+      - 20260504000091_parameterized_view.sql
+      - 20260514000020_dataset_resource_crud.sql
+      - 20260514000030_dataset_file_browser_model.sql
+      - 20260514000040_transaction_lifecycle_contract.sql
+      - 20260514000050_branch_pointer_contract.sql
+      - 20260514000060_dataset_view_manifest_cache.sql
+      - 20260514000070_versioned_dataset_schemas.sql
+      - 20260514000080_logical_dataset_views.sql
+      - 20260514000090_incremental_pipeline_readiness.sql
+      - 20260514000100_iceberg_metadata_bridge.sql
+
+  entity-resolution-service:
+    grandfathered_migrations:
+      - 20260506000010_fusion_rules_strategies_foundation.sql
+      - 20260506000020_fusion_jobs_clusters_review_golden.sql
+
+  federation-product-exchange-service:
+    grandfathered_migrations:
+      - 20260422220500_marketplace_foundation.sql
+      - 20260423091500_nexus_foundation.sql
+      - 20260425013000_p4_marketplace_activation.sql
+      - 20260425213000_devops_fleets_and_branches.sql
+      - 20260425223000_spaces_and_admin_lifecycle.sql
+      - 20260426061500_phase3_promotion_gates_and_cells.sql
+      - 20260503000003_dataset_products.sql
+      - 20260504000090_marketplace_schedule_manifests.sql
+      - 20260513120000_eval_marketplace_products.sql
+      - 20260517120000_marketplace_products.sql
+
+  iceberg-catalog-service:
+    grandfathered_migrations:
+      - 20260504000110_iceberg_init.sql
+      - 20260504000120_iceberg_markings.sql
+
+  identity-federation-service:
+    regions: [us-east-1, us-west-2, eu-west-1, eu-central-1]
+    marking_tags: [public, internal, pii, restricted]
+    grandfathered_migrations:
+      - 0001_slice1_initial_auth.sql
+      - 0002_slice3_mfa_totp.sql
+      - 0003_slice4_webauthn.sql
+      - 0004_slice5a_oidc.sql
+      - 0005_slice6_rbac.sql
+      - 0006_slice7a_restricted_views.sql
+      - 0008_slice8_scim.sql
+      - 0009_slice5b_saml.sql
+      - 0010_slice5c_sso_persistence.sql
+      - 0011_slice5d_user_admin.sql
+      - 0012_jwt_signing_keys.sql
+      - 0012_slice5e_group_admin.sql
+      - 0013_mfa_totp_at_rest_encryption.sql
+      - 0014_sg19_restricted_view_resources.sql
+
+  ingestion-replication-service:
+    grandfathered_migrations:
+      - 20260419100002_initial_connectors.sql
+      - 20260424201000_sync_jobs_runtime.sql
+      - 20260425153000_enterprise_connectivity.sql
+      - 20260429120000_ingest_jobs.sql
+      - 20260501130000_ingestion_checkpoints.sql
+      - 20260503121000_drop_ingestion_hot_path_runtime.sql
+      - 20260507000001_streaming_cdc_minimal.sql
+      - 20260507000002_streaming_schema_avro.sql
+      - 20260507000003_streaming_stream_views.sql
+      - 20260508000001_streaming_stream_branches.sql
+      - 20260508000002_schema_registry.sql
+
+  lineage-service:
+    grandfathered_migrations:
+      - 20260425190000_generalized_lineage.sql
+      - 20260427070600_07_workflow_trace_runs_foundation.sql
+      - 20260517120000_openlineage_graph.sql
+
+  llm-catalog-service:
+    grandfathered_migrations:
+      - 20260517190000_llm_models_foundation.sql
+
+  media-sets-service:
+    grandfathered_migrations:
+      - 0001_media_sets.sql
+      - 0002_media_items.sql
+      - 0003_retention.sql
+      - 0004_item_markings.sql
+      - 0005_outbox.sql
+      - 0006_branching.sql
+      - 0007_access_patterns.sql
+      - 0008_dicom_schema.sql
+
+  model-catalog-service:
+    grandfathered_migrations:
+      - 20260422124000_ml_studio_foundation.sql
+      - 20260426014500_modeling_objectives.sql
+      - 20260427070000_model_adapter_foundation.sql
+      - 20260427070100_model_lifecycle_foundation.sql
+
+  model-deployment-service:
+    grandfathered_migrations:
+      - 0001_deployments.sql
+
+  notebook-runtime-service:
+    grandfathered_migrations:
+      - 0001_notebook_kernels.sql
+
+  notification-alerting-service:
+    grandfathered_migrations:
+      - 0001_notifications.sql
+
+  ontology-definition-service:
+    grandfathered_migrations:
+      - 0001_ontology_schema_consolidated.sql
+      - 0002_property_required_markings.sql
+
+  ontology-exploratory-analysis-service:
+    grandfathered_migrations:
+      - 20260427070600_09_scenario_simulations_foundation.sql
+      - 20260427090000_time_series_foundation.sql
+      - 20260507000000_geospatial_layers.sql
+      - 20260511003000_geospatial_map_templates.sql
+
+  reindex-coordinator-service:
+    grandfathered_migrations:
+      - 0001_reindex_jobs.sql
+
+  retrieval-context-service:
+    grandfathered_migrations:
+      - 0001_document_intelligence_foundation.sql
+
+  sdk-generation-service:
+    grandfathered_migrations:
+      - 0001_sdk_generation_foundation.sql
+
+  solution-design-service:
+    grandfathered_migrations:
+      - 20260427070600_10_solution_diagrams_foundation.sql
+
+  telemetry-governance-service:
+    grandfathered_migrations:
+      - 0002_streaming_monitors.sql
+      - 0018_monitoring_rules_foundation.sql
+      - 0019_health_checks_foundation.sql
+      - 0020_execution_runs_foundation.sql
+      - 0021_telemetry_exports_foundation.sql
+
+  tenancy-organizations-service:
+    grandfathered_migrations:
+      - 0001_tenancy_organizations_foundation.sql
+      - 0002_user_favorites.sql
+      - 0003_resource_access_log.sql
+      - 0004_resource_shares.sql
+      - 0005_ontology_projects.sql
+      - 0006_workspace_soft_delete.sql
+      - 0007_nexus_spaces.sql
+      - 0008_org_admins_guests_spaces.sql
+      - 0009_sg6_project_security_boundary.sql
+      - 0010_sg8_role_inheritance_and_direct_grants.sql
+      - 0011_sg9_access_request_workflow.sql
+      - 0012_cmp4_project_resource.sql
+
+  workflow-automation-service:
+    grandfathered_migrations:
+      - 20260421140000_workflows.sql
+      - 20260503090000_workflow_run_projections.sql
+      - 20260503100000_drop_workflow_approvals.sql
+      - 20260504100000_automation_runs.sql
+      - 20260504200000_outbox_and_idempotency.sql
+      - 20260505000000_06_automation_queues_foundation.sql
+      - 20260505010000_drop_automation_queues.sql
+      - 20260505020000_saga_state_and_outbox.sql
+      - 20260505030000_approval_requests_state_machine.sql
+      - 20260517120000_workflow_scheduler.sql
+
+# Tables holding restricted data (PII, credentials, audit, security policy).
+# Direct .Query/.Exec/.QueryRow on these tables from handler-tier code is
+# only permitted for services in `allowed_services`. Other services should
+# route through the owning service's HTTP API instead of issuing SQL.
+restricted_tables:
+  users:
+    allowed_services: [identity-federation-service]
+  user_mfa_totp:
+    allowed_services: [identity-federation-service]
+  webauthn_credentials:
+    allowed_services: [identity-federation-service]
+  webauthn_challenges:
+    allowed_services: [identity-federation-service]
+  refresh_tokens:
+    allowed_services: [identity-federation-service]
+  api_keys:
+    allowed_services: [identity-federation-service]
+  jwt_signing_keys:
+    allowed_services: [identity-federation-service]
+  user_external_identities:
+    allowed_services: [identity-federation-service]
+  oauth_state:
+    allowed_services: [identity-federation-service]
+  audit_events:
+    allowed_services: [audit-compliance-service, audit-sink]
+  audit_delivery_destinations:
+    allowed_services: [audit-compliance-service]
+  audit_delivery_files:
+    allowed_services: [audit-compliance-service]
+  compliance_reports:
+    allowed_services: [audit-compliance-service]
+  cedar_policies:
+    allowed_services: [authorization-policy-service]
+  abac_policies:
+    allowed_services: [authorization-policy-service]
+  markings:
+    allowed_services: [authorization-policy-service]
+  marking_categories:
+    allowed_services: [authorization-policy-service]
+  marking_permissions:
+    allowed_services: [authorization-policy-service]
+  marking_category_permissions:
+    allowed_services: [authorization-policy-service]
+  cipher_channels:
+    allowed_services: [authorization-policy-service]
+  cipher_licenses:
+    allowed_services: [authorization-policy-service]
+  cipher_permissions:
+    allowed_services: [authorization-policy-service]
+
+# Pre-existing handler-tier queries against restricted tables. Currently
+# empty — all in-tree direct DB access on restricted tables already lives
+# in internal/repo/ and is correctly scoped. New entries should not be
+# added; route through the owning service instead.
+grandfathered_handler_queries: []

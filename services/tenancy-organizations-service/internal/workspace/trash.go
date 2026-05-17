@@ -249,9 +249,16 @@ func (r *Repo) ListTrash(ctx context.Context, userID uuid.UUID, isAdmin bool, ki
 // RestoreTrashed clears the soft-delete columns. Returns the number of
 // rows affected so the handler can map 0 → 404.
 func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID uuid.UUID) (int64, error) {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(context.Background())
+
+	var rowsAffected int64
 	switch kind {
 	case ResourceOntologyProject:
-		ct, err := r.Pool.Exec(ctx,
+		ct, err := tx.Exec(ctx,
 			`UPDATE ontology_projects
 			    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL,
 			        updated_at = NOW()
@@ -260,9 +267,14 @@ func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID
 		if err != nil {
 			return 0, err
 		}
-		return ct.RowsAffected(), nil
+		rowsAffected = ct.RowsAffected()
+		if rowsAffected > 0 {
+			if err := UpsertProjectSearchIndexTx(ctx, tx, resourceID, ResourceSearchEventRestored); err != nil {
+				return 0, err
+			}
+		}
 	case ResourceOntologyFolder:
-		ct, err := r.Pool.Exec(ctx,
+		ct, err := tx.Exec(ctx,
 			`UPDATE ontology_project_folders
 			    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL,
 			        updated_at = NOW()
@@ -271,9 +283,14 @@ func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID
 		if err != nil {
 			return 0, err
 		}
-		return ct.RowsAffected(), nil
+		rowsAffected = ct.RowsAffected()
+		if rowsAffected > 0 {
+			if err := UpsertFolderSearchIndexTx(ctx, tx, resourceID, ResourceSearchEventRestored); err != nil {
+				return 0, err
+			}
+		}
 	case ResourceOntologyResourceBinding:
-		ct, err := r.Pool.Exec(ctx,
+		ct, err := tx.Exec(ctx,
 			`UPDATE ontology_project_resources
 			    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL
 			  WHERE resource_id = $1 AND is_deleted = TRUE`,
@@ -281,9 +298,14 @@ func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID
 		if err != nil {
 			return 0, err
 		}
-		return ct.RowsAffected(), nil
+		rowsAffected = ct.RowsAffected()
+	default:
+		return 0, fmt.Errorf("restore is not implemented for resource_kind '%s'", kind)
 	}
-	return 0, fmt.Errorf("restore is not implemented for resource_kind '%s'", kind)
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return rowsAffected, nil
 }
 
 // PurgeTrashed hard-deletes a previously soft-deleted row. The
@@ -291,33 +313,54 @@ func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID
 // through this endpoint — destructive deletes go through
 // SoftDeleteResource → PurgeResource, never directly.
 func (r *Repo) PurgeTrashed(ctx context.Context, kind ResourceKind, resourceID uuid.UUID) (int64, error) {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(context.Background())
+
+	var rowsAffected int64
 	switch kind {
 	case ResourceOntologyProject:
-		ct, err := r.Pool.Exec(ctx,
+		if err := DeleteProjectSearchIndexTx(ctx, tx, resourceID, ResourceSearchEventPurged); err != nil {
+			return 0, err
+		}
+		ct, err := tx.Exec(ctx,
 			`DELETE FROM ontology_projects WHERE id = $1 AND is_deleted = TRUE`,
 			resourceID)
 		if err != nil {
 			return 0, err
 		}
-		return ct.RowsAffected(), nil
+		rowsAffected = ct.RowsAffected()
 	case ResourceOntologyFolder:
-		ct, err := r.Pool.Exec(ctx,
+		if err := DeleteFolderSearchIndexTx(ctx, tx, resourceID, ResourceSearchEventPurged); err != nil {
+			return 0, err
+		}
+		ct, err := tx.Exec(ctx,
 			`DELETE FROM ontology_project_folders WHERE id = $1 AND is_deleted = TRUE`,
 			resourceID)
 		if err != nil {
 			return 0, err
 		}
-		return ct.RowsAffected(), nil
+		rowsAffected = ct.RowsAffected()
 	case ResourceOntologyResourceBinding:
-		ct, err := r.Pool.Exec(ctx,
+		ct, err := tx.Exec(ctx,
 			`DELETE FROM ontology_project_resources WHERE resource_id = $1 AND is_deleted = TRUE`,
 			resourceID)
 		if err != nil {
 			return 0, err
 		}
-		return ct.RowsAffected(), nil
+		rowsAffected = ct.RowsAffected()
+	default:
+		return 0, fmt.Errorf("purge is not implemented for resource_kind '%s'", kind)
 	}
-	return 0, fmt.Errorf("purge is not implemented for resource_kind '%s'", kind)
+	if rowsAffected == 0 {
+		return 0, nil
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return rowsAffected, nil
 }
 
 // ensureCanModifyTrashed authorises restore/purge.
@@ -410,4 +453,3 @@ func scanTrashEntries(rows pgxRowsLike, kind string) ([]TrashEntry, error) {
 	}
 	return out, rows.Err()
 }
-

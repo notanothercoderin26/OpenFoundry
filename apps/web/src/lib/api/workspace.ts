@@ -78,6 +78,58 @@ export function listRecents(params?: { kind?: ResourceKind; limit?: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Compass search
+// ---------------------------------------------------------------------------
+
+export interface CompassSearchResult {
+  rid: string;
+  type: string;
+  display_name: string;
+  owning_project_id?: string | null;
+  owning_project_rid?: string | null;
+  organization_rids: string[];
+  marking_rids: string[];
+  last_modified_at: string;
+  owner_id?: string | null;
+  tags: string[];
+  summary: string;
+  open_url: string;
+  is_deleted: boolean;
+  score?: number;
+}
+
+export interface CompassSearchResponse {
+  data: CompassSearchResult[];
+  next_cursor?: string | null;
+  limit: number;
+}
+
+export interface CompassSearchParams {
+  q?: string;
+  type?: string;
+  project?: string;
+  owner?: string;
+  marking?: string[];
+  limit?: number;
+  cursor?: string;
+}
+
+export function searchCompass(params: CompassSearchParams) {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.type) qs.set('type', params.type);
+  if (params.project) qs.set('project', params.project);
+  if (params.owner) qs.set('owner', params.owner);
+  for (const marking of params.marking ?? []) {
+    if (marking.trim()) qs.append('marking', marking.trim());
+  }
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.cursor) qs.set('cursor', params.cursor);
+  const query = qs.toString();
+  return api.get<CompassSearchResponse>(`/compass/search${query ? `?${query}` : ''}`);
+}
+
+// ---------------------------------------------------------------------------
 // Trash
 // ---------------------------------------------------------------------------
 
@@ -180,7 +232,11 @@ export function listSharedByMe(params?: { kind?: ResourceKind; limit?: number })
 
 export interface MoveBody {
   target_folder_id?: string | null;
+  target_folder_rid?: string | null;
   target_project_id?: string | null;
+  target_project_rid?: string | null;
+  confirm_access_policy_change?: boolean;
+  confirm_marking_change?: boolean;
 }
 
 export function moveResource(kind: ResourceKind, id: string, body: MoveBody) {
@@ -211,6 +267,11 @@ export interface BatchAction {
   resource_kind: ResourceKind;
   resource_id: string;
   target_folder_id?: string | null;
+  target_project_id?: string | null;
+  target_folder_rid?: string | null;
+  target_project_rid?: string | null;
+  confirm_access_policy_change?: boolean;
+  confirm_marking_change?: boolean;
   name?: string;
 }
 

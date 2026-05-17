@@ -37,6 +37,13 @@ func (i *Issuer) AccessTokenTTL() time.Duration { return i.AccessTTL }
 // Returns (accessJWT, refreshTokenPlaintext) — the refresh plaintext
 // is delivered to the client; only its SHA-256 digest is persisted.
 func (i *Issuer) IssueTokens(ctx context.Context, user *models.User, authMethods []string) (string, string, error) {
+	return i.IssueTokensWithScope(ctx, user, authMethods, nil)
+}
+
+// IssueTokensWithScope creates an access JWT + refresh token and binds
+// the optional session scope to both so refresh keeps the same active
+// marking subset.
+func (i *Issuer) IssueTokensWithScope(ctx context.Context, user *models.User, authMethods []string, scope *authmw.SessionScope) (string, string, error) {
 	now := time.Now()
 
 	access := &authmw.Claims{
@@ -55,6 +62,10 @@ func (i *Issuer) IssueTokens(ctx context.Context, user *models.User, authMethods
 		AuthMethods: authMethods,
 		TokenUse:    strPtr("access"),
 	}
+	if scope != nil {
+		access.SessionKind = strPtr("scoped_session")
+		access.SessionScope = cloneSessionScope(scope)
+	}
 	if access.Attributes == nil {
 		access.Attributes = json.RawMessage(`{}`)
 	}
@@ -68,13 +79,18 @@ func (i *Issuer) IssueTokens(ctx context.Context, user *models.User, authMethods
 	if err != nil {
 		return "", "", fmt.Errorf("mint refresh token: %w", err)
 	}
+	scopeRaw, err := marshalSessionScope(scope)
+	if err != nil {
+		return "", "", err
+	}
 	row := &models.RefreshTokenRow{
-		ID:        ids.New(),
-		UserID:    user.ID,
-		TokenHash: HashRefreshToken(plaintext),
-		FamilyID:  ids.New(),
-		IssuedAt:  now,
-		ExpiresAt: now.Add(i.RefreshTTL),
+		ID:           ids.New(),
+		UserID:       user.ID,
+		TokenHash:    HashRefreshToken(plaintext),
+		FamilyID:     ids.New(),
+		SessionScope: scopeRaw,
+		IssuedAt:     now,
+		ExpiresAt:    now.Add(i.RefreshTTL),
 	}
 	if err := i.Repo.InsertRefreshToken(ctx, row); err != nil {
 		return "", "", fmt.Errorf("insert refresh token: %w", err)
@@ -121,7 +137,11 @@ func (i *Issuer) RefreshTokens(ctx context.Context, plaintext string) (string, s
 		return "", "", fmt.Errorf("mark used: %w", err)
 	}
 
-	access, err := i.encodeAccessForUser(user, []string{"refresh_token"})
+	scope, err := unmarshalSessionScope(row.SessionScope)
+	if err != nil {
+		return "", "", err
+	}
+	access, err := i.encodeAccessForUser(user, []string{"refresh_token"}, scope)
 	if err != nil {
 		return "", "", err
 	}
@@ -130,12 +150,13 @@ func (i *Issuer) RefreshTokens(ctx context.Context, plaintext string) (string, s
 		return "", "", fmt.Errorf("mint refresh token: %w", err)
 	}
 	newRow := &models.RefreshTokenRow{
-		ID:        ids.New(),
-		UserID:    user.ID,
-		TokenHash: HashRefreshToken(plaintextNew),
-		FamilyID:  row.FamilyID, // SAME family — replay detection works
-		IssuedAt:  now,
-		ExpiresAt: now.Add(i.RefreshTTL),
+		ID:           ids.New(),
+		UserID:       user.ID,
+		TokenHash:    HashRefreshToken(plaintextNew),
+		FamilyID:     row.FamilyID, // SAME family — replay detection works
+		SessionScope: row.SessionScope,
+		IssuedAt:     now,
+		ExpiresAt:    now.Add(i.RefreshTTL),
 	}
 	if err := i.Repo.InsertRefreshToken(ctx, newRow); err != nil {
 		return "", "", fmt.Errorf("insert refresh token: %w", err)
@@ -143,7 +164,7 @@ func (i *Issuer) RefreshTokens(ctx context.Context, plaintext string) (string, s
 	return access, plaintextNew, nil
 }
 
-func (i *Issuer) encodeAccessForUser(user *models.User, authMethods []string) (string, error) {
+func (i *Issuer) encodeAccessForUser(user *models.User, authMethods []string, scope *authmw.SessionScope) (string, error) {
 	now := time.Now()
 	c := &authmw.Claims{
 		Sub:         user.ID,
@@ -161,10 +182,50 @@ func (i *Issuer) encodeAccessForUser(user *models.User, authMethods []string) (s
 		AuthMethods: authMethods,
 		TokenUse:    strPtr("access"),
 	}
+	if scope != nil {
+		c.SessionKind = strPtr("scoped_session")
+		c.SessionScope = cloneSessionScope(scope)
+	}
 	if c.Attributes == nil {
 		c.Attributes = json.RawMessage(`{}`)
 	}
 	return authmw.EncodeToken(i.JWT, c)
+}
+
+func marshalSessionScope(scope *authmw.SessionScope) (json.RawMessage, error) {
+	if scope == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(scope)
+	if err != nil {
+		return nil, fmt.Errorf("marshal session scope: %w", err)
+	}
+	return json.RawMessage(raw), nil
+}
+
+func unmarshalSessionScope(raw json.RawMessage) (*authmw.SessionScope, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var scope authmw.SessionScope
+	if err := json.Unmarshal(raw, &scope); err != nil {
+		return nil, fmt.Errorf("decode refresh token session scope: %w", err)
+	}
+	return &scope, nil
+}
+
+func cloneSessionScope(scope *authmw.SessionScope) *authmw.SessionScope {
+	if scope == nil {
+		return nil
+	}
+	cp := *scope
+	cp.AllowedMethods = append([]string(nil), scope.AllowedMethods...)
+	cp.AllowedPathPrefixes = append([]string(nil), scope.AllowedPathPrefixes...)
+	cp.AllowedSubjectIDs = append([]string(nil), scope.AllowedSubjectIDs...)
+	cp.AllowedOrgIDs = append([]uuid.UUID(nil), scope.AllowedOrgIDs...)
+	cp.AllowedMarkings = append([]string(nil), scope.AllowedMarkings...)
+	cp.RestrictedViewIDs = append([]uuid.UUID(nil), scope.RestrictedViewIDs...)
+	return &cp
 }
 
 func maybe(s string) *string {

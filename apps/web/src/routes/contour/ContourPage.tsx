@@ -1,4 +1,21 @@
+// Canonical TanStack Query pattern for the ~50 page components still on
+// useEffect+useState fetch chains. Adopt this shape when migrating them:
+//
+//   1. Use `useQuery` for single-shot reads, `useInfiniteQuery` (or a
+//      capped loop like `loadAllRows` below) when the UI needs the full
+//      result set across paginated calls.
+//   2. Always cap unbounded pagination loops at a hard `MAX_PAGES`. A
+//      buggy backend reporting `total_rows: 9_999_999` must NEVER keep
+//      the loop alive — surface a visible truncation warning instead of
+//      burning HTTP requests in the background.
+//   3. Keep API clients in `lib/api/*` unchanged: pagination caps belong
+//      in the caller, not in the shared client.
+//   4. Server state lives only in the query cache — no mirroring into
+//      `useState`. Use a small effect to derive local selection state
+//      (e.g. "default to the first dataset once they load").
+
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 import { EChartView } from '@/lib/components/analytics/EChartView';
 import {
@@ -6,7 +23,6 @@ import {
   listDatasets,
   previewDataset,
   uploadData,
-  type Dataset,
 } from '@/lib/api/datasets';
 import {
   buildObjectTableLines,
@@ -17,6 +33,48 @@ import { notifications } from '@stores/notifications';
 
 type Aggregation = 'sum' | 'avg' | 'count' | 'max';
 
+export const PAGE_SIZE = 100;
+export const MAX_PAGES = 100;
+const ROW_CAP = PAGE_SIZE * MAX_PAGES;
+const TRUNCATION_WARNING = `Truncated at ${ROW_CAP.toLocaleString('en-US')} rows`;
+
+const EMPTY_ROWS: ReadonlyArray<Record<string, unknown>> = Object.freeze([]);
+
+export interface LoadAllRowsResult {
+  rows: Array<Record<string, unknown>>;
+  truncated: boolean;
+}
+
+export interface LoadAllRowsOptions {
+  previewFn?: typeof previewDataset;
+  pageSize?: number;
+  maxPages?: number;
+}
+
+export async function loadAllRows(
+  datasetId: string,
+  options: LoadAllRowsOptions = {},
+): Promise<LoadAllRowsResult> {
+  const previewFn = options.previewFn ?? previewDataset;
+  const pageSize = options.pageSize ?? PAGE_SIZE;
+  const maxPages = options.maxPages ?? MAX_PAGES;
+
+  const rows: Array<Record<string, unknown>> = [];
+  for (let page = 0; page < maxPages; page += 1) {
+    const response = await previewFn(datasetId, {
+      limit: pageSize,
+      offset: page * pageSize,
+    });
+    const pageRows = response.rows ?? [];
+    rows.push(...pageRows);
+    const reportedTotal = response.total_rows ?? rows.length;
+    if (pageRows.length === 0 || rows.length >= reportedTotal) {
+      return { rows, truncated: false };
+    }
+  }
+  return { rows, truncated: true };
+}
+
 function numericValue(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -26,28 +84,13 @@ function numericValue(value: unknown) {
   return 0;
 }
 
-async function loadAllRows(datasetId: string) {
-  const firstPage = await previewDataset(datasetId, { limit: 1000, offset: 0 });
-  const total = firstPage.total_rows ?? firstPage.rows?.length ?? 0;
-  const rows = [...(firstPage.rows ?? [])];
-  for (let offset = rows.length; offset < total; offset += 1000) {
-    const next = await previewDataset(datasetId, { limit: 1000, offset });
-    rows.push(...(next.rows ?? []));
-  }
-  return rows;
-}
-
 export function ContourPage() {
-  const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [primaryDatasetId, setPrimaryDatasetId] = useState('');
   const [secondaryDatasetId, setSecondaryDatasetId] = useState('');
-  const [primaryRows, setPrimaryRows] = useState<Array<Record<string, unknown>>>([]);
-  const [secondaryRows, setSecondaryRows] = useState<Array<Record<string, unknown>>>([]);
-  const [loadingPrimary, setLoadingPrimary] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
-  const [error, setError] = useState('');
 
   const [primaryJoinKey, setPrimaryJoinKey] = useState('');
   const [secondaryJoinKey, setSecondaryJoinKey] = useState('');
@@ -61,70 +104,40 @@ export function ContourPage() {
   const [aggregation, setAggregation] = useState<Aggregation>('sum');
   const [selectedCategory, setSelectedCategory] = useState('');
 
-  // ── Initial dataset load ──
-  useEffect(() => {
-    void (async () => {
-      try {
-        const response = await listDatasets({ per_page: 100 });
-        setDatasets(response.data);
-        const initial = response.data[0]?.id ?? '';
-        setPrimaryDatasetId(initial);
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : 'Failed to load datasets');
-      }
-    })();
-  }, []);
+  const datasetsQuery = useQuery({
+    queryKey: ['contour', 'datasets'],
+    queryFn: () => listDatasets({ per_page: 100 }),
+  });
+  const datasets = datasetsQuery.data?.data ?? [];
 
-  // ── Primary rows ──
   useEffect(() => {
-    if (!primaryDatasetId) {
-      setPrimaryRows([]);
-      return;
+    if (!primaryDatasetId && datasets.length > 0) {
+      setPrimaryDatasetId(datasets[0]!.id);
     }
-    let cancelled = false;
-    setLoadingPrimary(true);
-    setError('');
-    (async () => {
-      try {
-        const rows = await loadAllRows(primaryDatasetId);
-        if (!cancelled) setPrimaryRows(rows);
-      } catch (cause) {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : 'Failed to load primary dataset');
-          setPrimaryRows([]);
-        }
-      } finally {
-        if (!cancelled) setLoadingPrimary(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [primaryDatasetId]);
+  }, [datasets, primaryDatasetId]);
 
-  // ── Secondary rows ──
-  useEffect(() => {
-    if (!secondaryDatasetId) {
-      setSecondaryRows([]);
-      return;
-    }
-    let cancelled = false;
-    setError('');
-    (async () => {
-      try {
-        const rows = await loadAllRows(secondaryDatasetId);
-        if (!cancelled) setSecondaryRows(rows);
-      } catch (cause) {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : 'Failed to load secondary dataset');
-          setSecondaryRows([]);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [secondaryDatasetId]);
+  const primaryQuery = useQuery({
+    queryKey: ['contour', 'preview', primaryDatasetId],
+    queryFn: () => loadAllRows(primaryDatasetId),
+    enabled: Boolean(primaryDatasetId),
+  });
+  const secondaryQuery = useQuery({
+    queryKey: ['contour', 'preview', secondaryDatasetId],
+    queryFn: () => loadAllRows(secondaryDatasetId),
+    enabled: Boolean(secondaryDatasetId),
+  });
+
+  const primaryRows = primaryQuery.data?.rows ?? (EMPTY_ROWS as Array<Record<string, unknown>>);
+  const secondaryRows = secondaryQuery.data?.rows ?? (EMPTY_ROWS as Array<Record<string, unknown>>);
+  const primaryTruncated = primaryQuery.data?.truncated ?? false;
+  const secondaryTruncated = secondaryQuery.data?.truncated ?? false;
+  const loadingPrimary = primaryQuery.isFetching;
+
+  const loadError =
+    datasetsQuery.error ?? primaryQuery.error ?? secondaryQuery.error ?? null;
+  const error =
+    exportError ||
+    (loadError instanceof Error ? loadError.message : loadError ? String(loadError) : '');
 
   const sourceRows = useMemo(() => {
     if (!secondaryDatasetId || !primaryJoinKey || !secondaryJoinKey || secondaryRows.length === 0) {
@@ -254,7 +267,7 @@ export function ContourPage() {
   async function exportCurrentView() {
     if (analysisRows.length === 0) return;
     setExporting(true);
-    setError('');
+    setExportError('');
     try {
       const dataset = await createDataset({
         name: `Contour Export ${new Date().toISOString().slice(0, 16)}`,
@@ -267,7 +280,7 @@ export function ContourPage() {
       await uploadData(dataset.id, file);
       notifications.success(`Exported to dataset ${dataset.name}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to export analysis');
+      setExportError(cause instanceof Error ? cause.message : 'Failed to export analysis');
     } finally {
       setExporting(false);
     }
@@ -276,7 +289,7 @@ export function ContourPage() {
   async function exportCurrentPdf() {
     if (analysisRows.length === 0) return;
     setExportingPdf(true);
-    setError('');
+    setExportError('');
     try {
       const filtered = filteredRows;
       const sections: PdfSection[] = [
@@ -330,7 +343,7 @@ export function ContourPage() {
         sections,
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to export PDF snapshot');
+      setExportError(cause instanceof Error ? cause.message : 'Failed to export PDF snapshot');
     } finally {
       setExportingPdf(false);
     }
@@ -387,6 +400,16 @@ export function ContourPage() {
             </button>
           </div>
         </div>
+
+        {(primaryTruncated || secondaryTruncated) && (
+          <div
+            role="alert"
+            className="of-status-warning"
+            style={{ marginTop: 16, padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
+          >
+            {TRUNCATION_WARNING}
+          </div>
+        )}
 
         {error && (
           <div

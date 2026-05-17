@@ -208,21 +208,66 @@ projection of an input dataset. A view's **granular policy** combines
 user attributes, group membership, organization IDs, column values,
 and constants into a row-level predicate evaluated at query time.
 
-- View definitions live in
-  [`services/authorization-policy-service/internal/handlers/restricted_views.go`](../../services/authorization-policy-service/internal/handlers/restricted_views.go).
-- Query rewrite is performed by the data-plane services that own the
-  storage layer (Iceberg catalog, object database, SQL/BI gateway),
-  consuming the same policy bundle that the PDP would have used.
+- View resource CRUD lives in
+  [`services/identity-federation-service/internal/handlers/restricted_views.go`](../../services/identity-federation-service/internal/handlers/restricted_views.go)
+  and is surfaced at
+  [`/control-panel/restricted-views`](../../apps/web/src/routes/control-panel/RestrictedViewsPage.tsx).
+  The resource model stores backing dataset RID/branch, project/folder
+  placement, owner IDs, policy JSON, assumed markings, output/view
+  metadata, build status, and transaction history.
+- Restricted-view administration is split across explicit operations:
+  create restricted view resource, create restricted view for dataset,
+  read/edit policy, view transactions, build, read view, and manage
+  lifecycle. Broad `restricted_view:manage`, `policies:*`, and
+  `control_panel:write` remain administrative aliases.
+- The Control Panel policy editor writes canonical `granular_policy`
+  JSON from structured operands: user attributes, user group IDs,
+  user organization IDs, user ID, backing-dataset columns, constants,
+  arrays, and `and`/`or` logical groups. Comparisons include equality,
+  inequality/range, membership, containment, and intersects. Identity
+  operands must compare to stable UUID or UUID-array constants rather
+  than mutable names.
+- Restricted views are blocked as Pipeline Builder transform inputs in
+  [`PipelineIR.Validate`](../../services/pipeline-build-service/internal/models/pipeline_ir.go)
+  because session-dependent row policies would make transform outputs
+  non-reproducible.
+- Query rewrite/enforcement is performed by the read-plane services:
+  dataset preview endpoints filter/redact rows before returning a
+  preview; Flight SQL wraps eligible `SELECT` statements with the
+  restricted-view predicate for BI/analytics reads; and ontology/object
+  API reads filter objects through the same runtime evaluator.
+  The shared implementation is
+  [`libs/restrictedview`](../../libs/restrictedview/policy.go), which
+  composes dynamic policy JSON, user attributes, group IDs, marking
+  memberships, allowed organizations, and scoped-session state at the
+  moment of the request.
+- Restricted-view transaction history captures policy/output changes,
+  but it cannot fully reconstruct historical user attributes, group
+  membership, marking membership, or scoped-session state unless
+  OpenFoundry enables an explicit identity snapshot extension.
 - Marking-backed restricted views require the caller to satisfy
-  `string[]` marking IDs in **each row** in addition to all
-  organization, role, and scoped-session checks
+  one or more `ARRAY<STRING>` marking columns in **each row** in
+  addition to all organization, role, resource-marking, and
+  scoped-session checks. The schema validator recognizes
+  `marking_type.mandatory` as the marking-column hint and rejects
+  unsupported scalar columns or non-UUID explicit row requirements
   (see [checklist `SG.22`](../migration/foundry-security-governance-1to1-checklist.md)).
+- Ontology object types can be backed by restricted views. The object
+  type metadata stores the backing restricted view ID, policy JSON, and
+  policy / registered / indexed version counters. Object API reads then
+  resolve the object type and apply the inherited restricted-view row
+  policy before returning Object Explorer, Workshop, or API results.
+  Object Storage V1 style local modes report re-registration/re-index
+  warnings when policy versions have advanced; Object Storage V2 style
+  remote reads apply the latest policy at request time.
 
 Detailed surface: [Restricted views and data controls](./restricted-views-and-data-controls.md).
 
 > Parity reference:
 > [Restricted views](https://www.palantir.com/docs/foundry/security/restricted-views) ·
-> [Manage restricted views](https://www.palantir.com/docs/foundry/platform-security-management/manage-restricted-views/).
+> [Manage restricted views](https://www.palantir.com/docs/foundry/platform-security-management/manage-restricted-views/) ·
+> [Configure restricted-view-backed object types](https://www.palantir.com/docs/foundry/object-permissioning/configuring-rv-access-controls/) ·
+> [Manage object security](https://www.palantir.com/docs/foundry/object-permissioning/managing-object-security/).
 
 ### 6. Audit and traceability
 

@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS object_types (
     editable    BOOLEAN NOT NULL DEFAULT FALSE,
     backing_dataset_id UUID,
     backing_dataset_rid TEXT,
+    backing_datasource_type TEXT NOT NULL DEFAULT 'dataset',
+    backing_restricted_view_id TEXT,
+    restricted_view_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
+    restricted_view_policy_version INT NOT NULL DEFAULT 0,
+    restricted_view_registered_policy_version INT NOT NULL DEFAULT 0,
+    restricted_view_indexed_policy_version INT NOT NULL DEFAULT 0,
+    restricted_view_storage_mode TEXT NOT NULL DEFAULT 'remote',
+    restricted_view_policy_updated_at TIMESTAMPTZ,
+    restricted_view_registered_at TIMESTAMPTZ,
+    restricted_view_indexed_at TIMESTAMPTZ,
     pipeline_rid TEXT,
     managed_by TEXT,
     owner_id    UUID NOT NULL,
@@ -60,8 +70,25 @@ ALTER TABLE object_types
     ADD COLUMN IF NOT EXISTS editable BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS backing_dataset_id UUID,
     ADD COLUMN IF NOT EXISTS backing_dataset_rid TEXT,
+    ADD COLUMN IF NOT EXISTS backing_datasource_type TEXT NOT NULL DEFAULT 'dataset',
+    ADD COLUMN IF NOT EXISTS backing_restricted_view_id TEXT,
+    ADD COLUMN IF NOT EXISTS restricted_view_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS restricted_view_policy_version INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS restricted_view_registered_policy_version INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS restricted_view_indexed_policy_version INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS restricted_view_storage_mode TEXT NOT NULL DEFAULT 'remote',
+    ADD COLUMN IF NOT EXISTS restricted_view_policy_updated_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS restricted_view_registered_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS restricted_view_indexed_at TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS pipeline_rid TEXT,
     ADD COLUMN IF NOT EXISTS managed_by TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_object_types_backing_restricted_view
+    ON object_types(backing_restricted_view_id)
+    WHERE backing_restricted_view_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_object_types_restricted_view_policy
+    ON object_types USING GIN (restricted_view_policy);
 
 CREATE TABLE IF NOT EXISTS properties (
     id               UUID PRIMARY KEY,

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.10
 #
-# network-boundary-service — see services/template/Dockerfile for the
+# network-boundary-service — see docs/templates/service-skeleton/Dockerfile for the
 # canonical stage layout / cache strategy. This file overrides the
 # default SERVICE_NAME so `docker build` from the repo root produces the
 # correct binary; everything else inherits.

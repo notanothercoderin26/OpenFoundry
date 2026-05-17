@@ -58,6 +58,7 @@ func (h *RBAC) GetUser(w http.ResponseWriter, r *http.Request) {
 // JWT subject. The frontend hits GET /users/me; without this handler chi
 // matches /users/{id} with id="me" and parseID rejects it as "invalid id".
 func (h *RBAC) Me(w http.ResponseWriter, r *http.Request) {
+	claims, _ := authmw.FromContext(r.Context())
 	id := authCallerID(r)
 	if id == uuid.Nil {
 		writeJSONErr(w, http.StatusUnauthorized, "unauthorized")
@@ -93,8 +94,24 @@ func (h *RBAC) Me(w http.ResponseWriter, r *http.Request) {
 		"roles":           roleNames,
 		"groups":          []string{},
 		"permissions":     []string{},
+		"session_kind":    sessionKindFromClaims(claims),
+		"session_scope":   sessionScopeFromClaims(claims),
 		"created_at":      u.CreatedAt,
 	})
+}
+
+func sessionKindFromClaims(claims *authmw.Claims) any {
+	if claims == nil || claims.SessionKind == nil {
+		return nil
+	}
+	return *claims.SessionKind
+}
+
+func sessionScopeFromClaims(claims *authmw.Claims) any {
+	if claims == nil {
+		return nil
+	}
+	return claims.SessionScope
 }
 
 func (h *RBAC) UpdateUser(w http.ResponseWriter, r *http.Request) {

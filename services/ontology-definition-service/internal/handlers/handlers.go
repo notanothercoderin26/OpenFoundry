@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -109,6 +110,10 @@ func (h *Handlers) CreateObjectType(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "name and display_name required")
 		return
 	}
+	if status, msg := validateRestrictedViewDatasourceCreate(&body, caller); status != 0 {
+		writeJSONErr(w, status, msg)
+		return
+	}
 	v, err := h.Repo.CreateObjectType(r.Context(), &body, caller.Sub)
 	if err != nil {
 		slog.Error("create object type", slog.String("error", err.Error()))
@@ -119,7 +124,8 @@ func (h *Handlers) CreateObjectType(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) UpdateObjectType(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -133,6 +139,19 @@ func (h *Handlers) UpdateObjectType(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+	current, err := h.Repo.GetObjectType(r.Context(), id)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if current == nil {
+		writeJSONErr(w, http.StatusNotFound, "object type not found")
+		return
+	}
+	if status, msg := validateRestrictedViewDatasourceUpdate(&body, current, caller); status != 0 {
+		writeJSONErr(w, status, msg)
+		return
+	}
 	v, err := h.Repo.UpdateObjectType(r.Context(), id, &body)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
@@ -143,6 +162,167 @@ func (h *Handlers) UpdateObjectType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+func validateRestrictedViewDatasourceCreate(body *models.CreateObjectTypeRequest, claims *authmw.Claims) (int, string) {
+	datasourceType := normalizedDatasourceType(body.BackingDatasourceType, body.BackingRestrictedViewID, body.RestrictedViewID)
+	if datasourceType == "" {
+		datasourceType = "dataset"
+	}
+	if datasourceType != "dataset" && datasourceType != "restricted_view" {
+		return http.StatusBadRequest, "backing_datasource_type must be dataset or restricted_view"
+	}
+	if status, msg := validateRestrictedViewStorageMode(body.RestrictedViewStorageMode); status != 0 {
+		return status, msg
+	}
+	policyEdit := len(body.RestrictedViewPolicy) > 0
+	if status, msg := validateRestrictedViewPolicyJSON(body.RestrictedViewPolicy); status != 0 {
+		return status, msg
+	}
+	if datasourceType != "restricted_view" && policyEdit {
+		return http.StatusBadRequest, "restricted_view_policy requires backing_datasource_type restricted_view"
+	}
+	if datasourceType != "restricted_view" {
+		return 0, ""
+	}
+	if datasourceType == "restricted_view" && firstTrimmedString(body.RestrictedViewID, body.BackingRestrictedViewID) == "" {
+		return http.StatusBadRequest, "restricted_view_id is required when backing_datasource_type is restricted_view"
+	}
+	return requireRestrictedViewDatasourcePermissions(claims, datasourceType == "restricted_view", policyEdit)
+}
+
+func validateRestrictedViewDatasourceUpdate(body *models.UpdateObjectTypeRequest, current *models.ObjectType, claims *authmw.Claims) (int, string) {
+	datasourceType := current.BackingDatasourceType
+	if body.BackingDatasourceType != nil {
+		datasourceType = normalizedDatasourceType(body.BackingDatasourceType, body.BackingRestrictedViewID, body.RestrictedViewID)
+	}
+	if datasourceType == "" {
+		datasourceType = "dataset"
+	}
+	if datasourceType != "dataset" && datasourceType != "restricted_view" {
+		return http.StatusBadRequest, "backing_datasource_type must be dataset or restricted_view"
+	}
+	if status, msg := validateRestrictedViewStorageMode(body.RestrictedViewStorageMode); status != 0 {
+		return status, msg
+	}
+	policyEdit := len(body.RestrictedViewPolicy) > 0
+	if status, msg := validateRestrictedViewPolicyJSON(body.RestrictedViewPolicy); status != 0 {
+		return status, msg
+	}
+	touched := body.BackingDatasourceType != nil ||
+		body.BackingRestrictedViewID != nil ||
+		body.RestrictedViewID != nil ||
+		body.RestrictedViewPolicyVersion != nil ||
+		body.RestrictedViewRegisteredPolicyVersion != nil ||
+		body.RestrictedViewIndexedPolicyVersion != nil ||
+		body.RestrictedViewStorageMode != nil ||
+		body.RestrictedViewPolicyUpdatedAt != nil ||
+		body.RestrictedViewRegisteredAt != nil ||
+		body.RestrictedViewIndexedAt != nil ||
+		policyEdit
+	if !touched {
+		return 0, ""
+	}
+	if datasourceType != "restricted_view" && policyEdit {
+		return http.StatusBadRequest, "restricted_view_policy requires backing_datasource_type restricted_view"
+	}
+	if datasourceType == "restricted_view" && firstTrimmedString(body.RestrictedViewID, body.BackingRestrictedViewID, current.BackingRestrictedViewID) == "" {
+		return http.StatusBadRequest, "restricted_view_id is required when backing_datasource_type is restricted_view"
+	}
+	return requireRestrictedViewDatasourcePermissions(claims, datasourceType == "restricted_view", policyEdit)
+}
+
+func normalizedDatasourceType(value *string, restrictedViewIDs ...*string) string {
+	raw := ""
+	if value != nil {
+		raw = *value
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "restricted_view", "restricted-view", "rv":
+		return "restricted_view"
+	case "dataset", "":
+		if strings.TrimSpace(raw) == "" {
+			for _, id := range restrictedViewIDs {
+				if id != nil && strings.TrimSpace(*id) != "" {
+					return "restricted_view"
+				}
+			}
+		}
+		return "dataset"
+	default:
+		return strings.ToLower(strings.TrimSpace(raw))
+	}
+}
+
+func validateRestrictedViewStorageMode(value *string) (int, string) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return 0, ""
+	}
+	switch strings.ToLower(strings.TrimSpace(*value)) {
+	case "remote", "foundry_object_storage", "local_storage", "local_index", "none":
+		return 0, ""
+	default:
+		return http.StatusBadRequest, "restricted_view_storage_mode must be remote, foundry_object_storage, local_storage, local_index, or none"
+	}
+}
+
+func validateRestrictedViewPolicyJSON(raw json.RawMessage) (int, string) {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
+		return 0, ""
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return http.StatusBadRequest, "restricted_view_policy must be a JSON object"
+	}
+	return 0, ""
+}
+
+func requireRestrictedViewDatasourcePermissions(claims *authmw.Claims, needsRestrictedViewRead bool, policyEdit bool) (int, string) {
+	if claims == nil {
+		return http.StatusUnauthorized, "authentication required"
+	}
+	required := []string{"ontology:manage", "object_type_datasource:manage", "dataset:read"}
+	if needsRestrictedViewRead {
+		required = append(required, "restricted_view:read", "restricted_view_policy:read")
+	}
+	for _, permission := range required {
+		if hasAnyPermission(claims, permission, legacyPermissionAlias(permission)) {
+			continue
+		}
+		return http.StatusForbidden, "missing permission: " + permission
+	}
+	if policyEdit && !hasAnyPermission(claims, "restricted_view_policy:edit", "restricted_view:edit", "restricted_view:manage") {
+		return http.StatusForbidden, "missing permission: restricted_view_policy:edit"
+	}
+	return 0, ""
+}
+
+func legacyPermissionAlias(permission string) string {
+	if permission == "dataset:read" {
+		return "datasets:read"
+	}
+	return permission
+}
+
+func hasAnyPermission(claims *authmw.Claims, permissions ...string) bool {
+	for _, permission := range permissions {
+		if strings.TrimSpace(permission) != "" && claims.HasPermissionKey(permission) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstTrimmedString(values ...*string) string {
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		if trimmed := strings.TrimSpace(*value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func (h *Handlers) DeleteObjectType(w http.ResponseWriter, r *http.Request) {

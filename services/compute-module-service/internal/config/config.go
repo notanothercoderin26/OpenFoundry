@@ -1,6 +1,6 @@
 // Package config loads compute-module-service configuration via koanf.
 //
-// Mirrors services/template/internal/config so deployment knobs
+// Mirrors docs/templates/service-skeleton/internal/config so deployment knobs
 // (config.yaml, OF_* env vars, CONFIG_FILE override) behave identically
 // across the Go service fleet.
 package config

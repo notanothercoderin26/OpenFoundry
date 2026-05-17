@@ -464,29 +464,53 @@ OpenFoundry canonical IDs.
   - Prevent use of restricted views as transform inputs when mirroring documented reproducibility limitations.
   - Docs: [Restricted views](https://www.palantir.com/docs/foundry/security/restricted-views), [Manage restricted views](https://www.palantir.com/docs/foundry/platform-security-management/manage-restricted-views/).
 
-- [ ] `SG.20` Granular policy editor (`P1`, `todo`)
+- [x] `SG.20` Granular policy editor (`P1`, `done` 2026-05-17)
   - Build policies from user attributes, group membership, organization IDs, column values, constants, arrays, and logical operators.
   - Support comparisons such as equality, inequality/range, greater/less than, and intersects according to local type capabilities.
   - Require stable IDs rather than mutable names for users, groups, and organizations where policies depend on identity entities.
   - Docs: [Restricted views](https://www.palantir.com/docs/foundry/security/restricted-views), [Manage restricted views](https://www.palantir.com/docs/foundry/platform-security-management/manage-restricted-views/).
+  - Implementation:
+    - [`granularPolicy.ts`](../../apps/web/src/lib/restricted-views/granularPolicy.ts) defines the canonical `granular_policy` JSON shape with `and`/`or` groups, comparison rules, operands for user attributes, user groups, user organization IDs, user IDs, backing-dataset columns, constants, and arrays.
+    - [`GranularPolicyEditor`](../../apps/web/src/lib/components/restricted-views/GranularPolicyEditor.tsx) provides a structured Control Panel editor for rule operands and operators (`=`, `!=`, ranges, `in`, `contains`, `intersects`) while keeping the generated policy JSON visible/editable for advanced cases.
+    - [`RestrictedViewsPage`](../../apps/web/src/routes/control-panel/RestrictedViewsPage.tsx) now embeds the editor, blocks save while policy validation fails, and serializes the canonical granular policy into the restricted-view `policy` field.
+    - Backend validation in [`handlers/restricted_views.go`](../../services/identity-federation-service/internal/handlers/restricted_views.go) accepts canonical policies, validates nested logical groups/comparisons, and rejects mutable user/group/organization names by requiring UUID or UUID-array constants when identity operands are compared.
+    - Tests cover canonical policy round-tripping, stable-ID enforcement, and backend rejection of named group values: [`granularPolicy.test.ts`](../../apps/web/src/lib/restricted-views/granularPolicy.test.ts) and [`restricted_views_test.go`](../../services/identity-federation-service/internal/handlers/restricted_views_test.go). Runtime query rewrite/enforcement is completed under `SG.21`.
 
-- [ ] `SG.21` Restricted view query enforcement (`P1`, `todo`)
+- [x] `SG.21` Restricted view query enforcement (`P1`, `done` 2026-05-17)
   - Rewrite preview, SQL, analytics, object, and API reads through the policy engine so users only see rows they are allowed to see.
   - Combine dynamic policy definition, user attributes, group membership, marking membership, and scoped session state at request time.
   - Explain that transaction history cannot fully reconstruct historical user attributes/group membership unless OpenFoundry implements an explicit snapshot extension.
   - Docs: [Restricted views](https://www.palantir.com/docs/foundry/security/restricted-views), [Manage restricted views](https://www.palantir.com/docs/foundry/platform-security-management/manage-restricted-views/).
+  - Implementation:
+    - [`libs/restrictedview`](../../libs/restrictedview/policy.go) is the shared runtime policy engine for canonical `granular_policy` JSON. It evaluates user attributes, user group IDs, user/org IDs, row columns, constants, arrays, markings, allowed organizations, restricted-view scoped sessions, guest sessions, and consumer-mode state at read time.
+    - Dataset previews in [`views_schema_preview.go`](../../services/dataset-versioning-service/internal/handlers/views_schema_preview.go) apply restricted-view headers/query policy context before returning rows and redact configured hidden columns. Preview responses include the explicit identity-history caveat.
+    - Flight SQL / analytics reads in [`flightsql/server.go`](../../services/sql-bi-gateway-service/internal/flightsql/server.go) rewrite eligible `SELECT` statements with the shared policy engine when the caller's JWT attributes carry restricted-view policy context.
+    - Ontology/object API reads in [`objects_bridge.go`](../../services/object-database-service/internal/handlers/objects_bridge.go) filter list/query/get object results through the shared evaluator and return the restricted-view decision metadata for query/list calls.
+    - The ABAC decision response in [`abac.go`](../../services/authorization-policy-service/internal/domain/abac.go) now composes restricted-view granular policy outcomes and returns the transaction-history identity snapshot caveat.
+    - Tests: [`policy_test.go`](../../libs/restrictedview/policy_test.go) covers user-attribute/group/org/marking/scope evaluation, preview row filtering/redaction, SQL rewrite, and the historical identity snapshot caveat.
 
-- [ ] `SG.22` Marking-backed restricted views (`P1`, `todo`)
+- [x] `SG.22` Marking-backed restricted views (`P1`, `done` 2026-05-17)
   - Support restricted views based on one or more string-array marking columns with a marking typeclass/hint.
   - Require users to satisfy row-level marking IDs in addition to role, organization, resource markings, and scoped session.
   - Validate input dataset schema and reject invalid marking IDs or unsupported column types.
   - Docs: [Restricted views](https://www.palantir.com/docs/foundry/security/restricted-views), [Markings](https://www.palantir.com/docs/foundry/security/markings/).
+  - Implementation:
+    - [`libs/restrictedview`](../../libs/restrictedview/policy.go) now treats explicit `marking_columns` as row-level MAC columns. Every ID in those `ARRAY<STRING>` cells must be satisfied by the caller's active marking membership or allowed organization IDs, after ordinary role, organization, resource marking, guest, consumer-mode, and restricted-view scoped-session checks.
+    - The shared policy engine detects the `marking_type.mandatory` typeclass from dataset schema metadata, validates configured/annotated marking columns, rejects unsupported non-`ARRAY<STRING>` shapes, and rejects non-UUID row values for explicit marking-backed columns while preserving legacy named marking allowlists for non-SG.22 policies.
+    - [`restricted_views.go`](../../services/identity-federation-service/internal/handlers/restricted_views.go) persists and validates `marking_columns`, accepts optional `backing_dataset_schema` validation input, and the [`0015_sg22_marking_backed_restricted_views.sql`](../../services/identity-federation-service/internal/repo/migrations/0015_sg22_marking_backed_restricted_views.sql) migration stores the column metadata.
+    - [`models.go`](../../services/dataset-versioning-service/internal/models/models.go) validates dataset schemas that opt into `marking_type.mandatory`, and preview/object/ABAC/SQL readers consume `marking_columns` through the shared evaluator or SQL predicate rewrite.
+    - The Control Panel restricted-view form exposes a `Marking columns` field in [`RestrictedViewsPage.tsx`](../../apps/web/src/routes/control-panel/RestrictedViewsPage.tsx), and tests cover schema hints, row-level marking/org enforcement, invalid IDs, SQL rewrite predicates, and handler validation.
 
-- [ ] `SG.23` Restricted-view-backed object types (`P1`, `todo`)
+- [x] `SG.23` Restricted-view-backed object types (`P1`, `done` 2026-05-17)
   - Allow Ontology object types to use restricted views as backing data sources and inherit row/object-level permissions.
   - Enforce object manager permissions, dataset view permissions, restricted view edit/read permissions, and object data source permissions.
   - Propagate restricted view changes into indexed object types and downstream applications.
   - Docs: [Object permissioning: configuring restricted-view-backed object types](https://www.palantir.com/docs/foundry/object-permissioning/configuring-rv-access-controls/), [Object permissioning: managing object security](https://www.palantir.com/docs/foundry/object-permissioning/managing-object-security/).
+  - Implementation:
+    - [`models.ObjectType`](../../services/ontology-definition-service/internal/models/models.go) and [`0003_sg23_restricted_view_backed_object_types.sql`](../../services/ontology-definition-service/internal/repo/migrations/0003_sg23_restricted_view_backed_object_types.sql) persist `backing_datasource_type`, `backing_restricted_view_id`, restricted-view policy JSON, policy / registered / indexed versions, storage mode, timestamps, and a propagation status that flags Object Storage V1-style re-registration or re-index requirements.
+    - [`handlers.go`](../../services/ontology-definition-service/internal/handlers/handlers.go) validates restricted-view datasource writes and requires `ontology:manage`, `object_type_datasource:manage`, dataset read, restricted-view read/policy-read, and policy-edit permissions when applicable; [`0015_sg23_object_type_datasource_operations.sql`](../../services/authorization-policy-service/internal/repo/migrations/0015_sg23_object_type_datasource_operations.sql) seeds the object datasource operation catalog.
+    - [`object_type_policies.go`](../../services/object-database-service/internal/handlers/object_type_policies.go) resolves object type backing metadata from `ontology-definition-service`; object list/get/query routes now fail closed unless the caller can read the restricted view and object datasource metadata, then filter rows through [`libs/restrictedview`](../../libs/restrictedview/policy.go).
+    - The Ontology Manager datasource tab in [`ObjectTypeDetailPage.tsx`](../../apps/web/src/routes/ontology/ObjectTypeDetailPage.tsx) now persists restricted-view backing configuration through `updateObjectType` instead of local storage only, while still showing policy propagation warnings for registered/indexed object applications.
 
 ### Scoped sessions, templates, and privacy controls
 

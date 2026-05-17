@@ -60,6 +60,45 @@ func TestOntologyProjectSG6WireShape(t *testing.T) {
 	assert.Equal(t, "Upstream", r0["label"])
 }
 
+func TestOntologyProjectFolderCMP5WireShape(t *testing.T) {
+	t.Parallel()
+	id := uuid.New()
+	projectID := uuid.New()
+	parentID := uuid.New()
+	f := models.OntologyProjectFolder{
+		ID:                      id,
+		RID:                     models.FolderRIDFromID(id),
+		ProjectID:               projectID,
+		ProjectRID:              models.ProjectRIDFromID(projectID),
+		ParentFolderID:          &parentID,
+		ParentFolderRID:         models.FolderRIDFromID(parentID),
+		SpaceRID:                models.DefaultProjectSpaceRID,
+		Type:                    models.FolderResourceType,
+		TrashStatus:             models.FolderTrashStatusNotTrashed,
+		InheritsProjectPolicies: true,
+		PolicyOverridesAllowed:  true,
+		Name:                    "Models",
+		Slug:                    "models",
+		Description:             "Production models",
+		CreatedBy:               uuid.New(),
+		CreatedAt:               time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:               time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+	}
+	out, err := json.Marshal(f)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	for _, k := range []string{
+		"rid", "project_rid", "parent_folder_rid", "space_rid", "type",
+		"trash_status", "inherits_project_policies", "policy_overrides_allowed",
+	} {
+		assert.Contains(t, view, k)
+	}
+	assert.Equal(t, f.RID, view["rid"])
+	assert.Equal(t, f.ParentFolderRID, view["parent_folder_rid"])
+	assert.Equal(t, true, view["inherits_project_policies"])
+}
+
 func TestOntologyProjectGroupMembershipWireShape(t *testing.T) {
 	t.Parallel()
 	by := uuid.New()
@@ -87,18 +126,18 @@ func TestOntologyProjectAccessRequestWireShape(t *testing.T) {
 	reason := "Need analyst access"
 	at := time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC)
 	req := models.OntologyProjectAccessRequest{
-		ID:                  uuid.New(),
-		ProjectID:           uuid.New(),
-		RequestedBy:         uuid.New(),
-		RequestedRole:       models.OntologyProjectRoleViewer,
-		Reason:              reason,
-		ScopeResourceKind:   &scope,
-		ScopeResourceID:     &scopeID,
-		Status:              models.ProjectAccessRequestStatusPending,
-		DecidedBy:           &by,
-		DecisionReason:      &reason,
-		CreatedAt:           at,
-		DecidedAt:           &at,
+		ID:                uuid.New(),
+		ProjectID:         uuid.New(),
+		RequestedBy:       uuid.New(),
+		RequestedRole:     models.OntologyProjectRoleViewer,
+		Reason:            reason,
+		ScopeResourceKind: &scope,
+		ScopeResourceID:   &scopeID,
+		Status:            models.ProjectAccessRequestStatusPending,
+		DecidedBy:         &by,
+		DecisionReason:    &reason,
+		CreatedAt:         at,
+		DecidedAt:         &at,
 	}
 	out, err := json.Marshal(req)
 	require.NoError(t, err)

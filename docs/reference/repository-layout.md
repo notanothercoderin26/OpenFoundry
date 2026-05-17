@@ -4,7 +4,7 @@ Use this page when you need to quickly answer "where should this change live?"
 
 ## Runtime Code
 
-`services/` contains 42 Go microservice binaries (plus `services/template/` as boilerplate) under a single Go module rooted at `github.com/openfoundry/openfoundry-go`. Grouping below follows the Helm releases under `infra/helm/apps/` (`of-platform`, `of-data-engine`, `of-ontology`, `of-ml-aip`, `of-apps-ops`, `of-web`).
+`services/` contains 42 Go microservice binaries under a single Go module rooted at `github.com/openfoundry/openfoundry-go`. The textual boilerplate every new service starts from lives at `docs/templates/service-skeleton/` (its `.go` files carry `//go:build ignore` so the toolchain skips them in place). Grouping below follows the Helm releases under `infra/helm/apps/` (`of-platform`, `of-data-engine`, `of-ontology`, `of-ml-aip`, `of-apps-ops`, `of-web`).
 
 ### Platform (auth, gateway, tenancy)
 

@@ -1,5 +1,5 @@
 // Package config loads the network-boundary-service configuration via
-// koanf. The schema mirrors `services/template` — only Service / Server
+// koanf. The schema mirrors `docs/templates/service-skeleton` — only Service / Server
 // / JWT / Telemetry knobs are exposed today since the binary is a stub
 // (see ADR-0030 / S8.6).
 package config

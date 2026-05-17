@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.10
 #
 # global-branch-service — multi-stage distroless static, nonroot.
-# Mirrors services/template/Dockerfile; only the SERVICE_NAME default
+# Mirrors docs/templates/service-skeleton/Dockerfile; only the SERVICE_NAME default
 # and image labels differ. See the template for the cache-strategy
 # rationale.
 #

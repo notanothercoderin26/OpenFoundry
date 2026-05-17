@@ -34,6 +34,7 @@ type Config struct {
 	CassandraUsername       string
 	CassandraPassword       string
 	CassandraLocalDC        string
+	OntologyDefinitionURL   string
 }
 
 func FromEnv() (*Config, error) {
@@ -50,6 +51,7 @@ func FromEnv() (*Config, error) {
 	cfg.CassandraUsername = os.Getenv("CASSANDRA_USERNAME")
 	cfg.CassandraPassword = os.Getenv("CASSANDRA_PASSWORD")
 	cfg.CassandraLocalDC = defaultStr(os.Getenv("CASSANDRA_LOCAL_DC"), "dc1")
+	cfg.OntologyDefinitionURL = strings.TrimSpace(os.Getenv("ONTOLOGY_DEFINITION_SERVICE_URL"))
 	return cfg, nil
 }
 

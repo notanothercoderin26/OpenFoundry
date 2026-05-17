@@ -102,11 +102,12 @@ type TokenResponse struct {
 
 // RefreshTokenRow is the persisted row in `refresh_tokens`.
 type RefreshTokenRow struct {
-	ID         uuid.UUID
-	UserID     uuid.UUID
-	TokenHash  string
-	FamilyID   uuid.UUID
-	IssuedAt   time.Time
-	ExpiresAt  time.Time
-	RevokedAt  *time.Time
+	ID           uuid.UUID
+	UserID       uuid.UUID
+	TokenHash    string
+	FamilyID     uuid.UUID
+	SessionScope json.RawMessage
+	IssuedAt     time.Time
+	ExpiresAt    time.Time
+	RevokedAt    *time.Time
 }

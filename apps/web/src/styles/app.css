@@ -3540,6 +3540,10 @@ button {
   list-style: none;
 }
 
+.of-quicksearch__recentList--resources {
+  padding-bottom: 14px;
+}
+
 .of-quicksearch__recentRow {
   display: flex;
   align-items: center;
@@ -3555,6 +3559,40 @@ button {
 }
 
 .of-quicksearch__recentRow:hover { background: var(--qs-panel-hover); }
+
+.of-quicksearch__recentResourceRow {
+  color: var(--qs-text);
+  text-decoration: none;
+}
+
+.of-quicksearch__recentResourceRow:hover {
+  text-decoration: none;
+}
+
+.of-quicksearch__recentResourceIcon {
+  width: 24px;
+  height: 24px;
+}
+
+.of-quicksearch__recentResourceText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.of-quicksearch__recentResourceText span:first-child {
+  color: var(--qs-link);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.of-quicksearch__recentResourceText span:last-child {
+  color: var(--qs-text-muted);
+  font-size: 12px;
+}
 
 .of-quicksearch__recentEmpty {
   padding: 30px 22px;
@@ -3711,6 +3749,10 @@ button {
   width: 100%;
 }
 
+.of-quicksearch__row--resource {
+  position: relative;
+}
+
 .of-quicksearch__row:last-child { border-bottom: 0; }
 
 .of-quicksearch__row:hover { background: var(--qs-panel-hover); }
@@ -3789,6 +3831,13 @@ button {
   font-size: 12px;
 }
 
+.of-quicksearch__rowSide--resource {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 360px;
+}
+
 .of-quicksearch__rowStat {
   display: inline-flex;
   align-items: center;
@@ -3806,6 +3855,99 @@ button {
   color: var(--qs-text-strong);
   font-size: 11px;
   font-weight: 500;
+}
+
+.of-quicksearch__rowChip--danger {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fecaca;
+}
+
+.of-quicksearch__badgeRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 22px;
+}
+
+.of-quicksearch__markingBadge,
+.of-quicksearch__tagBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--qs-border);
+  border-radius: 999px;
+  background: rgba(121, 184, 255, 0.08);
+  color: var(--qs-text);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.of-quicksearch__tagBadge {
+  background: rgba(22, 163, 74, 0.12);
+  color: #bbf7d0;
+}
+
+.of-quicksearch__openWith {
+  position: relative;
+}
+
+.of-quicksearch__openWith summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--qs-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--qs-text-strong);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+}
+
+.of-quicksearch__openWith summary::-webkit-details-marker {
+  display: none;
+}
+
+.of-quicksearch__openWith[open] summary,
+.of-quicksearch__openWith summary:hover {
+  background: var(--qs-panel-hover);
+}
+
+.of-quicksearch__openWithMenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 5;
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid var(--qs-border);
+  border-radius: 6px;
+  background: var(--qs-panel);
+  box-shadow: 0 16px 36px rgba(0,0,0,0.35);
+}
+
+.of-quicksearch__openWithItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: var(--qs-text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.of-quicksearch__openWithItem:hover {
+  background: var(--qs-panel-hover);
+  text-decoration: none;
 }
 
 .of-quicksearch__rowAction {
@@ -3876,6 +4018,10 @@ button {
   text-transform: uppercase;
 }
 
+.of-quicksearch__sectionHead--spaced {
+  margin-top: 14px;
+}
+
 .of-quicksearch__sectionCount {
   display: inline-flex;
   align-items: center;
@@ -3941,6 +4087,9 @@ button {
   .of-quicksearch__layout { flex-direction: column; }
   .of-quicksearch__sidebar { width: 100%; border-right: 0; border-bottom: 1px solid var(--qs-border); }
   .of-quicksearch__topActions .of-quicksearch__topAction span { display: none; }
+  .of-quicksearch__row { flex-wrap: wrap; }
+  .of-quicksearch__rowSide--resource { width: 100%; max-width: none; justify-content: flex-start; padding-left: 42px; }
+  .of-quicksearch__openWithMenu { left: 0; right: auto; }
 }
 
 /* PIPE-002 Pipeline create page (Foundry parity) */
@@ -5203,6 +5352,92 @@ button {
   color: var(--text-strong);
   font-weight: 700;
   font-size: 18px;
+}
+
+/* Standard Compass-style resource breadcrumbs. */
+.of-resource-breadcrumb {
+  min-width: 0;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.of-resource-breadcrumb__list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.of-resource-breadcrumb__item,
+.of-resource-breadcrumb__node {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
+
+.of-resource-breadcrumb__separator {
+  display: inline-flex;
+  color: #8a96a6;
+}
+
+.of-resource-breadcrumb__icon {
+  display: inline-flex;
+  color: #5c7080;
+}
+
+.of-resource-breadcrumb__link,
+.of-resource-breadcrumb__button {
+  max-width: min(280px, 42vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  background: transparent;
+  color: #1a4f9e;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.of-resource-breadcrumb__link:hover,
+.of-resource-breadcrumb__button:hover {
+  text-decoration: underline;
+}
+
+.of-resource-breadcrumb__current {
+  max-width: min(340px, 52vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.of-resource-breadcrumb__copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #5c7080;
+  cursor: pointer;
+}
+
+.of-resource-breadcrumb__copy:hover {
+  border-color: var(--border-default);
+  background: #f3f5f7;
+  color: #1a4f9e;
 }
 
 .of-catalog-toolbar__group {
