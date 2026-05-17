@@ -91,6 +91,9 @@ infra/argocd/notifications/slack-secret.yaml
 # Local-built tool binaries at repo root (built by `go build ./tools/<name>`)
 /route-audit
 /identity-federation-service
+/sql-lint
+/bus-allowlist
+/data-residency
 
 # `make tools` installs buf / golangci-lint / sqlc / gofumpt here
 /bin/
