@@ -15,8 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/llm"
-	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/ai-evaluation-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/ai-evaluation-service/internal/handlers"
@@ -28,8 +29,8 @@ type Options struct {
 	Runtime llm.Runtime
 }
 
-func New(cfg *config.Config, m *observability.Metrics, opts Options, probes ...capabilities.DependencyProbe) *http.Server {
-	r := buildRouter(cfg, m, opts, probes...)
+func New(cfg *config.Config, jwt *authmw.JWTConfig, m *observability.Metrics, opts Options, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, jwt, m, opts, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -38,11 +39,11 @@ func New(cfg *config.Config, m *observability.Metrics, opts Options, probes ...c
 	}
 }
 
-func BuildRouter(cfg *config.Config, m *observability.Metrics, opts Options, probes ...capabilities.DependencyProbe) http.Handler {
-	return buildRouter(cfg, m, opts, probes...)
+func BuildRouter(cfg *config.Config, jwt *authmw.JWTConfig, m *observability.Metrics, opts Options, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, jwt, m, opts, probes...)
 }
 
-func buildRouter(cfg *config.Config, m *observability.Metrics, opts Options, probes ...capabilities.DependencyProbe) chi.Router {
+func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, m *observability.Metrics, opts Options, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(15 * time.Second))
@@ -64,6 +65,7 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, opts Options, pro
 
 	h := &handlers.Handlers{Pool: opts.Pool, Runtime: opts.Runtime}
 	r.Route("/api/v1", func(api chi.Router) {
+		api.Use(authmw.Middleware(jwt))
 		api.Post("/evaluations/benchmark", h.BenchmarkProviders)
 		api.Post("/guardrails/evaluate", h.EvaluateGuardrails)
 	})

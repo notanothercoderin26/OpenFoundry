@@ -6,25 +6,48 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/ai-evaluation-service/internal/config"
 )
 
-func newTestRouter(t *testing.T) http.Handler {
+const testJWTSecret = "ai-evaluation-router-test-secret-aaaaaaaaaaaaaaaaaaaa"
+
+func newTestRouter(t *testing.T) (http.Handler, *authmw.JWTConfig) {
 	t.Helper()
 	cfg := &config.Config{}
 	cfg.Service.Name = "ai-evaluation-service"
 	cfg.Service.Version = "test"
-	return BuildRouter(cfg, observability.NewMetrics(), Options{})
+	jwt := authmw.NewJWTConfig(testJWTSecret)
+	return BuildRouter(cfg, jwt, observability.NewMetrics(), Options{}), jwt
+}
+
+func tokenFor(t *testing.T, jwt *authmw.JWTConfig) string {
+	t.Helper()
+	now := time.Now()
+	tok, err := authmw.EncodeToken(jwt, &authmw.Claims{
+		Sub:   uuid.New(),
+		IAT:   now.Unix(),
+		EXP:   now.Add(time.Hour).Unix(),
+		JTI:   uuid.New(),
+		Email: "route-test@openfoundry.test",
+		Name:  "Route Test",
+		Roles: []string{"admin"},
+	})
+	require.NoError(t, err)
+	return tok
 }
 
 func TestSubstrateHealthzMounted(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(newTestRouter(t))
+	r, _ := newTestRouter(t)
+	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
 	resp, err := http.Get(srv.URL + "/healthz")
@@ -37,13 +60,37 @@ func TestSubstrateHealthzMounted(t *testing.T) {
 	assert.Equal(t, "ai-evaluation-service", body["service"])
 }
 
-func TestEvaluateGuardrailsRoutePureLogic(t *testing.T) {
+func TestProtectedRoutesRejectUnauthenticated(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(newTestRouter(t))
+	r, _ := newTestRouter(t)
+	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	resp, err := http.Post(srv.URL+"/api/v1/guardrails/evaluate",
-		"application/json", strings.NewReader(`{"content":"hello world"}`))
+	for _, path := range []string{
+		"/api/v1/guardrails/evaluate",
+		"/api/v1/evaluations/benchmark",
+	} {
+		resp, err := http.Post(srv.URL+path, "application/json",
+			strings.NewReader(`{"content":"hello"}`))
+		require.NoError(t, err)
+		resp.Body.Close()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, path)
+	}
+}
+
+func TestEvaluateGuardrailsRoutePureLogic(t *testing.T) {
+	t.Parallel()
+	r, jwt := newTestRouter(t)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/guardrails/evaluate",
+		strings.NewReader(`{"content":"hello world"}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tokenFor(t, jwt))
+
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -57,11 +104,17 @@ func TestEvaluateGuardrailsRoutePureLogic(t *testing.T) {
 
 func TestEvaluateGuardrailsRouteRejectsEmpty(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(newTestRouter(t))
+	r, jwt := newTestRouter(t)
+	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	resp, err := http.Post(srv.URL+"/api/v1/guardrails/evaluate",
-		"application/json", strings.NewReader(`{"content":"   "}`))
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/guardrails/evaluate",
+		strings.NewReader(`{"content":"   "}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tokenFor(t, jwt))
+
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -72,11 +125,17 @@ func TestBenchmarkRouteRequiresPool(t *testing.T) {
 	// short-circuits to 503 — exercises the route registration +
 	// Pool-nil guard.
 	t.Parallel()
-	srv := httptest.NewServer(newTestRouter(t))
+	r, jwt := newTestRouter(t)
+	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	resp, err := http.Post(srv.URL+"/api/v1/evaluations/benchmark",
-		"application/json", strings.NewReader(`{"prompt":"compare providers","use_case":"chat","max_tokens":256}`))
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/evaluations/benchmark",
+		strings.NewReader(`{"prompt":"compare providers","use_case":"chat","max_tokens":256}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tokenFor(t, jwt))
+
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
