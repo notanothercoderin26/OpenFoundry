@@ -107,25 +107,25 @@ func TestOntologyProjectFolderJSONRoundtrip(t *testing.T) {
 	id := uuid.New()
 	projectID := uuid.New()
 	in := OntologyProjectFolder{
-		ID:                      id,
-		RID:                     FolderRIDFromID(id),
-		ProjectID:               projectID,
-		ProjectRID:              ProjectRIDFromID(projectID),
-		ParentFolderID:          &parent,
-		ParentFolderRID:         FolderRIDFromID(parent),
-		SpaceRID:                DefaultProjectSpaceRID,
-		Type:                    FolderResourceType,
-		TrashStatus:             FolderTrashStatusNotTrashed,
-		InheritsProjectPolicies: true,
-		PolicyOverridesAllowed:  true,
+		ID:                               id,
+		RID:                              FolderRIDFromID(id),
+		ProjectID:                        projectID,
+		ProjectRID:                       ProjectRIDFromID(projectID),
+		ParentFolderID:                   &parent,
+		ParentFolderRID:                  FolderRIDFromID(parent),
+		SpaceRID:                         DefaultProjectSpaceRID,
+		Type:                             FolderResourceType,
+		TrashStatus:                      FolderTrashStatusNotTrashed,
+		InheritsProjectPolicies:          true,
+		PolicyOverridesAllowed:           true,
 		PropagateViewRequirementsEnabled: true,
-		ViewRequirementMarkingRIDs:        []string{"ri.marking.main.marking.pii"},
-		Name:                    "Models",
-		Slug:                    "models",
-		Description:             "Production models",
-		CreatedBy:               uuid.New(),
-		CreatedAt:               time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		UpdatedAt:               time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+		ViewRequirementMarkingRIDs:       []string{"ri.marking.main.marking.pii"},
+		Name:                             "Models",
+		Slug:                             "models",
+		Description:                      "Production models",
+		CreatedBy:                        uuid.New(),
+		CreatedAt:                        time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
 	}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
@@ -147,7 +147,7 @@ func TestCreateOntologyProjectRequestJSONRoundtrip(t *testing.T) {
 		Folders: []CreateOntologyProjectFolderRequest{{
 			Name:                             "Models",
 			PropagateViewRequirementsEnabled: boolPtr(true),
-			ViewRequirementMarkingRIDs:        []string{"ri.marking.main.marking.pii"},
+			ViewRequirementMarkingRIDs:       []string{"ri.marking.main.marking.pii"},
 		}},
 	}
 	b, err := json.Marshal(in)

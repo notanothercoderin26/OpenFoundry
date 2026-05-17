@@ -275,11 +275,11 @@ func loadFolderSearchEntryTx(ctx context.Context, tx pgx.Tx, folderID uuid.UUID)
 		folderID,
 	)
 	var (
-		entry      ResourceSearchEntry
-		projectID  uuid.UUID
-		projectRID string
-		orgJSON    []byte
-		markJSON   []byte
+		entry       ResourceSearchEntry
+		projectID   uuid.UUID
+		projectRID  string
+		orgJSON     []byte
+		markJSON    []byte
 		viewReqJSON []byte
 	)
 	if err := row.Scan(

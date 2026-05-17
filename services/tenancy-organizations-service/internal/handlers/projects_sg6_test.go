@@ -41,8 +41,8 @@ func TestOntologyProjectSG6WireShape(t *testing.T) {
 		},
 		MarkingRIDs:                      []string{"ri.marking.main.marking.pii"},
 		PropagateViewRequirementsEnabled: true,
-		CreatedAt: time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		CreatedAt:                        time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
 	}
 	out, err := json.Marshal(p)
 	require.NoError(t, err)
@@ -70,25 +70,25 @@ func TestOntologyProjectFolderCMP5WireShape(t *testing.T) {
 	projectID := uuid.New()
 	parentID := uuid.New()
 	f := models.OntologyProjectFolder{
-		ID:                      id,
-		RID:                     models.FolderRIDFromID(id),
-		ProjectID:               projectID,
-		ProjectRID:              models.ProjectRIDFromID(projectID),
-		ParentFolderID:          &parentID,
-		ParentFolderRID:         models.FolderRIDFromID(parentID),
-		SpaceRID:                models.DefaultProjectSpaceRID,
-		Type:                    models.FolderResourceType,
-		TrashStatus:             models.FolderTrashStatusNotTrashed,
-		InheritsProjectPolicies: true,
-		PolicyOverridesAllowed:  true,
+		ID:                               id,
+		RID:                              models.FolderRIDFromID(id),
+		ProjectID:                        projectID,
+		ProjectRID:                       models.ProjectRIDFromID(projectID),
+		ParentFolderID:                   &parentID,
+		ParentFolderRID:                  models.FolderRIDFromID(parentID),
+		SpaceRID:                         models.DefaultProjectSpaceRID,
+		Type:                             models.FolderResourceType,
+		TrashStatus:                      models.FolderTrashStatusNotTrashed,
+		InheritsProjectPolicies:          true,
+		PolicyOverridesAllowed:           true,
 		PropagateViewRequirementsEnabled: true,
-		ViewRequirementMarkingRIDs:        []string{"ri.marking.main.marking.pii"},
-		Name:                    "Models",
-		Slug:                    "models",
-		Description:             "Production models",
-		CreatedBy:               uuid.New(),
-		CreatedAt:               time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
-		UpdatedAt:               time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		ViewRequirementMarkingRIDs:       []string{"ri.marking.main.marking.pii"},
+		Name:                             "Models",
+		Slug:                             "models",
+		Description:                      "Production models",
+		CreatedBy:                        uuid.New(),
+		CreatedAt:                        time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
 	}
 	out, err := json.Marshal(f)
 	require.NoError(t, err)
