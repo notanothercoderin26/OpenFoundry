@@ -323,6 +323,7 @@ type RestrictedView struct {
 	Conditions          json.RawMessage
 	RowFilter           *string
 	HiddenColumns       []string
+	MarkingColumns      []string
 	AllowedOrgIDs       []uuid.UUID
 	AllowedMarkings     []string
 	ConsumerModeEnabled bool
@@ -334,7 +335,7 @@ type RestrictedView struct {
 func (r *Repo) ListEnabledRestrictedViewsMatching(ctx context.Context, resource, action string) ([]RestrictedView, error) {
 	rows, err := r.Pool.Query(ctx,
 		`SELECT id, name, resource, action, conditions, row_filter,
-		        hidden_columns, allowed_org_ids, allowed_markings,
+		        hidden_columns, marking_columns, allowed_org_ids, allowed_markings,
 		        consumer_mode_enabled, allow_guest_access
 		   FROM restricted_views
 		  WHERE enabled = TRUE
@@ -351,16 +352,18 @@ func (r *Repo) ListEnabledRestrictedViewsMatching(ctx context.Context, resource,
 		var (
 			v               RestrictedView
 			hiddenJSON      []byte
+			markingColsJSON []byte
 			allowedOrgJSON  []byte
 			allowedMarkJSON []byte
 		)
 		if err := rows.Scan(&v.ID, &v.Name, &v.Resource, &v.Action,
 			&v.Conditions, &v.RowFilter,
-			&hiddenJSON, &allowedOrgJSON, &allowedMarkJSON,
+			&hiddenJSON, &markingColsJSON, &allowedOrgJSON, &allowedMarkJSON,
 			&v.ConsumerModeEnabled, &v.AllowGuestAccess); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(hiddenJSON, &v.HiddenColumns)
+		_ = json.Unmarshal(markingColsJSON, &v.MarkingColumns)
 		_ = json.Unmarshal(allowedOrgJSON, &v.AllowedOrgIDs)
 		_ = json.Unmarshal(allowedMarkJSON, &v.AllowedMarkings)
 		out = append(out, v)

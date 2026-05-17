@@ -1,5 +1,5 @@
 // Package config loads the global-branch-service configuration via
-// koanf. See services/template/internal/config for the precedence
+// koanf. See docs/templates/service-skeleton/internal/config for the precedence
 // rules and shape rationale; this service mirrors that contract.
 package config
 

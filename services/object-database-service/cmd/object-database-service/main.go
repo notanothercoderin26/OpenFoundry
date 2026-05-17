@@ -64,6 +64,9 @@ func main() {
 	}
 
 	h := &handlers.Handlers{Objects: objects, Links: links, Backend: backend}
+	if strings.TrimSpace(cfg.OntologyDefinitionURL) != "" {
+		h.ObjectTypes = handlers.NewHTTPObjectTypePolicyResolver(cfg.OntologyDefinitionURL, 5*time.Second)
+	}
 	metrics := observability.NewMetrics()
 
 	var deps []capabilities.DependencyProbe

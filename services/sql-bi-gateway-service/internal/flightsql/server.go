@@ -36,6 +36,7 @@ import (
 	"log/slog"
 
 	queryengine "github.com/openfoundry/openfoundry-go/libs/query-engine"
+	"github.com/openfoundry/openfoundry-go/libs/restrictedview"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/audit"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/auth"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/catalog"
@@ -272,7 +273,9 @@ func (s *Service) GetFlightInfoPreparedStatement(ctx context.Context, cmd flight
 
 // preparedAsStatement adapts a PreparedStatementQuery into a
 // StatementQuery so we can reuse the planning logic.
-type preparedAsStatement struct{ cmd flightsql.PreparedStatementQuery }
+type preparedAsStatement struct {
+	cmd flightsql.PreparedStatementQuery
+}
 
 func (p preparedAsStatement) GetQuery() string         { return string(p.cmd.GetPreparedStatementHandle()) }
 func (p preparedAsStatement) GetTransactionId() []byte { return nil }
@@ -624,6 +627,16 @@ func wrapBatch(rec arrow.RecordBatch) <-chan flight.StreamChunk {
 func (s *Service) execute(ctx context.Context, sql string, authReq *auth.AuthenticatedRequest, quotas auth.EnforcedQuotas) (*arrow.Schema, <-chan flight.StreamChunk, error) {
 	started := time.Now()
 
+	if authReq != nil && authReq.Claims != nil {
+		rewritten, decision, didRewrite := restrictedview.RewriteSQL(sql, authReq.Claims)
+		if !decision.Allowed {
+			return nil, nil, status.Error(codes.PermissionDenied, strings.Join(decision.DenyReasons, "; "))
+		}
+		if didRewrite {
+			sql = rewritten
+		}
+	}
+
 	decision, err := s.router.Route(sql)
 	if err != nil {
 		s.audit(sql, authReq, decision, 0, time.Since(started), audit.OutcomeError)
@@ -761,4 +774,3 @@ func bytesEqual(a, b []byte) bool {
 	}
 	return true
 }
-

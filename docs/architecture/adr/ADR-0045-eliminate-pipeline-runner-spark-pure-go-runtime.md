@@ -138,8 +138,8 @@ executes operator plans in-process against `iceberg-go` and the
   Dockerfiles or developer machines. `make ci` becomes the *only* gate
   the pipeline runtime needs to pass.
 - **Audit cleanliness.** `services/*` becomes uniformly Go — the
-  `services/template/` skeleton applies to every directory under
-  `services/`. Repository-wide consolidation passes stop hitting
+  `docs/templates/service-skeleton/` skeleton applies to every directory
+  under `services/`. Repository-wide consolidation passes stop hitting
   `pipeline-runner-spark` as a false positive.
 - **Smaller runtime footprint.** No Spark Operator, no Spark driver
   pods (cores=1, memory=1g per run), no AWS-credentials Secret
@@ -239,8 +239,8 @@ Smallest, lowest-risk leaf node. Validates `apache/iceberg-go` against
 production data without touching the runtime.
 
 1. New module under `services/iceberg-object-indexer/` following the
-   `services/template/` skeleton. CLI surface identical to the Scala
-   `IcebergToObjectStoreIndexer`.
+   `docs/templates/service-skeleton/` skeleton. CLI surface identical to
+   the Scala `IcebergToObjectStoreIndexer`.
 2. Reads via `iceberg.io/catalog/rest` against
    `iceberg-catalog-service` (ADR-0041).
 3. Issues `PUT /api/v1/object-database/objects/{tenant}/{id}` per row

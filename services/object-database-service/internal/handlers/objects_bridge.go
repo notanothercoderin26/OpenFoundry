@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/restrictedview"
 	servicecedar "github.com/openfoundry/openfoundry-go/services/object-database-service/internal/cedarauthz"
 	"github.com/openfoundry/openfoundry-go/services/object-database-service/internal/storage"
 )
@@ -79,6 +80,142 @@ func toOntologyObject(obj *storage.Object) ontologyObject {
 	return out
 }
 
+func restrictedObjectPolicyFromRequest(r *http.Request, body *queryRequest) (restrictedview.Policy, bool) {
+	policy, ok := restrictedview.PolicyFromHeaders(r.Header.Get)
+	if raw := strings.TrimSpace(r.URL.Query().Get("restricted_view_policy")); raw != "" {
+		policy.Policy = json.RawMessage(raw)
+		ok = true
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("restricted_view_id")); raw != "" {
+		policy.ID = raw
+		ok = true
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("hidden_columns")); raw != "" {
+		policy.HiddenColumns = splitQueryCSV(raw)
+		ok = true
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("marking_columns")); raw != "" {
+		policy.MarkingColumns = splitQueryCSV(raw)
+		ok = true
+	}
+	if body != nil {
+		if body.RestrictedViewID != "" {
+			policy.ID = body.RestrictedViewID
+			ok = true
+		}
+		if len(body.RestrictedViewPolicy) > 0 {
+			policy.Policy = body.RestrictedViewPolicy
+			ok = true
+		}
+		if len(body.HiddenColumns) > 0 {
+			policy.HiddenColumns = body.HiddenColumns
+			ok = true
+		}
+		if len(body.MarkingColumns) > 0 {
+			policy.MarkingColumns = body.MarkingColumns
+			ok = true
+		}
+	}
+	return policy, ok
+}
+
+func filterOntologyObjectsForRestrictedView(r *http.Request, policy restrictedview.Policy, items []ontologyObject) ([]ontologyObject, restrictedview.Decision) {
+	claims, _ := authmw.FromContext(r.Context())
+	out := make([]ontologyObject, 0, len(items))
+	aggregate := restrictedview.Decision{
+		Allowed:                          true,
+		HiddenColumns:                    policy.HiddenColumns,
+		MatchedRestrictedViewIDs:         []string{},
+		HistoricalIdentitySnapshotCaveat: restrictedview.HistoricalIdentitySnapshotCaveat,
+	}
+	if policy.ID != "" {
+		aggregate.MatchedRestrictedViewIDs = []string{policy.ID}
+	}
+	for _, item := range items {
+		decision := restrictedview.EvaluateRow(claims, policy, ontologyObjectPolicyRow(item))
+		aggregate.RequiresRuntimeEvaluation = aggregate.RequiresRuntimeEvaluation || decision.RequiresRuntimeEvaluation
+		aggregate.MatchedRules = append(aggregate.MatchedRules, decision.MatchedRules...)
+		if !decision.Allowed {
+			aggregate.DenyReasons = append(aggregate.DenyReasons, decision.DenyReasons...)
+			continue
+		}
+		out = append(out, redactOntologyObject(item, policy.HiddenColumns))
+	}
+	aggregate.MatchedRules = compactUniqueStrings(aggregate.MatchedRules)
+	aggregate.DenyReasons = compactUniqueStrings(aggregate.DenyReasons)
+	return out, aggregate
+}
+
+func ontologyObjectPolicyRow(item ontologyObject) map[string]any {
+	row := make(map[string]any, len(item.Properties)+5)
+	for key, value := range item.Properties {
+		row[key] = value
+	}
+	row["id"] = item.ID
+	row["object_id"] = item.ID
+	row["object_type_id"] = item.ObjectTypeID
+	if item.OrganizationID != nil {
+		row["organization_id"] = *item.OrganizationID
+	}
+	if item.Marking != nil {
+		row["marking"] = *item.Marking
+	}
+	return row
+}
+
+func redactOntologyObject(item ontologyObject, hiddenColumns []string) ontologyObject {
+	hidden := map[string]bool{}
+	for _, col := range hiddenColumns {
+		hidden[strings.ToLower(strings.TrimSpace(col))] = true
+	}
+	if len(hidden) == 0 {
+		return item
+	}
+	props := make(map[string]any, len(item.Properties))
+	for key, value := range item.Properties {
+		if hidden[strings.ToLower(key)] {
+			props[key] = nil
+			continue
+		}
+		props[key] = value
+	}
+	item.Properties = props
+	if hidden["organization_id"] {
+		item.OrganizationID = nil
+	}
+	if hidden["marking"] || hidden["markings"] {
+		item.Marking = nil
+	}
+	return item
+}
+
+func splitQueryCSV(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func compactUniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // ListObjectsByOntologyType serves GET /api/v1/ontology/types/{type_id}/objects.
 // Pagination on the SPA side is page+per_page; we map per_page → storage.Page.Size.
 //
@@ -111,6 +248,39 @@ func (h *Handlers) ListObjectsByOntologyType(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	consistency := parseConsistency(q.Get("consistency"))
+
+	if policy, ok, err := restrictedObjectPolicyForType(h, r, typeID, nil); err != nil {
+		writeError(w, err)
+		return
+	} else if ok {
+		full, err := h.Objects.ListByType(r.Context(), tenant, typeID, storage.Page{Size: 1_000_000}, consistency)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		allItems := make([]ontologyObject, 0, len(full.Items))
+		for i := range full.Items {
+			allItems = append(allItems, toOntologyObject(&full.Items[i]))
+		}
+		filtered, decision := filterOntologyObjectsForRestrictedView(r, policy, allItems)
+		total := len(filtered)
+		start := (page - 1) * int(perPage)
+		end := start + int(perPage)
+		if start > total {
+			start = total
+		}
+		if end > total {
+			end = total
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"data":                       filtered[start:end],
+			"total":                      total,
+			"page":                       page,
+			"per_page":                   perPage,
+			"restricted_view_evaluation": decision,
+		})
+		return
+	}
 
 	res, err := h.Objects.ListByType(r.Context(), tenant, typeID, storage.Page{Size: perPage}, consistency)
 	if err != nil {
@@ -159,7 +329,19 @@ func (h *Handlers) GetObjectByOntologyType(w http.ResponseWriter, r *http.Reques
 		http.NotFound(w, r)
 		return
 	}
-	writeJSON(w, http.StatusOK, toOntologyObject(obj))
+	out := toOntologyObject(obj)
+	if policy, ok, err := restrictedObjectPolicyForType(h, r, storage.TypeId(typeID), nil); err != nil {
+		writeError(w, err)
+		return
+	} else if ok {
+		filtered, decision := filterOntologyObjectsForRestrictedView(r, policy, []ontologyObject{out})
+		if len(filtered) == 0 {
+			http.Error(w, strings.Join(decision.DenyReasons, "; "), http.StatusNotFound)
+			return
+		}
+		out = filtered[0]
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // UpdateObjectByOntologyType serves PATCH /api/v1/ontology/types/{type_id}/objects/{object_id}.
@@ -347,13 +529,17 @@ type queryRequest struct {
 	PerPage uint32         `json:"per_page"`
 	// Limit mirrors the SPA's `queryObjects` body: cap on items when no
 	// per_page is set. We unify with per_page below.
-	Limit             int                `json:"limit"`
-	Sort              []querySort        `json:"sort"`
-	IncludeCount      bool               `json:"include_count"`
-	Aggregations      []queryAggregation `json:"aggregations"`
-	SelectedObjectIDs []string           `json:"selected_object_ids"`
-	SearchAround      *querySearchAround `json:"search_around,omitempty"`
-	KNN               *queryKNN          `json:"knn,omitempty"`
+	Limit                int                `json:"limit"`
+	Sort                 []querySort        `json:"sort"`
+	IncludeCount         bool               `json:"include_count"`
+	Aggregations         []queryAggregation `json:"aggregations"`
+	SelectedObjectIDs    []string           `json:"selected_object_ids"`
+	SearchAround         *querySearchAround `json:"search_around,omitempty"`
+	KNN                  *queryKNN          `json:"knn,omitempty"`
+	RestrictedViewID     string             `json:"restricted_view_id,omitempty"`
+	RestrictedViewPolicy json.RawMessage    `json:"restricted_view_policy,omitempty"`
+	HiddenColumns        []string           `json:"hidden_columns,omitempty"`
+	MarkingColumns       []string           `json:"marking_columns,omitempty"`
 }
 
 func matchesFilter(props map[string]any, f queryFilter) bool {
@@ -982,6 +1168,16 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	var restrictedDecision *restrictedview.Decision
+	if policy, ok, err := restrictedObjectPolicyForType(h, r, typeID, &body); err != nil {
+		writeError(w, err)
+		return
+	} else if ok {
+		filtered, decision := filterOntologyObjectsForRestrictedView(r, policy, matched)
+		matched = filtered
+		restrictedDecision = &decision
+	}
+
 	knnResults := []queryKNNResult(nil)
 	knnContract := map[string]any(nil)
 	if body.KNN != nil {
@@ -1023,14 +1219,15 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"data":         pageItems,
-		"total":        total,
-		"count":        total,
-		"page":         page,
-		"per_page":     perPage,
-		"aggregations": aggregations,
-		"linked_edges": pageLinkedEdges,
-		"knn_results":  pageKNNResults,
+		"data":                       pageItems,
+		"total":                      total,
+		"count":                      total,
+		"page":                       page,
+		"per_page":                   perPage,
+		"aggregations":               aggregations,
+		"linked_edges":               pageLinkedEdges,
+		"knn_results":                pageKNNResults,
+		"restricted_view_evaluation": restrictedDecision,
 		"object_set": map[string]any{
 			"object_type_id":      string(typeID),
 			"filters":             body.Filters,

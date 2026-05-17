@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/restrictedview"
 	servicecedar "github.com/openfoundry/openfoundry-go/services/object-database-service/internal/cedarauthz"
 	"github.com/openfoundry/openfoundry-go/services/object-database-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/object-database-service/internal/storage"
@@ -80,6 +81,24 @@ func seedLink(t *testing.T, h *handlers.Handlers, linkType, from, to string) {
 	}
 }
 
+type fakeObjectTypePolicyResolver struct {
+	policy restrictedview.Policy
+	ok     bool
+	err    error
+}
+
+func (f fakeObjectTypePolicyResolver) RestrictedViewPolicy(
+	_ context.Context,
+	_ string,
+	_ string,
+) (restrictedview.Policy, bool, error) {
+	return f.policy, f.ok, f.err
+}
+
+func claimsRequest(req *http.Request, claims *authmw.Claims) *http.Request {
+	return req.WithContext(authmw.ContextWithClaims(context.Background(), claims))
+}
+
 // ── ListObjects: filter via /query — 1000 rows under 50ms ───────────
 
 // TestListObjectsFilterPerformance pins the wall-clock budget for the
@@ -129,6 +148,73 @@ func TestListObjectsFilterPerformance(t *testing.T) {
 	total, ok := resp["total"].(float64)
 	if !ok || int(total) != 200 {
 		t.Fatalf("expected total=200, got %v", resp["total"])
+	}
+}
+
+func TestListObjectsInheritsRestrictedViewBackedObjectTypePolicy(t *testing.T) {
+	h := newTestHandlers(t)
+	h.ObjectTypes = fakeObjectTypePolicyResolver{
+		ok: true,
+		policy: restrictedview.Policy{
+			ID: "rv.customer_rows",
+			Policy: json.RawMessage(`{
+				"kind":"granular_policy",
+				"version":1,
+				"root":{
+					"id":"root",
+					"type":"group",
+					"operator":"and",
+					"children":[{
+						"id":"region-match",
+						"type":"comparison",
+						"left":{"kind":"column","column":"region"},
+						"operator":"equals",
+						"right":{"kind":"user_attribute","key":"region"}
+					}]
+				}
+			}`),
+		},
+	}
+	seedObject(t, h, "Customer", "emea-1", map[string]any{"name": "Ada", "region": "emea"})
+	seedObject(t, h, "Customer", "apac-1", map[string]any{"name": "Lin", "region": "apac"})
+	mux := mountOntologyRoutes(h)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ontology/types/Customer/objects/?per_page=10", nil)
+	req = claimsRequest(req, &authmw.Claims{
+		Permissions: []string{"restricted_view:read", "object_type_datasource:read"},
+		Attributes:  json.RawMessage(`{"region":"emea"}`),
+	})
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	data, ok := resp["data"].([]any)
+	if !ok || len(data) != 1 {
+		t.Fatalf("expected one visible object, got %#v", resp["data"])
+	}
+	first := data[0].(map[string]any)
+	if first["id"] != "emea-1" {
+		t.Fatalf("expected emea-1 after restricted-view filter, got %#v", first["id"])
+	}
+	if resp["restricted_view_evaluation"] == nil {
+		t.Fatalf("expected restricted_view_evaluation in response")
+	}
+}
+
+func TestRestrictedViewBackedObjectTypeRequiresDatasourceReadPermission(t *testing.T) {
+	h := newTestHandlers(t)
+	h.ObjectTypes = fakeObjectTypePolicyResolver{ok: true, policy: restrictedview.Policy{ID: "rv.customer_rows"}}
+	mux := mountOntologyRoutes(h)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ontology/types/Customer/objects/?per_page=10", nil)
+	req = claimsRequest(req, &authmw.Claims{Permissions: []string{"restricted_view:read"}})
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", rr.Code, rr.Body.String())
 	}
 }
 

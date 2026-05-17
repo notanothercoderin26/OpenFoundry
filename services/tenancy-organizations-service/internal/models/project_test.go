@@ -59,6 +59,12 @@ func TestOntologyProjectJSONRoundtrip(t *testing.T) {
 	assert.Equal(t, in, got)
 }
 
+func TestFolderRIDFromID(t *testing.T) {
+	t.Parallel()
+	id := uuid.MustParse("018f2f1c-aaaa-7bbb-8ccc-000000000002")
+	assert.Equal(t, "ri.compass.main.folder.018f2f1c-aaaa-7bbb-8ccc-000000000002", FolderRIDFromID(id))
+}
+
 func TestOntologyProjectMembershipJSONRoundtrip(t *testing.T) {
 	t.Parallel()
 	in := OntologyProjectMembership{
@@ -94,16 +100,26 @@ func TestOntologyProjectResourceBindingJSONRoundtrip(t *testing.T) {
 func TestOntologyProjectFolderJSONRoundtrip(t *testing.T) {
 	t.Parallel()
 	parent := uuid.New()
+	id := uuid.New()
+	projectID := uuid.New()
 	in := OntologyProjectFolder{
-		ID:             uuid.New(),
-		ProjectID:      uuid.New(),
-		ParentFolderID: &parent,
-		Name:           "Models",
-		Slug:           "models",
-		Description:    "Production models",
-		CreatedBy:      uuid.New(),
-		CreatedAt:      time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		UpdatedAt:      time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+		ID:                      id,
+		RID:                     FolderRIDFromID(id),
+		ProjectID:               projectID,
+		ProjectRID:              ProjectRIDFromID(projectID),
+		ParentFolderID:          &parent,
+		ParentFolderRID:         FolderRIDFromID(parent),
+		SpaceRID:                DefaultProjectSpaceRID,
+		Type:                    FolderResourceType,
+		TrashStatus:             FolderTrashStatusNotTrashed,
+		InheritsProjectPolicies: true,
+		PolicyOverridesAllowed:  true,
+		Name:                    "Models",
+		Slug:                    "models",
+		Description:             "Production models",
+		CreatedBy:               uuid.New(),
+		CreatedAt:               time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:               time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
 	}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)

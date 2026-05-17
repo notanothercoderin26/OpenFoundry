@@ -15,6 +15,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/restrictedview"
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/repo"
 )
@@ -619,6 +621,7 @@ func (h *Handlers) previewData(w http.ResponseWriter, r *http.Request, scopedVie
 			return
 		}
 	} else if ok {
+		applyRestrictedViewPreviewPolicy(r, out, viewID)
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
@@ -627,7 +630,62 @@ func (h *Handlers) previewData(w http.ResponseWriter, r *http.Request, scopedVie
 		writeViewError(w, err)
 		return
 	}
+	applyRestrictedViewPreviewPolicy(r, out, viewID)
 	writeJSON(w, http.StatusOK, out)
+}
+
+func applyRestrictedViewPreviewPolicy(r *http.Request, out *models.PreviewDataResponse, viewID *uuid.UUID) {
+	if out == nil {
+		return
+	}
+	policy, ok := restrictedViewPolicyFromRequest(r, viewID)
+	if !ok {
+		return
+	}
+	claims, _ := authmw.FromContext(r.Context())
+	filtered, decision := restrictedview.ApplyTableRows(claims, policy, out.Columns, out.Rows)
+	out.Rows = filtered
+	out.TotalRows = len(filtered)
+	out.Warnings = append(out.Warnings,
+		"Restricted view query enforcement was applied to this preview using the caller's current attributes, group memberships, marking memberships, and scoped-session state.",
+		decision.HistoricalIdentitySnapshotCaveat,
+	)
+	if len(decision.DenyReasons) > 0 {
+		out.Warnings = append(out.Warnings, "Restricted view filtered rows: "+strings.Join(decision.DenyReasons, "; "))
+	}
+}
+
+func restrictedViewPolicyFromRequest(r *http.Request, viewID *uuid.UUID) (restrictedview.Policy, bool) {
+	policy, ok := restrictedview.PolicyFromHeaders(r.Header.Get)
+	if raw := strings.TrimSpace(r.URL.Query().Get("restricted_view_policy")); raw != "" {
+		policy.Policy = json.RawMessage(raw)
+		ok = true
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("restricted_view_id")); raw != "" {
+		policy.ID = raw
+		ok = true
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("hidden_columns")); raw != "" {
+		policy.HiddenColumns = splitCSVQuery(raw)
+		ok = true
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("marking_columns")); raw != "" {
+		policy.MarkingColumns = splitCSVQuery(raw)
+		ok = true
+	}
+	if viewID != nil && policy.ID == "" && requestHasRestrictedViewScope(r) {
+		policy.ID = viewID.String()
+		ok = true
+	}
+	return policy, ok
+}
+
+func requestHasRestrictedViewScope(r *http.Request) bool {
+	claims, ok := authmw.FromContext(r.Context())
+	if ok && len(claims.RestrictedViewIDs()) > 0 {
+		return true
+	}
+	return strings.TrimSpace(r.Header.Get("x-openfoundry-restricted-view-ids")) != ""
 }
 
 func (h *Handlers) GetCurrentSchema(w http.ResponseWriter, r *http.Request) {

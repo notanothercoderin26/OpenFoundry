@@ -62,8 +62,10 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 - [Projects and resources](https://www.palantir.com/docs/foundry/getting-started/projects-and-resources/)
 - [Filesystem Get Resource API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/resources/get-resource/)
 - [Resource Identifier specification](https://github.com/palantir/resource-identifier)
-- [Projects and folders](https://www.palantir.com/docs/foundry/compass/projects-folders)
-- [Search and catalog](https://www.palantir.com/docs/foundry/compass/search)
+- [Filesystem Create Folder API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/folders/create-folder/)
+- [Filesystem Get Folder API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/folders/get-folder/)
+- [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch)
+- [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog)
 - [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash)
 - [Propagate view requirements](https://www.palantir.com/docs/foundry/compass/propagation)
 
@@ -100,38 +102,65 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 - [ ] `CMP.4` Project resource (`P0`, `todo`)
   - `project` is a top-level container with owner, organizations, markings, default queue (see [Resource Management](./foundry-resource-management-1to1-checklist.md)), and per-role access policies.
   - Projects can be nested inside spaces (admin-defined groupings).
-  - Docs: [Projects and folders](https://www.palantir.com/docs/foundry/compass/projects-folders).
+  - Docs: [Filesystem Create Project API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/projects/create-project/), [Filesystem Get Project API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/projects/get-project/), [Filesystem List Spaces API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/spaces/list-spaces/).
 
-- [ ] `CMP.5` Folder resource (`P0`, `todo`)
+- [x] `CMP.5` Folder resource (`P0`, `done`)
   - `folder` containers nestable inside a project (or another folder); each folder has a stable RID and inherits the project's policies unless overridden.
-  - Docs: [Projects and folders](https://www.palantir.com/docs/foundry/compass/projects-folders).
+  - Implementation: `tenancy-organizations-service` persists project folders with immutable `ri.compass.main.folder.<uuid>` RIDs, exposes Compass metadata (`project_rid`, `parent_folder_rid`, `space_rid`, `type`, `trash_status`), and accepts either legacy `parent_folder_id` UUIDs or canonical `parent_folder_rid` values for nested creation.
+  - Policy inheritance: project owner/default/user/group roles still apply to every folder; folder-scope direct grants remain the explicit override path and are resolved across the folder ancestor chain by effective access.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the folder resource contract.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/models ./services/tenancy-organizations-service/internal/handlers` and `go test ./services/tenancy-organizations-service/internal/workspace -run '^$'`.
+  - Docs: [Filesystem Create Folder API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/folders/create-folder/), [Filesystem Get Folder API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/folders/get-folder/), [Filesystem Get Resource API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/resources/get-resource/).
 
-- [ ] `CMP.6` Move and rename (`P0`, `todo`)
+- [x] `CMP.6` Move and rename (`P0`, `done`)
   - Move and rename preserve the RID and update breadcrumbs everywhere the resource is referenced.
   - Move across projects checks marking compatibility and asks for explicit confirmation when access policies change.
-  - Docs: [Projects and folders](https://www.palantir.com/docs/foundry/compass/projects-folders).
+  - Implementation: workspace move/rename operations update folder `project_id`, `parent_folder_id`, `name`, `slug`, and descendant folder project membership while never updating project/folder `rid` columns. Breadcrumbs remain derived from the stable RID plus the current project/parent folder chain, so rename/reparent changes are reflected wherever folders are listed or resolved.
+  - Cross-project move: folder subtree moves require source and target project ownership/admin access, reject cycles, update folder-scope grant references to the new project, require `confirm_access_policy_change=true`, compare source/target `marking_rids`, reject incompatible target markings, and require `confirm_marking_change=true` when compatible markings differ.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the RID-preserving move/rename contract.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/workspace ./services/tenancy-organizations-service/internal/models ./services/tenancy-organizations-service/internal/handlers`.
+  - Docs: [Filesystem Get Resource API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/resources/get-resource/), [Filesystem Get Folder API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/folders/get-folder/).
 
 ### Federated search and catalog
 
-- [ ] `CMP.7` Search index (`P0`, `todo`)
+- [x] `CMP.7` Search index (`P0`, `done`)
   - Per-resource index entry: RID, type, display name, owning project, organizations, markings, last modified, owner, tags, summary.
   - Index updated on resource create/update/move/trash via the event bus, no per-resource polling.
-  - Docs: [Search and catalog](https://www.palantir.com/docs/foundry/compass/search).
+  - Implementation: `tenancy-organizations-service` owns `compass_resource_search_index`, a per-resource catalog projection for projects and folders with RID, type, display name, owning project RID/UUID, organization RIDs, marking RIDs, owner, tags, summary, open URL, trash state, and a Postgres `search_vector`.
+  - Event flow: project/folder create, update, move, rename, duplicate, trash, restore, and purge paths update the index in the same transaction and emit `compass.resource.search.updated.v1` through the transactional outbox, so downstream Vespa/OpenSearch consumers can subscribe without polling resource tables.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the Compass search-index contract.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/workspace -run 'SearchIndex|CMP7|Move|Rename|BatchResponse|CMP6' -count=1`, `go test ./services/tenancy-organizations-service/internal/models ./services/tenancy-organizations-service/internal/handlers`, `go test ./libs/outbox ./libs/core-models/...`, and `git diff --check`.
+  - Docs: [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch), [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog), [Compass overview](https://www.palantir.com/docs/foundry/compass/overview).
 
-- [ ] `CMP.8` Search API (`P0`, `todo`)
+- [x] `CMP.8` Search API (`P0`, `done`)
   - `GET /compass/search?q=...&type=...&project=...&owner=...&marking=...` with permission-aware filtering (results never leak resources the caller cannot see).
   - Cursor pagination with bounded result count; tiebreak by last-modified.
-  - Docs: [Search and catalog](https://www.palantir.com/docs/foundry/compass/search).
+  - Implementation: `GET /api/v1/compass/search` queries `compass_resource_search_index` with filters for `q`, `type`, `project` (UUID or project RID), `owner`, repeated `marking`, `limit`, and opaque `cursor`.
+  - Permission model: the handler intersects every search with `domain.ListAccessibleProjects`; inaccessible project filters return an empty result set rather than leaking project existence.
+  - Pagination: results are bounded to `limit <= 200`, ordered by text score, `last_modified_at DESC`, and `rid ASC`; the cursor encodes the previous page's score, timestamp, and RID so pagination is stable.
+  - Documentation: `README.md` and `services/tenancy-organizations-service/README.md` define the API surface.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/workspace -run 'CompassSearch|SearchIndex|CMP7|CMP8' -count=1` and `go test ./services/tenancy-organizations-service/internal/server ./services/tenancy-organizations-service/internal/models ./services/tenancy-organizations-service/internal/handlers`.
+  - Docs: [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch), [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog).
 
-- [ ] `CMP.9` Search UI shell (`P0`, `todo`)
+- [x] `CMP.9` Search UI shell (`P0`, `done`)
   - Global search box (keyboard shortcut) with type filters, project filter, marking badges, recents/favorites, and an "open with..." menu derived from the resource type registry.
-  - Docs: [Search and catalog](https://www.palantir.com/docs/foundry/compass/search).
+  - Implementation: `apps/web/src/routes/search/SearchPage.tsx` keeps the Quicksearch-style global search shell and `Cmd/Ctrl+J` focus shortcut, combines ontology results with `GET /api/v1/compass/search`, and loads workspace recents/favorites for jump-to mode.
+  - Filters and metadata: the Files tab now blends ontology file kinds with registry-backed Compass resource types, applies the Compass project and marking filters through the search API, and renders resource RID/type/open URL, tags, last-modified metadata, and marking badges.
+  - Open-with registry: `apps/web/src/lib/compass/resourceTypeRegistry.ts` mirrors the Compass resource type definitions needed by the frontend for display labels, icons, supported actions, open-app URL templates, unknown-type fallback, and per-type "Open with" targets.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the Search UI shell contract.
+  - Verification: `pnpm --filter @open-foundry/web exec eslint src/routes/search/SearchPage.tsx src/lib/api/workspace.ts src/lib/compass/resourceTypeRegistry.ts`; `pnpm --filter @open-foundry/web check` is still blocked by the pre-existing `apps/web/src/lib/api/client.test.ts` expectation that `ApiClient` is exported.
+  - Docs: [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch), [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog).
 
 ### Navigation
 
-- [ ] `CMP.10` Breadcrumbs (`P0`, `todo`)
+- [x] `CMP.10` Breadcrumbs (`P0`, `done`)
   - Standard breadcrumb component bound to a resource's project/folder path, with click-to-open and copy-RID actions.
-  - Docs: [Cross-app navigation](https://www.palantir.com/docs/foundry/compass/navigation).
+  - Implementation: `apps/web/src/lib/components/workspace/ProjectBreadcrumb.tsx` is now the standard resource breadcrumb component. It builds `Projects → Project → Folder...` paths from project/folder metadata, links each ancestor to its current open route, marks the current crumb with `aria-current`, and exposes per-crumb copy-RID buttons.
+  - RID behavior: project crumbs copy `rid` when present or the canonical fallback `ri.compass.main.project.<uuid>`; folder crumbs copy their stable `rid` or `ri.compass.main.folder.<uuid>`. Rename/move changes therefore update labels and links while copied references remain immutable.
+  - Wired surfaces: `ProjectDetailPage` renders project-root breadcrumbs and `ProjectFolderPage` renders full folder ancestry; folder headers now display the folder RID and parent folder/project RID context.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, and `docs/reference/foundry-compatibility-glossary.md` define the breadcrumb contract.
+  - Verification: `pnpm --filter @open-foundry/web exec eslint src/lib/components/workspace/ProjectBreadcrumb.tsx src/routes/projects/ProjectDetailPage.tsx src/routes/projects/ProjectFolderPage.tsx` and `git diff --check -- apps/web/src/lib/components/workspace/ProjectBreadcrumb.tsx apps/web/src/routes/projects/ProjectDetailPage.tsx apps/web/src/routes/projects/ProjectFolderPage.tsx apps/web/src/styles/app.css`.
+  - Docs: [Move and share resources](https://www.palantir.com/docs/foundry/compass/move-and-share-resources), [Use Project navigation panel](https://www.palantir.com/docs/foundry/compass/use-project-navigation-panel), [Use Project details panel](https://www.palantir.com/docs/foundry/compass/use-project-details-panel).
 
 - [ ] `CMP.11` Open-with menu (`P0`, `todo`)
   - For each resource, the registry declares the apps that can open it (e.g. dataset → Dataset Preview, Pipeline Builder, Code Workbook, Quiver).
@@ -195,7 +224,7 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 
 - [ ] `CMP.21` Bulk move/trash/share (`P1`, `todo`)
   - Bulk operations from search results or folder listings with pre-flight policy checks and a single audit event per batch.
-  - Docs: [Projects and folders](https://www.palantir.com/docs/foundry/compass/projects-folders).
+  - Docs: [Filesystem Get Resource API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/resources/get-resource/), [Filesystem Get Folder API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/folders/get-folder/).
 
 ## Milestone C: catalog, recommendations, dependency graph, multi-region
 
@@ -203,19 +232,19 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 
 - [ ] `CMP.22` Long-text catalog index (`P2`, `todo`)
   - Index resource descriptions, README content, ontology object/property descriptions, code repo READMEs, dashboard descriptions; surface in search with snippet highlighting.
-  - Docs: [Search and catalog](https://www.palantir.com/docs/foundry/compass/search).
+  - Docs: [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch), [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog).
 
 - [ ] `CMP.23` Facets and saved searches (`P2`, `todo`)
   - Facets on type, project, owner, marking, last-modified bucket.
   - Save a search as a named query that appears in the user's sidebar.
-  - Docs: [Search and catalog](https://www.palantir.com/docs/foundry/compass/search).
+  - Docs: [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch), [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog).
 
 ### Recommendations and dependency graph
 
 - [ ] `CMP.24` Resource recommendations (`P2`, `todo`)
   - Per-user "you might want to open" recommendations based on collaborator activity, recent opens, and explicit follows on a project.
   - Privacy-respecting: no surfacing of resources the caller cannot see.
-  - Docs: [Search and catalog](https://www.palantir.com/docs/foundry/compass/search).
+  - Docs: [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch), [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog).
 
 - [ ] `CMP.25` Dependency graph view (`P2`, `todo`)
   - Interactive graph showing direct and transitive dependencies of a resource, with type filters and click-to-open.

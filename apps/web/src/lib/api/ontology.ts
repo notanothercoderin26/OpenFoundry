@@ -2723,6 +2723,7 @@ export function createProject(body: {
     name: string;
     description?: string;
     parent_folder_id?: string | null;
+    parent_folder_rid?: string | null;
   }>;
 }) {
   return api.post<OntologyProject>("/ontology/projects", body);
@@ -2765,6 +2766,7 @@ export function createProjectFolder(
     name: string;
     description?: string;
     parent_folder_id?: string | null;
+    parent_folder_rid?: string | null;
   },
 ) {
   return api.post<OntologyProjectFolder>(
@@ -15903,8 +15905,16 @@ export interface OntologyProposal {
 
 export interface OntologyProjectFolder {
   id: string;
+  rid: string;
   project_id: string;
+  project_rid: string;
   parent_folder_id: string | null;
+  parent_folder_rid: string;
+  space_rid: string;
+  type: "FOLDER";
+  trash_status: "DIRECTLY_TRASHED" | "ANCESTOR_TRASHED" | "NOT_TRASHED";
+  inherits_project_policies: boolean;
+  policy_overrides_allowed: boolean;
   name: string;
   slug: string;
   description: string;
@@ -16494,9 +16504,19 @@ export function createObjectType(body: {
   color?: string;
   status?: string;
   visibility?: string;
-  group_names?: string[];
-  object_display_preferences?: Record<string, unknown>;
-}) {
+    group_names?: string[];
+    object_display_preferences?: Record<string, unknown>;
+    backing_dataset_id?: string | null;
+    backing_dataset_rid?: string | null;
+    backing_datasource_type?: "dataset" | "restricted_view" | string | null;
+    backing_restricted_view_id?: string | null;
+    restricted_view_id?: string | null;
+    restricted_view_policy?: RestrictedViewRowPolicy | Record<string, unknown> | null;
+    restricted_view_policy_version?: number | null;
+    restricted_view_registered_policy_version?: number | null;
+    restricted_view_indexed_policy_version?: number | null;
+    restricted_view_storage_mode?: RestrictedViewStorageMode | null;
+  }) {
   return api.post<ObjectType>("/ontology/types", body);
 }
 
@@ -16515,6 +16535,19 @@ export function updateObjectType(
     visibility?: string;
     group_names?: string[];
     object_display_preferences?: Record<string, unknown>;
+    backing_dataset_id?: string | null;
+    backing_dataset_rid?: string | null;
+    backing_datasource_type?: "dataset" | "restricted_view" | string | null;
+    backing_restricted_view_id?: string | null;
+    restricted_view_id?: string | null;
+    restricted_view_policy?: RestrictedViewRowPolicy | Record<string, unknown> | null;
+    restricted_view_policy_version?: number | null;
+    restricted_view_registered_policy_version?: number | null;
+    restricted_view_indexed_policy_version?: number | null;
+    restricted_view_storage_mode?: RestrictedViewStorageMode | null;
+    restricted_view_policy_updated_at?: string | null;
+    restricted_view_registered_at?: string | null;
+    restricted_view_indexed_at?: string | null;
   },
 ) {
   return api.patch<ObjectType>(`/ontology/types/${id}`, body);

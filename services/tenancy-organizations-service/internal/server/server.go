@@ -125,6 +125,8 @@ func New(
 		api.Delete("/projects/{id}/resource-grants/{grant_id}", ph.DeleteProjectResourceGrant)
 		api.Get("/projects/{id}/effective-access", ph.CheckEffectiveAccess)
 
+		api.Get("/compass/search", ws.SearchCompass)
+
 		// Nexus federation peer spaces — distinct from the SG.2
 		// tenancy_spaces above. Kept under /nexus to avoid collision
 		// with the Foundry-style /organizations/{id}/spaces.

@@ -26,8 +26,10 @@ import {
   readRestrictedViewBackingConfig,
   redactObjectInstanceForRestrictedViewPolicy,
   restrictedViewPolicyPropagationStatus,
+  restrictedViewBackingConfigForObjectType,
   schemaOnlyObjectInstance,
   saveRestrictedViewBackingConfig,
+  updateObjectType,
   validateInterfaceActionRestrictions,
   validateMultiDatasourcePrimaryKeys,
   bindingDatasourceProvenance,
@@ -92,12 +94,13 @@ const DEFAULT_DATASOURCE_SETTINGS: DatasourceSettings = {
   conflict_resolution: 'apply_user_edits',
 };
 
-function readDatasourceSettings(typeId: string): DatasourceSettings {
+function readDatasourceSettings(typeId: string, objectType?: ObjectType | null): DatasourceSettings {
   if (!typeId || typeof window === 'undefined') return { ...DEFAULT_DATASOURCE_SETTINGS };
   try {
     const raw = window.localStorage.getItem(`of:ontology:datasource:${typeId}`);
     const base = raw ? { ...DEFAULT_DATASOURCE_SETTINGS, ...(JSON.parse(raw) as Partial<DatasourceSettings>) } : { ...DEFAULT_DATASOURCE_SETTINGS };
-    const restrictedView = readRestrictedViewBackingConfig(typeId);
+    const localRestrictedView = readRestrictedViewBackingConfig(typeId);
+    const restrictedView = restrictedViewBackingConfigForObjectType(objectType, localRestrictedView);
     if (!restrictedView) return base;
     return datasourceSettingsFromRestrictedViewConfig(base, restrictedView);
   } catch {
@@ -164,6 +167,32 @@ function restrictedViewConfigFromDatasourceSettings(settings: DatasourceSettings
     policy_updated_at: new Date().toISOString(),
     require_reregistration_on_policy_change: true,
     require_reindex_on_policy_change: true,
+  };
+}
+
+function objectTypeDatasourcePayload(
+  settings: DatasourceSettings,
+  restrictedView: RestrictedViewBackingConfig | null,
+) {
+  if (settings.backing_source_kind !== 'restricted_view' || !restrictedView?.restricted_view_id) {
+    return {
+      backing_datasource_type: 'dataset',
+      backing_dataset_id: settings.backing_dataset_id,
+    };
+  }
+  return {
+    backing_datasource_type: 'restricted_view',
+    backing_dataset_id: restrictedView.backing_dataset_id ?? settings.backing_dataset_id,
+    backing_restricted_view_id: restrictedView.restricted_view_id,
+    restricted_view_id: restrictedView.restricted_view_id,
+    restricted_view_policy: restrictedView.policy ?? null,
+    restricted_view_policy_version: restrictedView.policy_version ?? 0,
+    restricted_view_registered_policy_version: restrictedView.registered_policy_version ?? 0,
+    restricted_view_indexed_policy_version: restrictedView.indexed_policy_version ?? 0,
+    restricted_view_storage_mode: restrictedView.storage_mode ?? 'remote',
+    restricted_view_policy_updated_at: restrictedView.policy_updated_at ?? null,
+    restricted_view_registered_at: restrictedView.registered_at ?? null,
+    restricted_view_indexed_at: restrictedView.indexed_at ?? null,
   };
 }
 type DependentKind =
@@ -432,7 +461,7 @@ export function ObjectTypeDetailPage() {
             setDatasets([]);
           }
         }
-        setDatasourceSettings(readDatasourceSettings(id));
+        setDatasourceSettings(readDatasourceSettings(id, type));
         setDatasourceDirty(false);
         setDatasourceSaved(false);
       }
@@ -842,12 +871,22 @@ export function ObjectTypeDetailPage() {
           setDatasourceDirty(true);
           setDatasourceSaved(false);
         }
-        function saveDatasource() {
+        async function saveDatasource() {
           if (!id) return;
-          writeDatasourceSettings(id, datasourceSettings);
-          saveRestrictedViewBackingConfig(id, restrictedView);
-          setDatasourceDirty(false);
-          setDatasourceSaved(true);
+          setBusy(true);
+          setError('');
+          try {
+            const updated = await updateObjectType(id, objectTypeDatasourcePayload(datasourceSettings, restrictedView));
+            setType(updated);
+            writeDatasourceSettings(id, datasourceSettings);
+            saveRestrictedViewBackingConfig(id, restrictedView);
+            setDatasourceDirty(false);
+            setDatasourceSaved(true);
+          } catch (cause) {
+            setError(cause instanceof Error ? cause.message : 'Failed to save datasource');
+          } finally {
+            setBusy(false);
+          }
         }
         return (
           <section style={{ display: 'grid', gap: 14 }}>
@@ -1142,11 +1181,11 @@ export function ObjectTypeDetailPage() {
               {datasourceDirty ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>1 edit</span> : null}
               <button
                 type="button"
-                onClick={saveDatasource}
-                disabled={!datasourceDirty}
-                style={{ padding: '8px 16px', border: 0, borderRadius: 4, background: datasourceDirty ? '#15803d' : '#aab4c0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: datasourceDirty ? 'pointer' : 'not-allowed' }}
+                onClick={() => void saveDatasource()}
+                disabled={!datasourceDirty || busy}
+                style={{ padding: '8px 16px', border: 0, borderRadius: 4, background: datasourceDirty && !busy ? '#15803d' : '#aab4c0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: datasourceDirty && !busy ? 'pointer' : 'not-allowed' }}
               >
-                Save
+                {busy ? 'Saving' : 'Save'}
               </button>
             </div>
 

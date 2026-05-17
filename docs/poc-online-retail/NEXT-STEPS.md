@@ -182,7 +182,7 @@ services/<svc>/
   Dockerfile                         ← multi-stage Go → distroless
 ```
 
-To create a new service: copy [services/template/](../../services/template/) wholesale, rename it, register it in:
+To create a new service: copy [docs/templates/service-skeleton/](../../docs/templates/service-skeleton/) wholesale into `services/<name>/`, rename it (and drop the `//go:build ignore` headers), register it in:
 - [infra/helm/apps/](../../infra/helm/apps/) (Helm chart)
 - [services/edge-gateway-service/internal/proxy/router_table.go](../../services/edge-gateway-service/internal/proxy/router_table.go) (if it receives external traffic)
 - [infra/argocd/apps/](../../infra/argocd/apps/) (GitOps)
@@ -407,10 +407,12 @@ It has 3 pages:
 Copy the template:
 
 ```sh
-cp -r services/template services/iceberg-indexer-service
+cp -r docs/templates/service-skeleton services/iceberg-indexer-service
 cd services/iceberg-indexer-service
 # Rename paths cmd/template → cmd/iceberg-indexer-service
 mv cmd/template cmd/iceberg-indexer-service
+# Drop the //go:build ignore headers so the Go toolchain compiles the copy.
+find . -name "*.go" -exec sed -i '' '/^\/\/go:build ignore$/,/^$/d' {} \;
 # Find/replace `template` → `iceberg-indexer-service` in go files
 find . -name "*.go" -exec sed -i '' 's|services/template|services/iceberg-indexer-service|g' {} \;
 ```

@@ -8,6 +8,7 @@ package handlers
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,9 +42,9 @@ func TestFolderSlugRejectsNonAlphanumericInput(t *testing.T) {
 func TestNormalizeSlugAccepts(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"FraudModels":   "fraudmodels",
+		"FraudModels":     "fraudmodels",
 		"  fraud-models ": "fraud-models",
-		"PROJECT-2026":  "project-2026",
+		"PROJECT-2026":    "project-2026",
 	}
 	for in, want := range cases {
 		got, err := normalizeSlug(in, "slug")
@@ -103,4 +104,19 @@ func TestAsciiLowerLeavesNonASCIIBytesIntact(t *testing.T) {
 	// then rejects the non-ASCII bytes — same observable result.
 	assert.Equal(t, "abc", asciiLower("ABC"))
 	assert.Equal(t, "café", asciiLower("CAFé"))
+}
+
+func TestParseFolderRIDLocator(t *testing.T) {
+	t.Parallel()
+	id := uuid.MustParse("018f2f1c-aaaa-7bbb-8ccc-000000000002")
+	got, err := parseFolderRIDLocator("ri.compass.main.folder."+id.String(), "parent_folder_rid")
+	require.NoError(t, err)
+	assert.Equal(t, id, got)
+}
+
+func TestParseFolderRIDLocatorRejectsOtherResourceTypes(t *testing.T) {
+	t.Parallel()
+	_, err := parseFolderRIDLocator("ri.compass.main.project.018f2f1c-aaaa-7bbb-8ccc-000000000001", "parent_folder_rid")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "compass folder RID")
 }

@@ -3,6 +3,23 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ApiError } from '@/lib/api/client';
 import { searchOntology, type SearchResult } from '@/lib/api/ontology';
+import {
+  listFavorites,
+  listRecents,
+  recordAccess,
+  resolveResourceLabels,
+  searchCompass,
+  type CompassSearchResult,
+  type RecentEntry,
+  type ResourceKind,
+  type UserFavorite,
+} from '@/lib/api/workspace';
+import {
+  expandResourceURL,
+  getResourceTypeDefinition,
+  openURLForCompassResource,
+  openWithTargetsForCompassResource,
+} from '@/lib/compass/resourceTypeRegistry';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 
 // ──────────────────────────────────────────────────────────────────
@@ -24,12 +41,29 @@ interface SearchFamilyState {
   total: number;
 }
 
+interface CompassSearchFamilyState {
+  data: CompassSearchResult[];
+  total: number;
+  nextCursor: string | null;
+}
+
 interface FamilyResults {
   apps: SearchFamilyState;
   objectTypes: SearchFamilyState;
   objects: SearchFamilyState;
   datasets: SearchFamilyState;
   files: SearchFamilyState;
+  resources: CompassSearchFamilyState;
+}
+
+interface ResourceShortcut {
+  key: string;
+  label: string;
+  subtitle: string;
+  href: string;
+  icon: GlyphName;
+  resourceKind: ResourceKind;
+  resourceId: string;
 }
 
 type SearchStatus = 'idle' | 'loading' | 'success' | 'empty' | 'error' | 'permission_denied';
@@ -84,6 +118,10 @@ function emptyFamily(): SearchFamilyState {
   return { data: [], total: 0 };
 }
 
+function emptyCompassFamily(): CompassSearchFamilyState {
+  return { data: [], total: 0, nextCursor: null };
+}
+
 function emptyFamilies(): FamilyResults {
   return {
     apps: emptyFamily(),
@@ -91,6 +129,7 @@ function emptyFamilies(): FamilyResults {
     objects: emptyFamily(),
     datasets: emptyFamily(),
     files: emptyFamily(),
+    resources: emptyCompassFamily(),
   };
 }
 
@@ -134,6 +173,117 @@ function pushRecentSearch(items: string[], query: string): string[] {
   return next.slice(0, RECENT_SEARCHES_MAX);
 }
 
+function splitFilterTokens(value: string): string[] {
+  return value
+    .split(/[,\s]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function shortToken(value: string, limit = 12): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, Math.max(4, limit - 5))}...${value.slice(-4)}`;
+}
+
+function ridLocator(value: string): string {
+  const parts = value.split('.');
+  if (parts.length >= 5 && parts[0] === 'ri') return parts.slice(4).join('.');
+  return value;
+}
+
+function compactRID(value: string): string {
+  const parts = value.split('.');
+  if (parts.length >= 5 && parts[0] === 'ri') {
+    return `${parts[1]}.${parts[3]}.${shortToken(parts.slice(4).join('.'), 10)}`;
+  }
+  return shortToken(value, 14);
+}
+
+function formatDateTime(value: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function resourceKindForCompassType(type: string): ResourceKind {
+  if (type === 'project') return 'ontology_project';
+  if (type === 'folder') return 'ontology_folder';
+  if (type === 'dataset') return 'dataset';
+  if (type === 'pipeline') return 'pipeline';
+  if (type === 'notebook') return 'notebook';
+  if (type === 'app') return 'app';
+  if (type === 'dashboard') return 'dashboard';
+  if (type === 'report') return 'report';
+  if (type === 'model') return 'model';
+  if (type === 'workflow') return 'workflow';
+  return 'other';
+}
+
+function recordCompassAccess(result: CompassSearchResult) {
+  const resourceKind = resourceKindForCompassType(result.type);
+  const resourceId = ridLocator(result.rid);
+  recordAccess({ resource_kind: resourceKind, resource_id: resourceId }).catch(() => {});
+}
+
+function resourceKindLabel(kind: ResourceKind): string {
+  return kind.replace(/^ontology_/, '').replace(/_/g, ' ');
+}
+
+function hrefForWorkspaceResource(kind: ResourceKind, id: string): string {
+  if (kind === 'ontology_project') return `/projects/${id}`;
+  if (kind === 'dataset') return `/datasets/${id}`;
+  if (kind === 'pipeline') return `/pipelines/${id}`;
+  if (kind === 'notebook') return `/notebooks/${id}`;
+  if (kind === 'app') return `/apps/${id}`;
+  if (kind === 'report') return `/reports/${id}`;
+  if (kind === 'model') return `/ml?model=${encodeURIComponent(id)}`;
+  return `/search?q=${encodeURIComponent(id)}`;
+}
+
+function glyphForWorkspaceResource(kind: ResourceKind): GlyphName {
+  if (kind === 'ontology_project') return 'project';
+  if (kind === 'ontology_folder') return 'folder';
+  if (kind === 'dataset') return 'database';
+  if (kind === 'pipeline') return 'graph';
+  if (kind === 'notebook') return 'code';
+  if (kind === 'app') return 'app';
+  if (kind === 'dashboard') return 'spreadsheet';
+  if (kind === 'report') return 'document';
+  if (kind === 'model') return 'cube';
+  if (kind === 'workflow') return 'run';
+  return 'object';
+}
+
+function shortcutFromFavorite(entry: UserFavorite, labels: Map<string, string>): ResourceShortcut {
+  const key = `${entry.resource_kind}:${entry.resource_id}`;
+  const label = labels.get(key) ?? shortToken(entry.resource_id, 18);
+  return {
+    key: `favorite:${key}`,
+    label,
+    subtitle: `Favorite ${resourceKindLabel(entry.resource_kind)}`,
+    href: hrefForWorkspaceResource(entry.resource_kind, entry.resource_id),
+    icon: glyphForWorkspaceResource(entry.resource_kind),
+    resourceKind: entry.resource_kind,
+    resourceId: entry.resource_id,
+  };
+}
+
+function shortcutFromRecent(entry: RecentEntry, labels: Map<string, string>): ResourceShortcut {
+  const key = `${entry.resource_kind}:${entry.resource_id}`;
+  const label = labels.get(key) ?? shortToken(entry.resource_id, 18);
+  const openedAt = formatDateTime(entry.last_accessed_at);
+  return {
+    key: `recent:${key}`,
+    label,
+    subtitle: openedAt ? `${resourceKindLabel(entry.resource_kind)} · ${openedAt}` : resourceKindLabel(entry.resource_kind),
+    href: hrefForWorkspaceResource(entry.resource_kind, entry.resource_id),
+    icon: glyphForWorkspaceResource(entry.resource_kind),
+    resourceKind: entry.resource_kind,
+    resourceId: entry.resource_id,
+  };
+}
+
 export function SearchPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -145,6 +295,8 @@ export function SearchPage() {
   const [status, setStatus] = useState<SearchStatus>(() => (searchParams.get('q')?.trim() ? 'loading' : 'idle'));
   const [error, setError] = useState('');
   const [recent, setRecent] = useState<string[]>(() => loadRecentSearches());
+  const [favoriteShortcuts, setFavoriteShortcuts] = useState<ResourceShortcut[]>([]);
+  const [recentResourceShortcuts, setRecentResourceShortcuts] = useState<ResourceShortcut[]>([]);
 
   // Per-tab filter state
   const [appsTypeFilter, setAppsTypeFilter] = useState<Set<string>>(new Set());
@@ -153,6 +305,7 @@ export function SearchPage() {
   const [showCatalogOnly, setShowCatalogOnly] = useState(false);
   const [createdBy, setCreatedBy] = useState('');
   const [tagFilter, setTagFilter] = useState('');
+  const [markingFilter, setMarkingFilter] = useState('');
   const [pathFilter, setPathFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
   const [includeTrash, setIncludeTrash] = useState(false);
@@ -193,7 +346,43 @@ export function SearchPage() {
     return () => clearTimeout(id);
   }, []);
 
-  // Run a parallel multi-kind search whenever the submitted query changes.
+  // Jump-to personalization: resource shortcuts are permission-filtered by the
+  // backend endpoints that own favorites/recents.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      listFavorites({ limit: 8 }).catch(() => [] as UserFavorite[]),
+      listRecents({ limit: 8 }).catch(() => [] as RecentEntry[]),
+    ])
+      .then(async ([favorites, recents]) => {
+        const items = [
+          ...favorites.map((entry) => ({ resource_kind: entry.resource_kind, resource_id: entry.resource_id })),
+          ...recents.map((entry) => ({ resource_kind: entry.resource_kind, resource_id: entry.resource_id })),
+        ];
+        const labels = new Map<string, string>();
+        if (items.length > 0) {
+          const response = await resolveResourceLabels(items).catch(() => null);
+          for (const entry of response?.data ?? []) {
+            if (entry.label) labels.set(`${entry.resource_kind}:${entry.resource_id}`, entry.label);
+          }
+        }
+        if (cancelled) return;
+        setFavoriteShortcuts(favorites.map((entry) => shortcutFromFavorite(entry, labels)));
+        setRecentResourceShortcuts(recents.map((entry) => shortcutFromRecent(entry, labels)));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFavoriteShortcuts([]);
+          setRecentResourceShortcuts([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Run a parallel multi-kind search whenever the submitted query or Compass
+  // project/marking facets change.
   useEffect(() => {
     const trimmed = submittedQuery.trim();
     if (!trimmed) {
@@ -218,14 +407,23 @@ export function SearchPage() {
       }
     };
 
+    const compassProject = projectFilter.trim();
+    const compassMarkings = splitFilterTokens(markingFilter);
+
     Promise.all([
       fetchFamily('app', 12),
       fetchFamily('object_type', 12),
       fetchFamily('object_instance', 25),
       fetchFamily('dataset', 25),
       fetchFamily(undefined, 50),
+      searchCompass({
+        q: trimmed,
+        project: compassProject || undefined,
+        marking: compassMarkings.length > 0 ? compassMarkings : undefined,
+        limit: 50,
+      }),
     ])
-      .then(([apps, objectTypes, objects, datasets, all]) => {
+      .then(([apps, objectTypes, objects, datasets, all, resources]) => {
         if (requestRef.current !== requestId) return;
         const filesData = all.data.filter((r) => FILE_KINDS.has(r.kind));
         const filesTotal = filesData.length;
@@ -235,9 +433,14 @@ export function SearchPage() {
           objects,
           datasets,
           files: { data: filesData, total: filesTotal },
+          resources: {
+            data: resources.data,
+            total: resources.data.length,
+            nextCursor: resources.next_cursor ?? null,
+          },
         };
         setFamilies(next);
-        const hasAny = apps.total + objectTypes.total + objects.total + datasets.total + filesTotal > 0;
+        const hasAny = apps.total + objectTypes.total + objects.total + datasets.total + filesTotal + resources.data.length > 0;
         setStatus(hasAny ? 'success' : 'empty');
       })
       .catch((cause) => {
@@ -246,7 +449,7 @@ export function SearchPage() {
         setError(cause instanceof Error ? cause.message : 'Search failed');
         setStatus(cause instanceof ApiError && (cause.status === 401 || cause.status === 403) ? 'permission_denied' : 'error');
       });
-  }, [submittedQuery]);
+  }, [markingFilter, projectFilter, submittedQuery]);
 
   const tabCounts = useMemo(
     () => ({
@@ -254,7 +457,7 @@ export function SearchPage() {
       apps: families.apps.total,
       objects: families.objectTypes.total + families.objects.total,
       datasets: families.datasets.total,
-      files: families.files.total,
+      files: families.files.total + families.resources.total,
     }),
     [families],
   );
@@ -416,6 +619,8 @@ export function SearchPage() {
               setCreatedBy={setCreatedBy}
               tagFilter={tagFilter}
               setTagFilter={setTagFilter}
+              markingFilter={markingFilter}
+              setMarkingFilter={setMarkingFilter}
               pathFilter={pathFilter}
               setPathFilter={setPathFilter}
               projectFilter={projectFilter}
@@ -430,6 +635,8 @@ export function SearchPage() {
           {status === 'idle' && (
             <RecentSearchesView
               recent={recent}
+              favorites={favoriteShortcuts}
+              resources={recentResourceShortcuts}
               onPick={(q) => {
                 setQuery(q);
                 submit(q);
@@ -473,7 +680,9 @@ export function SearchPage() {
             <ObjectsTabView families={families} objectsTypeFilter={objectsTypeFilter} />
           )}
           {status === 'success' && tab === 'datasets' && <DatasetsTabView families={families} />}
-          {status === 'success' && tab === 'files' && <FilesTabView families={families} filesKindFilter={filesKindFilter} />}
+          {status === 'success' && tab === 'files' && (
+            <FilesTabView families={families} filesKindFilter={filesKindFilter} tagFilter={tagFilter} />
+          )}
         </main>
       </div>
 
@@ -515,11 +724,13 @@ export function SearchPage() {
 
 interface RecentSearchesViewProps {
   recent: string[];
+  favorites: ResourceShortcut[];
+  resources: ResourceShortcut[];
   onPick: (q: string) => void;
   onClear: () => void;
 }
 
-function RecentSearchesView({ recent, onPick, onClear }: RecentSearchesViewProps) {
+function RecentSearchesView({ recent, favorites, resources, onPick, onClear }: RecentSearchesViewProps) {
   return (
     <div className="of-quicksearch__recent">
       <div className="of-quicksearch__recentHeader">
@@ -547,7 +758,40 @@ function RecentSearchesView({ recent, onPick, onClear }: RecentSearchesViewProps
           ))}
         </ul>
       )}
+
+      <ResourceShortcutSection title="Favorites" rows={favorites} />
+      <ResourceShortcutSection title="Recent resources" rows={resources} />
     </div>
+  );
+}
+
+function ResourceShortcutSection({ title, rows }: { title: string; rows: ResourceShortcut[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <div className="of-quicksearch__recentHeader">
+        <span>{title}</span>
+      </div>
+      <ul className="of-quicksearch__recentList of-quicksearch__recentList--resources">
+        {rows.map((row) => (
+          <li key={row.key}>
+            <Link
+              to={row.href}
+              className="of-quicksearch__recentRow of-quicksearch__recentResourceRow"
+              onClick={() => recordAccess({ resource_kind: row.resourceKind, resource_id: row.resourceId }).catch(() => {})}
+            >
+              <span className="of-quicksearch__rowIcon of-quicksearch__recentResourceIcon">
+                <Glyph name={row.icon} size={14} />
+              </span>
+              <span className="of-quicksearch__recentResourceText">
+                <span>{row.label}</span>
+                <span>{row.subtitle}</span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -590,9 +834,10 @@ function TopTabView({ query, families, onSeeMore }: TopTabViewProps) {
           onSeeMore={() => onSeeMore('datasets')}
           query={query}
         />
-        <Quadrant
+        <FilesQuadrant
           title="Files"
-          rows={families.files.data.slice(0, 4)}
+          rows={families.files.data.slice(0, Math.max(0, 4 - Math.min(2, families.resources.data.length)))}
+          resources={families.resources.data.slice(0, 2)}
           allLabel="All files"
           onSeeMore={() => onSeeMore('files')}
           query={query}
@@ -628,6 +873,32 @@ function Quadrant({ title, rows, allLabel, onSeeMore, query }: QuadrantProps) {
   );
 }
 
+interface FilesQuadrantProps extends QuadrantProps {
+  resources: CompassSearchResult[];
+}
+
+function FilesQuadrant({ title, rows, resources, allLabel, onSeeMore, query }: FilesQuadrantProps) {
+  const hasRows = rows.length > 0 || resources.length > 0;
+  return (
+    <section className="of-quicksearch__quad">
+      <header className="of-quicksearch__quadHeader">{title}</header>
+      <div className="of-quicksearch__quadBody">
+        {!hasRows ? (
+          <div className="of-quicksearch__quadEmpty">No matches for "{query}"</div>
+        ) : (
+          <>
+            {resources.map((row) => <CompactResourceRow key={row.rid} result={row} />)}
+            {rows.map((row) => <CompactResultRow key={`${row.kind}-${row.id}`} result={row} />)}
+          </>
+        )}
+      </div>
+      <button type="button" className="of-quicksearch__quadAll" onClick={onSeeMore}>
+        {allLabel}
+      </button>
+    </section>
+  );
+}
+
 function CompactResultRow({ result }: { result: SearchResult }) {
   const icon = KIND_ICON[result.kind] ?? 'document';
   return (
@@ -640,6 +911,29 @@ function CompactResultRow({ result }: { result: SearchResult }) {
           <span className="of-quicksearch__rowTitle">{result.title || result.id}</span>
         </div>
         {result.subtitle && <span className="of-quicksearch__rowMeta">{result.subtitle}</span>}
+      </div>
+    </Link>
+  );
+}
+
+function CompactResourceRow({ result }: { result: CompassSearchResult }) {
+  const definition = getResourceTypeDefinition(result.type);
+  const href = openURLForCompassResource(result);
+  return (
+    <Link
+      to={href}
+      className="of-quicksearch__row"
+      style={{ textDecoration: 'none' }}
+      onClick={() => recordCompassAccess(result)}
+    >
+      <span className="of-quicksearch__rowIcon">
+        <Glyph name={definition.defaultIcon} size={14} />
+      </span>
+      <div className="of-quicksearch__rowMain">
+        <div className="of-quicksearch__rowTitleLine">
+          <span className="of-quicksearch__rowTitle">{result.display_name || compactRID(result.rid)}</span>
+        </div>
+        <span className="of-quicksearch__rowMeta">{definition.displayName} · {compactRID(result.rid)}</span>
       </div>
     </Link>
   );
@@ -807,16 +1101,126 @@ function DatasetRow({ result }: { result: SearchResult }) {
 // Files tab
 // ──────────────────────────────────────────────────────────────────
 
-function FilesTabView({ families, filesKindFilter }: { families: FamilyResults; filesKindFilter: Set<string> }) {
+function FilesTabView({
+  families,
+  filesKindFilter,
+  tagFilter,
+}: {
+  families: FamilyResults;
+  filesKindFilter: Set<string>;
+  tagFilter: string;
+}) {
   const rows = families.files.data;
   const filtered = filesKindFilter.size === 0 ? rows : rows.filter((r) => filesKindFilter.has(r.kind));
-  if (filtered.length === 0) return <EmptyState label="No files matched these filters." />;
+  const normalizedTag = tagFilter.trim().toLowerCase();
+  const resourcesByType = filesKindFilter.size === 0
+    ? families.resources.data
+    : families.resources.data.filter((r) => filesKindFilter.has(r.type));
+  const resources = normalizedTag
+    ? resourcesByType.filter((r) => r.tags.some((tag) => tag.toLowerCase().includes(normalizedTag)))
+    : resourcesByType;
+
+  if (filtered.length === 0 && resources.length === 0) return <EmptyState label="No files matched these filters." />;
   return (
     <div>
+      {resources.length > 0 && (
+        <>
+          <header className="of-quicksearch__sectionHead">
+            Resources
+            <span className="of-quicksearch__sectionCount">{formatCount(families.resources.total)}</span>
+          </header>
+          {resources.map((r) => (
+            <CompassResourceRow key={r.rid} result={r} />
+          ))}
+        </>
+      )}
+      {filtered.length > 0 && resources.length > 0 && (
+        <header className="of-quicksearch__sectionHead of-quicksearch__sectionHead--spaced">
+          Files
+          <span className="of-quicksearch__sectionCount">{formatCount(families.files.total)}</span>
+        </header>
+      )}
       {filtered.map((r) => (
         <AppOrFileRow key={`${r.kind}-${r.id}`} result={r} chipLabel={KIND_CHIP[r.kind] ?? 'File'} />
       ))}
     </div>
+  );
+}
+
+function CompassResourceRow({ result }: { result: CompassSearchResult }) {
+  const definition = getResourceTypeDefinition(result.type);
+  const href = openURLForCompassResource(result);
+  const markings = result.marking_rids.slice(0, 4);
+  const hiddenMarkings = result.marking_rids.length - markings.length;
+  const tags = result.tags.slice(0, 3);
+
+  return (
+    <article className="of-quicksearch__row of-quicksearch__row--resource">
+      <span className="of-quicksearch__rowIcon">
+        <Glyph name={definition.defaultIcon} size={14} />
+      </span>
+      <div className="of-quicksearch__rowMain">
+        <div className="of-quicksearch__rowTitleLine">
+          <Link to={href} className="of-quicksearch__rowTitle" onClick={() => recordCompassAccess(result)}>
+            {result.display_name || compactRID(result.rid)}
+          </Link>
+          <span className="of-quicksearch__rowMeta">· {definition.displayName}</span>
+          {result.is_deleted && <span className="of-quicksearch__rowChip of-quicksearch__rowChip--danger">Trash</span>}
+        </div>
+        {result.summary && <span className="of-quicksearch__rowMeta">{result.summary}</span>}
+        <span className="of-quicksearch__rowPath">{result.open_url || href}</span>
+        <div className="of-quicksearch__badgeRow">
+          {markings.map((marking) => (
+            <span key={marking} className="of-quicksearch__markingBadge" title={marking}>
+              <Glyph name="shield" size={12} />
+              {compactRID(marking)}
+            </span>
+          ))}
+          {hiddenMarkings > 0 && <span className="of-quicksearch__markingBadge">+{hiddenMarkings}</span>}
+          {tags.map((tag) => (
+            <span key={tag} className="of-quicksearch__tagBadge" title={tag}>
+              <Glyph name="tag" size={12} />
+              {tag}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="of-quicksearch__rowSide of-quicksearch__rowSide--resource">
+        <span className="of-quicksearch__rowStat" title="Last modified">
+          <Glyph name="history" size={13} /> {formatDateTime(result.last_modified_at)}
+        </span>
+        <span className="of-quicksearch__rowChip">{definition.displayName}</span>
+        <OpenWithMenu result={result} />
+      </div>
+    </article>
+  );
+}
+
+function OpenWithMenu({ result }: { result: CompassSearchResult }) {
+  const targets = openWithTargetsForCompassResource(result);
+  return (
+    <details className="of-quicksearch__openWith">
+      <summary>
+        <span>Open with</span>
+        <Glyph name="chevron-down" size={12} />
+      </summary>
+      <div className="of-quicksearch__openWithMenu">
+        {targets.map((target) => {
+          const href = expandResourceURL(target.urlTemplate, result) || openURLForCompassResource(result);
+          return (
+            <Link
+              key={target.id}
+              to={href}
+              className="of-quicksearch__openWithItem"
+              onClick={() => recordCompassAccess(result)}
+            >
+              <Glyph name={target.icon} size={13} />
+              <span>{target.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </details>
   );
 }
 
@@ -872,6 +1276,8 @@ interface SidebarFiltersProps {
   setCreatedBy: (v: string) => void;
   tagFilter: string;
   setTagFilter: (v: string) => void;
+  markingFilter: string;
+  setMarkingFilter: (v: string) => void;
   pathFilter: string;
   setPathFilter: (v: string) => void;
   projectFilter: string;
@@ -896,6 +1302,8 @@ function SidebarFilters(props: SidebarFiltersProps) {
     setCreatedBy,
     tagFilter,
     setTagFilter,
+    markingFilter,
+    setMarkingFilter,
     pathFilter,
     setPathFilter,
     projectFilter,
@@ -946,11 +1354,12 @@ function SidebarFilters(props: SidebarFiltersProps) {
     if (tab === 'files') {
       const byKind = new Map<string, number>();
       for (const r of families.files.data) byKind.set(r.kind, (byKind.get(r.kind) ?? 0) + 1);
+      for (const r of families.resources.data) byKind.set(r.type, (byKind.get(r.type) ?? 0) + 1);
       return Array.from(byKind.entries()).map(([kind, count]) => ({
         key: kind,
-        label: KIND_CHIP[kind] ?? kind,
+        label: KIND_CHIP[kind] ?? getResourceTypeDefinition(kind).displayName,
         count,
-        icon: KIND_ICON[kind] ?? ('document' as GlyphName),
+        icon: KIND_ICON[kind] ?? getResourceTypeDefinition(kind).defaultIcon,
       }));
     }
     return [];
@@ -1079,6 +1488,17 @@ function SidebarFilters(props: SidebarFiltersProps) {
           </div>
 
           <div className="of-quicksearch__filterGroup">
+            <span className="of-quicksearch__filterLabel">Markings</span>
+            <input
+              type="text"
+              className="of-quicksearch__filterField"
+              placeholder="Enter marking RID..."
+              value={markingFilter}
+              onChange={(e) => setMarkingFilter(e.target.value)}
+            />
+          </div>
+
+          <div className="of-quicksearch__filterGroup">
             <span className="of-quicksearch__filterLabel">In paths</span>
             <input
               type="text"
@@ -1094,7 +1514,7 @@ function SidebarFilters(props: SidebarFiltersProps) {
             <input
               type="text"
               className="of-quicksearch__filterField"
-              placeholder="📁  Click to search for projects…"
+              placeholder="Project RID or UUID..."
               value={projectFilter}
               onChange={(e) => setProjectFilter(e.target.value)}
             />

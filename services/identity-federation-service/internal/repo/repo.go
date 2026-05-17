@@ -196,10 +196,14 @@ var ErrUserExists = errors.New("email already registered")
 
 // InsertRefreshToken persists a hashed refresh token.
 func (r *Repo) InsertRefreshToken(ctx context.Context, t *models.RefreshTokenRow) error {
+	var sessionScope any
+	if len(t.SessionScope) > 0 && string(t.SessionScope) != "null" {
+		sessionScope = t.SessionScope
+	}
 	_, err := r.Pool.Exec(ctx,
-		`INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, issued_at, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		t.ID, t.UserID, t.TokenHash, t.FamilyID, t.IssuedAt, t.ExpiresAt,
+		`INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, session_scope, issued_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		t.ID, t.UserID, t.TokenHash, t.FamilyID, sessionScope, t.IssuedAt, t.ExpiresAt,
 	)
 	return err
 }
@@ -207,12 +211,12 @@ func (r *Repo) InsertRefreshToken(ctx context.Context, t *models.RefreshTokenRow
 // FindRefreshToken returns the row keyed by its token hash, or nil when absent.
 func (r *Repo) FindRefreshToken(ctx context.Context, tokenHash string) (*models.RefreshTokenRow, error) {
 	row := r.Pool.QueryRow(ctx,
-		`SELECT id, user_id, token_hash, family_id, issued_at, expires_at, revoked_at
+		`SELECT id, user_id, token_hash, family_id, session_scope, issued_at, expires_at, revoked_at
 		 FROM refresh_tokens WHERE token_hash = $1`,
 		tokenHash,
 	)
 	t := &models.RefreshTokenRow{}
-	err := row.Scan(&t.ID, &t.UserID, &t.TokenHash, &t.FamilyID, &t.IssuedAt, &t.ExpiresAt, &t.RevokedAt)
+	err := row.Scan(&t.ID, &t.UserID, &t.TokenHash, &t.FamilyID, &t.SessionScope, &t.IssuedAt, &t.ExpiresAt, &t.RevokedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

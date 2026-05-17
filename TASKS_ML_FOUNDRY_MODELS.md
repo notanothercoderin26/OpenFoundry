@@ -214,7 +214,7 @@ contract. There is no equivalent today.
 >   user, source_repo_commit, source_pipeline_run_rid}`.
 >
 > Create a new service `services/experiment-tracking-service/` (by cloning
-> `services/template/`) that mounts the kernel handlers
+> `docs/templates/service-skeleton/`) that mounts the kernel handlers
 > (`libs/ml-kernel-go/handlers/experiments.go`, `runs.go`,
 > `training.go`). Persist in Postgres + artifacts in S3
 > (`s3://experiments/{experiment_rid}/{run_rid}/`). Provide endpoint
@@ -472,7 +472,7 @@ Bearer auth.
 exist as the kernel; a dedicated service and the offline/online split are missing.
 
 **Prompt**:
-> Create `services/feature-store-service/` (by cloning `services/template/`).
+> Create `services/feature-store-service/` (by cloning `docs/templates/service-skeleton/`).
 > Fill in [proto/ml/feature_store.proto](proto/ml/feature_store.proto) with:
 > - `FeatureViewService`: `CreateFeatureView {name, entity_keys: [],
 >   features: [{name, type, transformation_sql}], source_dataset_rid,

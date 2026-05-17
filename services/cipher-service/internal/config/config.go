@@ -1,5 +1,5 @@
 // Package config loads the cipher-service configuration via koanf,
-// mirroring services/template/internal/config so platform tooling sees
+// mirroring docs/templates/service-skeleton/internal/config so platform tooling sees
 // the same precedence rules.
 package config
 

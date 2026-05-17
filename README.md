@@ -120,7 +120,7 @@ Delivery assets live in [`infra/`](infra/): Helm charts, ArgoCD apps, Terraform,
 ```text
 openfoundry-go/
 ├── apps/web/         React 19 + Vite + TypeScript frontend
-├── services/         Go microservices; copy services/template/ for new services
+├── services/         Go microservices; copy docs/templates/service-skeleton/ for new services
 ├── libs/             Shared Go packages for auth, observability, kernels and more
 ├── proto/            Protobuf source of truth; Go generated into libs/proto-gen/
 ├── sdks/             Generated TypeScript, Python and Java SDKs
@@ -199,7 +199,15 @@ Some contracts are pinned by golden tests and must not change without an explici
 
 - `/healthz` payload shape (`status`, `service`, `version`, `timestamp`).
 - JWT claim names and JSON tags.
-- Resource RID format: `ri.<service>.<instance>.<type>.<uuid>` for platform-minted resources; `libs/core-models/rid` owns parsing and validation.
+- Resource RID format and minting: `ri.<service>.<instance>.<type>.<uuid>` for platform-minted resources; `libs/core-models/rid` owns parsing, UUIDv7 minting, and registry-reservation collision handling.
+- Resource type registry: `libs/core-models/resource` is the canonical registry for display names, owning services, icons, actions, RID namespace mapping, open-app URLs, and unknown-type placeholders.
+- Compass project resource: `tenancy-organizations-service` owns the stable project `rid`, parent `space_rid`, organization/marking RIDs, default queue RID, resource-level grant toggle, and per-role policy payload.
+- Compass folder resource: `tenancy-organizations-service` owns stable folder `rid` values, project/parent/space RID projection, folder trash status, and inheritance from project policies with folder-scope grant overrides.
+- Compass move/rename: workspace operations may update project/folder parentage, display names, slugs, and derived breadcrumbs, but must not mutate resource RIDs; cross-project folder moves require explicit access-policy and marking confirmations.
+- Compass search index: `tenancy-organizations-service` maintains `compass_resource_search_index` entries for project/folder RIDs and emits `compass.resource.search.updated.v1` outbox events on create/update/move/trash/restore/purge instead of relying on table polling.
+- Compass search API: `GET /api/v1/compass/search` is permission-aware, supports `q`, `type`, `project`, `owner`, `marking`, `limit`, and `cursor`, and paginates by opaque cursor over text score, last modified time, and RID.
+- Compass search UI shell: `apps/web` route `/search` combines ontology search with `GET /api/v1/compass/search`, keeps the `Cmd/Ctrl+J` global search shell, loads jump-to recents/favorites, displays marking badges, and derives resource "Open with" actions from the frontend Compass resource type registry.
+- Compass breadcrumbs: `apps/web` uses the shared `ProjectBreadcrumb` for project/folder paths, click-to-open navigation, and per-crumb copy-RID actions derived from stable project/folder RIDs.
 - Dataset RID format: `ri.foundry.main.dataset.<uuid-v7>`.
 - Transaction state/type tokens: `open|committed|aborted` and `snapshot|append|update|delete`.
 - Marking source and schema field type discriminators.
@@ -209,7 +217,7 @@ Some contracts are pinned by golden tests and must not change without an explici
 
 - Open a bug report or feature request in [GitHub Issues](https://github.com/openfoundry/openfoundry-go/issues).
 - Review the documentation in [`docs/`](docs/) before changing services or contracts.
-- For new capabilities, start from [`services/template/`](services/template/) and the existing ADRs.
+- For new capabilities, start from the [`service skeleton`](docs/templates/service-skeleton/) and the existing ADRs.
 
 ## Contributing
 

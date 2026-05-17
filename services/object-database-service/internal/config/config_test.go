@@ -13,6 +13,7 @@ func TestFromEnvParsesProductionCassandraConfig(t *testing.T) {
 	t.Setenv("CASSANDRA_USERNAME", "svc")
 	t.Setenv("CASSANDRA_PASSWORD", "secret")
 	t.Setenv("CASSANDRA_LOCAL_DC", "dc2")
+	t.Setenv("ONTOLOGY_DEFINITION_SERVICE_URL", "http://ontology-definition-service:50124")
 
 	cfg, err := FromEnv()
 	require.NoError(t, err)
@@ -24,6 +25,7 @@ func TestFromEnvParsesProductionCassandraConfig(t *testing.T) {
 	assert.Equal(t, "svc", cfg.CassandraUsername)
 	assert.Equal(t, "secret", cfg.CassandraPassword)
 	assert.Equal(t, "dc2", cfg.CassandraLocalDC)
+	assert.Equal(t, "http://ontology-definition-service:50124", cfg.OntologyDefinitionURL)
 }
 
 func TestFromEnvParsesExplicitDevInMemory(t *testing.T) {

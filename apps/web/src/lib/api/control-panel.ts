@@ -83,6 +83,23 @@ export interface UpgradeAssistantSettings {
 	rollback_steps: string[];
 }
 
+export interface ScopedSessionPreset {
+	id: string;
+	name: string;
+	description?: string;
+	required_markings: string[];
+	allowed_markings: string[];
+	enabled: boolean;
+}
+
+export interface ScopedSessionConfig {
+	enabled: boolean;
+	allow_no_scoped_session: boolean;
+	always_show_selector: boolean;
+	allowed_bypass_groups: string[];
+	presets: ScopedSessionPreset[];
+}
+
 export interface UpgradeReadinessCheck {
 	id: string;
 	label: string;
@@ -147,6 +164,7 @@ export interface ControlPanelSettings {
 	identity_provider_mappings: IdentityProviderMapping[];
 	resource_management_policies: ResourceManagementPolicy[];
 	upgrade_assistant: UpgradeAssistantSettings;
+	scoped_sessions: ScopedSessionConfig;
 	updated_by: string | null;
 	updated_at: string;
 }
@@ -170,6 +188,7 @@ export type UpdateControlPanelRequest = Partial<{
 	identity_provider_mappings: IdentityProviderMapping[];
 	resource_management_policies: ResourceManagementPolicy[];
 	upgrade_assistant: UpgradeAssistantSettings;
+	scoped_sessions: ScopedSessionConfig;
 }>;
 
 export function getControlPanel() {

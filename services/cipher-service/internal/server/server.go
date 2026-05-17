@@ -1,6 +1,6 @@
 // Package server wires the HTTP router, observability and graceful
 // shutdown for the cipher-service stub. The shape mirrors
-// services/template/internal/server so platform tooling stays uniform;
+// docs/templates/service-skeleton/internal/server so platform tooling stays uniform;
 // the only divergence is the route table in `mountAPIRoutes`, which
 // reflects the gateway's `/api/v1/auth/cipher` prefix.
 package server
