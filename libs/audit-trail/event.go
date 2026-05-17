@@ -1,5 +1,7 @@
 package audittrail
 
+import "time"
+
 // EventKind is the wire token in the `kind` field of every audit
 // event. Stable so SIEM filters key off it; never rename.
 type EventKind string
@@ -18,6 +20,11 @@ const (
 	KindMediaItemDeleted             EventKind = "media_item.deleted"
 	KindMediaItemMarkingOverridden   EventKind = "media_item.marking_overridden"
 	KindVirtualMediaItemRegistered   EventKind = "virtual_media_item.registered"
+
+	// Identity-federation variants (T8 compliance closure).
+	KindAuthLogin        EventKind = "auth.login"
+	KindIdentityLinked   EventKind = "auth.identity_linked"
+	KindTokenIssued      EventKind = "auth.token_issued"
 )
 
 // CategoriesFor returns the audit categories assigned to `kind`. Mirrors
@@ -43,6 +50,8 @@ func CategoriesFor(kind EventKind) []AuditCategory {
 		return []AuditCategory{CategoryDataExport}
 	case KindVirtualMediaItemRegistered:
 		return []AuditCategory{CategoryDataCreate}
+	case KindAuthLogin, KindIdentityLinked, KindTokenIssued:
+		return []AuditCategory{CategoryAuthentication}
 	default:
 		return nil
 	}
@@ -96,6 +105,21 @@ type AuditEvent struct {
 	// Virtual media item.
 	PhysicalPath string `json:"physical_path,omitempty"`
 	ItemPath     string `json:"item_path,omitempty"`
+
+	// Auth variants (auth.login / auth.identity_linked / auth.token_issued).
+	// Each field is omitempty so the wire shape only carries the slots the
+	// variant actually populates. The compliance/audit-sink consumer keys
+	// off `kind` to know which slots to read.
+	UserID       string    `json:"user_id,omitempty"`
+	TenantID     string    `json:"tenant_id,omitempty"`
+	Provider     string    `json:"provider,omitempty"`
+	Subject      string    `json:"subject,omitempty"`
+	LoginEmail   string    `json:"login_email,omitempty"`
+	MFASatisfied *bool     `json:"mfa_satisfied,omitempty"`
+	AuthMethods  []string  `json:"auth_methods,omitempty"`
+	TokenID      string    `json:"token_id,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+	Scopes       []string  `json:"scopes,omitempty"`
 }
 
 // Categories is shorthand for CategoriesFor(e.Kind).
@@ -246,5 +270,68 @@ func NewVirtualMediaItemRegistered(itemRID, mediaSetRID, projectRID string, mark
 		MarkingsAtEvent: markings,
 		PhysicalPath:    physicalPath,
 		ItemPath:        itemPath,
+	}
+}
+
+// UserResourceRID builds the canonical RID for an identity-federation
+// user. Kept in this package so audit producers and the audit-sink
+// consumer derive the same string from a raw UUID.
+func UserResourceRID(userID string) string {
+	return "ri.identity.main.user." + userID
+}
+
+// NewAuthLogin records a successful SSO/OIDC/SAML login. `userID` is
+// the platform user UUID; `tenantID` may be empty when the user is
+// global. `mfaSatisfied` is the boolean MFA gate result (true also
+// when MFA is not configured for the user). `subject` is the IdP-side
+// identifier (email, sub claim, NameID).
+func NewAuthLogin(userID, tenantID, provider, subject, loginEmail string, mfaSatisfied bool, authMethods []string) AuditEvent {
+	return AuditEvent{
+		Kind:            KindAuthLogin,
+		ResourceRID:     UserResourceRID(userID),
+		ProjectRID:      tenantID,
+		MarkingsAtEvent: nil,
+		UserID:          userID,
+		TenantID:        tenantID,
+		Provider:        provider,
+		Subject:         subject,
+		LoginEmail:      loginEmail,
+		MFASatisfied:    boolPtr(mfaSatisfied),
+		AuthMethods:     authMethods,
+	}
+}
+
+// NewIdentityLinked records the first-time binding of an IdP subject
+// to a platform user. Re-logins do not emit this — only the row
+// insertion does, since the binding is the audit-worthy state change.
+func NewIdentityLinked(userID, tenantID, provider, subject, loginEmail string) AuditEvent {
+	return AuditEvent{
+		Kind:            KindIdentityLinked,
+		ResourceRID:     UserResourceRID(userID),
+		ProjectRID:      tenantID,
+		MarkingsAtEvent: nil,
+		UserID:          userID,
+		TenantID:        tenantID,
+		Provider:        provider,
+		Subject:         subject,
+		LoginEmail:      loginEmail,
+	}
+}
+
+// NewTokenIssued records an access-token mint. The deterministic
+// event_id falls out of (tokenID || userID || expiresAt) — a retried
+// callback that successfully re-mints under the same JTI collapses
+// into the same outbox row.
+func NewTokenIssued(tokenID, userID, tenantID string, expiresAt time.Time, scopes []string) AuditEvent {
+	return AuditEvent{
+		Kind:            KindTokenIssued,
+		ResourceRID:     UserResourceRID(userID),
+		ProjectRID:      tenantID,
+		MarkingsAtEvent: nil,
+		UserID:          userID,
+		TenantID:        tenantID,
+		TokenID:         tokenID,
+		ExpiresAt:       expiresAt,
+		Scopes:          scopes,
 	}
 }
