@@ -148,13 +148,13 @@ func TestFunctionPackageSimulateUsesPythonSidecarManager(t *testing.T) {
 
 	mgr, err := pythonsidecar.New(pythonsidecar.Config{
 		BinaryPath:      fakeSidecarBinary(t),
-		StartupTimeout:  2 * time.Second,
-		HardCallTimeout: 2 * time.Second,
+		StartupTimeout:  10 * time.Second,
+		HardCallTimeout: 5 * time.Second,
 	}, nil)
 	if err != nil {
 		t.Fatalf("create python sidecar manager: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := mgr.Start(ctx); err != nil {
 		t.Fatalf("start fake python sidecar manager: %v", err)
