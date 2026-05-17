@@ -100,6 +100,197 @@ export interface ScopedSessionConfig {
 	presets: ScopedSessionPreset[];
 }
 
+export interface FileAccessPresetLocalAccessControl {
+	id: string;
+	kind: string;
+	label: string;
+	values: string[];
+	metadata?: Record<string, unknown>;
+}
+
+export interface FileAccessPreset {
+	id: string;
+	title: string;
+	description?: string;
+	marking_ids: string[];
+	local_access_controls: FileAccessPresetLocalAccessControl[];
+	organization_ids: string[];
+	supported_resource_kinds: string[];
+	default_order: number;
+	enabled: boolean;
+	created_by?: string;
+	created_at?: string;
+	updated_by?: string;
+	updated_at?: string;
+}
+
+export interface FileAccessPresetHistoryEvent {
+	id: string;
+	actor: string;
+	timestamp: string;
+	action: string;
+	summary: string;
+	preset_count: number;
+	enabled: boolean;
+	guest_organization_behavior: string;
+	warning: string;
+}
+
+export interface FileAccessPresetConfig {
+	enabled: boolean;
+	warning: string;
+	guest_organization_behavior: 'primary_organization';
+	presets: FileAccessPreset[];
+	history: FileAccessPresetHistoryEvent[];
+}
+
+export interface FileAccessPresetVisibilityRequest {
+	organization_id?: string;
+	primary_organization_id?: string;
+	resource_kind?: string;
+}
+
+export interface FileAccessPresetVisibilityResponse {
+	warning: string;
+	guest_organization_behavior: string;
+	effective_organization_id?: string;
+	default_preset_id?: string;
+	filtered_preset_count: number;
+	presets: FileAccessPreset[];
+}
+
+export interface ApplicationAccessApplication {
+	id: string;
+	name: string;
+	description?: string;
+	category: string;
+	lifecycle_stage: string;
+	enabled: boolean;
+}
+
+export interface ApplicationAccessRule {
+	id: string;
+	name: string;
+	effect: 'allow' | 'block';
+	application_ids: string[];
+	organization_ids: string[];
+	user_ids: string[];
+	group_ids: string[];
+	lifecycle_stages: string[];
+	enabled: boolean;
+	reason?: string;
+}
+
+export interface ApplicationAccessApprovalPolicy {
+	mode: 'self_approve' | 'review_required';
+	reviewer_user_ids: string[];
+	reviewer_group_ids: string[];
+	require_distinct_reviewer_for_policy: boolean;
+	instructions?: string;
+}
+
+export interface ApplicationAccessConfig {
+	enabled: boolean;
+	default_visibility: 'visible' | 'hidden';
+	warning: string;
+	applications: ApplicationAccessApplication[];
+	rules: ApplicationAccessRule[];
+	approval_policy: ApplicationAccessApprovalPolicy;
+	change_requests: ApplicationAccessChangeRequest[];
+	history: ApplicationAccessHistoryEvent[];
+}
+
+export interface ApplicationAccessChangeRequest {
+	id: string;
+	kind: string;
+	status: string;
+	summary: string;
+	warning: string;
+	requested_by: string;
+	requested_at: string;
+	decided_by?: string;
+	decided_at?: string;
+	applied_at?: string;
+	comment?: string;
+	proposed_config: ApplicationAccessConfig;
+}
+
+export interface ApplicationAccessHistoryEvent {
+	id: string;
+	request_id: string;
+	kind: string;
+	action: string;
+	actor: string;
+	timestamp: string;
+	summary: string;
+	warning: string;
+	rule_count: number;
+	application_count: number;
+}
+
+export interface ApplicationAccessEvaluateRequest {
+	application_id?: string;
+	application_ids?: string[];
+	user_id?: string;
+	group_ids?: string[];
+	organization_id?: string;
+	lifecycle_stage?: string;
+}
+
+export interface ApplicationAccessDecision {
+	application_id: string;
+	visible: boolean;
+	decision: string;
+	reason: string;
+	lifecycle_stage: string;
+	matched_rule_ids: string[];
+	matched_rule_names: string[];
+	default_visibility: string;
+	ux_scope_only: boolean;
+}
+
+export interface ApplicationAccessEvaluateResponse {
+	warning: string;
+	decisions: ApplicationAccessDecision[];
+}
+
+export interface ApplicationAccessChangeRequestsResponse {
+	change_requests: ApplicationAccessChangeRequest[];
+	history: ApplicationAccessHistoryEvent[];
+	warning: string;
+}
+
+export interface MemberDiscoveryOrganizationConfig {
+	organization_id: string;
+	organization_slug?: string;
+	discover_users: boolean;
+	discover_groups: boolean;
+	consumer_mode_boundary: boolean;
+	notes?: string;
+	updated_by?: string;
+	updated_at?: string;
+}
+
+export interface MemberDiscoveryHistoryEvent {
+	id: string;
+	organization_id: string;
+	organization_slug?: string;
+	actor: string;
+	timestamp: string;
+	discover_users: boolean;
+	discover_groups: boolean;
+	consumer_mode_boundary: boolean;
+	warning: string;
+}
+
+export interface MemberDiscoveryConfig {
+	default_discover_users: boolean;
+	default_discover_groups: boolean;
+	warning: string;
+	organizations: MemberDiscoveryOrganizationConfig[];
+	history: MemberDiscoveryHistoryEvent[];
+}
+
 export interface UpgradeReadinessCheck {
 	id: string;
 	label: string;
@@ -165,6 +356,9 @@ export interface ControlPanelSettings {
 	resource_management_policies: ResourceManagementPolicy[];
 	upgrade_assistant: UpgradeAssistantSettings;
 	scoped_sessions: ScopedSessionConfig;
+	application_access: ApplicationAccessConfig;
+	member_discovery: MemberDiscoveryConfig;
+	file_access_presets: FileAccessPresetConfig;
 	updated_by: string | null;
 	updated_at: string;
 }
@@ -189,6 +383,9 @@ export type UpdateControlPanelRequest = Partial<{
 	resource_management_policies: ResourceManagementPolicy[];
 	upgrade_assistant: UpgradeAssistantSettings;
 	scoped_sessions: ScopedSessionConfig;
+	application_access: ApplicationAccessConfig;
+	member_discovery: MemberDiscoveryConfig;
+	file_access_presets: FileAccessPresetConfig;
 }>;
 
 export function getControlPanel() {
@@ -208,4 +405,23 @@ export function previewIdentityProviderMapping(body: IdentityProviderMappingPrev
 		'/control-panel/identity-provider-mappings/preview',
 		body,
 	);
+}
+
+export function getApplicationAccessChangeRequests() {
+	return api.get<ApplicationAccessChangeRequestsResponse>('/control-panel/application-access/change-requests');
+}
+
+export function decideApplicationAccessChangeRequest(id: string, decision: 'approved' | 'rejected', comment?: string) {
+	return api.post<ApplicationAccessConfig>(`/control-panel/application-access/change-requests/${encodeURIComponent(id)}/decision`, {
+		decision,
+		comment,
+	});
+}
+
+export function evaluateApplicationAccess(body: ApplicationAccessEvaluateRequest) {
+	return api.post<ApplicationAccessEvaluateResponse>('/application-access/evaluate', body);
+}
+
+export function listVisibleFileAccessPresets(body: FileAccessPresetVisibilityRequest = {}) {
+	return api.post<FileAccessPresetVisibilityResponse>('/file-access-presets/visible', body);
 }

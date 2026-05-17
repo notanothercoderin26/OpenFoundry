@@ -174,23 +174,38 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 
 ### Trash and restore
 
-- [ ] `CMP.12` Trash workflow (`P0`, `todo`)
+- [x] `CMP.12` Trash workflow (`P0`, `done`)
   - Trash a resource (instead of hard-delete) with a configurable retention window (default 30 days).
   - Restore returns the resource to its original path; if the path is gone, restore goes to the project root with a banner.
-  - Docs: [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash).
+  - Implementation: `services/tenancy-organizations-service/internal/repo/migrations/0015_cmp12_trash_workflow.sql` adds `trash_retention_days`, `purge_after`, and original-placement columns to project, folder, and resource-binding trash rows. `DELETE /api/v1/ontology/projects/{id}` now soft-deletes projects instead of hard-deleting them.
+  - API behavior: `DELETE /api/v1/workspace/resources/{kind}/{id}` accepts optional `retention_days` (default `30`, bounded `1..3650`), stores the trash retention window, and updates the Compass search index with `compass.resource.trashed.v1`. `GET /api/v1/workspace/trash` returns retention metadata, `purge_after`, original placement IDs, and a restore-target status.
+  - Restore placement: `POST /api/v1/workspace/resources/{kind}/{id}/restore` returns `{ restored, restored_to_original_path, restored_to_project_id, restored_to_folder_id?, banner? }`. Folders restore to their original parent when it still exists and is not trashed; if the parent path is gone, they restore to the project root and the UI displays the returned banner.
+  - UI: project and project-folder Trash surfaces show retention/purge-after metadata, root-restore warnings, and restore banners from the API.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the Trash workflow contract.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/workspace -run 'Trash|SoftDelete|Batch|Kind' -count=1`, `go test ./services/tenancy-organizations-service/internal/handlers -run 'Project|Folder|CMP|SG6' -count=1`, `pnpm --filter @open-foundry/web exec eslint src/lib/api/workspace.ts src/routes/projects/ProjectDetailPage.tsx src/routes/projects/ProjectFolderPage.tsx src/routes/projects/ProjectsListPage.tsx`, and `pnpm --filter @open-foundry/web check`.
+  - Docs: [Use Project navigation panel](https://www.palantir.com/docs/foundry/compass/use-project-navigation-panel). The older [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash) URL currently redirects to Palantir's 404 page.
 
-- [ ] `CMP.13` Hard delete with audit (`P0`, `todo`)
+- [x] `CMP.13` Hard delete with audit (`P0`, `done`)
   - Hard delete after retention or by admin action emits a marking-aware audit event listing dependents that were affected.
-  - Docs: [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash).
+  - Implementation: `PurgeTrashed` now locks the trashed row, captures a pre-delete snapshot, allows permanent delete only after `purge_after` unless the caller has the `admin` role, cleans directly affected workspace surface rows, folder-scope grants, and search-index rows in the same transaction, and emits `compass.resource.purged` to `audit.events.v1`.
+  - Audit payload: `libs/audit-trail` defines the Compass purge event with `resource_rid`, `project_rid`, `markings_at_event`, `resource_type`, `deleted_at`, `deleted_by`, `purged_by`, `retention_days`, `purge_after`, `purge_mode` (`retention_expired` or `admin_override`), and `affected_dependents`.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the hard-delete audit contract.
+  - Verification: `go test ./libs/audit-trail`, `go test ./services/tenancy-organizations-service/internal/workspace -run 'Trash|Purge|Audit|Kind' -count=1`.
+  - Docs: [Use Project navigation panel](https://www.palantir.com/docs/foundry/compass/use-project-navigation-panel). The older [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash) URL currently redirects to Palantir's 404 page.
 
 ## Milestone B: links, favorites, propagation, audit, bulk
 
 ### Cross-resource links
 
-- [ ] `CMP.14` Reverse-reference graph (`P1`, `todo`)
+- [x] `CMP.14` Reverse-reference graph (`P1`, `done`)
   - For each resource, the registry tracks which other resources depend on it (e.g. a dashboard depends on a query depends on a dataset).
   - Surface "used by" in resource detail; warn on trash/move operations.
-  - Docs: [Resources, RIDs, and projects](https://www.palantir.com/docs/foundry/compass/resources).
+  - Implementation: `libs/core-models/resource` now declares `ReferenceTargets` per resource type and validates that every target type is registered. `FOUNDRY_QUERY`, `WORKSHOP_DASHBOARD`, and `FOUNDRY_WORKFLOW` are first-class registry entries so dashboard → query → dataset and workflow/pipeline dependencies can be represented instead of falling through to unknown types.
+  - Graph store/API: `services/tenancy-organizations-service/internal/repo/migrations/0016_cmp14_resource_references.sql` adds `compass_resource_references`, a directed edge table where `source` depends on `target`. `GET /api/v1/workspace/resources/{kind}/{id}/references` returns `{ depends_on, used_by }`; `PUT /api/v1/workspace/resources/{kind}/{id}/references` lets owning services/admins replace explicit upstream edges with self-edge and batch-size validation. The read path also derives edges from project resource bindings and `ontology_projects.references`.
+  - UI: `ResourceDetailsPanel` renders "Used by" and "Depends on" sections; `MoveDialog`, `ProjectDetailPage`, and `ProjectFolderPage` preflight the graph and warn when move/trash/purge actions may affect upstream or downstream resources.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the reverse-reference graph contract.
+  - Verification: `go test ./libs/core-models/resource`, `go test ./services/tenancy-organizations-service/internal/server ./services/tenancy-organizations-service/internal/workspace ./libs/core-models/resource`, and `pnpm --filter @open-foundry/web check`.
+  - Docs: [Projects and resources](https://www.palantir.com/docs/foundry/getting-started/projects-and-resources/), [Compass overview](https://www.palantir.com/docs/foundry/compass/overview), [Use Project navigation panel](https://www.palantir.com/docs/foundry/compass/use-project-navigation-panel), [Projects & roles](https://www.palantir.com/docs/foundry/security/projects-and-roles). The older [Resources, RIDs, and projects](https://www.palantir.com/docs/foundry/compass/resources) URL currently redirects to Palantir's 404 page.
 
 - [ ] `CMP.15` Stable resource URLs (`P1`, `todo`)
   - Every app's resource URL contains the RID and not a path slug; renames never invalidate links.

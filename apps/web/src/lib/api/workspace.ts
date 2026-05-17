@@ -10,6 +10,7 @@ export type ResourceKind =
   | 'ontology_resource_binding'
   | 'dataset'
   | 'pipeline'
+  | 'query'
   | 'notebook'
   | 'app'
   | 'dashboard'
@@ -75,6 +76,57 @@ export function listRecents(params?: { kind?: ResourceKind; limit?: number }) {
       `/workspace/recents${query ? `?${query}` : ''}`,
     )
     .then((response) => response.data);
+}
+
+// ---------------------------------------------------------------------------
+// Resource references
+// ---------------------------------------------------------------------------
+
+export interface ResourceReferenceNode {
+  resource_kind: ResourceKind | string;
+  resource_id: string;
+  resource_rid: string;
+  display_name: string;
+  description?: string | null;
+  project_id?: string | null;
+  project_rid?: string | null;
+}
+
+export interface ResourceReferenceEdge {
+  source: ResourceReferenceNode;
+  target: ResourceReferenceNode;
+  relationship: string;
+  created_at: string;
+  updated_at: string;
+  derived: boolean;
+}
+
+export interface ResourceReferenceGraph {
+  resource_kind: ResourceKind | string;
+  resource_id: string;
+  resource_rid: string;
+  depends_on: ResourceReferenceEdge[];
+  used_by: ResourceReferenceEdge[];
+}
+
+export interface ReplaceResourceReferencesBody {
+  depends_on: Array<{
+    resource_kind: ResourceKind | string;
+    resource_id: string;
+    relationship?: string;
+  }>;
+}
+
+export function listResourceReferences(kind: ResourceKind | string, id: string) {
+  return api.get<ResourceReferenceGraph>(`/workspace/resources/${kind}/${id}/references`);
+}
+
+export function replaceResourceReferences(
+  kind: ResourceKind | string,
+  id: string,
+  body: ReplaceResourceReferencesBody,
+) {
+  return api.put<ResourceReferenceGraph>(`/workspace/resources/${kind}/${id}/references`, body);
 }
 
 // ---------------------------------------------------------------------------

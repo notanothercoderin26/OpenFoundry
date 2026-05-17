@@ -23,11 +23,17 @@ import (
 // All handlers are bearer-JWT-protected at the router; admin-role
 // enforcement is the gateway's job (`x-openfoundry-tenant-tier=enterprise`
 // + role checks). Slice 8 layers Cedar policy enforcement on top.
-type RBAC struct{ Repo *repo.Repo }
+type RBAC struct {
+	Repo         *repo.Repo
+	ControlPanel *ControlPanel
+}
 
 // ─── Users ──────────────────────────────────────────────────────────────
 
 func (h *RBAC) ListUsers(w http.ResponseWriter, r *http.Request) {
+	if !h.allowUserDiscovery(w, r, nil) {
+		return
+	}
 	users, err := h.Repo.ListUsers(r.Context())
 	if err != nil {
 		slog.Error("list users", slog.String("error", err.Error()))
@@ -49,6 +55,9 @@ func (h *RBAC) GetUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if u == nil {
 		writeJSONErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !h.allowUserDetailDiscovery(w, r, u.ID, u.OrganizationID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, u)
@@ -381,6 +390,9 @@ func (h *RBAC) RevokeRolePermission(w http.ResponseWriter, r *http.Request) {
 // ─── Groups ─────────────────────────────────────────────────────────────
 
 func (h *RBAC) ListGroups(w http.ResponseWriter, r *http.Request) {
+	if !h.allowGroupDiscovery(w, r, nil) {
+		return
+	}
 	groups, err := h.Repo.ListGroups(r.Context())
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
@@ -401,6 +413,9 @@ func (h *RBAC) GetGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	if g == nil {
 		writeJSONErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !h.allowGroupDiscovery(w, r, g.OrganizationID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, g)

@@ -137,6 +137,21 @@ and must not drift:
   builds the standard project/folder path from current resource metadata,
   links every ancestor to its open location, and exposes copy-RID actions for
   project and folder crumbs).
+- Compass trash workflow
+  (`services/tenancy-organizations-service/internal/workspace` soft-deletes
+  project, folder, and resource-binding rows with `trash_retention_days` and
+  `purge_after`; restore keeps the original placement when possible and
+  returns a banner when a folder must be restored to the project root).
+- Compass hard delete audit
+  (`PurgeTrashed` only permanently deletes rows after `purge_after` unless the
+  caller is an admin, removes directly affected Compass surface metadata, and
+  emits `compass.resource.purged` through `audit.events.v1` with project
+  markings and affected dependents).
+- Compass reverse-reference graph
+  (`compass_resource_references` stores directed source-depends-on-target
+  edges; `GET|PUT /api/v1/workspace/resources/{kind}/{id}/references` exposes
+  `depends_on` and `used_by`; the web resource details, move, and trash flows
+  warn when upstream or downstream resources are present).
 - Dataset RID format `ri.foundry.main.dataset.<uuid-v7>`.
 - Transaction state / type tokens (`open|committed|aborted`,
   `snapshot|append|update|delete`).

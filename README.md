@@ -209,6 +209,9 @@ Some contracts are pinned by golden tests and must not change without an explici
 - Compass search UI shell: `apps/web` route `/search` combines ontology search with `GET /api/v1/compass/search`, keeps the `Cmd/Ctrl+J` global search shell, loads jump-to recents/favorites, displays marking badges, and derives resource "Open with" actions from the frontend Compass resource type registry.
 - Compass open-with menu: `apps/web/src/lib/components/workspace/OpenWithMenu.tsx` is the shared registry-backed launcher for search results, project/folder list views, and resource detail headers; targets resolve from immutable RIDs when present and retain an unknown-resource fallback.
 - Compass breadcrumbs: `apps/web` uses the shared `ProjectBreadcrumb` for project/folder paths, click-to-open navigation, and per-crumb copy-RID actions derived from stable project/folder RIDs.
+- Compass trash workflow: project/folder/resource-binding deletes are soft deletes with configurable `retention_days` (default 30), `purge_after` metadata, search-index trash/restore events, and folder restore fallback to the project root when the original parent path is gone.
+- Compass hard delete audit: permanent deletes are allowed after `purge_after` or by admin override, clean directly affected Compass surface rows, and emit marking-aware `compass.resource.purged` audit events with the dependent rows/resources affected by the purge.
+- Compass reverse-reference graph: `compass_resource_references` stores directed `source depends on target` edges, the resource registry declares supported reference targets, and workspace APIs/UI expose `depends_on` / `used_by` with move/trash warnings.
 - Dataset RID format: `ri.foundry.main.dataset.<uuid-v7>`.
 - Transaction state/type tokens: `open|committed|aborted` and `snapshot|append|update|delete`.
 - Marking source and schema field type discriminators.

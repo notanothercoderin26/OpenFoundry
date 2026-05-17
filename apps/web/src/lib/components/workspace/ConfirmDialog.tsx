@@ -30,7 +30,7 @@ export function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', 
           <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
         </div>
         <div style={{ padding: 16 }}>
-          <p style={{ margin: 0, fontSize: 13 }}>{message}</p>
+          <p style={{ margin: 0, fontSize: 13, whiteSpace: 'pre-line' }}>{message}</p>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: '1px solid #1e293b', padding: '12px 16px' }}>
           <button type="button" onClick={onCancel} disabled={busy} className="of-button">{cancelLabel}</button>

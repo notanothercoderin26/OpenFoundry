@@ -165,6 +165,8 @@ type CreateOntologyProjectRequest struct {
 	TemplateVariables    map[string]string                    `json:"template_variables,omitempty"`
 	References           []OntologyProjectReference           `json:"references,omitempty"`
 	Folders              []CreateOntologyProjectFolderRequest `json:"folders,omitempty"`
+	FileAccessPresetID   *string                              `json:"file_access_preset_id,omitempty"`
+	MarkingRIDs          []string                             `json:"marking_rids,omitempty"`
 }
 
 // ─── SG.26: project templates ──────────────────────────────────────────

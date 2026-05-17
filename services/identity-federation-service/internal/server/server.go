@@ -54,6 +54,9 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
 	controlPanel := handlers.NewControlPanel()
+	if rbac != nil {
+		rbac.ControlPanel = controlPanel
+	}
 	var scopedSessions *handlers.ScopedSessions
 	if auth != nil && auth.Repo != nil && auth.Issuer != nil {
 		scopedSessions = handlers.NewScopedSessions(controlPanel, auth.Repo, auth.Issuer)
@@ -183,6 +186,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Patch("/control-panel", controlPanel.Update)
 		api.Get("/control-panel/upgrade-readiness", controlPanel.UpgradeReadiness)
 		api.Post("/control-panel/identity-provider-mappings/preview", controlPanel.PreviewIdentityProviderMapping)
+		api.Get("/control-panel/application-access/change-requests", controlPanel.ApplicationAccessChangeRequests)
+		api.Post("/control-panel/application-access/change-requests/{id}/decision", controlPanel.DecideApplicationAccessChangeRequest)
+		api.Post("/application-access/evaluate", controlPanel.EvaluateApplicationAccess)
+		api.Post("/file-access-presets/visible", controlPanel.VisibleFileAccessPresets)
 
 		if scopedSessions != nil {
 			api.Get("/auth/scoped-sessions", scopedSessions.Options)
@@ -223,7 +230,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 	// /api/v1/auth) requires a Bearer token.
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "identity",
-		AuthPaths: []string{"/api/v1/auth/mfa", "/api/v1/auth/scoped-sessions", "/api/v1/users", "/api/v1/roles", "/api/v1/groups", "/api/v1/permissions", "/api/v1/api-keys", "/api/v1/control-panel", "/api/v1/restricted-views"},
+		AuthPaths: []string{"/api/v1/auth/mfa", "/api/v1/auth/scoped-sessions", "/api/v1/users", "/api/v1/roles", "/api/v1/groups", "/api/v1/permissions", "/api/v1/api-keys", "/api/v1/control-panel", "/api/v1/application-access", "/api/v1/file-access-presets", "/api/v1/restricted-views"},
 		Tags:      []string{"identity"},
 	}); err != nil {
 		panic("identity-federation-service: capability ingest failed: " + err.Error())

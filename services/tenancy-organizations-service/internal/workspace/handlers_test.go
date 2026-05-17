@@ -29,6 +29,7 @@ func TestParseResourceKindLegacyAliases(t *testing.T) {
 		"ontology_resource_binding": workspace.ResourceOntologyResourceBinding,
 		"dataset":                   workspace.ResourceDataset,
 		"pipeline":                  workspace.ResourcePipeline,
+		"query":                     workspace.ResourceQuery,
 		"notebook":                  workspace.ResourceNotebook,
 		"app":                       workspace.ResourceApp,
 		"dashboard":                 workspace.ResourceDashboard,

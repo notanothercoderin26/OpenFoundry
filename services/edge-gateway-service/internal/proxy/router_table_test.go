@@ -76,6 +76,8 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/api-keys", "id-fed"},
 		{"/api/v1/auth/cipher", "cipher"},
 		{"/api/v1/users/me", "id-fed"},
+		{"/api/v1/application-access/evaluate", "id-fed"},
+		{"/api/v1/file-access-presets/visible", "id-fed"},
 		{"/api/v1/users/abc/roles", "authz"},
 		{"/api/v1/roles", "authz"},
 		{"/api/v1/permissions/x", "authz"},

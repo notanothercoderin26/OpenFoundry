@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { Glyph } from '@/lib/components/ui/Glyph';
 import { listRecents, type RecentEntry } from '@/lib/api/workspace';
+import { workspaceResourceStablePath } from '@/lib/compass/stableResourceUrls';
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -11,8 +12,8 @@ function formatDate(value: string) {
 }
 
 function resourceHref(entry: RecentEntry): string | null {
-  if (entry.resource_kind === 'ontology_project') return `/projects/${entry.resource_id}`;
-  if (entry.resource_kind === 'dataset') return `/datasets/${entry.resource_id}`;
+  if (entry.resource_kind === 'ontology_project') return workspaceResourceStablePath(entry.resource_kind, entry.resource_id);
+  if (entry.resource_kind === 'dataset') return workspaceResourceStablePath(entry.resource_kind, entry.resource_id);
   return null;
 }
 

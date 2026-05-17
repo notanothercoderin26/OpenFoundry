@@ -39,6 +39,8 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		return u.Cipher
 
 	case strings.HasPrefix(path, "/api/v1/control-panel"),
+		strings.HasPrefix(path, "/api/v1/application-access"),
+		strings.HasPrefix(path, "/api/v1/file-access-presets"),
 		strings.HasPrefix(path, "/api/v2/admin/control-panel"):
 		return u.IdentityFederation
 

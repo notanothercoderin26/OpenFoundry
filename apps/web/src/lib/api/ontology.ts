@@ -2745,6 +2745,8 @@ export function createProject(body: {
   default_role?: OntologyProjectRole;
   template_key?: string;
   template_variables?: Record<string, string>;
+  file_access_preset_id?: string;
+  marking_rids?: string[];
   folders?: Array<{
     name: string;
     description?: string;

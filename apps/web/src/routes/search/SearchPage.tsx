@@ -18,6 +18,7 @@ import {
   getResourceTypeDefinition,
   openURLForCompassResource,
 } from '@/lib/compass/resourceTypeRegistry';
+import { workspaceResourceStablePath } from '@/lib/compass/stableResourceUrls';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { OpenWithMenu } from '@/lib/components/workspace/OpenWithMenu';
 
@@ -230,14 +231,7 @@ function resourceKindLabel(kind: ResourceKind): string {
 }
 
 function hrefForWorkspaceResource(kind: ResourceKind, id: string): string {
-  if (kind === 'ontology_project') return `/projects/${id}`;
-  if (kind === 'dataset') return `/datasets/${id}`;
-  if (kind === 'pipeline') return `/pipelines/${id}`;
-  if (kind === 'notebook') return `/notebooks/${id}`;
-  if (kind === 'app') return `/apps/${id}`;
-  if (kind === 'report') return `/reports/${id}`;
-  if (kind === 'model') return `/ml?model=${encodeURIComponent(id)}`;
-  return `/search?q=${encodeURIComponent(id)}`;
+  return workspaceResourceStablePath(kind, id);
 }
 
 function glyphForWorkspaceResource(kind: ResourceKind): GlyphName {

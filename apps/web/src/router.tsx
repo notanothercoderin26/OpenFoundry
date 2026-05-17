@@ -311,6 +311,18 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/control-panel/ScopedSessionsPage')).ScopedSessionsPage }),
       },
       {
+        path: 'control-panel/application-access',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/ApplicationAccessPage')).ApplicationAccessPage }),
+      },
+      {
+        path: 'control-panel/member-discovery',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/MemberDiscoveryPage')).MemberDiscoveryPage }),
+      },
+      {
+        path: 'control-panel/file-access-presets',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/FileAccessPresetsPage')).FileAccessPresetsPage }),
+      },
+      {
         path: 'functions',
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionsPage')).FunctionsPage }),
       },
@@ -409,6 +421,10 @@ export const router = createBrowserRouter([
       {
         path: 'projects/:projectId',
         lazy: async () => ({ Component: (await import('./routes/projects/ProjectDetailPage')).ProjectDetailPage }),
+      },
+      {
+        path: 'projects/:projectId/folders/:folderId',
+        lazy: async () => ({ Component: (await import('./routes/projects/ProjectFolderPage')).ProjectFolderPage }),
       },
       {
         path: 'projects/:projectId/:folderId',

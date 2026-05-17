@@ -545,23 +545,43 @@ OpenFoundry canonical IDs.
     - [`projects_sg26.go`](../../services/tenancy-organizations-service/internal/handlers/projects_sg26.go) exposes template list/create/get APIs, applies templates during `POST /projects`, creates template folder skeletons, binds generated viewer/editor/owner groups to project roles, records request-form metadata for those groups, applies project marking requirements into `marking_rids`/required markings, and blocks deployment when the caller lacks group, marking, constraint, or project-default permissions.
     - [`CreateProjectModal.tsx`](../../apps/web/src/lib/components/projects/CreateProjectModal.tsx) now sends `template_key` and default role from the template picker, and surfaces template security contents before project creation.
 
-- [ ] `SG.27` Application access controls (`P1`, `todo`)
+- [x] `SG.27` Application access controls (`P1`, `done` 2026-05-17)
   - Configure organization-level platform/application visibility by user or group allow/block rules and lifecycle stage.
   - Generate change requests and keep a historical record for application access changes and approval policy changes.
   - Clearly label application access as UX scope control, not a substitute for server-side permissions.
   - Docs: [Configure application access](https://www.palantir.com/docs/foundry/administration/configure-application-access/), [Approvals overview](https://www.palantir.com/docs/foundry/approvals/overview/).
+  - Implementation notes:
+    - [`ControlPanelSettings.ApplicationAccess`](../../services/identity-federation-service/internal/handlers/control_panel.go) stores the organization catalog, lifecycle stage, default visibility, allow/block rules, approval policy, pending change requests, and immutable history events. Rules match application IDs, lifecycle stages, organization IDs, user IDs, and group IDs; block rules win over allow rules and hidden-by-default mode requires an allow rule.
+    - `PUT /api/v1/control-panel` now creates application-access change requests and records approved/rejected history. Configuration changes self-approve by default; approval-policy changes create a pending request that must be approved by a distinct reviewer when the policy requires it.
+    - `POST /api/v1/application-access/evaluate` evaluates application visibility for the active caller or a supplied user/group/org context and returns matched rule IDs plus an explicit `ux_scope_only` result, so consumers can hide launcher/sidebar entries without treating that answer as data authorization.
+    - [`ApplicationAccessPage.tsx`](../../apps/web/src/routes/control-panel/ApplicationAccessPage.tsx) adds the Control Panel surface at `/control-panel/application-access`: JSON-backed configuration editor, evaluation probe, change-request approval/rejection actions, and history. The page prominently labels application access as UX-scope only and links from the main Control Panel page.
+    - [`Sidebar.tsx`](../../apps/web/src/lib/components/Sidebar.tsx) calls the evaluation endpoint for launcher applications and hides entries denied by application-access rules while leaving backend authorization untouched.
+    - Tests in [`control_panel_test.go`](../../services/identity-federation-service/internal/handlers/control_panel_test.go) cover group block rules, hidden-by-default allowlists, and distinct-reviewer approval-policy changes.
 
-- [ ] `SG.28` User and group visibility controls (`P1`, `todo`)
+- [x] `SG.28` User and group visibility controls (`P1`, `done` 2026-05-17)
   - Allow administrators to disable user and/or group discovery within an organization while preserving administrator visibility.
   - Preserve existing permissions while warning that user-defined logic depending on user/group discovery may fail.
   - Use this as a privacy boundary for consumer-mode or cross-organization use cases.
   - Docs: [Configure user and group visibility](https://www.palantir.com/docs/foundry/administration/configure-user-and-group-visibility), [Configure Foundry for consumer mode](https://www.palantir.com/docs/foundry/consumer-mode/foundry-consumer-setup).
+  - Implementation notes:
+    - [`ControlPanelSettings.MemberDiscovery`](../../services/identity-federation-service/internal/handlers/control_panel.go) stores global defaults, per-organization discover-users/discover-groups overrides, consumer-mode boundary flags, warning text, and change history.
+    - [`member_discovery.go`](../../services/identity-federation-service/internal/handlers/member_discovery.go) gates user/group discovery endpoints for non-admin callers while preserving administrator visibility through `admin`, `organization_admin`, `control_panel:*`, `users:*`, and `groups:*` grants.
+    - User and group search/list/detail/inspection endpoints now return `member_discovery_disabled` with the documented warning when discovery is disabled for the caller's organization. The policy does not mutate roles, memberships, group grants, resource ACLs, or restricted-view authorization.
+    - [`MemberDiscoveryPage.tsx`](../../apps/web/src/routes/control-panel/MemberDiscoveryPage.tsx) adds the Control Panel surface at `/control-panel/member-discovery`, with default toggles, organization overrides, consumer-mode boundary labeling, notes, and history.
+    - Tests in [`control_panel_test.go`](../../services/identity-federation-service/internal/handlers/control_panel_test.go) cover history/warning persistence and non-admin blocking with admin visibility preserved.
 
-- [ ] `SG.29` File access presets (`P1`, `todo`)
+- [x] `SG.29` File access presets (`P1`, `done` 2026-05-17)
   - Configure access presets that apply a named set of markings or local classification controls during resource creation where supported.
   - Enforce preset visibility based on apply-marking permission for every marking in the preset.
   - Support default preset ordering and guest-organization behavior when OpenFoundry implements multi-organization guests.
   - Docs: [Configure file access presets](https://www.palantir.com/docs/foundry/administration/configure-file-access-presets/), [Markings](https://www.palantir.com/docs/foundry/security/markings/).
+  - Implementation notes:
+    - [`ControlPanelSettings.FileAccessPresets`](../../services/identity-federation-service/internal/handlers/control_panel.go) stores enabled state, warning text, guest primary-organization behavior, ordered presets, local classification controls, supported resource kinds, organization scoping, audit metadata, and change history.
+    - `POST /api/v1/file-access-presets/visible` returns only presets visible to the caller for the requested organization/resource kind. A preset is omitted unless the caller has global `markings:apply`/`markings:write`/`markings:manage` or per-marking apply grants for every marking in the preset.
+    - Guest sessions use the supplied/derived primary organization when selecting presets, matching the documented rule that guests see presets from their primary organization rather than the host organization.
+    - [`FileAccessPresetsPage.tsx`](../../apps/web/src/routes/control-panel/FileAccessPresetsPage.tsx) adds the Control Panel UI at `/control-panel/file-access-presets`, including preset editing, local controls JSON, default ordering, known-marking lookup, visibility probe, and history.
+    - [`CreateProjectModal.tsx`](../../apps/web/src/lib/components/projects/CreateProjectModal.tsx) consumes visible project presets and sends the selected preset's markings during project creation. [`CreateProject`](../../services/tenancy-organizations-service/internal/handlers/projects.go) stores those markings in `marking_rids`, requires apply-marking permission, and merges them with template-applied markings.
+    - Tests in [`control_panel_test.go`](../../services/identity-federation-service/internal/handlers/control_panel_test.go) cover history/order normalization, all-markings apply-permission visibility, and primary-organization behavior for guest sessions.
 
 ### OAuth, tokens, and third-party applications
 

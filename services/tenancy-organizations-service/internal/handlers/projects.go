@@ -565,6 +565,16 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode references: %s", err))
 		return
 	}
+	markingRIDs := normalizeStringValues(body.MarkingRIDs)
+	if len(markingRIDs) > 0 && !canApplyProjectCreationMarkings(claims, markingRIDs) {
+		writeJSONErr(w, http.StatusForbidden, "missing permission markings:apply for file access preset markings")
+		return
+	}
+	markingRIDsJSON, err := json.Marshal(markingRIDs)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode marking_rids: %s", err))
+		return
+	}
 
 	tx, err := h.Pool.Begin(r.Context())
 	if err != nil {
@@ -578,10 +588,10 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 	if _, err := tx.Exec(r.Context(),
 		`INSERT INTO ontology_projects
 		   (id, rid, slug, display_name, description, workspace_slug, owner_id,
-		    default_role, point_of_contact_user_id, point_of_contact_email, "references")
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)`,
+		    default_role, point_of_contact_user_id, point_of_contact_email, "references", marking_rids)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb)`,
 		projectID, projectRID, slug, displayName, description, workspaceSlug, claims.Sub,
-		string(defaultRole), body.PointOfContactUserID, body.PointOfContactEmail, refsJSON,
+		string(defaultRole), body.PointOfContactUserID, body.PointOfContactEmail, refsJSON, markingRIDsJSON,
 	); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to create ontology project: %s", err))
 		return
@@ -622,6 +632,12 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	if len(markingRIDs) > 0 {
+		if err := mergeProjectMarkingRIDs(r.Context(), tx, projectID, markingRIDs); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	if err := workspace.UpsertProjectSearchIndexTx(r.Context(), tx, projectID, workspace.ResourceSearchEventCreated); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project: %s", err))
 		return
@@ -637,6 +653,109 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusCreated, project)
+}
+
+func mergeProjectMarkingRIDs(ctx context.Context, tx pgx.Tx, projectID uuid.UUID, markingRIDs []string) error {
+	markingRIDs = normalizeStringValues(markingRIDs)
+	if len(markingRIDs) == 0 {
+		return nil
+	}
+	var raw []byte
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(marking_rids, '[]'::jsonb)
+		   FROM ontology_projects
+		  WHERE id = $1`,
+		projectID,
+	).Scan(&raw); err != nil {
+		return fmt.Errorf("load project markings: %w", err)
+	}
+	existing := []string{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &existing); err != nil {
+			return fmt.Errorf("decode project markings: %w", err)
+		}
+	}
+	merged, err := json.Marshal(normalizeStringValues(append(existing, markingRIDs...)))
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE ontology_projects
+		    SET marking_rids = $2::jsonb, updated_at = NOW()
+		  WHERE id = $1`,
+		projectID, merged,
+	); err != nil {
+		return fmt.Errorf("merge project markings: %w", err)
+	}
+	return nil
+}
+
+func canApplyProjectCreationMarkings(claims *authmw.Claims, markingRIDs []string) bool {
+	if len(markingRIDs) == 0 {
+		return true
+	}
+	if hasAnyPermissionKey(claims, "markings:apply", "markings:write", "markings:manage") {
+		return true
+	}
+	allowed := projectCreationApplyMarkingIDsFromClaims(claims)
+	for _, markingRID := range markingRIDs {
+		if !containsStringFold(allowed, markingRID) {
+			return false
+		}
+	}
+	return true
+}
+
+func projectCreationApplyMarkingIDsFromClaims(claims *authmw.Claims) []string {
+	if claims == nil {
+		return []string{}
+	}
+	values := []string{}
+	for _, permission := range claims.Permissions {
+		permission = strings.TrimSpace(permission)
+		parts := strings.Split(permission, ":")
+		if len(parts) == 3 && (parts[0] == "marking" || parts[0] == "markings") && parts[2] == "apply" {
+			values = append(values, parts[1])
+			continue
+		}
+		if strings.HasPrefix(permission, "markings:apply:") {
+			values = append(values, strings.TrimPrefix(permission, "markings:apply:"))
+		}
+	}
+	if len(claims.Attributes) > 0 {
+		var attrs map[string]any
+		if err := json.Unmarshal(claims.Attributes, &attrs); err == nil {
+			for _, key := range []string{"apply_marking_ids", "marking_apply_ids", "appliable_marking_ids", "allowed_apply_marking_ids"} {
+				values = appendProjectCreationAttributeStrings(values, attrs[key])
+			}
+		}
+	}
+	return normalizeStringValues(values)
+}
+
+func appendProjectCreationAttributeStrings(values []string, raw any) []string {
+	switch v := raw.(type) {
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				values = append(values, s)
+			}
+		}
+	case []string:
+		values = append(values, v...)
+	case string:
+		values = append(values, v)
+	}
+	return values
+}
+
+func containsStringFold(values []string, needle string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetProject mirrors Rust `get_project`.
