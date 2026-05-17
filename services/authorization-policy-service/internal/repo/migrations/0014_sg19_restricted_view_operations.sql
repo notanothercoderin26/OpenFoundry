@@ -1,3 +1,4 @@
+-- residency: us-east-1
 -- SG.19 restricted-view operation catalog.
 --
 -- Adds the granular operations used by the identity-federation

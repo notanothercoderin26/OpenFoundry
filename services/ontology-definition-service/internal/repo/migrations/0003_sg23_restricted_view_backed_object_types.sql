@@ -1,3 +1,4 @@
+-- residency: us-east-1
 -- SG.23 restricted-view-backed object types.
 --
 -- Object types can now declare that their backing datasource is a

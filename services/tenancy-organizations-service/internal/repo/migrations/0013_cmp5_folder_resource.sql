@@ -1,3 +1,4 @@
+-- residency: us-east-1
 -- 0013: CMP.5 — Compass Folder resource metadata.
 --
 -- Promotes ontology_project_folders from project-local layout rows to

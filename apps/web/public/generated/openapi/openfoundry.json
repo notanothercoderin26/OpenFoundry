@@ -17,6 +17,14 @@
       "description": "Operations generated for the `notebook` namespace."
     },
     {
+      "name": "open_foundry.ai.v1",
+      "description": "Operations generated for the `open_foundry.ai.v1` namespace."
+    },
+    {
+      "name": "open_foundry.audit.v1",
+      "description": "Operations generated for the `open_foundry.audit.v1` namespace."
+    },
+    {
       "name": "open_foundry.auth",
       "description": "Operations generated for the `open_foundry.auth` namespace."
     },
@@ -31,6 +39,10 @@
     {
       "name": "open_foundry.dataset",
       "description": "Operations generated for the `open_foundry.dataset` namespace."
+    },
+    {
+      "name": "open_foundry.marketplace.v1",
+      "description": "Operations generated for the `open_foundry.marketplace.v1` namespace."
     },
     {
       "name": "open_foundry.media_set",
@@ -2766,6 +2778,57 @@
         "x-openfoundry-stability": "beta"
       }
     },
+    "/api/v1/ontology/create-object": {
+      "post": {
+        "summary": "OntologyObjectService CreateObject",
+        "description": "Generated from `open_foundry.ontology` RPC `CreateObject` in service `OntologyObjectService`.",
+        "operationId": "open_foundry.ontology.OntologyObjectService.CreateObject",
+        "tags": [
+          "open_foundry.ontology"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateObjectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectInstance"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.createobject",
+        "x-openfoundry-stability": "beta"
+      }
+    },
     "/api/v1/ontology/create-object-type": {
       "post": {
         "summary": "OntologyService CreateObjectType",
@@ -2920,6 +2983,67 @@
         "x-openfoundry-stability": "beta"
       }
     },
+    "/api/v1/ontology/delete-object": {
+      "delete": {
+        "summary": "OntologyObjectService DeleteObject",
+        "description": "Generated from `open_foundry.ontology` RPC `DeleteObject` in service `OntologyObjectService`.",
+        "operationId": "open_foundry.ontology.OntologyObjectService.DeleteObject",
+        "tags": [
+          "open_foundry.ontology"
+        ],
+        "parameters": [
+          {
+            "name": "object_type_id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `DeleteObjectRequest.object_type_id`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "primary_key",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `DeleteObjectRequest.primary_key`.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteObjectResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.deleteobject",
+        "x-openfoundry-stability": "beta"
+      }
+    },
     "/api/v1/ontology/delete-object-type": {
       "delete": {
         "summary": "OntologyService DeleteObjectType",
@@ -2969,6 +3093,67 @@
         "x-openfoundry-sdk-namespace": "ontology",
         "x-openfoundry-api-version": "v1",
         "x-openfoundry-mcp-tool": "openfoundry.ontology.deleteobjecttype",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/ontology/get-object": {
+      "get": {
+        "summary": "OntologyObjectService GetObject",
+        "description": "Generated from `open_foundry.ontology` RPC `GetObject` in service `OntologyObjectService`.",
+        "operationId": "open_foundry.ontology.OntologyObjectService.GetObject",
+        "tags": [
+          "open_foundry.ontology"
+        ],
+        "parameters": [
+          {
+            "name": "object_type_id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetObjectRequest.object_type_id`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "primary_key",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetObjectRequest.primary_key`.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectInstance"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.getobject",
         "x-openfoundry-stability": "beta"
       }
     },
@@ -3146,6 +3331,101 @@
         "x-openfoundry-stability": "beta"
       }
     },
+    "/api/v1/ontology/list-objects": {
+      "get": {
+        "summary": "OntologyObjectService ListObjects",
+        "description": "Generated from `open_foundry.ontology` RPC `ListObjects` in service `OntologyObjectService`.",
+        "operationId": "open_foundry.ontology.OntologyObjectService.ListObjects",
+        "tags": [
+          "open_foundry.ontology"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListObjectsRequest.cursor`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListObjectsRequest.filters`.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/PropertyFilter"
+              }
+            }
+          },
+          {
+            "name": "object_type_id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListObjectsRequest.object_type_id`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListObjectsRequest.page_size`.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListObjectsRequest.sort`.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/PropertySort"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListObjectsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.listobjects",
+        "x-openfoundry-stability": "beta"
+      }
+    },
     "/api/v1/ontology/list-properties": {
       "get": {
         "summary": "OntologyService ListProperties",
@@ -3249,6 +3529,108 @@
         "x-openfoundry-stability": "beta"
       }
     },
+    "/api/v1/ontology/search-objects": {
+      "post": {
+        "summary": "OntologyObjectService SearchObjects",
+        "description": "Generated from `open_foundry.ontology` RPC `SearchObjects` in service `OntologyObjectService`.",
+        "operationId": "open_foundry.ontology.OntologyObjectService.SearchObjects",
+        "tags": [
+          "open_foundry.ontology"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchObjectsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchObjectsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.searchobjects",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/ontology/traverse-links": {
+      "post": {
+        "summary": "OntologyObjectService TraverseLinks",
+        "description": "Generated from `open_foundry.ontology` RPC `TraverseLinks` in service `OntologyObjectService`.",
+        "operationId": "open_foundry.ontology.OntologyObjectService.TraverseLinks",
+        "tags": [
+          "open_foundry.ontology"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TraverseLinksRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraverseLinksResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.traverselinks",
+        "x-openfoundry-stability": "beta"
+      }
+    },
     "/api/v1/ontology/unbind-dataset": {
       "post": {
         "summary": "OntologyService UnbindDataset",
@@ -3297,6 +3679,57 @@
         "x-openfoundry-sdk-namespace": "ontology",
         "x-openfoundry-api-version": "v1",
         "x-openfoundry-mcp-tool": "openfoundry.ontology.unbinddataset",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/ontology/update-object": {
+      "patch": {
+        "summary": "OntologyObjectService UpdateObject",
+        "description": "Generated from `open_foundry.ontology` RPC `UpdateObject` in service `OntologyObjectService`.",
+        "operationId": "open_foundry.ontology.OntologyObjectService.UpdateObject",
+        "tags": [
+          "open_foundry.ontology"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateObjectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectInstance"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.updateobject",
         "x-openfoundry-stability": "beta"
       }
     },
@@ -4863,6 +5296,681 @@
         "x-openfoundry-stability": "beta"
       }
     },
+    "/api/v1/v1/create-product": {
+      "post": {
+        "summary": "MarketplaceProductService CreateProduct",
+        "description": "Generated from `open_foundry.marketplace.v1` RPC `CreateProduct` in service `MarketplaceProductService`.",
+        "operationId": "open_foundry.marketplace.v1.MarketplaceProductService.CreateProduct",
+        "tags": [
+          "open_foundry.marketplace.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProductRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "marketplace_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.marketplaceV1.createproduct",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/disable-model": {
+      "post": {
+        "summary": "LlmCatalogService DisableModel",
+        "description": "Generated from `open_foundry.ai.v1` RPC `DisableModel` in service `LlmCatalogService`.",
+        "operationId": "open_foundry.ai.v1.LlmCatalogService.DisableModel",
+        "tags": [
+          "open_foundry.ai.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisableModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ai_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.aiV1.disablemodel",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/enable-model": {
+      "post": {
+        "summary": "LlmCatalogService EnableModel",
+        "description": "Generated from `open_foundry.ai.v1` RPC `EnableModel` in service `LlmCatalogService`.",
+        "operationId": "open_foundry.ai.v1.LlmCatalogService.EnableModel",
+        "tags": [
+          "open_foundry.ai.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnableModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ai_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.aiV1.enablemodel",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/export-events": {
+      "post": {
+        "summary": "AuditService ExportEvents",
+        "description": "Generated from `open_foundry.audit.v1` RPC `ExportEvents` in service `AuditService`.",
+        "operationId": "open_foundry.audit.v1.AuditService.ExportEvents",
+        "tags": [
+          "open_foundry.audit.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportEventsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEventExport"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "audit_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.auditV1.exportevents",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/get-model": {
+      "get": {
+        "summary": "LlmCatalogService GetModel",
+        "description": "Generated from `open_foundry.ai.v1` RPC `GetModel` in service `LlmCatalogService`.",
+        "operationId": "open_foundry.ai.v1.LlmCatalogService.GetModel",
+        "tags": [
+          "open_foundry.ai.v1"
+        ],
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetModelRequest.rid`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ai_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.aiV1.getmodel",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/get-product": {
+      "get": {
+        "summary": "MarketplaceProductService GetProduct",
+        "description": "Generated from `open_foundry.marketplace.v1` RPC `GetProduct` in service `MarketplaceProductService`.",
+        "operationId": "open_foundry.marketplace.v1.MarketplaceProductService.GetProduct",
+        "tags": [
+          "open_foundry.marketplace.v1"
+        ],
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetProductRequest.rid`.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "marketplace_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.marketplaceV1.getproduct",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/install-product": {
+      "post": {
+        "summary": "MarketplaceProductService InstallProduct",
+        "description": "Generated from `open_foundry.marketplace.v1` RPC `InstallProduct` in service `MarketplaceProductService`.",
+        "operationId": "open_foundry.marketplace.v1.MarketplaceProductService.InstallProduct",
+        "tags": [
+          "open_foundry.marketplace.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallProductRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Installation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "marketplace_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.marketplaceV1.installproduct",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/invoke": {
+      "post": {
+        "summary": "LlmCatalogService Invoke",
+        "description": "Generated from `open_foundry.ai.v1` RPC `Invoke` in service `LlmCatalogService`.",
+        "operationId": "open_foundry.ai.v1.LlmCatalogService.Invoke",
+        "tags": [
+          "open_foundry.ai.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvokeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvokeResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ai_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.aiV1.invoke",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/invoke-stream": {
+      "post": {
+        "summary": "LlmCatalogService InvokeStream",
+        "description": "Generated from `open_foundry.ai.v1` RPC `InvokeStream` in service `LlmCatalogService`.",
+        "operationId": "open_foundry.ai.v1.LlmCatalogService.InvokeStream",
+        "tags": [
+          "open_foundry.ai.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvokeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvokeStreamChunk"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ai_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.aiV1.invokestream",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/list-installations": {
+      "get": {
+        "summary": "MarketplaceProductService ListInstallations",
+        "description": "Generated from `open_foundry.marketplace.v1` RPC `ListInstallations` in service `MarketplaceProductService`.",
+        "operationId": "open_foundry.marketplace.v1.MarketplaceProductService.ListInstallations",
+        "tags": [
+          "open_foundry.marketplace.v1"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListInstallationsRequest.limit`.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListInstallationsRequest.offset`.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "product_rid",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListInstallationsRequest.product_rid`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "target_workspace_rid",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListInstallationsRequest.target_workspace_rid`.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListInstallationsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "marketplace_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.marketplaceV1.listinstallations",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/list-models": {
+      "get": {
+        "summary": "LlmCatalogService ListModels",
+        "description": "Generated from `open_foundry.ai.v1` RPC `ListModels` in service `LlmCatalogService`.",
+        "operationId": "open_foundry.ai.v1.LlmCatalogService.ListModels",
+        "tags": [
+          "open_foundry.ai.v1"
+        ],
+        "parameters": [
+          {
+            "name": "only_enabled",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListModelsRequest.only_enabled`.",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListModelsRequest.provider`.",
+            "schema": {
+              "$ref": "#/components/schemas/Provider"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListModelsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ai_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.aiV1.listmodels",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/list-products": {
+      "get": {
+        "summary": "MarketplaceProductService ListProducts",
+        "description": "Generated from `open_foundry.marketplace.v1` RPC `ListProducts` in service `MarketplaceProductService`.",
+        "operationId": "open_foundry.marketplace.v1.MarketplaceProductService.ListProducts",
+        "tags": [
+          "open_foundry.marketplace.v1"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListProductsRequest.limit`.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListProductsRequest.offset`.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListProductsRequest.status`.",
+            "schema": {
+              "$ref": "#/components/schemas/ProductStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListProductsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "marketplace_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.marketplaceV1.listproducts",
+        "x-openfoundry-stability": "beta"
+      }
+    },
     "/api/v1/v1/publish": {
       "post": {
         "summary": "EventRouter Publish",
@@ -4914,6 +6022,210 @@
         "x-openfoundry-stability": "beta"
       }
     },
+    "/api/v1/v1/publish-version": {
+      "post": {
+        "summary": "MarketplaceProductService PublishVersion",
+        "description": "Generated from `open_foundry.marketplace.v1` RPC `PublishVersion` in service `MarketplaceProductService`.",
+        "operationId": "open_foundry.marketplace.v1.MarketplaceProductService.PublishVersion",
+        "tags": [
+          "open_foundry.marketplace.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishVersionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductVersion"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "marketplace_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.marketplaceV1.publishversion",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/query-events": {
+      "post": {
+        "summary": "AuditService QueryEvents",
+        "description": "Generated from `open_foundry.audit.v1` RPC `QueryEvents` in service `AuditService`.",
+        "operationId": "open_foundry.audit.v1.AuditService.QueryEvents",
+        "tags": [
+          "open_foundry.audit.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryEventsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryEventsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "audit_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.auditV1.queryevents",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/record-event": {
+      "post": {
+        "summary": "AuditService RecordEvent",
+        "description": "Generated from `open_foundry.audit.v1` RPC `RecordEvent` in service `AuditService`.",
+        "operationId": "open_foundry.audit.v1.AuditService.RecordEvent",
+        "tags": [
+          "open_foundry.audit.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordEventRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordEventResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "audit_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.auditV1.recordevent",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/register-model": {
+      "post": {
+        "summary": "LlmCatalogService RegisterModel",
+        "description": "Generated from `open_foundry.ai.v1` RPC `RegisterModel` in service `LlmCatalogService`.",
+        "operationId": "open_foundry.ai.v1.LlmCatalogService.RegisterModel",
+        "tags": [
+          "open_foundry.ai.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ai_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.aiV1.registermodel",
+        "x-openfoundry-stability": "beta"
+      }
+    },
     "/api/v1/v1/subscribe": {
       "post": {
         "summary": "EventRouter Subscribe",
@@ -4962,6 +6274,57 @@
         "x-openfoundry-sdk-namespace": "openfoundry_streaming_router_v1",
         "x-openfoundry-api-version": "v1",
         "x-openfoundry-mcp-tool": "openfoundry.openfoundryStreamingRouterV1.subscribe",
+        "x-openfoundry-stability": "beta"
+      }
+    },
+    "/api/v1/v1/uninstall": {
+      "post": {
+        "summary": "MarketplaceProductService Uninstall",
+        "description": "Generated from `open_foundry.marketplace.v1` RPC `Uninstall` in service `MarketplaceProductService`.",
+        "operationId": "open_foundry.marketplace.v1.MarketplaceProductService.Uninstall",
+        "tags": [
+          "open_foundry.marketplace.v1"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UninstallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Installation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "marketplace_v1",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.marketplaceV1.uninstall",
         "x-openfoundry-stability": "beta"
       }
     },
@@ -6035,6 +7398,71 @@
         "type": "object",
         "properties": {}
       },
+      "AuditEvent": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "correlation_id": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "markings_at_event": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "payload": {
+            "type": "string"
+          },
+          "project_rid": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "resource_rid": {
+            "type": "string"
+          },
+          "source_service": {
+            "type": "string"
+          },
+          "user_agent": {
+            "type": "string"
+          }
+        }
+      },
+      "AuditEventExport": {
+        "type": "object",
+        "properties": {
+          "event_ndjson": {
+            "type": "string"
+          }
+        }
+      },
       "BindDatasetRequest": {
         "type": "object",
         "properties": {
@@ -6529,6 +7957,20 @@
           }
         }
       },
+      "CreateObjectRequest": {
+        "type": "object",
+        "properties": {
+          "marking": {
+            "type": "string"
+          },
+          "object_type_id": {
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/Struct"
+          }
+        }
+      },
       "CreateObjectTypeRequest": {
         "type": "object",
         "properties": {
@@ -6579,6 +8021,26 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PipelineNode"
+            }
+          }
+        }
+      },
+      "CreateProductRequest": {
+        "type": "object",
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceRef"
             }
           }
         }
@@ -6875,6 +8337,29 @@
           }
         }
       },
+      "DeleteObjectRequest": {
+        "type": "object",
+        "properties": {
+          "object_type_id": {
+            "type": "string"
+          },
+          "primary_key": {
+            "type": "string"
+          }
+        }
+      },
+      "DeleteObjectResponse": {
+        "type": "object",
+        "properties": {
+          "cascaded_links": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      },
       "DeleteObjectTypeRequest": {
         "type": "object",
         "properties": {
@@ -6923,6 +8408,14 @@
         "type": "object",
         "properties": {}
       },
+      "DisableModelRequest": {
+        "type": "object",
+        "properties": {
+          "rid": {
+            "$ref": "#/components/schemas/Uuid"
+          }
+        }
+      },
       "DropSessionRequest": {
         "type": "object",
         "properties": {
@@ -6934,6 +8427,14 @@
       "DropSessionResponse": {
         "type": "object",
         "properties": {}
+      },
+      "EnableModelRequest": {
+        "type": "object",
+        "properties": {
+          "rid": {
+            "$ref": "#/components/schemas/Uuid"
+          }
+        }
       },
       "EnsureSessionRequest": {
         "type": "object",
@@ -7174,6 +8675,28 @@
           }
         }
       },
+      "ExportEventsRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resource_rid": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ExternalConfig": {
         "type": "object",
         "properties": {
@@ -7407,10 +8930,29 @@
           }
         }
       },
+      "GetModelRequest": {
+        "type": "object",
+        "properties": {
+          "rid": {
+            "$ref": "#/components/schemas/Uuid"
+          }
+        }
+      },
       "GetNotebookRequest": {
         "type": "object",
         "properties": {
           "id": {
+            "type": "string"
+          }
+        }
+      },
+      "GetObjectRequest": {
+        "type": "object",
+        "properties": {
+          "object_type_id": {
+            "type": "string"
+          },
+          "primary_key": {
             "type": "string"
           }
         }
@@ -7428,6 +8970,14 @@
         "properties": {
           "id": {
             "$ref": "#/components/schemas/Uuid"
+          }
+        }
+      },
+      "GetProductRequest": {
+        "type": "object",
+        "properties": {
+          "rid": {
+            "type": "string"
           }
         }
       },
@@ -7664,6 +9214,124 @@
           }
         }
       },
+      "InstallProductRequest": {
+        "type": "object",
+        "properties": {
+          "parameter_map": {
+            "type": "string"
+          },
+          "product_rid": {
+            "type": "string"
+          },
+          "target_workspace_rid": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "Installation": {
+        "type": "object",
+        "properties": {
+          "failure_reason": {
+            "type": "string"
+          },
+          "installed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "product_rid": {
+            "type": "string"
+          },
+          "resource_mappings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceMapping"
+            }
+          },
+          "rid": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/InstallationStatus"
+          },
+          "target_workspace_rid": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "InvokeRequest": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          },
+          "model_rid": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tool"
+            }
+          }
+        }
+      },
+      "InvokeResponse": {
+        "type": "object",
+        "properties": {
+          "cost_usd": {
+            "type": "number"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          },
+          "model_rid": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
+        }
+      },
+      "InvokeStreamChunk": {
+        "type": "object",
+        "properties": {
+          "delta": {
+            "type": "string"
+          },
+          "done": {
+            "type": "boolean"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
+        }
+      },
       "Job": {
         "type": "object",
         "properties": {
@@ -7818,6 +9486,33 @@
           }
         }
       },
+      "LinkedEdge": {
+        "type": "object",
+        "properties": {
+          "depth": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/LinkDirection"
+          },
+          "link_id": {
+            "type": "string"
+          },
+          "link_type_api_name": {
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/Struct"
+          },
+          "source_object_id": {
+            "type": "string"
+          },
+          "target_object_id": {
+            "type": "string"
+          }
+        }
+      },
       "ListAccessPatternsRequest": {
         "type": "object",
         "properties": {
@@ -7921,6 +9616,40 @@
           }
         }
       },
+      "ListInstallationsRequest": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "product_rid": {
+            "type": "string"
+          },
+          "target_workspace_rid": {
+            "type": "string"
+          }
+        }
+      },
+      "ListInstallationsResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Installation"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "ListLinkTypesRequest": {
         "type": "object",
         "properties": {
@@ -8002,6 +9731,28 @@
           }
         }
       },
+      "ListModelsRequest": {
+        "type": "object",
+        "properties": {
+          "only_enabled": {
+            "type": "boolean"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          }
+        }
+      },
+      "ListModelsResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Model"
+            }
+          }
+        }
+      },
       "ListNotebooksRequest": {
         "type": "object",
         "properties": {
@@ -8066,6 +9817,51 @@
           }
         }
       },
+      "ListObjectsRequest": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PropertyFilter"
+            }
+          },
+          "object_type_id": {
+            "type": "string"
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PropertySort"
+            }
+          }
+        }
+      },
+      "ListObjectsResponse": {
+        "type": "object",
+        "properties": {
+          "next_cursor": {
+            "type": "string"
+          },
+          "objects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectInstance"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ListPipelinesRequest": {
         "type": "object",
         "properties": {
@@ -8088,6 +9884,37 @@
             "items": {
               "$ref": "#/components/schemas/Pipeline"
             }
+          }
+        }
+      },
+      "ListProductsRequest": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProductStatus"
+          }
+        }
+      },
+      "ListProductsResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Product"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -8438,6 +10265,95 @@
           }
         }
       },
+      "MergeBranchRequest": {
+        "type": "object",
+        "properties": {
+          "dataset_rid": {
+            "type": "string"
+          },
+          "source_branch": {
+            "type": "string"
+          },
+          "target_branch": {
+            "type": "string"
+          }
+        }
+      },
+      "MergeBranchResponse": {
+        "type": "object",
+        "properties": {
+          "already_merged": {
+            "type": "boolean"
+          },
+          "branch": {
+            "$ref": "#/components/schemas/Branch"
+          },
+          "fast_forwarded": {
+            "type": "boolean"
+          },
+          "new_head_transaction_rid": {
+            "type": "string"
+          },
+          "previous_head_transaction_rid": {
+            "type": "string"
+          }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "Model": {
+        "type": "object",
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            }
+          },
+          "context_window": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "input_cost_per_1k": {
+            "type": "number"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "output_cost_per_1k": {
+            "type": "number"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "rid": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "Notebook": {
         "type": "object",
         "properties": {
@@ -8459,6 +10375,37 @@
           },
           "owner_id": {
             "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ObjectInstance": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "marking": {
+            "type": "string"
+          },
+          "object_type_id": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/Struct"
           },
           "updated_at": {
             "type": "string",
@@ -8948,6 +10895,76 @@
           }
         }
       },
+      "Product": {
+        "type": "object",
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string"
+          },
+          "manifest_url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceRef"
+            }
+          },
+          "rid": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProductStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "ProductVersion": {
+        "type": "object",
+        "properties": {
+          "bundle_path": {
+            "type": "string"
+          },
+          "manifest": {
+            "type": "string"
+          },
+          "product_rid": {
+            "type": "string"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rid": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
       "Property": {
         "type": "object",
         "properties": {
@@ -8991,6 +11008,31 @@
           }
         }
       },
+      "PropertyFilter": {
+        "type": "object",
+        "properties": {
+          "operator": {
+            "type": "string"
+          },
+          "property_name": {
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/Value"
+          }
+        }
+      },
+      "PropertySort": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string"
+          },
+          "property_name": {
+            "type": "string"
+          }
+        }
+      },
       "PublishRequest": {
         "type": "object",
         "properties": {
@@ -9018,6 +11060,60 @@
             "type": "string"
           },
           "matched_pattern": {
+            "type": "string"
+          }
+        }
+      },
+      "PublishVersionRequest": {
+        "type": "object",
+        "properties": {
+          "product_rid": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "QueryEventsRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "resource_rid": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "QueryEventsResponse": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEvent"
+            }
+          },
+          "next_cursor": {
             "type": "string"
           }
         }
@@ -9073,6 +11169,25 @@
           }
         }
       },
+      "RecordEventRequest": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/AuditEvent"
+          },
+          "raw_envelope": {
+            "type": "string"
+          }
+        }
+      },
+      "RecordEventResponse": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string"
+          }
+        }
+      },
       "RecordLineageRequest": {
         "type": "object",
         "properties": {
@@ -9123,6 +11238,39 @@
           }
         }
       },
+      "RegisterModelRequest": {
+        "type": "object",
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            }
+          },
+          "context_window": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "input_cost_per_1k": {
+            "type": "number"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "output_cost_per_1k": {
+            "type": "number"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          }
+        }
+      },
       "RegisterRequest": {
         "type": "object",
         "properties": {
@@ -9169,6 +11317,31 @@
           "size_bytes": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "ResourceMapping": {
+        "type": "object",
+        "properties": {
+          "dst_rid": {
+            "type": "string"
+          },
+          "src_ref": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ResourceType"
+          }
+        }
+      },
+      "ResourceRef": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ResourceType"
           }
         }
       },
@@ -9447,6 +11620,34 @@
           }
         }
       },
+      "SearchObjectsRequest": {
+        "type": "object",
+        "properties": {
+          "object_type_id": {
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PageRequest"
+          },
+          "query": {
+            "type": "string"
+          }
+        }
+      },
+      "SearchObjectsResponse": {
+        "type": "object",
+        "properties": {
+          "objects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectInstance"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PageResponse"
+          }
+        }
+      },
       "Session": {
         "type": "object",
         "properties": {
@@ -9650,6 +11851,20 @@
           }
         }
       },
+      "Tool": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parameters_json_schema": {
+            "type": "string"
+          }
+        }
+      },
       "Transaction": {
         "type": "object",
         "properties": {
@@ -9675,6 +11890,54 @@
           },
           "state": {
             "$ref": "#/components/schemas/TransactionState"
+          }
+        }
+      },
+      "TraverseLinksRequest": {
+        "type": "object",
+        "properties": {
+          "depth": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/LinkDirection"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "link_type_api_name": {
+            "type": "string"
+          },
+          "link_type_api_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "object_type_id": {
+            "type": "string"
+          },
+          "primary_key": {
+            "type": "string"
+          }
+        }
+      },
+      "TraverseLinksResponse": {
+        "type": "object",
+        "properties": {
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkedEdge"
+            }
+          },
+          "objects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectInstance"
+            }
           }
         }
       },
@@ -9716,6 +11979,14 @@
         "properties": {
           "deleted": {
             "type": "boolean"
+          }
+        }
+      },
+      "UninstallRequest": {
+        "type": "object",
+        "properties": {
+          "installation_rid": {
+            "type": "string"
           }
         }
       },
@@ -9839,6 +12110,26 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateObjectRequest": {
+        "type": "object",
+        "properties": {
+          "marking": {
+            "type": "string"
+          },
+          "object_type_id": {
+            "type": "string"
+          },
+          "primary_key": {
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/Struct"
+          },
+          "replace": {
+            "type": "boolean"
           }
         }
       },
@@ -9978,6 +12269,23 @@
           },
           "row_filter": {
             "type": "string"
+          }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "properties": {
+          "completion_tokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

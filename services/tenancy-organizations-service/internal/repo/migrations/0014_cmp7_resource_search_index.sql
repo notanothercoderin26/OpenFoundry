@@ -1,3 +1,4 @@
+-- residency: us-east-1
 -- 0014: CMP.7 - Compass resource search index.
 --
 -- Materializes the per-resource catalog/search projection used by Compass-style

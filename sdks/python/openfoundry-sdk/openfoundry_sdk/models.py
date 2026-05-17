@@ -114,6 +114,28 @@ class AssignRoleResponse:
     pass
 
 @dataclass(slots=True)
+class AuditEvent:
+    action: str | None = None
+    actor_id: str | None = None
+    categories: list[str] | None = None
+    correlation_id: str | None = None
+    event_id: str | None = None
+    ip: str | None = None
+    kind: str | None = None
+    markings_at_event: list[str] | None = None
+    occurred_at: str | None = None
+    payload: str | None = None
+    project_rid: str | None = None
+    request_id: str | None = None
+    resource_rid: str | None = None
+    source_service: str | None = None
+    user_agent: str | None = None
+
+@dataclass(slots=True)
+class AuditEventExport:
+    event_ndjson: str | None = None
+
+@dataclass(slots=True)
 class BindDatasetRequest:
     dataset_branch: str | None = None
     dataset_id: Uuid | None = None
@@ -291,6 +313,12 @@ class CreateNotebookRequest:
     name: str | None = None
 
 @dataclass(slots=True)
+class CreateObjectRequest:
+    marking: str | None = None
+    object_type_id: str | None = None
+    properties: Struct | None = None
+
+@dataclass(slots=True)
 class CreateObjectTypeRequest:
     color: str | None = None
     description: str | None = None
@@ -310,6 +338,13 @@ class CreatePipelineRequest:
     description: str | None = None
     name: str | None = None
     nodes: list[PipelineNode] | None = None
+
+@dataclass(slots=True)
+class CreateProductRequest:
+    author: str | None = None
+    description: str | None = None
+    name: str | None = None
+    resources: list[ResourceRef] | None = None
 
 @dataclass(slots=True)
 class CreatePropertyRequest:
@@ -438,6 +473,16 @@ class DeleteNotebookRequest:
     id: str | None = None
 
 @dataclass(slots=True)
+class DeleteObjectRequest:
+    object_type_id: str | None = None
+    primary_key: str | None = None
+
+@dataclass(slots=True)
+class DeleteObjectResponse:
+    cascaded_links: int | None = None
+    deleted: bool | None = None
+
+@dataclass(slots=True)
 class DeleteObjectTypeRequest:
     id: Uuid | None = None
 
@@ -470,12 +515,20 @@ class DeleteScheduleResponse:
     pass
 
 @dataclass(slots=True)
+class DisableModelRequest:
+    rid: Uuid | None = None
+
+@dataclass(slots=True)
 class DropSessionRequest:
     session_id: str | None = None
 
 @dataclass(slots=True)
 class DropSessionResponse:
     pass
+
+@dataclass(slots=True)
+class EnableModelRequest:
+    rid: Uuid | None = None
 
 @dataclass(slots=True)
 class EnsureSessionRequest:
@@ -573,6 +626,14 @@ class ExplainQueryResponse:
     physical_plan: str | None = None
 
 @dataclass(slots=True)
+class ExportEventsRequest:
+    action: str | None = None
+    actor_id: str | None = None
+    from: str | None = None
+    resource_rid: str | None = None
+    to: str | None = None
+
+@dataclass(slots=True)
 class ExternalConfig:
     compute_profile_id: str | None = None
     source_id: Uuid | None = None
@@ -666,8 +727,17 @@ class GetMediaSetRequest:
     rid: str | None = None
 
 @dataclass(slots=True)
+class GetModelRequest:
+    rid: Uuid | None = None
+
+@dataclass(slots=True)
 class GetNotebookRequest:
     id: str | None = None
+
+@dataclass(slots=True)
+class GetObjectRequest:
+    object_type_id: str | None = None
+    primary_key: str | None = None
 
 @dataclass(slots=True)
 class GetObjectTypeRequest:
@@ -676,6 +746,10 @@ class GetObjectTypeRequest:
 @dataclass(slots=True)
 class GetPipelineRequest:
     id: Uuid | None = None
+
+@dataclass(slots=True)
+class GetProductRequest:
+    rid: str | None = None
 
 @dataclass(slots=True)
 class GetRunRequest:
@@ -766,6 +840,47 @@ class InputSpec:
     view_filter: list[str] | None = None
 
 @dataclass(slots=True)
+class InstallProductRequest:
+    parameter_map: str | None = None
+    product_rid: str | None = None
+    target_workspace_rid: str | None = None
+    version: str | None = None
+
+@dataclass(slots=True)
+class Installation:
+    failure_reason: str | None = None
+    installed_at: str | None = None
+    product_rid: str | None = None
+    resource_mappings: list[ResourceMapping] | None = None
+    rid: str | None = None
+    status: InstallationStatus | None = None
+    target_workspace_rid: str | None = None
+    updated_at: str | None = None
+    version: str | None = None
+
+@dataclass(slots=True)
+class InvokeRequest:
+    max_tokens: int | None = None
+    messages: list[Message] | None = None
+    model_rid: Uuid | None = None
+    stream: bool | None = None
+    temperature: float | None = None
+    tools: list[Tool] | None = None
+
+@dataclass(slots=True)
+class InvokeResponse:
+    cost_usd: float | None = None
+    messages: list[Message] | None = None
+    model_rid: str | None = None
+    usage: Usage | None = None
+
+@dataclass(slots=True)
+class InvokeStreamChunk:
+    delta: str | None = None
+    done: bool | None = None
+    usage: Usage | None = None
+
+@dataclass(slots=True)
 class Job:
     attempt: int | None = None
     build_rid: str | None = None
@@ -819,6 +934,16 @@ class LinkType:
     updated_at: str | None = None
 
 @dataclass(slots=True)
+class LinkedEdge:
+    depth: int | None = None
+    direction: LinkDirection | None = None
+    link_id: str | None = None
+    link_type_api_name: str | None = None
+    properties: Struct | None = None
+    source_object_id: str | None = None
+    target_object_id: str | None = None
+
+@dataclass(slots=True)
 class ListAccessPatternsRequest:
     media_set_rid: str | None = None
     pagination: PageRequest | None = None
@@ -859,6 +984,18 @@ class ListIngestJobsResponse:
     pagination: PageResponse | None = None
 
 @dataclass(slots=True)
+class ListInstallationsRequest:
+    limit: int | None = None
+    offset: int | None = None
+    product_rid: str | None = None
+    target_workspace_rid: str | None = None
+
+@dataclass(slots=True)
+class ListInstallationsResponse:
+    items: list[Installation] | None = None
+    total: int | None = None
+
+@dataclass(slots=True)
 class ListLinkTypesRequest:
     object_type_id: Uuid | None = None
     pagination: PageRequest | None = None
@@ -891,6 +1028,15 @@ class ListMediaSetsResponse:
     pagination: PageResponse | None = None
 
 @dataclass(slots=True)
+class ListModelsRequest:
+    only_enabled: bool | None = None
+    provider: Provider | None = None
+
+@dataclass(slots=True)
+class ListModelsResponse:
+    data: list[Model] | None = None
+
+@dataclass(slots=True)
 class ListNotebooksRequest:
     page: int | None = None
     per_page: int | None = None
@@ -914,6 +1060,20 @@ class ListObjectTypesResponse:
     pagination: PageResponse | None = None
 
 @dataclass(slots=True)
+class ListObjectsRequest:
+    cursor: str | None = None
+    filters: list[PropertyFilter] | None = None
+    object_type_id: str | None = None
+    page_size: int | None = None
+    sort: list[PropertySort] | None = None
+
+@dataclass(slots=True)
+class ListObjectsResponse:
+    next_cursor: str | None = None
+    objects: list[ObjectInstance] | None = None
+    total: int | None = None
+
+@dataclass(slots=True)
 class ListPipelinesRequest:
     pagination: PageRequest | None = None
     search: str | None = None
@@ -922,6 +1082,17 @@ class ListPipelinesRequest:
 class ListPipelinesResponse:
     pagination: PageResponse | None = None
     pipelines: list[Pipeline] | None = None
+
+@dataclass(slots=True)
+class ListProductsRequest:
+    limit: int | None = None
+    offset: int | None = None
+    status: ProductStatus | None = None
+
+@dataclass(slots=True)
+class ListProductsResponse:
+    items: list[Product] | None = None
+    total: int | None = None
 
 @dataclass(slots=True)
 class ListPropertiesRequest:
@@ -1053,6 +1224,39 @@ class MediaSet:
     virtual: bool | None = None
 
 @dataclass(slots=True)
+class MergeBranchRequest:
+    dataset_rid: str | None = None
+    source_branch: str | None = None
+    target_branch: str | None = None
+
+@dataclass(slots=True)
+class MergeBranchResponse:
+    already_merged: bool | None = None
+    branch: Branch | None = None
+    fast_forwarded: bool | None = None
+    new_head_transaction_rid: str | None = None
+    previous_head_transaction_rid: str | None = None
+
+@dataclass(slots=True)
+class Message:
+    content: str | None = None
+    role: str | None = None
+
+@dataclass(slots=True)
+class Model:
+    capabilities: list[Capability] | None = None
+    context_window: int | None = None
+    created_at: str | None = None
+    display_name: str | None = None
+    enabled: bool | None = None
+    input_cost_per_1k: float | None = None
+    model_id: str | None = None
+    output_cost_per_1k: float | None = None
+    provider: Provider | None = None
+    rid: Uuid | None = None
+    updated_at: str | None = None
+
+@dataclass(slots=True)
 class Notebook:
     created_at: str | None = None
     default_kernel: str | None = None
@@ -1060,6 +1264,17 @@ class Notebook:
     id: str | None = None
     name: str | None = None
     owner_id: str | None = None
+    updated_at: str | None = None
+
+@dataclass(slots=True)
+class ObjectInstance:
+    created_at: str | None = None
+    created_by: str | None = None
+    id: str | None = None
+    marking: str | None = None
+    object_type_id: str | None = None
+    organization_id: str | None = None
+    properties: Struct | None = None
     updated_at: str | None = None
 
 @dataclass(slots=True)
@@ -1225,6 +1440,30 @@ class PreviewNextFiresResponse:
     fires: list[str] | None = None
 
 @dataclass(slots=True)
+class Product:
+    author: str | None = None
+    created_at: str | None = None
+    description: str | None = None
+    manifest_url: str | None = None
+    name: str | None = None
+    resources: list[ResourceRef] | None = None
+    rid: str | None = None
+    signature: str | None = None
+    status: ProductStatus | None = None
+    updated_at: str | None = None
+    version: str | None = None
+
+@dataclass(slots=True)
+class ProductVersion:
+    bundle_path: str | None = None
+    manifest: str | None = None
+    product_rid: str | None = None
+    published_at: str | None = None
+    rid: str | None = None
+    signature: str | None = None
+    version: str | None = None
+
+@dataclass(slots=True)
 class Property:
     created_at: str | None = None
     default_value_json: str | None = None
@@ -1240,6 +1479,17 @@ class Property:
     validation_rules_json: str | None = None
 
 @dataclass(slots=True)
+class PropertyFilter:
+    operator: str | None = None
+    property_name: str | None = None
+    value: Value | None = None
+
+@dataclass(slots=True)
+class PropertySort:
+    direction: str | None = None
+    property_name: str | None = None
+
+@dataclass(slots=True)
 class PublishRequest:
     headers: dict[str, str] | None = None
     payload: str | None = None
@@ -1250,6 +1500,26 @@ class PublishRequest:
 class PublishResponse:
     backend: str | None = None
     matched_pattern: str | None = None
+
+@dataclass(slots=True)
+class PublishVersionRequest:
+    product_rid: str | None = None
+    version: str | None = None
+
+@dataclass(slots=True)
+class QueryEventsRequest:
+    action: str | None = None
+    actor_id: str | None = None
+    cursor: str | None = None
+    from: str | None = None
+    page_size: int | None = None
+    resource_rid: str | None = None
+    to: str | None = None
+
+@dataclass(slots=True)
+class QueryEventsResponse:
+    events: list[AuditEvent] | None = None
+    next_cursor: str | None = None
 
 @dataclass(slots=True)
 class QueryResult:
@@ -1266,6 +1536,15 @@ class QueueIngestJobRequest:
     schedule_at: str | None = None
     table_name: str | None = None
     target_dataset_id: Uuid | None = None
+
+@dataclass(slots=True)
+class RecordEventRequest:
+    event: AuditEvent | None = None
+    raw_envelope: str | None = None
+
+@dataclass(slots=True)
+class RecordEventResponse:
+    event_id: str | None = None
 
 @dataclass(slots=True)
 class RecordLineageRequest:
@@ -1291,6 +1570,17 @@ class RegisterAccessPatternRequest:
     ttl_seconds: int | None = None
 
 @dataclass(slots=True)
+class RegisterModelRequest:
+    capabilities: list[Capability] | None = None
+    context_window: int | None = None
+    display_name: str | None = None
+    enabled: bool | None = None
+    input_cost_per_1k: float | None = None
+    model_id: str | None = None
+    output_cost_per_1k: float | None = None
+    provider: Provider | None = None
+
+@dataclass(slots=True)
 class RegisterRequest:
     email: str | None = None
     name: str | None = None
@@ -1309,6 +1599,17 @@ class RegisterVirtualMediaItemRequest:
     physical_path: str | None = None
     sha256: str | None = None
     size_bytes: int | None = None
+
+@dataclass(slots=True)
+class ResourceMapping:
+    dst_rid: str | None = None
+    src_ref: str | None = None
+    type: ResourceType | None = None
+
+@dataclass(slots=True)
+class ResourceRef:
+    ref: str | None = None
+    type: ResourceType | None = None
 
 @dataclass(slots=True)
 class Role:
@@ -1411,6 +1712,17 @@ class Schema:
     file_format: FileFormat | None = None
 
 @dataclass(slots=True)
+class SearchObjectsRequest:
+    object_type_id: str | None = None
+    pagination: PageRequest | None = None
+    query: str | None = None
+
+@dataclass(slots=True)
+class SearchObjectsResponse:
+    objects: list[ObjectInstance] | None = None
+    pagination: PageResponse | None = None
+
+@dataclass(slots=True)
 class Session:
     created_at: str | None = None
     id: str | None = None
@@ -1493,6 +1805,12 @@ class TokenPair:
     refresh_token: str | None = None
 
 @dataclass(slots=True)
+class Tool:
+    description: str | None = None
+    name: str | None = None
+    parameters_json_schema: str | None = None
+
+@dataclass(slots=True)
 class Transaction:
     branch: str | None = None
     closed_at: str | None = None
@@ -1501,6 +1819,21 @@ class Transaction:
     opened_by: str | None = None
     rid: str | None = None
     state: TransactionState | None = None
+
+@dataclass(slots=True)
+class TraverseLinksRequest:
+    depth: int | None = None
+    direction: LinkDirection | None = None
+    limit: int | None = None
+    link_type_api_name: str | None = None
+    link_type_api_names: list[str] | None = None
+    object_type_id: str | None = None
+    primary_key: str | None = None
+
+@dataclass(slots=True)
+class TraverseLinksResponse:
+    edges: list[LinkedEdge] | None = None
+    objects: list[ObjectInstance] | None = None
 
 @dataclass(slots=True)
 class Trigger:
@@ -1520,6 +1853,10 @@ class UnbindDatasetRequest:
 @dataclass(slots=True)
 class UnbindDatasetResponse:
     deleted: bool | None = None
+
+@dataclass(slots=True)
+class UninstallRequest:
+    installation_rid: str | None = None
 
 @dataclass(slots=True)
 class UpdateCellRequest:
@@ -1563,6 +1900,14 @@ class UpdateNotebookRequest:
     description: str | None = None
     id: str | None = None
     name: str | None = None
+
+@dataclass(slots=True)
+class UpdateObjectRequest:
+    marking: str | None = None
+    object_type_id: str | None = None
+    primary_key: str | None = None
+    properties: Struct | None = None
+    replace: bool | None = None
 
 @dataclass(slots=True)
 class UpdateObjectTypeRequest:
@@ -1614,6 +1959,12 @@ class UpsertPolicyRequest:
     name: str | None = None
     resource: str | None = None
     row_filter: str | None = None
+
+@dataclass(slots=True)
+class Usage:
+    completion_tokens: int | None = None
+    prompt_tokens: int | None = None
+    total_tokens: int | None = None
 
 @dataclass(slots=True)
 class UserInfo:

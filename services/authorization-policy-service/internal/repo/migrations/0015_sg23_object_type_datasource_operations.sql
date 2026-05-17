@@ -1,3 +1,4 @@
+-- residency: us-east-1
 -- SG.23 object-type datasource operation catalog.
 --
 -- Restricted-view-backed object types require both ontology-level manager

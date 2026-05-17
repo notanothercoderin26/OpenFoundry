@@ -1,3 +1,4 @@
+-- residency: us-east-1
 -- SG.22 marking-backed restricted views.
 --
 -- A restricted view can name one or more backing-dataset columns whose

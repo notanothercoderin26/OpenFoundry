@@ -1,3 +1,4 @@
+-- residency: us-east-1
 -- SG.19 restricted-view resource CRUD.
 --
 -- Extends the slice-7a CBAC row with Foundry-style resource metadata:

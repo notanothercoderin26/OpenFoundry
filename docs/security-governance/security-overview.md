@@ -25,7 +25,7 @@ through the **conjunction** of the layers that apply.
 | 3 | **Discretionary roles** | Does the caller hold a role on this resource (Owner / Editor / Viewer / Discoverer / custom)? | [`services/authorization-policy-service`](../../services/authorization-policy-service/) + [`libs/auth-middleware`](../../libs/auth-middleware/) |
 | 4 | **Mandatory markings** | Does the caller satisfy **all** markings that apply to this resource (directly, by inheritance, or through lineage)? | `authorization-policy-service` (planned `marking-service` carve-out — see [checklist `SG.11`–`SG.15`](../migration/foundry-security-governance-1to1-checklist.md)) |
 | 5 | **Restricted views and row-level policy** | Which rows / columns / objects is the caller allowed to see inside the resource? | `authorization-policy-service` (`internal/handlers/restricted_views.go`) |
-| 6 | **Scoped session** | Of the markings the caller normally satisfies, which subset is active right now? | Planned scoped-session preset on `tenancy-organizations-service` (see [checklist `SG.24`–`SG.25`](../migration/foundry-security-governance-1to1-checklist.md)) |
+| 6 | **Scoped session** | Of the markings the caller normally satisfies, which subset is active right now? | [`identity-federation-service`](../../services/identity-federation-service/internal/handlers/scoped_sessions.go) + [`libs/auth-middleware`](../../libs/auth-middleware/) |
 | 7 | **Network egress and export controls** | Can data leave the platform via this destination / channel? | Planned `egress-governance-service` (see [checklist `SG.34`–`SG.35`](../migration/foundry-security-governance-1to1-checklist.md)); audit emission in [`libs/audit-trail`](../../libs/audit-trail/) |
 
 Every decision is recorded by the audit subsystem
@@ -269,7 +269,31 @@ Detailed surface: [Restricted views and data controls](./restricted-views-and-da
 > [Configure restricted-view-backed object types](https://www.palantir.com/docs/foundry/object-permissioning/configuring-rv-access-controls/) ·
 > [Manage object security](https://www.palantir.com/docs/foundry/object-permissioning/managing-object-security/).
 
-### 6. Audit and traceability
+### 6. Scoped sessions
+
+Scoped sessions let an organization constrain a user's active marking
+set without changing the user's underlying marking memberships.
+
+- Control Panel settings now persist scoped-session enablement,
+  no-scoped-session bypass policy, always-show-selector behavior,
+  allowed bypass groups, and normalized marking-backed presets.
+- `GET /api/v1/auth/scoped-sessions` returns the caller's selectable
+  presets. A preset is selectable only when the user's full stored
+  marking membership satisfies all required markings.
+- `POST /api/v1/auth/scoped-sessions/select` issues a new JWT with
+  `session_scope.allowed_markings`; refresh tokens persist that scope so
+  a token refresh does not silently widen the active session.
+- The app shell shows the active scoped-session banner and refreshes the
+  workspace after a permitted session change.
+- Enforcement for every data plane is tracked separately under
+  [checklist `SG.25`](../migration/foundry-security-governance-1to1-checklist.md);
+  the gateway already forwards active session-scope headers downstream.
+
+> Parity reference:
+> [Configure scoped sessions](https://www.palantir.com/docs/foundry/administration/configure-scoped-sessions/) ·
+> [Markings](https://www.palantir.com/docs/foundry/security/markings/).
+
+### Audit and traceability
 
 Every security-relevant decision — login, role grant, marking apply,
 restricted-view query, action submission, egress import, retention

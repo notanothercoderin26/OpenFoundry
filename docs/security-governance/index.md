@@ -27,6 +27,7 @@ This section covers identity, permissions, policy, traceability, and controlled 
 - role-based, attribute-based and policy-based authorization (Cedar)
 - auditability (immutable ledger + Kafka sink to Iceberg)
 - semantic and row/column-level access control via restricted views
+- marking-backed scoped sessions for active-session minimization
 - environment and deployment governance (tenancy + telemetry policies)
 
 ## Section map

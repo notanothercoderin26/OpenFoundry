@@ -1305,6 +1305,30 @@ export const OPENFOUNDRY_MCP_TOOLS: ReadonlyArray<OpenFoundryMcpTool> = [
     stability: "beta",
   },
   {
+    name: "openfoundry.ontology.createobject",
+    description: "Generated from `open_foundry.ontology` RPC `CreateObject` in service `OntologyObjectService`.",
+    operationId: "open_foundry.ontology.OntologyObjectService.CreateObject",
+    method: "POST",
+    path: "/api/v1/ontology/create-object",
+    namespace: "ontology",
+    namespaceMember: "createobject",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/CreateObjectRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
     name: "openfoundry.ontology.createobjecttype",
     description: "Generated from `open_foundry.ontology` RPC `CreateObjectType` in service `OntologyService`.",
     operationId: "open_foundry.ontology.OntologyService.CreateObjectType",
@@ -1379,6 +1403,35 @@ export const OPENFOUNDRY_MCP_TOOLS: ReadonlyArray<OpenFoundryMcpTool> = [
     stability: "beta",
   },
   {
+    name: "openfoundry.ontology.deleteobject",
+    description: "Generated from `open_foundry.ontology` RPC `DeleteObject` in service `OntologyObjectService`.",
+    operationId: "open_foundry.ontology.OntologyObjectService.DeleteObject",
+    method: "DELETE",
+    path: "/api/v1/ontology/delete-object",
+    namespace: "ontology",
+    namespaceMember: "deleteobject",
+    inputSchema:
+      {
+        "properties": {
+          "query": {
+            "properties": {
+              "object_type_id": {
+                "type": "string"
+              },
+              "primary_key": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
     name: "openfoundry.ontology.deleteobjecttype",
     description: "Generated from `open_foundry.ontology` RPC `DeleteObjectType` in service `OntologyService`.",
     operationId: "open_foundry.ontology.OntologyService.DeleteObjectType",
@@ -1393,6 +1446,35 @@ export const OPENFOUNDRY_MCP_TOOLS: ReadonlyArray<OpenFoundryMcpTool> = [
             "properties": {
               "id": {
                 "$ref": "#/components/schemas/Uuid"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.ontology.getobject",
+    description: "Generated from `open_foundry.ontology` RPC `GetObject` in service `OntologyObjectService`.",
+    operationId: "open_foundry.ontology.OntologyObjectService.GetObject",
+    method: "GET",
+    path: "/api/v1/ontology/get-object",
+    namespace: "ontology",
+    namespaceMember: "getobject",
+    inputSchema:
+      {
+        "properties": {
+          "query": {
+            "properties": {
+              "object_type_id": {
+                "type": "string"
+              },
+              "primary_key": {
+                "type": "string"
               }
             },
             "type": "object"
@@ -1489,6 +1571,51 @@ export const OPENFOUNDRY_MCP_TOOLS: ReadonlyArray<OpenFoundryMcpTool> = [
     stability: "beta",
   },
   {
+    name: "openfoundry.ontology.listobjects",
+    description: "Generated from `open_foundry.ontology` RPC `ListObjects` in service `OntologyObjectService`.",
+    operationId: "open_foundry.ontology.OntologyObjectService.ListObjects",
+    method: "GET",
+    path: "/api/v1/ontology/list-objects",
+    namespace: "ontology",
+    namespaceMember: "listobjects",
+    inputSchema:
+      {
+        "properties": {
+          "query": {
+            "properties": {
+              "cursor": {
+                "type": "string"
+              },
+              "filters": {
+                "items": {
+                  "$ref": "#/components/schemas/PropertyFilter"
+                },
+                "type": "array"
+              },
+              "object_type_id": {
+                "type": "string"
+              },
+              "page_size": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "sort": {
+                "items": {
+                  "$ref": "#/components/schemas/PropertySort"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
     name: "openfoundry.ontology.listproperties",
     description: "Generated from `open_foundry.ontology` RPC `ListProperties` in service `OntologyService`.",
     operationId: "open_foundry.ontology.OntologyService.ListProperties",
@@ -1539,6 +1666,54 @@ export const OPENFOUNDRY_MCP_TOOLS: ReadonlyArray<OpenFoundryMcpTool> = [
     stability: "beta",
   },
   {
+    name: "openfoundry.ontology.searchobjects",
+    description: "Generated from `open_foundry.ontology` RPC `SearchObjects` in service `OntologyObjectService`.",
+    operationId: "open_foundry.ontology.OntologyObjectService.SearchObjects",
+    method: "POST",
+    path: "/api/v1/ontology/search-objects",
+    namespace: "ontology",
+    namespaceMember: "searchobjects",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/SearchObjectsRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.ontology.traverselinks",
+    description: "Generated from `open_foundry.ontology` RPC `TraverseLinks` in service `OntologyObjectService`.",
+    operationId: "open_foundry.ontology.OntologyObjectService.TraverseLinks",
+    method: "POST",
+    path: "/api/v1/ontology/traverse-links",
+    namespace: "ontology",
+    namespaceMember: "traverselinks",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/TraverseLinksRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
     name: "openfoundry.ontology.unbinddataset",
     description: "Generated from `open_foundry.ontology` RPC `UnbindDataset` in service `OntologyService`.",
     operationId: "open_foundry.ontology.OntologyService.UnbindDataset",
@@ -1551,6 +1726,30 @@ export const OPENFOUNDRY_MCP_TOOLS: ReadonlyArray<OpenFoundryMcpTool> = [
         "properties": {
           "body": {
             "$ref": "#/components/schemas/UnbindDatasetRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.ontology.updateobject",
+    description: "Generated from `open_foundry.ontology` RPC `UpdateObject` in service `OntologyObjectService`.",
+    operationId: "open_foundry.ontology.OntologyObjectService.UpdateObject",
+    method: "PATCH",
+    path: "/api/v1/ontology/update-object",
+    namespace: "ontology",
+    namespaceMember: "updateobject",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/UpdateObjectRequest"
           }
         },
         "required": [
@@ -2303,6 +2502,326 @@ export const OPENFOUNDRY_MCP_TOOLS: ReadonlyArray<OpenFoundryMcpTool> = [
     stability: "beta",
   },
   {
+    name: "openfoundry.marketplaceV1.createproduct",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `CreateProduct` in service `MarketplaceProductService`.",
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.CreateProduct",
+    method: "POST",
+    path: "/api/v1/v1/create-product",
+    namespace: "marketplaceV1",
+    namespaceMember: "createproduct",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/CreateProductRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.aiV1.disablemodel",
+    description: "Generated from `open_foundry.ai.v1` RPC `DisableModel` in service `LlmCatalogService`.",
+    operationId: "open_foundry.ai.v1.LlmCatalogService.DisableModel",
+    method: "POST",
+    path: "/api/v1/v1/disable-model",
+    namespace: "aiV1",
+    namespaceMember: "disablemodel",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/DisableModelRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.aiV1.enablemodel",
+    description: "Generated from `open_foundry.ai.v1` RPC `EnableModel` in service `LlmCatalogService`.",
+    operationId: "open_foundry.ai.v1.LlmCatalogService.EnableModel",
+    method: "POST",
+    path: "/api/v1/v1/enable-model",
+    namespace: "aiV1",
+    namespaceMember: "enablemodel",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/EnableModelRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.auditV1.exportevents",
+    description: "Generated from `open_foundry.audit.v1` RPC `ExportEvents` in service `AuditService`.",
+    operationId: "open_foundry.audit.v1.AuditService.ExportEvents",
+    method: "POST",
+    path: "/api/v1/v1/export-events",
+    namespace: "auditV1",
+    namespaceMember: "exportevents",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/ExportEventsRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.aiV1.getmodel",
+    description: "Generated from `open_foundry.ai.v1` RPC `GetModel` in service `LlmCatalogService`.",
+    operationId: "open_foundry.ai.v1.LlmCatalogService.GetModel",
+    method: "GET",
+    path: "/api/v1/v1/get-model",
+    namespace: "aiV1",
+    namespaceMember: "getmodel",
+    inputSchema:
+      {
+        "properties": {
+          "query": {
+            "properties": {
+              "rid": {
+                "$ref": "#/components/schemas/Uuid"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.marketplaceV1.getproduct",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `GetProduct` in service `MarketplaceProductService`.",
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.GetProduct",
+    method: "GET",
+    path: "/api/v1/v1/get-product",
+    namespace: "marketplaceV1",
+    namespaceMember: "getproduct",
+    inputSchema:
+      {
+        "properties": {
+          "query": {
+            "properties": {
+              "rid": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.marketplaceV1.installproduct",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `InstallProduct` in service `MarketplaceProductService`.",
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.InstallProduct",
+    method: "POST",
+    path: "/api/v1/v1/install-product",
+    namespace: "marketplaceV1",
+    namespaceMember: "installproduct",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/InstallProductRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.aiV1.invoke",
+    description: "Generated from `open_foundry.ai.v1` RPC `Invoke` in service `LlmCatalogService`.",
+    operationId: "open_foundry.ai.v1.LlmCatalogService.Invoke",
+    method: "POST",
+    path: "/api/v1/v1/invoke",
+    namespace: "aiV1",
+    namespaceMember: "invoke",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/InvokeRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.aiV1.invokestream",
+    description: "Generated from `open_foundry.ai.v1` RPC `InvokeStream` in service `LlmCatalogService`.",
+    operationId: "open_foundry.ai.v1.LlmCatalogService.InvokeStream",
+    method: "POST",
+    path: "/api/v1/v1/invoke-stream",
+    namespace: "aiV1",
+    namespaceMember: "invokestream",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/InvokeRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.marketplaceV1.listinstallations",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `ListInstallations` in service `MarketplaceProductService`.",
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.ListInstallations",
+    method: "GET",
+    path: "/api/v1/v1/list-installations",
+    namespace: "marketplaceV1",
+    namespaceMember: "listinstallations",
+    inputSchema:
+      {
+        "properties": {
+          "query": {
+            "properties": {
+              "limit": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "offset": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "product_rid": {
+                "type": "string"
+              },
+              "target_workspace_rid": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.aiV1.listmodels",
+    description: "Generated from `open_foundry.ai.v1` RPC `ListModels` in service `LlmCatalogService`.",
+    operationId: "open_foundry.ai.v1.LlmCatalogService.ListModels",
+    method: "GET",
+    path: "/api/v1/v1/list-models",
+    namespace: "aiV1",
+    namespaceMember: "listmodels",
+    inputSchema:
+      {
+        "properties": {
+          "query": {
+            "properties": {
+              "only_enabled": {
+                "type": "boolean"
+              },
+              "provider": {
+                "$ref": "#/components/schemas/Provider"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.marketplaceV1.listproducts",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `ListProducts` in service `MarketplaceProductService`.",
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.ListProducts",
+    method: "GET",
+    path: "/api/v1/v1/list-products",
+    namespace: "marketplaceV1",
+    namespaceMember: "listproducts",
+    inputSchema:
+      {
+        "properties": {
+          "query": {
+            "properties": {
+              "limit": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "offset": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "status": {
+                "$ref": "#/components/schemas/ProductStatus"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
     name: "openfoundry.openfoundryStreamingRouterV1.publish",
     description: "Generated from `openfoundry.streaming.router.v1` RPC `Publish` in service `EventRouter`.",
     operationId: "openfoundry.streaming.router.v1.EventRouter.Publish",
@@ -2327,6 +2846,102 @@ export const OPENFOUNDRY_MCP_TOOLS: ReadonlyArray<OpenFoundryMcpTool> = [
     stability: "beta",
   },
   {
+    name: "openfoundry.marketplaceV1.publishversion",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `PublishVersion` in service `MarketplaceProductService`.",
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.PublishVersion",
+    method: "POST",
+    path: "/api/v1/v1/publish-version",
+    namespace: "marketplaceV1",
+    namespaceMember: "publishversion",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/PublishVersionRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.auditV1.queryevents",
+    description: "Generated from `open_foundry.audit.v1` RPC `QueryEvents` in service `AuditService`.",
+    operationId: "open_foundry.audit.v1.AuditService.QueryEvents",
+    method: "POST",
+    path: "/api/v1/v1/query-events",
+    namespace: "auditV1",
+    namespaceMember: "queryevents",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/QueryEventsRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.auditV1.recordevent",
+    description: "Generated from `open_foundry.audit.v1` RPC `RecordEvent` in service `AuditService`.",
+    operationId: "open_foundry.audit.v1.AuditService.RecordEvent",
+    method: "POST",
+    path: "/api/v1/v1/record-event",
+    namespace: "auditV1",
+    namespaceMember: "recordevent",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/RecordEventRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.aiV1.registermodel",
+    description: "Generated from `open_foundry.ai.v1` RPC `RegisterModel` in service `LlmCatalogService`.",
+    operationId: "open_foundry.ai.v1.LlmCatalogService.RegisterModel",
+    method: "POST",
+    path: "/api/v1/v1/register-model",
+    namespace: "aiV1",
+    namespaceMember: "registermodel",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/RegisterModelRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
     name: "openfoundry.openfoundryStreamingRouterV1.subscribe",
     description: "Generated from `openfoundry.streaming.router.v1` RPC `Subscribe` in service `EventRouter`.",
     operationId: "openfoundry.streaming.router.v1.EventRouter.Subscribe",
@@ -2339,6 +2954,30 @@ export const OPENFOUNDRY_MCP_TOOLS: ReadonlyArray<OpenFoundryMcpTool> = [
         "properties": {
           "body": {
             "$ref": "#/components/schemas/SubscribeRequest"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      }
+    ,
+    apiVersion: "v1",
+    stability: "beta",
+  },
+  {
+    name: "openfoundry.marketplaceV1.uninstall",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `Uninstall` in service `MarketplaceProductService`.",
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.Uninstall",
+    method: "POST",
+    path: "/api/v1/v1/uninstall",
+    namespace: "marketplaceV1",
+    namespaceMember: "uninstall",
+    inputSchema:
+      {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/UninstallRequest"
           }
         },
         "required": [

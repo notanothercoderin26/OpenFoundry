@@ -1,3 +1,4 @@
+-- residency: us-east-1
 -- 0012: CMP.4 — Compass Project resource metadata.
 --
 -- Promotes ontology_projects from an ontology-only workspace grouping to a

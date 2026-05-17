@@ -141,6 +141,28 @@ export interface AssignRoleRequest {
 export interface AssignRoleResponse {
 }
 
+export interface AuditEvent {
+  action?: string;
+  actor_id?: string;
+  categories?: Array<string>;
+  correlation_id?: string;
+  event_id?: string;
+  ip?: string;
+  kind?: string;
+  markings_at_event?: Array<string>;
+  occurred_at?: string;
+  payload?: string;
+  project_rid?: string;
+  request_id?: string;
+  resource_rid?: string;
+  source_service?: string;
+  user_agent?: string;
+}
+
+export interface AuditEventExport {
+  event_ndjson?: string;
+}
+
 export interface BindDatasetRequest {
   dataset_branch?: string;
   dataset_id?: Uuid;
@@ -316,6 +338,12 @@ export interface CreateNotebookRequest {
   name?: string;
 }
 
+export interface CreateObjectRequest {
+  marking?: string;
+  object_type_id?: string;
+  properties?: Struct;
+}
+
 export interface CreateObjectTypeRequest {
   color?: string;
   description?: string;
@@ -335,6 +363,13 @@ export interface CreatePipelineRequest {
   description?: string;
   name?: string;
   nodes?: Array<PipelineNode>;
+}
+
+export interface CreateProductRequest {
+  author?: string;
+  description?: string;
+  name?: string;
+  resources?: Array<ResourceRef>;
 }
 
 export interface CreatePropertyRequest {
@@ -458,6 +493,16 @@ export interface DeleteNotebookRequest {
   id?: string;
 }
 
+export interface DeleteObjectRequest {
+  object_type_id?: string;
+  primary_key?: string;
+}
+
+export interface DeleteObjectResponse {
+  cascaded_links?: number;
+  deleted?: boolean;
+}
+
 export interface DeleteObjectTypeRequest {
   id?: Uuid;
 }
@@ -486,11 +531,19 @@ export interface DeleteScheduleRequest {
 export interface DeleteScheduleResponse {
 }
 
+export interface DisableModelRequest {
+  rid?: Uuid;
+}
+
 export interface DropSessionRequest {
   session_id?: string;
 }
 
 export interface DropSessionResponse {
+}
+
+export interface EnableModelRequest {
+  rid?: Uuid;
 }
 
 export interface EnsureSessionRequest {
@@ -587,6 +640,14 @@ export interface ExplainQueryResponse {
   physical_plan?: string;
 }
 
+export interface ExportEventsRequest {
+  action?: string;
+  actor_id?: string;
+  from?: string;
+  resource_rid?: string;
+  to?: string;
+}
+
 export interface ExternalConfig {
   compute_profile_id?: string;
   source_id?: Uuid;
@@ -678,8 +739,17 @@ export interface GetMediaSetRequest {
   rid?: string;
 }
 
+export interface GetModelRequest {
+  rid?: Uuid;
+}
+
 export interface GetNotebookRequest {
   id?: string;
+}
+
+export interface GetObjectRequest {
+  object_type_id?: string;
+  primary_key?: string;
 }
 
 export interface GetObjectTypeRequest {
@@ -688,6 +758,10 @@ export interface GetObjectTypeRequest {
 
 export interface GetPipelineRequest {
   id?: Uuid;
+}
+
+export interface GetProductRequest {
+  rid?: string;
 }
 
 export interface GetRunRequest {
@@ -777,6 +851,47 @@ export interface InputSpec {
   view_filter?: Array<string>;
 }
 
+export interface InstallProductRequest {
+  parameter_map?: string;
+  product_rid?: string;
+  target_workspace_rid?: string;
+  version?: string;
+}
+
+export interface Installation {
+  failure_reason?: string;
+  installed_at?: string;
+  product_rid?: string;
+  resource_mappings?: Array<ResourceMapping>;
+  rid?: string;
+  status?: InstallationStatus;
+  target_workspace_rid?: string;
+  updated_at?: string;
+  version?: string;
+}
+
+export interface InvokeRequest {
+  max_tokens?: number;
+  messages?: Array<Message>;
+  model_rid?: Uuid;
+  stream?: boolean;
+  temperature?: number;
+  tools?: Array<Tool>;
+}
+
+export interface InvokeResponse {
+  cost_usd?: number;
+  messages?: Array<Message>;
+  model_rid?: string;
+  usage?: Usage;
+}
+
+export interface InvokeStreamChunk {
+  delta?: string;
+  done?: boolean;
+  usage?: Usage;
+}
+
 export interface Job {
   attempt?: number;
   build_rid?: string;
@@ -830,6 +945,16 @@ export interface LinkType {
   updated_at?: string;
 }
 
+export interface LinkedEdge {
+  depth?: number;
+  direction?: LinkDirection;
+  link_id?: string;
+  link_type_api_name?: string;
+  properties?: Struct;
+  source_object_id?: string;
+  target_object_id?: string;
+}
+
 export interface ListAccessPatternsRequest {
   media_set_rid?: string;
   pagination?: PageRequest;
@@ -870,6 +995,18 @@ export interface ListIngestJobsResponse {
   pagination?: PageResponse;
 }
 
+export interface ListInstallationsRequest {
+  limit?: number;
+  offset?: number;
+  product_rid?: string;
+  target_workspace_rid?: string;
+}
+
+export interface ListInstallationsResponse {
+  items?: Array<Installation>;
+  total?: number;
+}
+
 export interface ListLinkTypesRequest {
   object_type_id?: Uuid;
   pagination?: PageRequest;
@@ -902,6 +1039,15 @@ export interface ListMediaSetsResponse {
   pagination?: PageResponse;
 }
 
+export interface ListModelsRequest {
+  only_enabled?: boolean;
+  provider?: Provider;
+}
+
+export interface ListModelsResponse {
+  data?: Array<Model>;
+}
+
 export interface ListNotebooksRequest {
   page?: number;
   per_page?: number;
@@ -925,6 +1071,20 @@ export interface ListObjectTypesResponse {
   pagination?: PageResponse;
 }
 
+export interface ListObjectsRequest {
+  cursor?: string;
+  filters?: Array<PropertyFilter>;
+  object_type_id?: string;
+  page_size?: number;
+  sort?: Array<PropertySort>;
+}
+
+export interface ListObjectsResponse {
+  next_cursor?: string;
+  objects?: Array<ObjectInstance>;
+  total?: number;
+}
+
 export interface ListPipelinesRequest {
   pagination?: PageRequest;
   search?: string;
@@ -933,6 +1093,17 @@ export interface ListPipelinesRequest {
 export interface ListPipelinesResponse {
   pagination?: PageResponse;
   pipelines?: Array<Pipeline>;
+}
+
+export interface ListProductsRequest {
+  limit?: number;
+  offset?: number;
+  status?: ProductStatus;
+}
+
+export interface ListProductsResponse {
+  items?: Array<Product>;
+  total?: number;
 }
 
 export interface ListPropertiesRequest {
@@ -1063,6 +1234,39 @@ export interface MediaSet {
   virtual?: boolean;
 }
 
+export interface MergeBranchRequest {
+  dataset_rid?: string;
+  source_branch?: string;
+  target_branch?: string;
+}
+
+export interface MergeBranchResponse {
+  already_merged?: boolean;
+  branch?: Branch;
+  fast_forwarded?: boolean;
+  new_head_transaction_rid?: string;
+  previous_head_transaction_rid?: string;
+}
+
+export interface Message {
+  content?: string;
+  role?: string;
+}
+
+export interface Model {
+  capabilities?: Array<Capability>;
+  context_window?: number;
+  created_at?: string;
+  display_name?: string;
+  enabled?: boolean;
+  input_cost_per_1k?: number;
+  model_id?: string;
+  output_cost_per_1k?: number;
+  provider?: Provider;
+  rid?: Uuid;
+  updated_at?: string;
+}
+
 export interface Notebook {
   created_at?: string;
   default_kernel?: string;
@@ -1070,6 +1274,17 @@ export interface Notebook {
   id?: string;
   name?: string;
   owner_id?: string;
+  updated_at?: string;
+}
+
+export interface ObjectInstance {
+  created_at?: string;
+  created_by?: string;
+  id?: string;
+  marking?: string;
+  object_type_id?: string;
+  organization_id?: string;
+  properties?: Struct;
   updated_at?: string;
 }
 
@@ -1235,6 +1450,30 @@ export interface PreviewNextFiresResponse {
   fires?: Array<string>;
 }
 
+export interface Product {
+  author?: string;
+  created_at?: string;
+  description?: string;
+  manifest_url?: string;
+  name?: string;
+  resources?: Array<ResourceRef>;
+  rid?: string;
+  signature?: string;
+  status?: ProductStatus;
+  updated_at?: string;
+  version?: string;
+}
+
+export interface ProductVersion {
+  bundle_path?: string;
+  manifest?: string;
+  product_rid?: string;
+  published_at?: string;
+  rid?: string;
+  signature?: string;
+  version?: string;
+}
+
 export interface Property {
   created_at?: string;
   default_value_json?: string;
@@ -1250,6 +1489,17 @@ export interface Property {
   validation_rules_json?: string;
 }
 
+export interface PropertyFilter {
+  operator?: string;
+  property_name?: string;
+  value?: Value;
+}
+
+export interface PropertySort {
+  direction?: string;
+  property_name?: string;
+}
+
 export interface PublishRequest {
   headers?: Record<string, string>;
   payload?: string;
@@ -1260,6 +1510,26 @@ export interface PublishRequest {
 export interface PublishResponse {
   backend?: string;
   matched_pattern?: string;
+}
+
+export interface PublishVersionRequest {
+  product_rid?: string;
+  version?: string;
+}
+
+export interface QueryEventsRequest {
+  action?: string;
+  actor_id?: string;
+  cursor?: string;
+  from?: string;
+  page_size?: number;
+  resource_rid?: string;
+  to?: string;
+}
+
+export interface QueryEventsResponse {
+  events?: Array<AuditEvent>;
+  next_cursor?: string;
 }
 
 export interface QueryResult {
@@ -1276,6 +1546,15 @@ export interface QueueIngestJobRequest {
   schedule_at?: string;
   table_name?: string;
   target_dataset_id?: Uuid;
+}
+
+export interface RecordEventRequest {
+  event?: AuditEvent;
+  raw_envelope?: string;
+}
+
+export interface RecordEventResponse {
+  event_id?: string;
 }
 
 export interface RecordLineageRequest {
@@ -1300,6 +1579,17 @@ export interface RegisterAccessPatternRequest {
   ttl_seconds?: number;
 }
 
+export interface RegisterModelRequest {
+  capabilities?: Array<Capability>;
+  context_window?: number;
+  display_name?: string;
+  enabled?: boolean;
+  input_cost_per_1k?: number;
+  model_id?: string;
+  output_cost_per_1k?: number;
+  provider?: Provider;
+}
+
 export interface RegisterRequest {
   email?: string;
   name?: string;
@@ -1318,6 +1608,17 @@ export interface RegisterVirtualMediaItemRequest {
   physical_path?: string;
   sha256?: string;
   size_bytes?: number;
+}
+
+export interface ResourceMapping {
+  dst_rid?: string;
+  src_ref?: string;
+  type?: ResourceType;
+}
+
+export interface ResourceRef {
+  ref?: string;
+  type?: ResourceType;
 }
 
 export interface Role {
@@ -1420,6 +1721,17 @@ export interface Schema {
   file_format?: FileFormat;
 }
 
+export interface SearchObjectsRequest {
+  object_type_id?: string;
+  pagination?: PageRequest;
+  query?: string;
+}
+
+export interface SearchObjectsResponse {
+  objects?: Array<ObjectInstance>;
+  pagination?: PageResponse;
+}
+
 export interface Session {
   created_at?: string;
   id?: string;
@@ -1502,6 +1814,12 @@ export interface TokenPair {
   refresh_token?: string;
 }
 
+export interface Tool {
+  description?: string;
+  name?: string;
+  parameters_json_schema?: string;
+}
+
 export interface Transaction {
   branch?: string;
   closed_at?: string;
@@ -1510,6 +1828,21 @@ export interface Transaction {
   opened_by?: string;
   rid?: string;
   state?: TransactionState;
+}
+
+export interface TraverseLinksRequest {
+  depth?: number;
+  direction?: LinkDirection;
+  limit?: number;
+  link_type_api_name?: string;
+  link_type_api_names?: Array<string>;
+  object_type_id?: string;
+  primary_key?: string;
+}
+
+export interface TraverseLinksResponse {
+  edges?: Array<LinkedEdge>;
+  objects?: Array<ObjectInstance>;
 }
 
 export interface Trigger {
@@ -1529,6 +1862,10 @@ export interface UnbindDatasetRequest {
 
 export interface UnbindDatasetResponse {
   deleted?: boolean;
+}
+
+export interface UninstallRequest {
+  installation_rid?: string;
 }
 
 export interface UpdateCellRequest {
@@ -1572,6 +1909,14 @@ export interface UpdateNotebookRequest {
   description?: string;
   id?: string;
   name?: string;
+}
+
+export interface UpdateObjectRequest {
+  marking?: string;
+  object_type_id?: string;
+  primary_key?: string;
+  properties?: Struct;
+  replace?: boolean;
 }
 
 export interface UpdateObjectTypeRequest {
@@ -1625,6 +1970,12 @@ export interface UpsertPolicyRequest {
   row_filter?: string;
 }
 
+export interface Usage {
+  completion_tokens?: number;
+  prompt_tokens?: number;
+  total_tokens?: number;
+}
+
 export interface UserInfo {
   email?: string;
   id?: Uuid;
@@ -1659,6 +2010,8 @@ export interface WatchIngestJobRequest {
 
 export type BuildState = unknown;
 
+export type Capability = unknown;
+
 export type ConnectionStatus = string;
 
 export type ConnectorType = string;
@@ -1677,7 +2030,11 @@ export type FileFormat = string;
 
 export type IngestJobStatus = string;
 
+export type InstallationStatus = string;
+
 export type JobState = unknown;
+
+export type LinkDirection = unknown;
 
 export type MediaSetSchema = unknown;
 
@@ -1688,6 +2045,12 @@ export type PersistencePolicy = unknown;
 export type PipelineLifecycle = unknown;
 
 export type PipelineType = string;
+
+export type ProductStatus = string;
+
+export type Provider = unknown;
+
+export type ResourceType = string;
 
 export type RunOutcome = unknown;
 
@@ -2317,6 +2680,18 @@ export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationM
     mcpTool: "openfoundry.ontology.createlinktype",
   },
   {
+    operationId: "open_foundry.ontology.OntologyObjectService.CreateObject",
+    method: "POST",
+    path: "/api/v1/ontology/create-object",
+    summary: "OntologyObjectService CreateObject",
+    description: "Generated from `open_foundry.ontology` RPC `CreateObject` in service `OntologyObjectService`.",
+    namespace: "ontology",
+    namespaceMember: "createobject",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.createobject",
+  },
+  {
     operationId: "open_foundry.ontology.OntologyService.CreateObjectType",
     method: "POST",
     path: "/api/v1/ontology/create-object-type",
@@ -2353,6 +2728,18 @@ export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationM
     mcpTool: "openfoundry.ontology.deletelinktype",
   },
   {
+    operationId: "open_foundry.ontology.OntologyObjectService.DeleteObject",
+    method: "DELETE",
+    path: "/api/v1/ontology/delete-object",
+    summary: "OntologyObjectService DeleteObject",
+    description: "Generated from `open_foundry.ontology` RPC `DeleteObject` in service `OntologyObjectService`.",
+    namespace: "ontology",
+    namespaceMember: "deleteobject",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.deleteobject",
+  },
+  {
     operationId: "open_foundry.ontology.OntologyService.DeleteObjectType",
     method: "DELETE",
     path: "/api/v1/ontology/delete-object-type",
@@ -2363,6 +2750,18 @@ export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationM
     apiVersion: "v1",
     stability: "beta",
     mcpTool: "openfoundry.ontology.deleteobjecttype",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyObjectService.GetObject",
+    method: "GET",
+    path: "/api/v1/ontology/get-object",
+    summary: "OntologyObjectService GetObject",
+    description: "Generated from `open_foundry.ontology` RPC `GetObject` in service `OntologyObjectService`.",
+    namespace: "ontology",
+    namespaceMember: "getobject",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.getobject",
   },
   {
     operationId: "open_foundry.ontology.OntologyService.GetObjectType",
@@ -2401,6 +2800,18 @@ export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationM
     mcpTool: "openfoundry.ontology.listobjecttypes",
   },
   {
+    operationId: "open_foundry.ontology.OntologyObjectService.ListObjects",
+    method: "GET",
+    path: "/api/v1/ontology/list-objects",
+    summary: "OntologyObjectService ListObjects",
+    description: "Generated from `open_foundry.ontology` RPC `ListObjects` in service `OntologyObjectService`.",
+    namespace: "ontology",
+    namespaceMember: "listobjects",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.listobjects",
+  },
+  {
     operationId: "open_foundry.ontology.OntologyService.ListProperties",
     method: "GET",
     path: "/api/v1/ontology/list-properties",
@@ -2425,6 +2836,30 @@ export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationM
     mcpTool: "openfoundry.ontology.materializebinding",
   },
   {
+    operationId: "open_foundry.ontology.OntologyObjectService.SearchObjects",
+    method: "POST",
+    path: "/api/v1/ontology/search-objects",
+    summary: "OntologyObjectService SearchObjects",
+    description: "Generated from `open_foundry.ontology` RPC `SearchObjects` in service `OntologyObjectService`.",
+    namespace: "ontology",
+    namespaceMember: "searchobjects",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.searchobjects",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyObjectService.TraverseLinks",
+    method: "POST",
+    path: "/api/v1/ontology/traverse-links",
+    summary: "OntologyObjectService TraverseLinks",
+    description: "Generated from `open_foundry.ontology` RPC `TraverseLinks` in service `OntologyObjectService`.",
+    namespace: "ontology",
+    namespaceMember: "traverselinks",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.traverselinks",
+  },
+  {
     operationId: "open_foundry.ontology.OntologyService.UnbindDataset",
     method: "POST",
     path: "/api/v1/ontology/unbind-dataset",
@@ -2435,6 +2870,18 @@ export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationM
     apiVersion: "v1",
     stability: "beta",
     mcpTool: "openfoundry.ontology.unbinddataset",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyObjectService.UpdateObject",
+    method: "PATCH",
+    path: "/api/v1/ontology/update-object",
+    summary: "OntologyObjectService UpdateObject",
+    description: "Generated from `open_foundry.ontology` RPC `UpdateObject` in service `OntologyObjectService`.",
+    namespace: "ontology",
+    namespaceMember: "updateobject",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.updateobject",
   },
   {
     operationId: "open_foundry.ontology.OntologyService.UpdateObjectType",
@@ -2785,6 +3232,150 @@ export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationM
     mcpTool: "openfoundry.runtime.executepipelinetransform",
   },
   {
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.CreateProduct",
+    method: "POST",
+    path: "/api/v1/v1/create-product",
+    summary: "MarketplaceProductService CreateProduct",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `CreateProduct` in service `MarketplaceProductService`.",
+    namespace: "marketplaceV1",
+    namespaceMember: "createproduct",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.marketplaceV1.createproduct",
+  },
+  {
+    operationId: "open_foundry.ai.v1.LlmCatalogService.DisableModel",
+    method: "POST",
+    path: "/api/v1/v1/disable-model",
+    summary: "LlmCatalogService DisableModel",
+    description: "Generated from `open_foundry.ai.v1` RPC `DisableModel` in service `LlmCatalogService`.",
+    namespace: "aiV1",
+    namespaceMember: "disablemodel",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.aiV1.disablemodel",
+  },
+  {
+    operationId: "open_foundry.ai.v1.LlmCatalogService.EnableModel",
+    method: "POST",
+    path: "/api/v1/v1/enable-model",
+    summary: "LlmCatalogService EnableModel",
+    description: "Generated from `open_foundry.ai.v1` RPC `EnableModel` in service `LlmCatalogService`.",
+    namespace: "aiV1",
+    namespaceMember: "enablemodel",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.aiV1.enablemodel",
+  },
+  {
+    operationId: "open_foundry.audit.v1.AuditService.ExportEvents",
+    method: "POST",
+    path: "/api/v1/v1/export-events",
+    summary: "AuditService ExportEvents",
+    description: "Generated from `open_foundry.audit.v1` RPC `ExportEvents` in service `AuditService`.",
+    namespace: "auditV1",
+    namespaceMember: "exportevents",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.auditV1.exportevents",
+  },
+  {
+    operationId: "open_foundry.ai.v1.LlmCatalogService.GetModel",
+    method: "GET",
+    path: "/api/v1/v1/get-model",
+    summary: "LlmCatalogService GetModel",
+    description: "Generated from `open_foundry.ai.v1` RPC `GetModel` in service `LlmCatalogService`.",
+    namespace: "aiV1",
+    namespaceMember: "getmodel",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.aiV1.getmodel",
+  },
+  {
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.GetProduct",
+    method: "GET",
+    path: "/api/v1/v1/get-product",
+    summary: "MarketplaceProductService GetProduct",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `GetProduct` in service `MarketplaceProductService`.",
+    namespace: "marketplaceV1",
+    namespaceMember: "getproduct",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.marketplaceV1.getproduct",
+  },
+  {
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.InstallProduct",
+    method: "POST",
+    path: "/api/v1/v1/install-product",
+    summary: "MarketplaceProductService InstallProduct",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `InstallProduct` in service `MarketplaceProductService`.",
+    namespace: "marketplaceV1",
+    namespaceMember: "installproduct",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.marketplaceV1.installproduct",
+  },
+  {
+    operationId: "open_foundry.ai.v1.LlmCatalogService.Invoke",
+    method: "POST",
+    path: "/api/v1/v1/invoke",
+    summary: "LlmCatalogService Invoke",
+    description: "Generated from `open_foundry.ai.v1` RPC `Invoke` in service `LlmCatalogService`.",
+    namespace: "aiV1",
+    namespaceMember: "invoke",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.aiV1.invoke",
+  },
+  {
+    operationId: "open_foundry.ai.v1.LlmCatalogService.InvokeStream",
+    method: "POST",
+    path: "/api/v1/v1/invoke-stream",
+    summary: "LlmCatalogService InvokeStream",
+    description: "Generated from `open_foundry.ai.v1` RPC `InvokeStream` in service `LlmCatalogService`.",
+    namespace: "aiV1",
+    namespaceMember: "invokestream",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.aiV1.invokestream",
+  },
+  {
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.ListInstallations",
+    method: "GET",
+    path: "/api/v1/v1/list-installations",
+    summary: "MarketplaceProductService ListInstallations",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `ListInstallations` in service `MarketplaceProductService`.",
+    namespace: "marketplaceV1",
+    namespaceMember: "listinstallations",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.marketplaceV1.listinstallations",
+  },
+  {
+    operationId: "open_foundry.ai.v1.LlmCatalogService.ListModels",
+    method: "GET",
+    path: "/api/v1/v1/list-models",
+    summary: "LlmCatalogService ListModels",
+    description: "Generated from `open_foundry.ai.v1` RPC `ListModels` in service `LlmCatalogService`.",
+    namespace: "aiV1",
+    namespaceMember: "listmodels",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.aiV1.listmodels",
+  },
+  {
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.ListProducts",
+    method: "GET",
+    path: "/api/v1/v1/list-products",
+    summary: "MarketplaceProductService ListProducts",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `ListProducts` in service `MarketplaceProductService`.",
+    namespace: "marketplaceV1",
+    namespaceMember: "listproducts",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.marketplaceV1.listproducts",
+  },
+  {
     operationId: "openfoundry.streaming.router.v1.EventRouter.Publish",
     method: "POST",
     path: "/api/v1/v1/publish",
@@ -2797,6 +3388,54 @@ export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationM
     mcpTool: "openfoundry.openfoundryStreamingRouterV1.publish",
   },
   {
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.PublishVersion",
+    method: "POST",
+    path: "/api/v1/v1/publish-version",
+    summary: "MarketplaceProductService PublishVersion",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `PublishVersion` in service `MarketplaceProductService`.",
+    namespace: "marketplaceV1",
+    namespaceMember: "publishversion",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.marketplaceV1.publishversion",
+  },
+  {
+    operationId: "open_foundry.audit.v1.AuditService.QueryEvents",
+    method: "POST",
+    path: "/api/v1/v1/query-events",
+    summary: "AuditService QueryEvents",
+    description: "Generated from `open_foundry.audit.v1` RPC `QueryEvents` in service `AuditService`.",
+    namespace: "auditV1",
+    namespaceMember: "queryevents",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.auditV1.queryevents",
+  },
+  {
+    operationId: "open_foundry.audit.v1.AuditService.RecordEvent",
+    method: "POST",
+    path: "/api/v1/v1/record-event",
+    summary: "AuditService RecordEvent",
+    description: "Generated from `open_foundry.audit.v1` RPC `RecordEvent` in service `AuditService`.",
+    namespace: "auditV1",
+    namespaceMember: "recordevent",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.auditV1.recordevent",
+  },
+  {
+    operationId: "open_foundry.ai.v1.LlmCatalogService.RegisterModel",
+    method: "POST",
+    path: "/api/v1/v1/register-model",
+    summary: "LlmCatalogService RegisterModel",
+    description: "Generated from `open_foundry.ai.v1` RPC `RegisterModel` in service `LlmCatalogService`.",
+    namespace: "aiV1",
+    namespaceMember: "registermodel",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.aiV1.registermodel",
+  },
+  {
     operationId: "openfoundry.streaming.router.v1.EventRouter.Subscribe",
     method: "POST",
     path: "/api/v1/v1/subscribe",
@@ -2807,6 +3446,18 @@ export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationM
     apiVersion: "v1",
     stability: "beta",
     mcpTool: "openfoundry.openfoundryStreamingRouterV1.subscribe",
+  },
+  {
+    operationId: "open_foundry.marketplace.v1.MarketplaceProductService.Uninstall",
+    method: "POST",
+    path: "/api/v1/v1/uninstall",
+    summary: "MarketplaceProductService Uninstall",
+    description: "Generated from `open_foundry.marketplace.v1` RPC `Uninstall` in service `MarketplaceProductService`.",
+    namespace: "marketplaceV1",
+    namespaceMember: "uninstall",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.marketplaceV1.uninstall",
   },
   {
     operationId: "rest.admin.v2.getControlPanel",
@@ -3098,6 +3749,22 @@ export class OpenFoundryClient {
     updateuser: (id: string, body: UpdateUserRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Updateuser(id, body, init),
   } as const;
 
+  readonly aiV1 = {
+    disablemodel: (body: DisableModelRequest, init: OpenFoundryRequestInit = {}) => this.v1LlmcatalogDisablemodel(body, init),
+    enablemodel: (body: EnableModelRequest, init: OpenFoundryRequestInit = {}) => this.v1LlmcatalogEnablemodel(body, init),
+    getmodel: (query: { rid?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.v1LlmcatalogGetmodel(query, init),
+    invoke: (body: InvokeRequest, init: OpenFoundryRequestInit = {}) => this.v1LlmcatalogInvoke(body, init),
+    invokestream: (body: InvokeRequest, init: OpenFoundryRequestInit = {}) => this.v1LlmcatalogInvokestream(body, init),
+    listmodels: (query: { only_enabled?: boolean; provider?: Provider } = {}, init: OpenFoundryRequestInit = {}) => this.v1LlmcatalogListmodels(query, init),
+    registermodel: (body: RegisterModelRequest, init: OpenFoundryRequestInit = {}) => this.v1LlmcatalogRegistermodel(body, init),
+  } as const;
+
+  readonly auditV1 = {
+    exportevents: (body: ExportEventsRequest, init: OpenFoundryRequestInit = {}) => this.v1AuditExportevents(body, init),
+    queryevents: (body: QueryEventsRequest, init: OpenFoundryRequestInit = {}) => this.v1AuditQueryevents(body, init),
+    recordevent: (body: RecordEventRequest, init: OpenFoundryRequestInit = {}) => this.v1AuditRecordevent(body, init),
+  } as const;
+
   readonly auth = {
     assignrole: (body: AssignRoleRequest, init: OpenFoundryRequestInit = {}) => this.authRbacAssignrole(body, init),
     getme: (init: OpenFoundryRequestInit = {}) => this.authAuthGetme(init),
@@ -3139,6 +3806,16 @@ export class OpenFoundryClient {
     getdatasetfilesystem: (dataset_id: string, query: { path?: string } = {}, init: OpenFoundryRequestInit = {}) => this.filesystemV2Getdatasetfilesystem(dataset_id, query, init),
   } as const;
 
+  readonly marketplaceV1 = {
+    createproduct: (body: CreateProductRequest, init: OpenFoundryRequestInit = {}) => this.v1MarketplaceproductCreateproduct(body, init),
+    getproduct: (query: { rid?: string } = {}, init: OpenFoundryRequestInit = {}) => this.v1MarketplaceproductGetproduct(query, init),
+    installproduct: (body: InstallProductRequest, init: OpenFoundryRequestInit = {}) => this.v1MarketplaceproductInstallproduct(body, init),
+    listinstallations: (query: { limit?: number; offset?: number; product_rid?: string; target_workspace_rid?: string } = {}, init: OpenFoundryRequestInit = {}) => this.v1MarketplaceproductListinstallations(query, init),
+    listproducts: (query: { limit?: number; offset?: number; status?: ProductStatus } = {}, init: OpenFoundryRequestInit = {}) => this.v1MarketplaceproductListproducts(query, init),
+    publishversion: (body: PublishVersionRequest, init: OpenFoundryRequestInit = {}) => this.v1MarketplaceproductPublishversion(body, init),
+    uninstall: (body: UninstallRequest, init: OpenFoundryRequestInit = {}) => this.v1MarketplaceproductUninstall(body, init),
+  } as const;
+
   readonly mediaSet = {
     aborttransaction: (body: AbortTransactionRequest, init: OpenFoundryRequestInit = {}) => this.mediaSetMediasetAborttransaction(body, init),
     committransaction: (body: CommitTransactionRequest, init: OpenFoundryRequestInit = {}) => this.mediaSetMediasetCommittransaction(body, init),
@@ -3172,16 +3849,23 @@ export class OpenFoundryClient {
   readonly ontology = {
     binddataset: (body: BindDatasetRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyBinddataset(body, init),
     createlinktype: (body: CreateLinkTypeRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyCreatelinktype(body, init),
+    createobject: (body: CreateObjectRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyobjectCreateobject(body, init),
     createobjecttype: (body: CreateObjectTypeRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyCreateobjecttype(body, init),
     createproperty: (body: CreatePropertyRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyCreateproperty(body, init),
     deletelinktype: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyDeletelinktype(query, init),
+    deleteobject: (query: { object_type_id?: string; primary_key?: string } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyobjectDeleteobject(query, init),
     deleteobjecttype: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyDeleteobjecttype(query, init),
+    getobject: (query: { object_type_id?: string; primary_key?: string } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyobjectGetobject(query, init),
     getobjecttype: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyGetobjecttype(query, init),
     listlinktypes: (query: { object_type_id?: Uuid; pagination?: PageRequest } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyListlinktypes(query, init),
     listobjecttypes: (query: { pagination?: PageRequest; search?: string } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyListobjecttypes(query, init),
+    listobjects: (query: { cursor?: string; filters?: Array<PropertyFilter>; object_type_id?: string; page_size?: number; sort?: Array<PropertySort> } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyobjectListobjects(query, init),
     listproperties: (query: { object_type_id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyListproperties(query, init),
     materializebinding: (body: MaterializeBindingRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyMaterializebinding(body, init),
+    searchobjects: (body: SearchObjectsRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyobjectSearchobjects(body, init),
+    traverselinks: (body: TraverseLinksRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyobjectTraverselinks(body, init),
     unbinddataset: (body: UnbindDatasetRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyUnbinddataset(body, init),
+    updateobject: (body: UpdateObjectRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyobjectUpdateobject(body, init),
     updateobjecttype: (body: UpdateObjectTypeRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyUpdateobjecttype(body, init),
   } as const;
 
@@ -3431,6 +4115,10 @@ export class OpenFoundryClient {
     return this.request<LinkType>("POST", "/api/v1/ontology/create-link-type", undefined, undefined, body, init);
   }
 
+  async ontologyOntologyobjectCreateobject(body: CreateObjectRequest, init: OpenFoundryRequestInit = {}): Promise<ObjectInstance> {
+    return this.request<ObjectInstance>("POST", "/api/v1/ontology/create-object", undefined, undefined, body, init);
+  }
+
   async ontologyOntologyCreateobjecttype(body: CreateObjectTypeRequest, init: OpenFoundryRequestInit = {}): Promise<ObjectType> {
     return this.request<ObjectType>("POST", "/api/v1/ontology/create-object-type", undefined, undefined, body, init);
   }
@@ -3443,8 +4131,16 @@ export class OpenFoundryClient {
     return this.request<DeleteLinkTypeResponse>("DELETE", "/api/v1/ontology/delete-link-type", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
+  async ontologyOntologyobjectDeleteobject(query: { object_type_id?: string; primary_key?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<DeleteObjectResponse> {
+    return this.request<DeleteObjectResponse>("DELETE", "/api/v1/ontology/delete-object", undefined, query as OpenFoundryQuery, undefined, init);
+  }
+
   async ontologyOntologyDeleteobjecttype(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<DeleteObjectTypeResponse> {
     return this.request<DeleteObjectTypeResponse>("DELETE", "/api/v1/ontology/delete-object-type", undefined, query as OpenFoundryQuery, undefined, init);
+  }
+
+  async ontologyOntologyobjectGetobject(query: { object_type_id?: string; primary_key?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<ObjectInstance> {
+    return this.request<ObjectInstance>("GET", "/api/v1/ontology/get-object", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
   async ontologyOntologyGetobjecttype(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<ObjectType> {
@@ -3459,6 +4155,10 @@ export class OpenFoundryClient {
     return this.request<ListObjectTypesResponse>("GET", "/api/v1/ontology/list-object-types", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
+  async ontologyOntologyobjectListobjects(query: { cursor?: string; filters?: Array<PropertyFilter>; object_type_id?: string; page_size?: number; sort?: Array<PropertySort> } = {}, init: OpenFoundryRequestInit = {}): Promise<ListObjectsResponse> {
+    return this.request<ListObjectsResponse>("GET", "/api/v1/ontology/list-objects", undefined, query as OpenFoundryQuery, undefined, init);
+  }
+
   async ontologyOntologyListproperties(query: { object_type_id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<ListPropertiesResponse> {
     return this.request<ListPropertiesResponse>("GET", "/api/v1/ontology/list-properties", undefined, query as OpenFoundryQuery, undefined, init);
   }
@@ -3467,8 +4167,20 @@ export class OpenFoundryClient {
     return this.request<MaterializeBindingResponse>("POST", "/api/v1/ontology/materialize-binding", undefined, undefined, body, init);
   }
 
+  async ontologyOntologyobjectSearchobjects(body: SearchObjectsRequest, init: OpenFoundryRequestInit = {}): Promise<SearchObjectsResponse> {
+    return this.request<SearchObjectsResponse>("POST", "/api/v1/ontology/search-objects", undefined, undefined, body, init);
+  }
+
+  async ontologyOntologyobjectTraverselinks(body: TraverseLinksRequest, init: OpenFoundryRequestInit = {}): Promise<TraverseLinksResponse> {
+    return this.request<TraverseLinksResponse>("POST", "/api/v1/ontology/traverse-links", undefined, undefined, body, init);
+  }
+
   async ontologyOntologyUnbinddataset(body: UnbindDatasetRequest, init: OpenFoundryRequestInit = {}): Promise<UnbindDatasetResponse> {
     return this.request<UnbindDatasetResponse>("POST", "/api/v1/ontology/unbind-dataset", undefined, undefined, body, init);
+  }
+
+  async ontologyOntologyobjectUpdateobject(body: UpdateObjectRequest, init: OpenFoundryRequestInit = {}): Promise<ObjectInstance> {
+    return this.request<ObjectInstance>("PATCH", "/api/v1/ontology/update-object", undefined, undefined, body, init);
   }
 
   async ontologyOntologyUpdateobjecttype(body: UpdateObjectTypeRequest, init: OpenFoundryRequestInit = {}): Promise<ObjectType> {
@@ -3587,12 +4299,80 @@ export class OpenFoundryClient {
     return this.request<ExecutePipelineTransformResponse>("POST", "/api/v1/runtime/execute-pipeline-transform", undefined, undefined, body, init);
   }
 
+  async v1MarketplaceproductCreateproduct(body: CreateProductRequest, init: OpenFoundryRequestInit = {}): Promise<Product> {
+    return this.request<Product>("POST", "/api/v1/v1/create-product", undefined, undefined, body, init);
+  }
+
+  async v1LlmcatalogDisablemodel(body: DisableModelRequest, init: OpenFoundryRequestInit = {}): Promise<Model> {
+    return this.request<Model>("POST", "/api/v1/v1/disable-model", undefined, undefined, body, init);
+  }
+
+  async v1LlmcatalogEnablemodel(body: EnableModelRequest, init: OpenFoundryRequestInit = {}): Promise<Model> {
+    return this.request<Model>("POST", "/api/v1/v1/enable-model", undefined, undefined, body, init);
+  }
+
+  async v1AuditExportevents(body: ExportEventsRequest, init: OpenFoundryRequestInit = {}): Promise<AuditEventExport> {
+    return this.request<AuditEventExport>("POST", "/api/v1/v1/export-events", undefined, undefined, body, init);
+  }
+
+  async v1LlmcatalogGetmodel(query: { rid?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<Model> {
+    return this.request<Model>("GET", "/api/v1/v1/get-model", undefined, query as OpenFoundryQuery, undefined, init);
+  }
+
+  async v1MarketplaceproductGetproduct(query: { rid?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<Product> {
+    return this.request<Product>("GET", "/api/v1/v1/get-product", undefined, query as OpenFoundryQuery, undefined, init);
+  }
+
+  async v1MarketplaceproductInstallproduct(body: InstallProductRequest, init: OpenFoundryRequestInit = {}): Promise<Installation> {
+    return this.request<Installation>("POST", "/api/v1/v1/install-product", undefined, undefined, body, init);
+  }
+
+  async v1LlmcatalogInvoke(body: InvokeRequest, init: OpenFoundryRequestInit = {}): Promise<InvokeResponse> {
+    return this.request<InvokeResponse>("POST", "/api/v1/v1/invoke", undefined, undefined, body, init);
+  }
+
+  async v1LlmcatalogInvokestream(body: InvokeRequest, init: OpenFoundryRequestInit = {}): Promise<InvokeStreamChunk> {
+    return this.request<InvokeStreamChunk>("POST", "/api/v1/v1/invoke-stream", undefined, undefined, body, init);
+  }
+
+  async v1MarketplaceproductListinstallations(query: { limit?: number; offset?: number; product_rid?: string; target_workspace_rid?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<ListInstallationsResponse> {
+    return this.request<ListInstallationsResponse>("GET", "/api/v1/v1/list-installations", undefined, query as OpenFoundryQuery, undefined, init);
+  }
+
+  async v1LlmcatalogListmodels(query: { only_enabled?: boolean; provider?: Provider } = {}, init: OpenFoundryRequestInit = {}): Promise<ListModelsResponse> {
+    return this.request<ListModelsResponse>("GET", "/api/v1/v1/list-models", undefined, query as OpenFoundryQuery, undefined, init);
+  }
+
+  async v1MarketplaceproductListproducts(query: { limit?: number; offset?: number; status?: ProductStatus } = {}, init: OpenFoundryRequestInit = {}): Promise<ListProductsResponse> {
+    return this.request<ListProductsResponse>("GET", "/api/v1/v1/list-products", undefined, query as OpenFoundryQuery, undefined, init);
+  }
+
   async v1EventrouterPublish(body: PublishRequest, init: OpenFoundryRequestInit = {}): Promise<PublishResponse> {
     return this.request<PublishResponse>("POST", "/api/v1/v1/publish", undefined, undefined, body, init);
   }
 
+  async v1MarketplaceproductPublishversion(body: PublishVersionRequest, init: OpenFoundryRequestInit = {}): Promise<ProductVersion> {
+    return this.request<ProductVersion>("POST", "/api/v1/v1/publish-version", undefined, undefined, body, init);
+  }
+
+  async v1AuditQueryevents(body: QueryEventsRequest, init: OpenFoundryRequestInit = {}): Promise<QueryEventsResponse> {
+    return this.request<QueryEventsResponse>("POST", "/api/v1/v1/query-events", undefined, undefined, body, init);
+  }
+
+  async v1AuditRecordevent(body: RecordEventRequest, init: OpenFoundryRequestInit = {}): Promise<RecordEventResponse> {
+    return this.request<RecordEventResponse>("POST", "/api/v1/v1/record-event", undefined, undefined, body, init);
+  }
+
+  async v1LlmcatalogRegistermodel(body: RegisterModelRequest, init: OpenFoundryRequestInit = {}): Promise<Model> {
+    return this.request<Model>("POST", "/api/v1/v1/register-model", undefined, undefined, body, init);
+  }
+
   async v1EventrouterSubscribe(body: SubscribeRequest, init: OpenFoundryRequestInit = {}): Promise<EventMessage> {
     return this.request<EventMessage>("POST", "/api/v1/v1/subscribe", undefined, undefined, body, init);
+  }
+
+  async v1MarketplaceproductUninstall(body: UninstallRequest, init: OpenFoundryRequestInit = {}): Promise<Installation> {
+    return this.request<Installation>("POST", "/api/v1/v1/uninstall", undefined, undefined, body, init);
   }
 
   async adminV2Getcontrolpanel(init: OpenFoundryRequestInit = {}): Promise<ControlPanelSettings> {
@@ -3775,26 +4555,40 @@ export class OpenFoundryClient {
         return this.ontologyOntologyBinddataset(this.resolveBodyInput(input) as any, init);
       case "open_foundry.ontology.OntologyService.CreateLinkType":
         return this.ontologyOntologyCreatelinktype(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ontology.OntologyObjectService.CreateObject":
+        return this.ontologyOntologyobjectCreateobject(this.resolveBodyInput(input) as any, init);
       case "open_foundry.ontology.OntologyService.CreateObjectType":
         return this.ontologyOntologyCreateobjecttype(this.resolveBodyInput(input) as any, init);
       case "open_foundry.ontology.OntologyService.CreateProperty":
         return this.ontologyOntologyCreateproperty(this.resolveBodyInput(input) as any, init);
       case "open_foundry.ontology.OntologyService.DeleteLinkType":
         return this.ontologyOntologyDeletelinktype(((input.query ?? {}) as any), init);
+      case "open_foundry.ontology.OntologyObjectService.DeleteObject":
+        return this.ontologyOntologyobjectDeleteobject(((input.query ?? {}) as any), init);
       case "open_foundry.ontology.OntologyService.DeleteObjectType":
         return this.ontologyOntologyDeleteobjecttype(((input.query ?? {}) as any), init);
+      case "open_foundry.ontology.OntologyObjectService.GetObject":
+        return this.ontologyOntologyobjectGetobject(((input.query ?? {}) as any), init);
       case "open_foundry.ontology.OntologyService.GetObjectType":
         return this.ontologyOntologyGetobjecttype(((input.query ?? {}) as any), init);
       case "open_foundry.ontology.OntologyService.ListLinkTypes":
         return this.ontologyOntologyListlinktypes(((input.query ?? {}) as any), init);
       case "open_foundry.ontology.OntologyService.ListObjectTypes":
         return this.ontologyOntologyListobjecttypes(((input.query ?? {}) as any), init);
+      case "open_foundry.ontology.OntologyObjectService.ListObjects":
+        return this.ontologyOntologyobjectListobjects(((input.query ?? {}) as any), init);
       case "open_foundry.ontology.OntologyService.ListProperties":
         return this.ontologyOntologyListproperties(((input.query ?? {}) as any), init);
       case "open_foundry.ontology.OntologyService.MaterializeBinding":
         return this.ontologyOntologyMaterializebinding(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ontology.OntologyObjectService.SearchObjects":
+        return this.ontologyOntologyobjectSearchobjects(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ontology.OntologyObjectService.TraverseLinks":
+        return this.ontologyOntologyobjectTraverselinks(this.resolveBodyInput(input) as any, init);
       case "open_foundry.ontology.OntologyService.UnbindDataset":
         return this.ontologyOntologyUnbinddataset(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ontology.OntologyObjectService.UpdateObject":
+        return this.ontologyOntologyobjectUpdateobject(this.resolveBodyInput(input) as any, init);
       case "open_foundry.ontology.OntologyService.UpdateObjectType":
         return this.ontologyOntologyUpdateobjecttype(this.resolveBodyInput(input) as any, init);
       case "open_foundry.pipeline.PipelineService.CreatePipeline":
@@ -3853,10 +4647,44 @@ export class OpenFoundryClient {
         return this.runtimePythonruntimeExecutenotebookcell(this.resolveBodyInput(input) as any, init);
       case "runtime.PythonRuntimeService.ExecutePipelineTransform":
         return this.runtimePythonruntimeExecutepipelinetransform(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.marketplace.v1.MarketplaceProductService.CreateProduct":
+        return this.v1MarketplaceproductCreateproduct(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ai.v1.LlmCatalogService.DisableModel":
+        return this.v1LlmcatalogDisablemodel(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ai.v1.LlmCatalogService.EnableModel":
+        return this.v1LlmcatalogEnablemodel(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.audit.v1.AuditService.ExportEvents":
+        return this.v1AuditExportevents(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ai.v1.LlmCatalogService.GetModel":
+        return this.v1LlmcatalogGetmodel(((input.query ?? {}) as any), init);
+      case "open_foundry.marketplace.v1.MarketplaceProductService.GetProduct":
+        return this.v1MarketplaceproductGetproduct(((input.query ?? {}) as any), init);
+      case "open_foundry.marketplace.v1.MarketplaceProductService.InstallProduct":
+        return this.v1MarketplaceproductInstallproduct(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ai.v1.LlmCatalogService.Invoke":
+        return this.v1LlmcatalogInvoke(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ai.v1.LlmCatalogService.InvokeStream":
+        return this.v1LlmcatalogInvokestream(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.marketplace.v1.MarketplaceProductService.ListInstallations":
+        return this.v1MarketplaceproductListinstallations(((input.query ?? {}) as any), init);
+      case "open_foundry.ai.v1.LlmCatalogService.ListModels":
+        return this.v1LlmcatalogListmodels(((input.query ?? {}) as any), init);
+      case "open_foundry.marketplace.v1.MarketplaceProductService.ListProducts":
+        return this.v1MarketplaceproductListproducts(((input.query ?? {}) as any), init);
       case "openfoundry.streaming.router.v1.EventRouter.Publish":
         return this.v1EventrouterPublish(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.marketplace.v1.MarketplaceProductService.PublishVersion":
+        return this.v1MarketplaceproductPublishversion(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.audit.v1.AuditService.QueryEvents":
+        return this.v1AuditQueryevents(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.audit.v1.AuditService.RecordEvent":
+        return this.v1AuditRecordevent(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ai.v1.LlmCatalogService.RegisterModel":
+        return this.v1LlmcatalogRegistermodel(this.resolveBodyInput(input) as any, init);
       case "openfoundry.streaming.router.v1.EventRouter.Subscribe":
         return this.v1EventrouterSubscribe(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.marketplace.v1.MarketplaceProductService.Uninstall":
+        return this.v1MarketplaceproductUninstall(this.resolveBodyInput(input) as any, init);
       case "rest.admin.v2.getControlPanel":
         return this.adminV2Getcontrolpanel(init);
       case "rest.admin.v2.updateControlPanel":

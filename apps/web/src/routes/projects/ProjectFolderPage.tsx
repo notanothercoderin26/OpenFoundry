@@ -169,6 +169,10 @@ export function ProjectFolderPage() {
     () => (project ? buildProjectFolderBreadcrumbItems(project, folders, folderId) : []),
     [folders, folderId, project],
   );
+  const breadcrumbLocation = useMemo(
+    () => breadcrumbItems.filter((item) => item.kind === 'project' || item.kind === 'folder').map((item) => item.label).join(' / '),
+    [breadcrumbItems],
+  );
   const items = useMemo<ExplorerItem[]>(() => {
     const folderItems: FolderExplorerItem[] = childFolders.map((child) => ({
       key: `folder:${child.id}`,
@@ -249,7 +253,7 @@ export function ProjectFolderPage() {
       kind: item.shareKind,
       description: item.description,
       owner_id: item.ownerId,
-      location: folderPath.map((part) => part.name).join(' / '),
+      location: breadcrumbLocation,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
       tags: item.type === 'folder' ? ['folder'] : [item.binding.resource_kind, 'project-binding'],

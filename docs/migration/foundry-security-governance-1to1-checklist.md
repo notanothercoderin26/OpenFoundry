@@ -514,11 +514,15 @@ OpenFoundry canonical IDs.
 
 ### Scoped sessions, templates, and privacy controls
 
-- [ ] `SG.24` Scoped session configuration (`P1`, `todo`)
+- [x] `SG.24` Scoped session configuration (`P1`, `done`)
   - Create scoped session presets based on markings and configure enablement, no-scoped-session bypass, always-show-selector behavior, and allowed bypass groups.
   - Limit selectable sessions to users who are members of all required markings.
   - Show active scoped session banner and allow permitted users to change sessions with a workspace refresh.
   - Docs: [Configure scoped sessions](https://www.palantir.com/docs/foundry/administration/configure-scoped-sessions/), [Markings](https://www.palantir.com/docs/foundry/security/markings/).
+  - Implementation notes:
+    - [`ControlPanelSettings.scoped_sessions`](../../services/identity-federation-service/internal/handlers/control_panel.go) now stores enablement, no-scoped-session bypass policy, always-show-selector behavior, allowed bypass groups, and normalized marking-backed presets.
+    - [`scoped_sessions.go`](../../services/identity-federation-service/internal/handlers/scoped_sessions.go) exposes authenticated options/select endpoints. It computes full marking membership from stored user attributes, filters presets by required markings, limits bypass to configured groups/admin roles, and issues scoped JWTs whose refresh tokens retain `session_scope`.
+    - [`ScopedSessionsPage.tsx`](../../apps/web/src/routes/control-panel/ScopedSessionsPage.tsx) adds the Control Panel editor, while [`ScopedSessionBanner.tsx`](../../apps/web/src/lib/components/ScopedSessionBanner.tsx) shows the active session and switches sessions with a workspace reload.
 
 - [ ] `SG.25` Scoped session enforcement (`P1`, `todo`)
   - Apply scoped session marking subset across filesystem, Ontology, analytics, API, and application requests.

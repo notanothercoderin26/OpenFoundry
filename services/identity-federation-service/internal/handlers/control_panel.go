@@ -16,35 +16,35 @@ type ControlPanel struct {
 }
 
 type ControlPanelSettings struct {
-	PlatformName               string          `json:"platform_name"`
-	SupportEmail               string          `json:"support_email"`
-	DocsURL                    string          `json:"docs_url"`
-	StatusPageURL              string          `json:"status_page_url"`
-	AnnouncementBanner         string          `json:"announcement_banner"`
-	MaintenanceMode            bool            `json:"maintenance_mode"`
-	ReleaseChannel             string          `json:"release_channel"`
-	DefaultRegion              string          `json:"default_region"`
-	DeploymentMode             string          `json:"deployment_mode"`
-	AllowSelfSignup            bool            `json:"allow_self_signup"`
-	SupportedLocales           []string        `json:"supported_locales"`
-	DefaultLocale              string          `json:"default_locale"`
-	AllowedEmailDomains        []string        `json:"allowed_email_domains"`
-	DefaultAppBranding         json.RawMessage `json:"default_app_branding"`
-	RestrictedOperations       []string        `json:"restricted_operations"`
-	IdentityProviderMappings   json.RawMessage `json:"identity_provider_mappings"`
-	ResourceManagementPolicies json.RawMessage `json:"resource_management_policies"`
-	UpgradeAssistant           json.RawMessage `json:"upgrade_assistant"`
+	PlatformName               string              `json:"platform_name"`
+	SupportEmail               string              `json:"support_email"`
+	DocsURL                    string              `json:"docs_url"`
+	StatusPageURL              string              `json:"status_page_url"`
+	AnnouncementBanner         string              `json:"announcement_banner"`
+	MaintenanceMode            bool                `json:"maintenance_mode"`
+	ReleaseChannel             string              `json:"release_channel"`
+	DefaultRegion              string              `json:"default_region"`
+	DeploymentMode             string              `json:"deployment_mode"`
+	AllowSelfSignup            bool                `json:"allow_self_signup"`
+	SupportedLocales           []string            `json:"supported_locales"`
+	DefaultLocale              string              `json:"default_locale"`
+	AllowedEmailDomains        []string            `json:"allowed_email_domains"`
+	DefaultAppBranding         json.RawMessage     `json:"default_app_branding"`
+	RestrictedOperations       []string            `json:"restricted_operations"`
+	IdentityProviderMappings   json.RawMessage     `json:"identity_provider_mappings"`
+	ResourceManagementPolicies json.RawMessage     `json:"resource_management_policies"`
+	UpgradeAssistant           json.RawMessage     `json:"upgrade_assistant"`
 	ScopedSessions             ScopedSessionConfig `json:"scoped_sessions"`
-	UpdatedBy                  *string         `json:"updated_by"`
-	UpdatedAt                  time.Time       `json:"updated_at"`
+	UpdatedBy                  *string             `json:"updated_by"`
+	UpdatedAt                  time.Time           `json:"updated_at"`
 }
 
 type ScopedSessionConfig struct {
-	Enabled               bool                  `json:"enabled"`
-	AllowNoScopedSession  bool                  `json:"allow_no_scoped_session"`
-	AlwaysShowSelector    bool                  `json:"always_show_selector"`
-	AllowedBypassGroups   []string              `json:"allowed_bypass_groups"`
-	Presets               []ScopedSessionPreset `json:"presets"`
+	Enabled              bool                  `json:"enabled"`
+	AllowNoScopedSession bool                  `json:"allow_no_scoped_session"`
+	AlwaysShowSelector   bool                  `json:"always_show_selector"`
+	AllowedBypassGroups  []string              `json:"allowed_bypass_groups"`
+	Presets              []ScopedSessionPreset `json:"presets"`
 }
 
 type ScopedSessionPreset struct {
@@ -57,24 +57,24 @@ type ScopedSessionPreset struct {
 }
 
 type UpdateControlPanelRequest struct {
-	PlatformName               *string          `json:"platform_name"`
-	SupportEmail               *string          `json:"support_email"`
-	DocsURL                    *string          `json:"docs_url"`
-	StatusPageURL              *string          `json:"status_page_url"`
-	AnnouncementBanner         *string          `json:"announcement_banner"`
-	MaintenanceMode            *bool            `json:"maintenance_mode"`
-	ReleaseChannel             *string          `json:"release_channel"`
-	DefaultRegion              *string          `json:"default_region"`
-	DeploymentMode             *string          `json:"deployment_mode"`
-	AllowSelfSignup            *bool            `json:"allow_self_signup"`
-	SupportedLocales           *[]string        `json:"supported_locales"`
-	DefaultLocale              *string          `json:"default_locale"`
-	AllowedEmailDomains        *[]string        `json:"allowed_email_domains"`
-	DefaultAppBranding         *json.RawMessage `json:"default_app_branding"`
-	RestrictedOperations       *[]string        `json:"restricted_operations"`
-	IdentityProviderMappings   *json.RawMessage `json:"identity_provider_mappings"`
-	ResourceManagementPolicies *json.RawMessage `json:"resource_management_policies"`
-	UpgradeAssistant           *json.RawMessage `json:"upgrade_assistant"`
+	PlatformName               *string              `json:"platform_name"`
+	SupportEmail               *string              `json:"support_email"`
+	DocsURL                    *string              `json:"docs_url"`
+	StatusPageURL              *string              `json:"status_page_url"`
+	AnnouncementBanner         *string              `json:"announcement_banner"`
+	MaintenanceMode            *bool                `json:"maintenance_mode"`
+	ReleaseChannel             *string              `json:"release_channel"`
+	DefaultRegion              *string              `json:"default_region"`
+	DeploymentMode             *string              `json:"deployment_mode"`
+	AllowSelfSignup            *bool                `json:"allow_self_signup"`
+	SupportedLocales           *[]string            `json:"supported_locales"`
+	DefaultLocale              *string              `json:"default_locale"`
+	AllowedEmailDomains        *[]string            `json:"allowed_email_domains"`
+	DefaultAppBranding         *json.RawMessage     `json:"default_app_branding"`
+	RestrictedOperations       *[]string            `json:"restricted_operations"`
+	IdentityProviderMappings   *json.RawMessage     `json:"identity_provider_mappings"`
+	ResourceManagementPolicies *json.RawMessage     `json:"resource_management_policies"`
+	UpgradeAssistant           *json.RawMessage     `json:"upgrade_assistant"`
 	ScopedSessions             *ScopedSessionConfig `json:"scoped_sessions"`
 }
 

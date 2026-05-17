@@ -178,6 +178,7 @@ export function ControlPanelPage() {
         <Link to="/control-panel/projects" className="of-button">Projects (security) →</Link>
         <Link to="/control-panel/role-sets" className="of-button">Role sets &amp; operations →</Link>
         <Link to="/control-panel/marking-categories" className="of-button">Marking categories →</Link>
+        <Link to="/control-panel/scoped-sessions" className="of-button">Scoped sessions →</Link>
       </div>
 
       {settings && (
