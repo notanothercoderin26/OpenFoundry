@@ -322,6 +322,26 @@ services:
         cpu: "500m"
         memory: 512Mi
 
+  # Stub (501 on every product route) backing the gateway's
+  # `GlobalBranch` upstream — see
+  # services/edge-gateway-service/internal/proxy/router_table.go:285-287
+  # and docs/migration/foundry-global-branching-1to1-checklist.md.
+  # ADR-0030 merged this surface into code-repository-review-service;
+  # this entry re-stands the binary so routes stop returning 502 while
+  # the GB.* checklist is filled in.
+  global-branch-service:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "250m"
+        memory: 256Mi
+
   sdk-generation-service:
     replicas: 1
     ports:

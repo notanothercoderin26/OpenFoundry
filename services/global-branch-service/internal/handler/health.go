@@ -1,0 +1,45 @@
+// Package handler hosts the HTTP handlers for the global-branch-service.
+//
+// The service is currently a routing stub: every product endpoint
+// answers 501 Not Implemented via NotImplemented() so the edge gateway
+// has a registered upstream instead of returning 502. See
+// docs/migration/foundry-global-branching-1to1-checklist.md for the
+// parity backlog.
+package handler
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+)
+
+// ServiceName is the canonical name used in /healthz and 501 payloads.
+const ServiceName = "global-branch-service"
+
+// Milestone marks the parity milestone tracked in
+// docs/migration/foundry-global-branching-1to1-checklist.md.
+const Milestone = "GB"
+
+// Health handles GET /healthz with the standard liveness payload.
+func Health(serviceName, version string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(health.OK(serviceName, version))
+	}
+}
+
+// NotImplemented returns 501 with a structured body. Used as the
+// placeholder for every product route until each one is implemented
+// against the global-branching checklist.
+func NotImplemented() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusNotImplemented)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"code":      "not_implemented",
+			"service":   ServiceName,
+			"milestone": Milestone,
+		})
+	}
+}
