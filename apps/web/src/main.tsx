@@ -6,6 +6,7 @@ import { RouterProvider } from 'react-router-dom';
 import { router } from './router';
 import { auth } from './lib/stores/auth';
 import { restoreLocale } from './lib/i18n/store';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/app.css';
 
 restoreLocale();
@@ -25,8 +26,10 @@ if (!container) throw new Error('Missing #app root element');
 
 createRoot(container).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );

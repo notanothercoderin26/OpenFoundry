@@ -27,11 +27,24 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: options.method ?? 'GET',
-      headers,
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        method: options.method ?? 'GET',
+        headers,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+    } catch (cause) {
+      throw new ApiUnavailableError(0, extractService(path), 'Network error', { cause });
+    }
+
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      throw new ApiUnavailableError(
+        response.status,
+        extractService(path),
+        response.statusText || 'Service unavailable',
+      );
+    }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
@@ -80,6 +93,28 @@ export class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+export class ApiUnavailableError extends ApiError {
+  constructor(
+    status: number,
+    public service: string,
+    message: string,
+    options?: { cause?: unknown },
+  ) {
+    super(status, message);
+    this.name = 'ApiUnavailableError';
+    if (options?.cause !== undefined) {
+      (this as { cause?: unknown }).cause = options.cause;
+    }
+  }
+}
+
+function extractService(path: string): string {
+  const trimmed = path.replace(/^\/+/, '');
+  const stripped = trimmed.startsWith('api/v1/') ? trimmed.slice('api/v1/'.length) : trimmed;
+  const segment = stripped.split(/[/?#]/, 1)[0];
+  return segment || 'unknown';
 }
 
 export const api = new ApiClient();
