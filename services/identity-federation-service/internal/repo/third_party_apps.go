@@ -193,7 +193,10 @@ func (r *Repo) RevokeThirdPartyApplication(ctx context.Context, id, actor uuid.U
 		 WHERE id = $1 AND revoked_at IS NULL`,
 		id, actor, at,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return r.RevokeThirdPartyOAuthRefreshTokensForApplication(ctx, id, at)
 }
 
 func (r *Repo) RotateThirdPartyApplicationSecret(ctx context.Context, id uuid.UUID, secretHash, prefix string, actor uuid.UUID, at time.Time) (*models.ThirdPartyApplication, error) {
@@ -245,6 +248,9 @@ func (r *Repo) DisableThirdPartyApplicationEnablement(ctx context.Context, appli
 		applicationID, organizationID, actor,
 	)
 	if err != nil {
+		return nil, err
+	}
+	if err := r.RevokeThirdPartyOAuthRefreshTokensForApplicationOrganization(ctx, applicationID, organizationID, time.Now().UTC()); err != nil {
 		return nil, err
 	}
 	return r.GetThirdPartyApplication(ctx, applicationID)

@@ -610,11 +610,20 @@ OpenFoundry canonical IDs.
     - Administration routes are gated by `admin`, `third_party_application_admin` / `third_party_application_administrator`, or `oauth_clients:manage` / `third_party_applications:manage`; read-only listing also accepts `oauth_clients:read` / `third_party_applications:read`.
     - [`ThirdPartyApplicationsPage.tsx`](../../apps/web/src/routes/control-panel/ThirdPartyApplicationsPage.tsx) adds the Control Panel fallback at `/control-panel/third-party-applications`, with registration, one-time secret display, rotation, revocation, and organization enablement controls.
 
-- [ ] `SG.32` Third-party application enablement and consent (`P1`, `todo`)
+- [x] `SG.32` Third-party application enablement and consent (`P1`, `done` 2026-05-18)
   - Require organization-specific application enablement before users can authorize an OAuth application.
   - Implement authorization-code consent prompts, CSRF state validation, PKCE, refresh-token scopes, and revocation.
   - Ensure token capabilities are the intersection of user/service permissions, application maximum scope, and requested scope.
   - Docs: [Enabling third-party applications](https://www.palantir.com/docs/foundry/platform-security-third-party/enabling-3pa-access/), [Developer Console application scopes](https://www.palantir.com/docs/foundry/developer-console/application-scopes), [API authentication](https://www.palantir.com/docs/foundry/api/v2/general/overview/authentication/).
+  - Implementation notes:
+    - [`0021_sg32_third_party_oauth_consent.sql`](../../services/identity-federation-service/internal/repo/migrations/0021_sg32_third_party_oauth_consent.sql) adds one-time authorization codes, OAuth refresh tokens, consent records, expiry indexes, token-family replay revocation, and per-user authorization listing metadata.
+    - `GET /api/v1/oauth2/authorize` validates bearer identity, organization-specific app enablement, registered redirect URI, explicit authorization-code scope, non-empty CSRF `state`, and S256 PKCE before returning a consent prompt with requested, granted, and missing scopes.
+    - `POST /api/v1/oauth2/authorize/consent` records user consent and returns a short-lived `ofoauth_code_...` authorization code plus the redirect URI carrying `code` and echoed `state`; denial returns an `access_denied` redirect payload.
+    - `POST /api/v1/oauth2/token` supports `authorization_code`, `refresh_token`, and `client_credentials`; confidential clients authenticate with their one-time/rotated secret, public clients rely on PKCE, refresh tokens rotate, and reuse kills the refresh-token family.
+    - Access JWTs issued through OAuth carry empty role sets and permissions equal only to the computed scope intersection of subject permissions, application maximum scopes, existing refresh-token scopes when applicable, and requested scopes. Client-credentials tokens use the registered service user and still require organization enablement.
+    - `POST /api/v1/oauth2/revoke`, `GET /api/v1/oauth2/authorizations`, and `DELETE /api/v1/oauth2/authorizations/{id}` provide token and user-facing authorization revocation. User deactivation/deletion also revokes third-party OAuth refresh tokens.
+    - Disabling an application's organization enablement or revoking the application revokes matching third-party OAuth refresh tokens so old authorizations do not become active again after re-enablement.
+    - Tests in [`third_party_oauth_test.go`](../../services/identity-federation-service/internal/handlers/third_party_oauth_test.go) cover scope intersection, admin scope bounding, S256 PKCE verification, OAuth client authentication, and organization enablement lookup.
 
 - [ ] `SG.33` Service users and client credentials (`P1`, `todo`)
   - Create service users for confidential OAuth applications and client-credentials workloads.

@@ -169,6 +169,52 @@ func TestUpdateOntologyProjectRequestJSONRoundtrip(t *testing.T) {
 	assert.Equal(t, in, got)
 }
 
+func TestUpdateProjectFolderPropagationRequestJSONRoundtrip(t *testing.T) {
+	t.Parallel()
+	in := UpdateProjectFolderPropagationRequest{
+		Enabled:                    boolPtr(true),
+		ViewRequirementMarkingRIDs: []string{"ri.marking.main.marking.pii"},
+	}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"enabled":true,"view_requirement_marking_rids":["ri.marking.main.marking.pii"]}`, string(b))
+	var got UpdateProjectFolderPropagationRequest
+	require.NoError(t, json.Unmarshal(b, &got))
+	require.NotNil(t, got.Enabled)
+	assert.Equal(t, true, *got.Enabled)
+	assert.Equal(t, in.ViewRequirementMarkingRIDs, got.ViewRequirementMarkingRIDs)
+}
+
+func TestViewRequirementPropagationJobJSONRoundtrip(t *testing.T) {
+	t.Parallel()
+	started := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	in := ViewRequirementPropagationJob{
+		ID:                  uuid.New(),
+		ProjectID:           uuid.New(),
+		ParentResourceKind:  "project",
+		ParentResourceID:    uuid.New(),
+		ParentResourceRID:   "ri.compass.main.project.018f2f1c-aaaa-7bbb-8ccc-000000000019",
+		InitiatedBy:         uuid.New(),
+		Status:              "running",
+		TargetMarkingRIDs:   []string{"ri.marking.main.marking.pii"},
+		PreviousMarkingRIDs: []string{"ri.marking.main.marking.old"},
+		TotalFolders:        3,
+		ProcessedFolders:    1,
+		ChangedFolders:      1,
+		TotalResources:      2,
+		ProcessedResources:  0,
+		ChangedResources:    0,
+		CreatedAt:           started,
+		StartedAt:           &started,
+		UpdatedAt:           started,
+	}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	var got ViewRequirementPropagationJob
+	require.NoError(t, json.Unmarshal(b, &got))
+	assert.Equal(t, in, got)
+}
+
 func TestListOntologyProjectsResponseJSONRoundtrip(t *testing.T) {
 	t.Parallel()
 	in := ListOntologyProjectsResponse{

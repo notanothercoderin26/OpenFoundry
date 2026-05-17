@@ -364,8 +364,38 @@ type UpdateOntologyProjectRequest struct {
 // UpdateProjectFolderPropagationRequest is the body of PATCH
 // /projects/:id/folders/:folder_id/propagate-view-requirements.
 type UpdateProjectFolderPropagationRequest struct {
-	Enabled                    bool     `json:"enabled"`
+	Enabled                    *bool    `json:"enabled"`
 	ViewRequirementMarkingRIDs []string `json:"view_requirement_marking_rids,omitempty"`
+}
+
+// ViewRequirementPropagationJob is the progress record for CMP.19
+// background re-propagation after a project/folder propagation policy
+// change.
+type ViewRequirementPropagationJob struct {
+	ID                  uuid.UUID  `json:"id"`
+	ProjectID           uuid.UUID  `json:"project_id"`
+	ParentResourceKind  string     `json:"parent_resource_kind"`
+	ParentResourceID    uuid.UUID  `json:"parent_resource_id"`
+	ParentResourceRID   string     `json:"parent_resource_rid"`
+	InitiatedBy         uuid.UUID  `json:"initiated_by"`
+	Status              string     `json:"status"`
+	TargetMarkingRIDs   []string   `json:"target_marking_rids"`
+	PreviousMarkingRIDs []string   `json:"previous_marking_rids"`
+	TotalFolders        int        `json:"total_folders"`
+	ProcessedFolders    int        `json:"processed_folders"`
+	ChangedFolders      int        `json:"changed_folders"`
+	TotalResources      int        `json:"total_resources"`
+	ProcessedResources  int        `json:"processed_resources"`
+	ChangedResources    int        `json:"changed_resources"`
+	ErrorMessage        *string    `json:"error_message,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	StartedAt           *time.Time `json:"started_at,omitempty"`
+	FinishedAt          *time.Time `json:"finished_at,omitempty"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
+type ListViewRequirementPropagationJobsResponse struct {
+	Data []ViewRequirementPropagationJob `json:"data"`
 }
 
 // ListOntologyProjectsQuery is the query string for GET /projects.

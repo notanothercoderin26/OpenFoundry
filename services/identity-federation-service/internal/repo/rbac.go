@@ -186,6 +186,13 @@ func (r *Repo) SoftDeleteUser(ctx context.Context, id uuid.UUID) error {
 	); err != nil {
 		return fmt.Errorf("revoke refresh tokens: %w", err)
 	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE third_party_oauth_refresh_tokens SET revoked_at = $2
+		 WHERE subject_user_id = $1 AND revoked_at IS NULL`,
+		id, now,
+	); err != nil {
+		return fmt.Errorf("revoke oauth refresh tokens: %w", err)
+	}
 	return tx.Commit(ctx)
 }
 
@@ -211,6 +218,13 @@ func (r *Repo) RevokeAllUserRefreshTokens(ctx context.Context, userID uuid.UUID,
 		userID, at,
 	)
 	if err != nil {
+		return 0, err
+	}
+	if _, err := r.Pool.Exec(ctx,
+		`UPDATE third_party_oauth_refresh_tokens SET revoked_at = $2
+		 WHERE subject_user_id = $1 AND revoked_at IS NULL`,
+		userID, at,
+	); err != nil {
 		return 0, err
 	}
 	return tag.RowsAffected(), nil

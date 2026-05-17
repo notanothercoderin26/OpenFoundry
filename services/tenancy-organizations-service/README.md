@@ -18,6 +18,7 @@ Endpoints (all under `/api/v1`, JWT-protected):
 - `DELETE /enrollments/{id}`         — delete
 - `GET|POST /projects/{id-or-rid}/folders` — list/create nested folder resources
 - `PATCH /projects/{id-or-rid}/folders/{folder_id-or-rid}/propagate-view-requirements` — manage the legacy folder-level view-requirement propagation toggle
+- `GET /projects/{id-or-rid}/propagate-view-requirements/jobs` — list background re-propagation jobs and progress
 - `POST /workspace/resources/{kind}/{id}/move|rename` — RID-preserving resource operations
 - `GET|PUT /workspace/resources/{kind}/{id}/references` — Compass reverse-reference graph (`depends_on` / `used_by`)
 - `GET /workspace/trash`, `POST /workspace/resources/{kind}/{id}/restore`, `DELETE /workspace/resources/{kind}/{id}/purge` — Compass Trash list, restore, and permanent-delete surface
@@ -60,10 +61,15 @@ turned off, and reject future re-enable attempts after that timestamp exists.
 
 When enabled, the setting copies a snapshot of inherited
 `view_requirement_marking_rids` onto newly created child folders and project
-resource bindings. It does not backfill existing descendants; that background
-audit/re-propagation flow belongs to CMP.19. The Control Panel project editor
-shows the migration note so operators know to secure sensitive data with
-Markings before disabling the legacy setting.
+resource bindings. Parent policy changes enqueue
+`compass_view_requirement_propagation_jobs`, which update existing descendant
+folder snapshots, refresh folder search entries, update project resource
+bindings for project-level jobs, and expose processed/changed counts through
+the projects API. Successful jobs emit `compass.view_requirements.propagated`
+to `audit.events.v1` with parent RID, target/previous markings, changed counts,
+and a capped affected-dependent list. The Control Panel project editor shows
+the migration note so operators know to secure sensitive data with Markings
+before disabling the legacy setting.
 
 ## Move / rename contract
 

@@ -171,8 +171,11 @@ and must not drift:
   setting as a legacy compatibility toggle. Project/folder rows store enabled
   state and the non-reenableable `disabled_at` marker; child folders and
   project resource bindings snapshot inherited view-requirement marking RIDs
-  only at create time, with later descendant jobs owned by the CMP.19
-  re-propagation path).
+  at create time. Parent policy changes enqueue
+  `compass_view_requirement_propagation_jobs`, expose progress through the
+  projects API, update existing descendants in the background, refresh folder
+  search entries, and emit `compass.view_requirements.propagated` audit
+  events).
 - Dataset RID format `ri.foundry.main.dataset.<uuid-v7>`.
 - Transaction state / type tokens (`open|committed|aborted`,
   `snapshot|append|update|delete`).

@@ -30,6 +30,7 @@ import (
 type RBAC struct {
 	Repo         *repo.Repo
 	ControlPanel *ControlPanel
+	OAuthIssuer  OAuthAccessTokenIssuer
 }
 
 // ─── Users ──────────────────────────────────────────────────────────────

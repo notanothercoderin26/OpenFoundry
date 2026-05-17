@@ -21,6 +21,7 @@ const (
 	KindMediaItemMarkingOverridden   EventKind = "media_item.marking_overridden"
 	KindVirtualMediaItemRegistered   EventKind = "virtual_media_item.registered"
 	KindCompassResourcePurged        EventKind = "compass.resource.purged"
+	KindCompassViewReqPropagated     EventKind = "compass.view_requirements.propagated"
 
 	// Identity-federation variants (T8 compliance closure).
 	KindAuthLogin      EventKind = "auth.login"
@@ -37,7 +38,7 @@ func CategoriesFor(kind EventKind) []AuditCategory {
 		return []AuditCategory{CategoryDataCreate}
 	case KindMediaSetDeleted, KindMediaItemDeleted, KindCompassResourcePurged:
 		return []AuditCategory{CategoryDataDelete}
-	case KindMediaSetMarkingsChanged, KindMediaItemMarkingOverridden:
+	case KindMediaSetMarkingsChanged, KindMediaItemMarkingOverridden, KindCompassViewReqPropagated:
 		return []AuditCategory{CategoryManagementMarkings}
 	case KindMediaSetRetentionChanged,
 		KindMediaSetTransactionOpened,
@@ -119,6 +120,15 @@ type AuditEvent struct {
 	PurgeMode              string              `json:"purge_mode,omitempty"`
 	AffectedDependents     []AffectedDependent `json:"affected_dependents,omitempty"`
 	DependentListTruncated *bool               `json:"dependent_list_truncated,omitempty"`
+
+	// Compass view-requirement propagation.
+	PropagationJobID   string `json:"propagation_job_id,omitempty"`
+	ParentResourceRID  string `json:"parent_resource_rid,omitempty"`
+	ParentResourceKind string `json:"parent_resource_kind,omitempty"`
+	TotalFolders       *int   `json:"total_folders,omitempty"`
+	ChangedFolders     *int   `json:"changed_folders,omitempty"`
+	TotalResources     *int   `json:"total_resources,omitempty"`
+	ChangedResources   *int   `json:"changed_resources,omitempty"`
 
 	// Auth variants (auth.login / auth.identity_linked / auth.token_issued).
 	// Each field is omitempty so the wire shape only carries the slots the
@@ -313,6 +323,28 @@ func NewCompassResourcePurged(rid, projectRID string, markings []string, resourc
 		RetentionDays:          intPtr(retentionDays),
 		PurgeAfter:             purgeAfter,
 		PurgeMode:              purgeMode,
+		AffectedDependents:     dependents,
+		DependentListTruncated: boolPtr(truncated),
+	}
+}
+
+// NewCompassViewRequirementsPropagated records a background copy of
+// legacy "Propagate view requirements" markings to descendants.
+func NewCompassViewRequirementsPropagated(parentRID, projectRID string, markings, previous []string, parentKind, jobID string, totalFolders, changedFolders, totalResources, changedResources int, dependents []AffectedDependent, truncated bool) AuditEvent {
+	return AuditEvent{
+		Kind:                   KindCompassViewReqPropagated,
+		ResourceRID:            parentRID,
+		ProjectRID:             projectRID,
+		MarkingsAtEvent:        markings,
+		PreviousMarkings:       previous,
+		ResourceType:           parentKind,
+		PropagationJobID:       jobID,
+		ParentResourceRID:      parentRID,
+		ParentResourceKind:     parentKind,
+		TotalFolders:           intPtr(totalFolders),
+		ChangedFolders:         intPtr(changedFolders),
+		TotalResources:         intPtr(totalResources),
+		ChangedResources:       intPtr(changedResources),
 		AffectedDependents:     dependents,
 		DependentListTruncated: boolPtr(truncated),
 	}

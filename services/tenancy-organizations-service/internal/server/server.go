@@ -92,6 +92,8 @@ func New(
 		api.Get("/projects/{id}", ph.GetProject)
 		api.Patch("/projects/{id}", ph.UpdateProject)
 		api.Delete("/projects/{id}", ph.DeleteProject)
+		api.Get("/projects/{id}/propagate-view-requirements/jobs", ph.ListProjectPropagationJobs)
+		api.Get("/projects/{id}/propagate-view-requirements/jobs/{job_id}", ph.GetProjectPropagationJob)
 		api.Get("/projects/{id}/template-applications", ph.ListProjectTemplateApplications)
 		api.Get("/projects/{id}/memberships", ph.ListProjectMemberships)
 		api.Put("/projects/{id}/memberships", ph.UpsertProjectMembership)

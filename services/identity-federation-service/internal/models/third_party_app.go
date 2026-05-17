@@ -24,6 +24,19 @@ const (
 	OAuthGrantClientCredentials = "client_credentials"
 )
 
+const (
+	ThirdPartyServiceUserGrantScopeProject  = "project"
+	ThirdPartyServiceUserGrantScopeResource = "resource"
+
+	ThirdPartyServiceUserAuditCreated             = "service_user.created"
+	ThirdPartyServiceUserAuditClientGrantEnabled  = "service_user.client_credentials_enabled"
+	ThirdPartyServiceUserAuditPlatformRoleGranted = "service_user.platform_role_granted"
+	ThirdPartyServiceUserAuditPlatformRoleRevoked = "service_user.platform_role_revoked"
+	ThirdPartyServiceUserAuditGrantCreated        = "service_user.resource_grant_created"
+	ThirdPartyServiceUserAuditGrantRevoked        = "service_user.resource_grant_revoked"
+	ThirdPartyServiceUserAuditSecretRotated       = "client_secret.rotated"
+)
+
 type ThirdPartyApplication struct {
 	ID                          uuid.UUID                         `json:"id"`
 	ClientID                    string                            `json:"client_id"`
@@ -122,6 +135,45 @@ type ThirdPartyAppServiceUserSeed struct {
 	CreatedBy      uuid.UUID
 }
 
+type ThirdPartyServiceUserGrant struct {
+	ID            uuid.UUID  `json:"id"`
+	ApplicationID uuid.UUID  `json:"application_id"`
+	ServiceUserID uuid.UUID  `json:"service_user_id"`
+	ScopeType     string     `json:"scope_type"`
+	ScopeID       string     `json:"scope_id"`
+	RoleKey       string     `json:"role_key"`
+	GrantedBy     *uuid.UUID `json:"granted_by,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	RevokedAt     *time.Time `json:"revoked_at,omitempty"`
+}
+
+type CreateThirdPartyServiceUserGrantRequest struct {
+	ScopeType string `json:"scope_type"`
+	ScopeID   string `json:"scope_id"`
+	RoleKey   string `json:"role_key"`
+}
+
+type ThirdPartyServiceUserAuditEvent struct {
+	ID            uuid.UUID       `json:"id"`
+	ApplicationID uuid.UUID       `json:"application_id"`
+	ServiceUserID *uuid.UUID      `json:"service_user_id,omitempty"`
+	ActorID       *uuid.UUID      `json:"actor_id,omitempty"`
+	Action        string          `json:"action"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
+type ThirdPartyServiceUserInspection struct {
+	Application              ThirdPartyApplication          `json:"application"`
+	ServiceUser              *User                          `json:"service_user,omitempty"`
+	ClientCredentialsEnabled bool                           `json:"client_credentials_enabled"`
+	PlatformRoles            []Role                         `json:"platform_roles"`
+	Permissions              []string                       `json:"permissions"`
+	ResourceGrants           []ThirdPartyServiceUserGrant   `json:"resource_grants"`
+	AuditEvents              []ThirdPartyServiceUserAuditEvent `json:"audit_events"`
+	Warning                  string                         `json:"warning"`
+}
+
 type ThirdPartyOAuthAuthorizationCode struct {
 	ID                  uuid.UUID  `json:"id"`
 	CodeHash            string     `json:"-"`
@@ -169,13 +221,13 @@ type ThirdPartyOAuthAuthorization struct {
 }
 
 type OAuthAuthorizePromptResponse struct {
-	Application         ThirdPartyApplication `json:"application"`
-	ClientID            string                `json:"client_id"`
-	RedirectURI         string                `json:"redirect_uri"`
-	State               string                `json:"state"`
-	OrganizationID      uuid.UUID             `json:"organization_id"`
-	RequestedScopes     []string              `json:"requested_scopes"`
-	GrantedScopes       []string              `json:"granted_scopes"`
+	Application          ThirdPartyApplication `json:"application"`
+	ClientID             string                `json:"client_id"`
+	RedirectURI          string                `json:"redirect_uri"`
+	State                string                `json:"state"`
+	OrganizationID       uuid.UUID             `json:"organization_id"`
+	RequestedScopes      []string              `json:"requested_scopes"`
+	GrantedScopes        []string              `json:"granted_scopes"`
 	MissingScopes        []string              `json:"missing_scopes,omitempty"`
 	CodeChallengeMethod  string                `json:"code_challenge_method"`
 	OrganizationConsent  bool                  `json:"organization_consent"`
@@ -198,26 +250,26 @@ type OAuthConsentRequest struct {
 }
 
 type OAuthConsentResponse struct {
-	RedirectURI     string    `json:"redirect_uri"`
-	Code            string    `json:"code,omitempty"`
-	State           string    `json:"state"`
-	GrantedScopes   []string  `json:"granted_scopes,omitempty"`
-	ExpiresAt       time.Time `json:"expires_at,omitempty"`
-	Error           string    `json:"error,omitempty"`
-	ErrorDescription string   `json:"error_description,omitempty"`
+	RedirectURI      string    `json:"redirect_uri"`
+	Code             string    `json:"code,omitempty"`
+	State            string    `json:"state"`
+	GrantedScopes    []string  `json:"granted_scopes,omitempty"`
+	ExpiresAt        time.Time `json:"expires_at,omitempty"`
+	Error            string    `json:"error,omitempty"`
+	ErrorDescription string    `json:"error_description,omitempty"`
 }
 
 type OAuthTokenRequest struct {
-	GrantType    string `json:"grant_type"`
-	Code         string `json:"code,omitempty"`
-	RedirectURI  string `json:"redirect_uri,omitempty"`
-	ClientID     string `json:"client_id,omitempty"`
-	ClientSecret string `json:"client_secret,omitempty"`
-	CodeVerifier string `json:"code_verifier,omitempty"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	Scope        string `json:"scope,omitempty"`
-	Scopes       []string `json:"scopes,omitempty"`
-	OrganizationID string `json:"organization_id,omitempty"`
+	GrantType      string   `json:"grant_type"`
+	Code           string   `json:"code,omitempty"`
+	RedirectURI    string   `json:"redirect_uri,omitempty"`
+	ClientID       string   `json:"client_id,omitempty"`
+	ClientSecret   string   `json:"client_secret,omitempty"`
+	CodeVerifier   string   `json:"code_verifier,omitempty"`
+	RefreshToken   string   `json:"refresh_token,omitempty"`
+	Scope          string   `json:"scope,omitempty"`
+	Scopes         []string `json:"scopes,omitempty"`
+	OrganizationID string   `json:"organization_id,omitempty"`
 }
 
 type OAuthTokenResponse struct {

@@ -1047,7 +1047,9 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 	}
 	propagateViewRequirements := existing.PropagateViewRequirementsEnabled
 	propagateDisabledAt := existing.PropagateViewRequirementsDisabledAt
+	propagationPolicyTouched := false
 	if rawPropagate, present := raw["propagate_view_requirements_enabled"]; present {
+		propagationPolicyTouched = true
 		var requested bool
 		if err := json.Unmarshal(rawPropagate, &requested); err != nil {
 			writeJSONErr(w, http.StatusBadRequest, "propagate_view_requirements_enabled must be a boolean")
@@ -1066,6 +1068,14 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		}
 		propagateViewRequirements = nextEnabled
 		propagateDisabledAt = nextDisabledAt
+	}
+	previousPropagationMarkings := []string{}
+	if existing.PropagateViewRequirementsEnabled {
+		previousPropagationMarkings = existing.MarkingRIDs
+	}
+	nextPropagationMarkings := []string{}
+	if propagateViewRequirements {
+		nextPropagationMarkings = existing.MarkingRIDs
 	}
 
 	tx, err := h.Pool.Begin(r.Context())
@@ -1099,10 +1109,29 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project: %s", err))
 		return
 	}
+	var propagationJob *models.ViewRequirementPropagationJob
+	if propagationPolicyTouched && !sameStringSlice(previousPropagationMarkings, nextPropagationMarkings) {
+		propagationJob, err = insertViewRequirementPropagationJobTx(
+			r.Context(),
+			tx,
+			id,
+			viewReqParentProject,
+			id,
+			existing.RID,
+			claims.Sub,
+			nextPropagationMarkings,
+			previousPropagationMarkings,
+		)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue view requirement propagation job: %s", err))
+			return
+		}
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit ontology project transaction: %s", err))
 		return
 	}
+	h.launchViewRequirementPropagationJob(propagationJob)
 	updated, err := loadProject(r.Context(), h.Pool, id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
@@ -1474,6 +1503,10 @@ func (h *ProjectsHandlers) UpdateProjectFolderPropagation(w http.ResponseWriter,
 		writeJSONErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+	if body.Enabled == nil {
+		writeJSONErr(w, http.StatusBadRequest, "enabled is required")
+		return
+	}
 	project, err := loadProject(r.Context(), h.Pool, projectID)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
@@ -1499,7 +1532,7 @@ func (h *ProjectsHandlers) UpdateProjectFolderPropagation(w http.ResponseWriter,
 	enabled, disabledAt, status, message := resolveProjectPropagationPatch(
 		folder.PropagateViewRequirementsEnabled,
 		folder.PropagateViewRequirementsDisabledAt,
-		body.Enabled,
+		*body.Enabled,
 		true,
 		time.Now(),
 	)
@@ -1525,6 +1558,14 @@ func (h *ProjectsHandlers) UpdateProjectFolderPropagation(w http.ResponseWriter,
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode view requirement markings: %s", err))
 		return
 	}
+	previousPropagationMarkings := []string{}
+	if folder.PropagateViewRequirementsEnabled {
+		previousPropagationMarkings = folder.ViewRequirementMarkingRIDs
+	}
+	nextPropagationMarkings := []string{}
+	if enabled {
+		nextPropagationMarkings = markings
+	}
 	tx, err := h.Pool.Begin(r.Context())
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to start folder propagation transaction: %s", err))
@@ -1547,10 +1588,29 @@ func (h *ProjectsHandlers) UpdateProjectFolderPropagation(w http.ResponseWriter,
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index folder propagation setting: %s", err))
 		return
 	}
+	var propagationJob *models.ViewRequirementPropagationJob
+	if !sameStringSlice(previousPropagationMarkings, nextPropagationMarkings) {
+		propagationJob, err = insertViewRequirementPropagationJobTx(
+			r.Context(),
+			tx,
+			projectID,
+			viewReqParentFolder,
+			folderID,
+			folder.RID,
+			claims.Sub,
+			nextPropagationMarkings,
+			previousPropagationMarkings,
+		)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue view requirement propagation job: %s", err))
+			return
+		}
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit folder propagation transaction: %s", err))
 		return
 	}
+	h.launchViewRequirementPropagationJob(propagationJob)
 	updated, err := loadProjectFolder(r.Context(), h.Pool, projectID, folderID)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())

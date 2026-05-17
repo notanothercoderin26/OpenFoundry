@@ -28,6 +28,7 @@ func TestEventKindAndCategoriesMatchRustMapping(t *testing.T) {
 		{audittrail.NewMediaItemDownloaded("itm", "ms", "p", nil, 100, 60), audittrail.KindMediaItemDownloaded, audittrail.CategoryDataExport},
 		{audittrail.NewVirtualMediaItemRegistered("itm", "ms", "p", nil, "s3://x", "/p"), audittrail.KindVirtualMediaItemRegistered, audittrail.CategoryDataCreate},
 		{audittrail.NewCompassResourcePurged("ri.compass.main.folder.f", "ri.compass.main.project.p", []string{"public"}, "folder", "Docs", "2026-05-17T00:00:00Z", "user-a", "admin-a", 30, "2026-06-16T00:00:00Z", "admin_override", nil, false), audittrail.KindCompassResourcePurged, audittrail.CategoryDataDelete},
+		{audittrail.NewCompassViewRequirementsPropagated("ri.compass.main.project.p", "ri.compass.main.project.p", []string{"public"}, nil, "project", "job-1", 3, 2, 1, 1, nil, false), audittrail.KindCompassViewReqPropagated, audittrail.CategoryManagementMarkings},
 	}
 
 	for _, c := range cases {
@@ -99,6 +100,43 @@ func TestCompassResourcePurgedPayloadListsDependents(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "folder", dep["kind"])
 	assert.Equal(t, "cascade_delete", dep["action"])
+}
+
+func TestCompassViewRequirementsPropagatedPayload(t *testing.T) {
+	t.Parallel()
+	evt := audittrail.NewCompassViewRequirementsPropagated(
+		"ri.compass.main.project.p",
+		"ri.compass.main.project.p",
+		[]string{"ri.marking.main.marking.pii"},
+		[]string{"ri.marking.main.marking.old"},
+		"project",
+		"018f2f1c-aaaa-7bbb-8ccc-000000000019",
+		3,
+		2,
+		1,
+		1,
+		[]audittrail.AffectedDependent{{
+			Kind:         "folder",
+			RID:          "ri.compass.main.folder.f",
+			Relationship: "view_requirements_child_folder",
+			Action:       "view_requirements_updated",
+		}},
+		false,
+	)
+
+	out, err := json.Marshal(evt)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	assert.Equal(t, "compass.view_requirements.propagated", view["kind"])
+	assert.Equal(t, "project", view["parent_resource_kind"])
+	assert.Equal(t, "018f2f1c-aaaa-7bbb-8ccc-000000000019", view["propagation_job_id"])
+	assert.Equal(t, float64(3), view["total_folders"])
+	assert.Equal(t, float64(2), view["changed_folders"])
+	assert.Equal(t, false, view["dependent_list_truncated"])
+	dependents, ok := view["affected_dependents"].([]any)
+	require.True(t, ok)
+	require.Len(t, dependents, 1)
 }
 
 func TestEventIDIsDeterministic(t *testing.T) {

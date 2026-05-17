@@ -56,6 +56,9 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 	controlPanel := handlers.NewControlPanel()
 	if rbac != nil {
 		rbac.ControlPanel = controlPanel
+		if auth != nil {
+			rbac.OAuthIssuer = auth.Issuer
+		}
 	}
 	var scopedSessions *handlers.ScopedSessions
 	if auth != nil && auth.Repo != nil && auth.Issuer != nil {
@@ -108,6 +111,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		// Returns provider responses through IntoResponse() so no
 		// secrets leak.
 		api.Post("/sso/troubleshoot", ssoAdmin.Troubleshoot)
+	})
+
+	// OAuth2 token endpoints for third-party applications. The
+	// authorization/consent endpoints are bearer-protected below, but
+	// token exchange and revocation authenticate the OAuth client.
+	r.Route("/api/v1/oauth2", func(api chi.Router) {
+		api.Post("/token", rbac.OAuthToken)
+		api.Post("/revoke", rbac.OAuthRevoke)
 	})
 
 	// /api/v1/auth/mfa/* — bearer-protected MFA management.
@@ -192,6 +203,11 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Put("/third-party-applications/{id}/organizations/{organization_id}/enablement", rbac.UpsertThirdPartyApplicationEnablement)
 		api.Delete("/third-party-applications/{id}/organizations/{organization_id}/enablement", rbac.DisableThirdPartyApplicationEnablement)
 
+		api.Get("/oauth2/authorize", rbac.OAuthAuthorizePrompt)
+		api.Post("/oauth2/authorize/consent", rbac.OAuthConsent)
+		api.Get("/oauth2/authorizations", rbac.ListOAuthAuthorizations)
+		api.Delete("/oauth2/authorizations/{id}", rbac.RevokeOAuthAuthorization)
+
 		api.Get("/control-panel", controlPanel.Get)
 		api.Put("/control-panel", controlPanel.Update)
 		api.Patch("/control-panel", controlPanel.Update)
@@ -247,12 +263,13 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		})
 	})
 
-	// Synthesise capabilities for every mounted route. Anything
-	// under /api/v1/auth/mfa or /api/v1 (excluding the public
-	// /api/v1/auth) requires a Bearer token.
+	// Synthesise capabilities for every mounted route. OAuth token
+	// exchange/revocation stay public at the HTTP layer because they
+	// authenticate the OAuth client; authorize/authorization management
+	// are listed below as bearer-protected.
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "identity",
-		AuthPaths: []string{"/api/v1/auth/mfa", "/api/v1/auth/scoped-sessions", "/api/v1/users", "/api/v1/roles", "/api/v1/groups", "/api/v1/permissions", "/api/v1/api-keys", "/api/v1/third-party-applications", "/api/v1/control-panel", "/api/v1/application-access", "/api/v1/file-access-presets", "/api/v1/restricted-views"},
+		AuthPaths: []string{"/api/v1/auth/mfa", "/api/v1/auth/scoped-sessions", "/api/v1/users", "/api/v1/roles", "/api/v1/groups", "/api/v1/permissions", "/api/v1/api-keys", "/api/v1/third-party-applications", "/api/v1/oauth2/authorize", "/api/v1/oauth2/authorizations", "/api/v1/control-panel", "/api/v1/application-access", "/api/v1/file-access-presets", "/api/v1/restricted-views"},
 		Tags:      []string{"identity"},
 	}); err != nil {
 		panic("identity-federation-service: capability ingest failed: " + err.Error())

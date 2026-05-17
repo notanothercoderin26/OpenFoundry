@@ -23,6 +23,7 @@ import {
   getProjectAccessRequestForm,
   listProjectAccessRequests,
   listProjectGroupMemberships,
+  listProjectPropagationJobs,
   listProjectResourceGrants,
   listProjects,
   updateProject,
@@ -40,6 +41,7 @@ import {
   type ProjectGroupMembership,
   type ProjectResourceGrant,
   type ProjectRole,
+  type ViewRequirementPropagationJob,
 } from '@/lib/api/tenancy';
 
 const ROLE_OPTIONS: ProjectRole[] = ['discoverer', 'viewer', 'editor', 'owner'];
@@ -161,7 +163,16 @@ function ProjectDetail({
   const [propagateViewRequirements, setPropagateViewRequirements] = useState(
     Boolean(project.propagate_view_requirements_enabled),
   );
+  const [propagationJobs, setPropagationJobs] = useState<ViewRequirementPropagationJob[]>([]);
   const [busy, setBusy] = useState(false);
+
+  const refreshPropagationJobs = useCallback(async () => {
+    try {
+      setPropagationJobs(await listProjectPropagationJobs(project.id));
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : 'Failed to load propagation jobs');
+    }
+  }, [onError, project.id]);
 
   useEffect(() => {
     setDefaultRole(project.default_role);
@@ -170,6 +181,10 @@ function ProjectDetail({
     setRefsJson(JSON.stringify(project.references ?? [], null, 2));
     setPropagateViewRequirements(Boolean(project.propagate_view_requirements_enabled));
   }, [project]);
+
+  useEffect(() => {
+    void refreshPropagationJobs();
+  }, [refreshPropagationJobs]);
 
   async function save() {
     setBusy(true);
@@ -190,6 +205,7 @@ function ProjectDetail({
         propagate_view_requirements_enabled: propagateViewRequirements,
       });
       onUpdated(updated);
+      await refreshPropagationJobs();
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : 'Failed to save');
     } finally {
@@ -281,6 +297,36 @@ function ProjectDetail({
               Foundry project that still depends on propagated view requirements.
             </p>
           )}
+          <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+              <strong style={{ fontSize: 12 }}>Propagation jobs</strong>
+              <button className="of-button of-button--ghost" style={{ fontSize: 12 }} onClick={() => void refreshPropagationJobs()}>
+                Refresh
+              </button>
+            </div>
+            {propagationJobs.length === 0 ? (
+              <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>No propagation jobs yet.</p>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }}>
+                {propagationJobs.map((job) => {
+                  const processed = job.processed_folders + job.processed_resources;
+                  const total = job.total_folders + job.total_resources;
+                  return (
+                    <li key={job.id} style={{ fontSize: 12, display: 'grid', gap: 2 }}>
+                      <span>
+                        <code>{job.status}</code> · {processed}/{total} processed · changed{' '}
+                        {job.changed_folders + job.changed_resources}
+                      </span>
+                      <span className="of-text-muted">
+                        {job.parent_resource_kind} · <code>{job.parent_resource_rid}</code>
+                      </span>
+                      {job.error_message && <span className="of-status-danger">{job.error_message}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </section>
         <label style={{ fontSize: 12 }}>
           References (JSON array of {`{kind, id, label?}`})
