@@ -1,7 +1,7 @@
 {
-  "schema_version": "2026-05-10.w0.1",
-  "generated_at": "2026-05-10",
-  "scope": "Public-docs-based parity matrix for Pipeline Builder, Workshop, Geospatial, Data Connection, Ontology Actions, and Functions.",
+  "schema_version": "2026-05-17.w0.2",
+  "generated_at": "2026-05-17",
+  "scope": "Public-docs-based parity matrix. The 'rows' array covers Pipeline Builder, Workshop, Geospatial, Data Connection, Ontology Actions, and Functions at feature granularity. The 'module_summary' array rolls up all 25 foundry-*-1to1-checklist.md files so untracked modules (Compass, Slate, Marketplace, Vertex, Cipher, etc.) are not silently reported as 0%.",
   "required_fields": [
     "foundry_feature",
     "openfoundry_surface",
@@ -17,6 +17,388 @@
     "todo": "No meaningful implementation found in the current repository inventory.",
     "blocked": "Implementation exists behind an unavailable dependency, missing runtime wiring, or an unmounted route."
   },
+  "module_summary_method": {
+    "generated_at": "2026-05-17",
+    "route_count_command": "grep -rE '\\.(Get|Post|Put|Delete|Patch)\\(' services/<svc>/internal/ | wc -l",
+    "completion_rule": "An item counts as 'done' only when both a handler file and a corresponding _test.go cover it. Items flagged needs-verification by the auditor are treated as not done in the headline percentage. Counts marked with leading ~ are within +/- 2 items because some checklist entries span multiple services."
+  },
+  "module_summary": [
+    {
+      "module": "AIP Agents / Threads / Assist",
+      "status": "partial",
+      "percent_done": 22,
+      "owner": "agent-runtime-service, llm-catalog-service",
+      "route_count": 61,
+      "items_done": 13,
+      "items_total": 58,
+      "verified_gaps": [
+        "No Threads resource or thread document upload / export.",
+        "No Assist sidebar, custom content sources, or agent serving.",
+        "ReAct-style tool dispatch loop and step budgeting not wired end-to-end."
+      ],
+      "checklist": "docs/migration/foundry-aip-agents-threads-assist-1to1-checklist.md"
+    },
+    {
+      "module": "AIP Logic / Evals",
+      "status": "partial",
+      "percent_done": 50,
+      "owner": "agent-runtime-service, ai-evaluation-service",
+      "route_count": 53,
+      "items_done": 22,
+      "items_total": 44,
+      "verified_gaps": [
+        "Evaluator types (built-in vs custom) and multi-target run orchestration not verified.",
+        "Branch-aware Logic editing and global-branching integration unimplemented.",
+        "Unit-test execution, test-case result storage, and experiments dataset integration sparse."
+      ],
+      "checklist": "docs/migration/foundry-aip-logic-evals-1to1-checklist.md"
+    },
+    {
+      "module": "Analytics Suite",
+      "status": "partial",
+      "percent_done": 25,
+      "owner": "ontology-exploratory-analysis-service, sql-bi-gateway-service",
+      "route_count": 58,
+      "items_done": 21,
+      "items_total": 82,
+      "verified_gaps": [
+        "Contour is absent as a distinct analytical tool; no board / path / expression / parameter handlers.",
+        "Fusion spreadsheet, Code Workbook legacy, and ODBC / JDBC BI drivers entirely absent.",
+        "Export checkpoints, compute usage attribution, and refresh / freshness policies not implemented."
+      ],
+      "checklist": "docs/migration/foundry-analytics-suite-1to1-checklist.md"
+    },
+    {
+      "module": "Apollo (cross-environment promotion)",
+      "status": "todo",
+      "percent_done": 13,
+      "owner": "federation-product-exchange-service, workflow-automation-service",
+      "route_count": 99,
+      "items_done": 4,
+      "items_total": 31,
+      "verified_gaps": [
+        "Environment topology and channel resource models entirely absent.",
+        "Promotion pipeline stages, per-stage approvals, and atomic multi-product promotion not wired.",
+        "Region-locked promotion, compliance-boundary enforcement, and canary / auto-rollback unimplemented."
+      ],
+      "checklist": "docs/migration/foundry-apollo-1to1-checklist.md"
+    },
+    {
+      "module": "Automate / Rules",
+      "status": "partial",
+      "percent_done": 20,
+      "owner": "workflow-automation-service, ontology-actions-service, notification-alerting-service",
+      "route_count": 49,
+      "items_done": 16,
+      "items_total": 78,
+      "verified_gaps": [
+        "Automate application overview, creation wizard, and detail page handlers absent.",
+        "Foundry Rules workflow, Rule Editor / Reviewer Workshop pages, and proposal lifecycle unimplemented.",
+        "Automation health monitoring, large-scale batching, and comprehensive audit trail not wired."
+      ],
+      "checklist": "docs/migration/foundry-automate-rules-1to1-checklist.md"
+    },
+    {
+      "module": "Cipher",
+      "status": "todo",
+      "percent_done": 0,
+      "owner": "cipher-service (scaffold stub)",
+      "route_count": 2,
+      "items_done": 0,
+      "items_total": 31,
+      "verified_gaps": [
+        "Stub service scaffolded in commit 7a34df8a; no algorithm registry, key resource, ciphertext envelope, or per-key access policy.",
+        "No encrypt / decrypt primitives or marking-aware decrypt.",
+        "No per-operation audit, AES-SIV deterministic mode, or cipher-aware join contract."
+      ],
+      "checklist": "docs/migration/foundry-cipher-1to1-checklist.md"
+    },
+    {
+      "module": "Compass",
+      "status": "todo",
+      "percent_done": 7,
+      "owner": "tenancy-organizations-service",
+      "route_count": 91,
+      "items_done": 1,
+      "items_total": 27,
+      "verified_gaps": [
+        "No central RID registry or RID validation; each service mints IDs locally.",
+        "No permission-aware search / catalog index; no search API or UI shell.",
+        "No trash / restore / hard-delete workflow; only basic project / org CRUD."
+      ],
+      "checklist": "docs/migration/foundry-compass-1to1-checklist.md"
+    },
+    {
+      "module": "Compute Modules",
+      "status": "partial",
+      "percent_done": 9,
+      "owner": "compute-module-service",
+      "route_count": 16,
+      "items_done": 4,
+      "items_total": 45,
+      "verified_gaps": [
+        "No function invocation dispatcher (CM.8) for function-mode jobs.",
+        "No pipeline-mode IO contract, run lifecycle, or data-connection adapters (CM.16-CM.20).",
+        "No scaling / autoscaling policy, health signals, or cold-start tracking (CM.21-CM.25)."
+      ],
+      "checklist": "docs/migration/foundry-compute-modules-1to1-checklist.md"
+    },
+    {
+      "module": "Data Foundation",
+      "status": "done",
+      "percent_done": 76,
+      "owner": "dataset-versioning-service, pipeline-build-service, lineage-service, iceberg-catalog-service, ingestion-replication-service",
+      "route_count": 524,
+      "items_done": 32,
+      "items_total": 42,
+      "verified_gaps": [
+        "Retention policy selectors and execution (DF.33-DF.35) only partially wired.",
+        "Data Lifetime lineage-aware policies (DF.36) absent.",
+        "Workflow Lineage handoff into actions / functions (DF.37) absent."
+      ],
+      "checklist": "docs/migration/foundry-data-foundation-1to1-checklist.md"
+    },
+    {
+      "module": "DevOps Marketplace",
+      "status": "partial",
+      "percent_done": 15,
+      "owner": "federation-product-exchange-service",
+      "route_count": 66,
+      "items_done": 8,
+      "items_total": 55,
+      "verified_gaps": [
+        "No release channels or automatic upgrade scheduling.",
+        "No resource-specific linters or supported-resource registry for Workshop / Pipeline / Ontology / Action packaging.",
+        "No input presets, linked-product graphs, or placeholder input generation."
+      ],
+      "checklist": "docs/migration/foundry-devops-marketplace-1to1-checklist.md"
+    },
+    {
+      "module": "Functions Runtime",
+      "status": "todo",
+      "percent_done": 0,
+      "owner": null,
+      "route_count": 0,
+      "items_done": 0,
+      "items_total": 27,
+      "verified_gaps": [
+        "No dedicated functions-control-service / functions-build-service / functions-runtime-service.",
+        "No isolate / sandbox runtime for TypeScript or Python.",
+        "No ontology read / write client with marking-aware enforcement or staged-write accumulator."
+      ],
+      "checklist": "docs/migration/foundry-functions-runtime-1to1-checklist.md"
+    },
+    {
+      "module": "Fusion Spreadsheet",
+      "status": "todo",
+      "percent_done": 0,
+      "owner": null,
+      "route_count": 0,
+      "items_done": 0,
+      "items_total": 30,
+      "verified_gaps": [
+        "No fusion-spreadsheet-service with workbook / sheet / cell CRUD.",
+        "No sandboxed formula evaluator (SUM, VLOOKUP, IF, DATASET.LOOKUP, OBJECTS.LOOKUP).",
+        "No dataset sync layer with append / snapshot / upsert and conflict detection."
+      ],
+      "checklist": "docs/migration/foundry-fusion-spreadsheet-1to1-checklist.md"
+    },
+    {
+      "module": "Global Branching",
+      "status": "todo",
+      "percent_done": 2,
+      "owner": "global-branch-service (scaffold stub), workflow-automation-service (AIP Logic adapter)",
+      "route_count": 1,
+      "items_done": 1,
+      "items_total": 56,
+      "verified_gaps": [
+        "No branch detail / proposal detail / merge-check UI; taskbar integration absent.",
+        "Only AIP Logic adapter exists; Pipeline Builder / Ontology / Workshop / Functions / Object Views adapters not implemented.",
+        "No atomic branch lifecycle propagation across adapters; no saga / two-phase merge."
+      ],
+      "checklist": "docs/migration/foundry-global-branching-1to1-checklist.md"
+    },
+    {
+      "module": "Map (standalone Map app)",
+      "status": "todo",
+      "percent_done": 0,
+      "owner": null,
+      "route_count": 0,
+      "items_done": 0,
+      "items_total": 25,
+      "verified_gaps": [
+        "No standalone map-service wired in the gateway router table.",
+        "No tile service endpoint or OGC compliance layer.",
+        "No pluggable geocoder backend contract. (Workshop map widget is covered separately by the Workshop / Geospatial rows.)"
+      ],
+      "checklist": "docs/migration/foundry-map-1to1-checklist.md"
+    },
+    {
+      "module": "Media Sets",
+      "status": "partial",
+      "percent_done": 12,
+      "owner": "media-sets-service, media-transform-runtime-service",
+      "route_count": 46,
+      "items_done": 6,
+      "items_total": 50,
+      "verified_gaps": [
+        "No POST /media-sets/{rid}/upload handler; upload flow absent.",
+        "Preview / OCR / transcription access patterns unimplemented.",
+        "Data Connection media sync missing; no connector-management integration."
+      ],
+      "checklist": "docs/migration/foundry-media-sets-1to1-checklist.md"
+    },
+    {
+      "module": "Model Integration / Model Studio",
+      "status": "partial",
+      "percent_done": 5,
+      "owner": "model-deployment-service, model-catalog-service",
+      "route_count": 30,
+      "items_done": 3,
+      "items_total": 60,
+      "verified_gaps": [
+        "Model catalog has zero HTTP handlers (no model CRUD, versioning, adapters).",
+        "No Model Studio trainer registry, config wizard, or training execution.",
+        "No Modeling Objective CRUD, submission review, or release management."
+      ],
+      "checklist": "docs/migration/foundry-model-integration-model-studio-1to1-checklist.md"
+    },
+    {
+      "module": "Object Storage v2",
+      "status": "partial",
+      "percent_done": 18,
+      "owner": "object-database-service",
+      "route_count": 53,
+      "items_done": 5,
+      "items_total": 27,
+      "verified_gaps": [
+        "All five production handler files (handlers.go, objects_bridge.go, links_traverse.go, validation.go, cedar_gate.go) lack test coverage.",
+        "No full-text, vector, spatial, or time-series indices.",
+        "No branching overlay writes, change-stream subscriptions, or snapshot / restore endpoints."
+      ],
+      "checklist": "docs/migration/foundry-object-storage-v2-1to1-checklist.md"
+    },
+    {
+      "module": "Ontology Manager / Object Views",
+      "status": "partial",
+      "percent_done": 24,
+      "owner": "ontology-definition-service, ontology-query-service",
+      "route_count": 37,
+      "items_done": 12,
+      "items_total": 50,
+      "verified_gaps": [
+        "interfaces_shared.go and properties_links.go lack corresponding _test.go files.",
+        "No cost-based query optimizer; ontology-query-service has only basic search / graph paths.",
+        "No dedicated object-views-service; Object Views rendering integration path unverified."
+      ],
+      "checklist": "docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md"
+    },
+    {
+      "module": "OSDK",
+      "status": "todo",
+      "percent_done": 0,
+      "owner": "sdk-generation-service (scaffold)",
+      "route_count": 7,
+      "items_done": 0,
+      "items_total": 26,
+      "verified_gaps": [
+        "No TypeScript codegen wired into the web UI or CLI.",
+        "No runtime client factory or fetch-based transport.",
+        "Marketplace OSDK packaging / distribution undefined."
+      ],
+      "checklist": "docs/migration/foundry-osdk-1to1-checklist.md"
+    },
+    {
+      "module": "Resource Management",
+      "status": "todo",
+      "percent_done": 0,
+      "owner": null,
+      "route_count": 0,
+      "items_done": 0,
+      "items_total": 23,
+      "verified_gaps": [
+        "No queue resource CRUD, worker classes, or admission API.",
+        "No unified job submission orchestration across builds / functions / notebooks.",
+        "No cost insights reporting or per-project / per-branch aggregates."
+      ],
+      "checklist": "docs/migration/foundry-resource-management-1to1-checklist.md"
+    },
+    {
+      "module": "Security & Governance",
+      "status": "partial",
+      "percent_done": 27,
+      "owner": "identity-federation-service, authorization-policy-service, tenancy-organizations-service, audit-compliance-service",
+      "route_count": 413,
+      "items_done": 15,
+      "items_total": 56,
+      "verified_gaps": [
+        "SG.10 permission-checking workbench absent (no access-graph visualization or explanation API).",
+        "SG.17 audit delivery / SIEM export / dataset backfill not wired.",
+        "SG.18 unified Admin Control Panel incomplete; no admin shell, change-requests, or admin-module gating."
+      ],
+      "checklist": "docs/migration/foundry-security-governance-1to1-checklist.md"
+    },
+    {
+      "module": "Slate / Carbon",
+      "status": "todo",
+      "percent_done": 0,
+      "owner": "application-composition-service (generic CRUD only)",
+      "route_count": 29,
+      "items_done": 0,
+      "items_total": 48,
+      "verified_gaps": [
+        "No Slate page / route / widget schema or layout engine; handlers are generic CRUD stubs.",
+        "No Handlebars / variable / event / action framework; no query execution.",
+        "No Carbon workspace resource, module interfaces, or navigation framework."
+      ],
+      "checklist": "docs/migration/foundry-slate-carbon-1to1-checklist.md"
+    },
+    {
+      "module": "Streaming & Data Connection",
+      "status": "done",
+      "percent_done": 100,
+      "owner": "ingestion-replication-service, connector-management-service",
+      "route_count": 196,
+      "items_done": 25,
+      "items_total": 25,
+      "verified_gaps": [
+        "P2 media / geospatial streaming synergy not yet wired.",
+        "Advanced stream replay (exactly-once vs at-least-once) partially stubbed.",
+        "Virtual media large-file materialization not integrated with media-sets-service."
+      ],
+      "checklist": "docs/migration/foundry-streaming-data-connection-1to1-checklist.md"
+    },
+    {
+      "module": "Vertex (graph app)",
+      "status": "todo",
+      "percent_done": 0,
+      "owner": null,
+      "route_count": 0,
+      "items_done": 0,
+      "items_total": 26,
+      "verified_gaps": [
+        "ontology-exploratory-analysis-service is focused on geospatial / maps / writeback, not graph traversal.",
+        "No neighbor-expansion API with link-type / property filtering.",
+        "No graph layout engine, scenario planning, event timeline, or media-layer support."
+      ],
+      "checklist": "docs/migration/foundry-vertex-1to1-checklist.md"
+    },
+    {
+      "module": "Workshop / Pipeline Builder",
+      "status": "done",
+      "percent_done": 95,
+      "owner": "pipeline-build-service, application-composition-service, ontology-exploratory-analysis-service",
+      "route_count": 179,
+      "items_done": 55,
+      "items_total": 60,
+      "verified_gaps": [
+        "P2 incremental preview / preview-skipping not fully wired.",
+        "Marketplace template distribution not surfaced for Pipeline / Workshop.",
+        "Media transform pipeline nodes (image / video / satellite) deferred."
+      ],
+      "checklist": "docs/migration/foundry-workshop-pipeline-1to1-checklist.md"
+    }
+  ],
   "rows": [
     {
       "foundry_feature": "Pipeline Builder: graph authoring and point-and-click pipeline editor",
