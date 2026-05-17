@@ -12,16 +12,15 @@ import (
 
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/executor"
 	dispatchpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/planner"
 )
 
-// TestSparkFlinkDistributedRunnerSurfacesPlanCompositionTODO asserts
-// the C.4.a transitional behaviour: the dispatcher refuses to submit
-// any Spark-like node because the composer that builds a
-// pipelineplan.Plan from the DAG node config has not landed yet
-// (Phase C.4.b). The two previous tests verified the SparkApplication
-// CR fields (InlineSQL, Catalog, ApplicationType, ExecutorInstances)
-// which have all been removed from PipelineRunInput.
-func TestSparkFlinkDistributedRunnerSurfacesPlanCompositionTODO(t *testing.T) {
+// TestSparkFlinkDistributedRunnerRejectsLegacySQLNodes asserts that a
+// node config still carrying the pre-C.4 SQL shape (the `sql` field)
+// surfaces planner.ErrFreeFormSQLNotPortable. This is the canonical
+// failure mode for half-migrated clusters per ADR-0045's Phase 0
+// inventory.
+func TestSparkFlinkDistributedRunnerRejectsLegacySQLNodes(t *testing.T) {
 	fake := &fakeSparkClient{submittedName: "should-not-submit", status: &dispatchpkg.RunStatusReport{Status: dispatchpkg.RunSucceeded}}
 	runner := NewSparkFlinkDistributedRunner(DistributedRuntimeConfig{
 		SparkClientProvider: func() (dispatchpkg.Client, bool) { return fake, true },
@@ -45,8 +44,45 @@ func TestSparkFlinkDistributedRunnerSurfacesPlanCompositionTODO(t *testing.T) {
 		Engine:        "spark",
 	})
 
-	require.ErrorIs(t, err, ErrPlanCompositionNotImplemented)
+	require.ErrorIs(t, err, planner.ErrFreeFormSQLNotPortable)
 	require.Equal(t, "", fake.submitted.PipelineID, "no Job should have been submitted")
+}
+
+// TestSparkFlinkDistributedRunnerComposesAndSubmitsStructuredNode
+// verifies the end-to-end happy path: a structured node config (Phase
+// C.4.b shape) is composed into a Plan and forwarded to the
+// dispatcher with the correct shape.
+func TestSparkFlinkDistributedRunnerComposesAndSubmitsStructuredNode(t *testing.T) {
+	fake := &fakeSparkClient{submittedName: "pipeline-run-x", status: &dispatchpkg.RunStatusReport{Status: dispatchpkg.RunSucceeded}}
+	runner := NewSparkFlinkDistributedRunner(DistributedRuntimeConfig{
+		SparkClientProvider: func() (dispatchpkg.Client, bool) { return fake, true },
+		Namespace:           "openfoundry",
+		RunnerImage:         "registry.example/pipeline-runner:0.1.0",
+		PollInterval:        time.Nanosecond,
+		Timeout:             time.Second,
+	})
+
+	structuredPayload := []byte(`{
+		"source": {"catalog":"lakekeeper","namespace":"default","table":"online_retail_raw"},
+		"target": {"catalog":"lakekeeper","namespace":"default","table":"transactions_clean"},
+		"filter": {"expr":"quantity > 0"}
+	}`)
+	_, err := runner.RunDistributedTransform(context.Background(), DistributedTransformRequest{
+		Node: executor.NodeContext{
+			BuildID: uuid.MustParse("22222222-2222-3333-4444-555555555555"),
+			Node: executor.Node{
+				ID:      "structured-node",
+				Outputs: []executor.OutputTransaction{{DatasetRID: "ri.dataset.main.out"}},
+			},
+		},
+		Payload:       structuredPayload,
+		TransformType: "output_dataset",
+		Engine:        "spark",
+	})
+
+	require.NoError(t, err)
+	require.NotEmpty(t, fake.submitted.PipelineID)
+	require.Len(t, fake.submitted.Plan.Ops, 3, "Plan must have read → filter → write")
 }
 
 func TestSparkFlinkDistributedRunnerFlinkIsExplicitlyAdapterGated(t *testing.T) {

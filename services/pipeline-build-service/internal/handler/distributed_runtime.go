@@ -17,19 +17,19 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/executor"
 	dispatchpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/planner"
 )
 
-// ErrPlanCompositionNotImplemented is returned by the temporary
-// distributed_runtime dispatcher when it is asked to submit a run
-// against a DAG node that still ships raw SQL. ADR-0045 Phase C.4.b
-// adds the composer that converts node configs into
-// pipelineplan.Plan values; until then, the DISTRIBUTED execution
-// path is intentionally broken so half-migrated clusters do not
-// silently run the previous Spark contract.
-var ErrPlanCompositionNotImplemented = errors.New("plan composition from node config: not implemented (ADR-0045 Phase C.4.b — composer pending)")
-
-func composePlanFromNodeConfig(_ DistributedTransformRequest, _ distributedSparkConfig) (pipelineplan.Plan, error) {
-	return pipelineplan.Plan{}, ErrPlanCompositionNotImplemented
+// composePlanFromNodeConfig wraps planner.ComposeFromNodeConfig with
+// the dispatcher's pipeline-id / run-id naming so the resulting Plan
+// carries the same identifiers the surrounding submission flow logs.
+// ADR-0045 Phase C.4.b — replaces the C.4.a stub that returned a
+// sentinel error. Legacy SQL-shaped node configs still fail (with
+// planner.ErrFreeFormSQLNotPortable) so half-migrated clusters surface
+// a clear migration pointer instead of silently running stale SQL.
+func composePlanFromNodeConfig(req DistributedTransformRequest, pipelineID, runID string) (pipelineplan.Plan, error) {
+	_ = req // placeholder for the future when the composer needs DAG-context (e.g. multi-input join nodes)
+	return planner.ComposeFromNodeConfig([]byte(req.Payload), pipelineID, runID)
 }
 
 type DistributedTransformRequest struct {
@@ -118,14 +118,14 @@ func (r *SparkFlinkDistributedRunner) runSpark(ctx context.Context, req Distribu
 	namespace := firstNonEmpty(r.cfg.Namespace, os.Getenv("PIPELINE_RUNNER_NAMESPACE"), os.Getenv("SPARK_NAMESPACE"), "openfoundry")
 	image := firstNonEmpty(cfg.RunnerImage, r.cfg.RunnerImage, os.Getenv("PIPELINE_RUNNER_IMAGE"), "localhost:5001/pipeline-runner:dev")
 
-	// Phase C.4.a does not yet ship the composer that turns a DAG node
-	// config into a pipelineplan.Plan — that lands in C.4.b. Until
-	// then, the dispatcher refuses to submit so a half-migrated cluster
-	// surfaces a clear error instead of running a stale Spark
-	// SparkApplication CR or shipping an empty plan downstream.
-	plan, planErr := composePlanFromNodeConfig(req, cfg)
+	// Phase C.4.b: compose a typed pipelineplan.Plan from the DAG
+	// node config. Legacy SQL-shaped configs surface as
+	// planner.ErrFreeFormSQLNotPortable so half-migrated clusters
+	// get a clear migration pointer instead of running stale SQL.
+	_ = cfg // distributedSparkConfig now only carries dispatcher knobs (Resources, RunnerImage); operator fields come from the payload.
+	plan, planErr := composePlanFromNodeConfig(req, pipelineID, runID)
 	if planErr != nil {
-		return executor.NodeResult{}, planErr
+		return executor.NodeResult{}, fmt.Errorf("compose plan: %w", planErr)
 	}
 
 	input := dispatchpkg.PipelineRunInput{

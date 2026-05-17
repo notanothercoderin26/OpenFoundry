@@ -117,13 +117,13 @@ func TestConfigGatesHappyPathsWithFakes(t *testing.T) {
 	})
 
 	t.Run("KUBERNETES_API_URL fake Spark client", func(t *testing.T) {
-		t.Skip("ADR-0045 Phase C.4.a: SubmitSparkRun requires a pipelineplan.Plan now; Phase C.4.b re-targets this assertion once the composer ships.")
 		fake := &fakeSparkClient{submittedName: "spark-app"}
 		restore := SetSparkClient(fake)
 		defer restore()
 
+		body := []byte(`{"pipeline_id":"p","run_id":"r","input_dataset_rid":"in","output_dataset_rid":"out","pipeline_runner_image":"img",` + minimalValidPlanJSON() + `}`)
 		rr := httptest.NewRecorder()
-		SubmitSparkRun(rr, httptest.NewRequest(http.MethodPost, "/api/v1/data-integration/spark-runs", bytes.NewReader([]byte(`{"pipeline_id":"p","run_id":"r","input_dataset_rid":"in","output_dataset_rid":"out","pipeline_runner_image":"img"}`))))
+		SubmitSparkRun(rr, httptest.NewRequest(http.MethodPost, "/api/v1/data-integration/spark-runs", bytes.NewReader(body)))
 
 		require.Equal(t, http.StatusAccepted, rr.Code)
 		require.Equal(t, "p", fake.submitted.PipelineID)
