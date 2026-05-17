@@ -33,9 +33,10 @@ import (
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	pipelineplan "github.com/openfoundry/openfoundry-go/libs/pipeline-plan"
+	dispatchpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 	livellogs "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/logs"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
-	dispatchpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 )
 
 const defaultSSEInitialDelay = 10 * time.Second
@@ -763,18 +764,21 @@ func writeSparkSubmissionRepositoryUnavailable(w http.ResponseWriter, detail str
 }
 
 type submitSparkRunRequest struct {
-	PipelineRunID       *uuid.UUID                      `json:"pipeline_run_id,omitempty"`
-	PipelineID          string                          `json:"pipeline_id"`
-	RunID               string                          `json:"run_id,omitempty"`
-	InputDatasetRID     string                          `json:"input_dataset_rid"`
-	OutputDatasetRID    string                          `json:"output_dataset_rid"`
+	PipelineRunID    *uuid.UUID `json:"pipeline_run_id,omitempty"`
+	PipelineID       string     `json:"pipeline_id"`
+	RunID            string     `json:"run_id,omitempty"`
+	InputDatasetRID  string     `json:"input_dataset_rid"`
+	OutputDatasetRID string     `json:"output_dataset_rid"`
 	// ApplicationType — the Spark application type field is no longer
 	// honoured (ADR-0045 Phase C.4.a removed the SparkApplication CR
 	// path). Kept as a string so legacy wire payloads keep decoding.
-	ApplicationType     *string                          `json:"application_type,omitempty"`
-	PipelineRunnerImage string                          `json:"pipeline_runner_image,omitempty"`
-	Namespace           string                          `json:"namespace,omitempty"`
+	ApplicationType     *string                       `json:"application_type,omitempty"`
+	PipelineRunnerImage string                        `json:"pipeline_runner_image,omitempty"`
+	Namespace           string                        `json:"namespace,omitempty"`
 	Resources           dispatchpkg.ResourceOverrides `json:"resources,omitempty"`
+	// Plan — required since Phase C.4.b. The dispatcher rejects any
+	// PipelineRunInput whose Plan does not validate.
+	Plan pipelineplan.Plan `json:"plan"`
 }
 
 func SubmitSparkRun(w http.ResponseWriter, r *http.Request) {
@@ -805,7 +809,7 @@ func SubmitSparkRun(w http.ResponseWriter, r *http.Request) {
 	if namespace == "" {
 		namespace = "openfoundry"
 	}
-	input := dispatchpkg.PipelineRunInput{PipelineID: body.PipelineID, RunID: shortRunID, Namespace: namespace, PipelineRunnerImage: image, InputDatasetRID: body.InputDatasetRID, OutputDatasetRID: body.OutputDatasetRID, Resources: body.Resources}
+	input := dispatchpkg.PipelineRunInput{PipelineID: body.PipelineID, RunID: shortRunID, Namespace: namespace, PipelineRunnerImage: image, InputDatasetRID: body.InputDatasetRID, OutputDatasetRID: body.OutputDatasetRID, Resources: body.Resources, Plan: body.Plan}
 	name, err := client.SubmitPipelineRun(r.Context(), input)
 	if err != nil {
 		writeSparkError(w, err)

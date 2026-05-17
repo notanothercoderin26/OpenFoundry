@@ -16,12 +16,23 @@ import (
 	dispatchpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 )
 
+// minimalValidPlanJSON returns a trivial pipelineplan.Plan as JSON:
+// one read_table → write_table. Used by the HTTP submit tests that
+// need the body to pass dispatch.validateInput (which calls
+// pipelineplan.Plan.Validate). ADR-0045 Phase C.4.b — the Plan
+// field is now required on submitSparkRunRequest.
+func minimalValidPlanJSON() string {
+	return `"plan":{"pipeline_id":"p","run_id":"r","ops":[` +
+		`{"id":"src","kind":"read_table","read_table":{"catalog":"lakekeeper","namespace":"default","table":"in"}},` +
+		`{"id":"sink","kind":"write_table","inputs":["src"],"write_table":{"catalog":"lakekeeper","namespace":"default","table":"out","mode":"create_or_replace"}}` +
+		`]}`
+}
+
 func TestSubmitSparkRunOK(t *testing.T) {
-	t.Skip("ADR-0045 Phase C.4.a: SubmitSparkRun requires a pipelineplan.Plan now; Phase C.4.b re-targets these assertions once the composer ships.")
 	fake := &fakeSparkClient{submittedName: "pipeline-run-p-r"}
 	restore := SetSparkClient(fake)
 	defer restore()
-	body := []byte(`{"pipeline_id":"p","run_id":"r","input_dataset_rid":"in","output_dataset_rid":"out","pipeline_runner_image":"img"}`)
+	body := []byte(`{"pipeline_id":"p","run_id":"r","input_dataset_rid":"in","output_dataset_rid":"out","pipeline_runner_image":"img",` + minimalValidPlanJSON() + `}`)
 	rr := httptest.NewRecorder()
 	SubmitSparkRun(rr, httptest.NewRequest(http.MethodPost, "/api/v1/data-integration/spark-runs", bytes.NewReader(body)))
 
@@ -30,6 +41,7 @@ func TestSubmitSparkRunOK(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, res.StatusCode)
 	require.Equal(t, "p", fake.submitted.PipelineID)
 	require.Equal(t, "r", fake.submitted.RunID)
+	require.NotEmpty(t, fake.submitted.Plan.Ops, "Plan must be forwarded to the dispatcher")
 	var payload map[string]any
 	require.NoError(t, json.NewDecoder(res.Body).Decode(&payload))
 	require.Equal(t, "pipeline-run-p-r", payload["spark_app_name"])
@@ -116,7 +128,6 @@ func validateByRendering(input dispatchpkg.PipelineRunInput) error {
 }
 
 func TestPipelineBuildRunPersistsAndStatusRefreshes(t *testing.T) {
-	t.Skip("ADR-0045 Phase C.4.a: PipelineBuildRun submits Jobs that require a pipelineplan.Plan; Phase C.4.b re-targets this assertion once the composer ships.")
 	runID := "018f7a5c-0000-7000-8000-000000000001"
 	fakeClient := &fakeSparkClient{submittedName: "spark-app", status: &dispatchpkg.RunStatusReport{Status: dispatchpkg.RunRunning}}
 	repo := &fakeSparkSubmissionRepo{submissions: map[string]SparkSubmission{}}
@@ -125,7 +136,7 @@ func TestPipelineBuildRunPersistsAndStatusRefreshes(t *testing.T) {
 	restoreRepo := SetSparkSubmissionRepository(repo)
 	defer restoreRepo()
 
-	body := []byte(`{"pipeline_run_id":"` + runID + `","pipeline_id":"p","run_id":"r","input_dataset_rid":"in","output_dataset_rid":"out","pipeline_runner_image":"img"}`)
+	body := []byte(`{"pipeline_run_id":"` + runID + `","pipeline_id":"p","run_id":"r","input_dataset_rid":"in","output_dataset_rid":"out","pipeline_runner_image":"img",` + minimalValidPlanJSON() + `}`)
 	rr := httptest.NewRecorder()
 	SubmitPipelineBuildRun(rr, httptest.NewRequest(http.MethodPost, "/api/v1/pipeline/builds/run", bytes.NewReader(body)))
 	require.Equal(t, http.StatusAccepted, rr.Result().StatusCode)
