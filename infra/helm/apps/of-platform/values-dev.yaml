@@ -37,7 +37,7 @@ services:
       OF_UPSTREAM__AUTHORIZATION_POLICY_SERVICE_URL: http://authorization-policy-service.openfoundry.svc.cluster.local:8080
       OF_UPSTREAM__SECURITY_GOVERNANCE_SERVICE_URL: http://authorization-policy-service.openfoundry.svc.cluster.local:8080
       OF_UPSTREAM__CIPHER_SERVICE_URL: http://cipher-service.openfoundry.svc.cluster.local:8080
-      OF_UPSTREAM__NETWORK_BOUNDARY_SERVICE_URL: http://authorization-policy-service.openfoundry.svc.cluster.local:8080
+      OF_UPSTREAM__NETWORK_BOUNDARY_SERVICE_URL: http://network-boundary-service.openfoundry.svc.cluster.local:8080
       OF_UPSTREAM__TENANCY_ORGANIZATIONS_SERVICE_URL: http://tenancy-organizations-service.openfoundry.svc.cluster.local:8080
       OF_UPSTREAM__CONNECTOR_MANAGEMENT_SERVICE_URL: http://connector-management-service.openfoundry.svc.cluster.local:8080
       OF_UPSTREAM__INGESTION_REPLICATION_SERVICE_URL: http://ingestion-replication-service.openfoundry.svc.cluster.local:8080
@@ -97,10 +97,19 @@ services:
       maxReplicas: 2
       targetCPUUtilizationPercentage: 70
       targetMemoryUtilizationPercentage: 80
-  # S8 / ADR-0030 (B14): network-boundary-service merged →
-  # authorization-policy-service. Schemas reuse pg-policy.
-  # cipher-service was re-split as a standalone stub (501 envelope) so
-  # the gateway's /api/v1/auth/cipher route stops returning 502.
+  network-boundary-service:
+    replicas: 1
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 2
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+  # S8 / ADR-0030 (B14): cipher-service and network-boundary-service
+  # were re-split as standalone stub binaries (501 envelopes) so the
+  # gateway's /api/v1/auth/cipher, /api/v1/network-boundaries,
+  # /api/v1/network-boundary and /api/v1/data-connection/egress-policies
+  # routes stop returning 502.
   # S8 / ADR-0030 (B16): oauth-integration-service merged → identity-federation-service.
   # S8 / ADR-0030 (B14): security-governance-service merged →
   # authorization-policy-service. Schema reuses pg-policy.
