@@ -192,6 +192,48 @@ func (i *Issuer) encodeAccessForUser(user *models.User, authMethods []string, sc
 	return authmw.EncodeToken(i.JWT, c)
 }
 
+// IssueAccessTokenForAPIKey exchanges a usable developer API key for
+// a normal access JWT. Downstream services can keep requiring
+// token_use="access", while the api_key_id/auth_methods claims retain
+// the audit trail back to the revocable opaque key.
+func (i *Issuer) IssueAccessTokenForAPIKey(user *models.User, key *models.APIKey) (string, int64, error) {
+	now := time.Now().UTC()
+	exp := now.Add(i.AccessTTL)
+	if key.ExpiresAt != nil && key.ExpiresAt.Before(exp) {
+		exp = *key.ExpiresAt
+	}
+	if !exp.After(now) {
+		return "", 0, ErrRefreshTokenInvalid
+	}
+	apiKeyID := key.ID
+	tokenUse := "access"
+	c := &authmw.Claims{
+		Sub:         user.ID,
+		IAT:         now.Unix(),
+		EXP:         exp.Unix(),
+		ISS:         maybe(i.JWT.Issuer),
+		AUD:         maybe(i.JWT.Audience),
+		JTI:         uuid.New(),
+		Email:       user.Email,
+		Name:        user.Name,
+		Roles:       append([]string(nil), key.RolesSnapshot...),
+		Permissions: append([]string(nil), key.PermissionsSnapshot...),
+		OrgID:       user.OrganizationID,
+		Attributes:  user.Attributes,
+		AuthMethods: []string{"api_key"},
+		TokenUse:    &tokenUse,
+		APIKeyID:    &apiKeyID,
+	}
+	if c.Attributes == nil {
+		c.Attributes = json.RawMessage(`{}`)
+	}
+	encoded, err := authmw.EncodeToken(i.JWT, c)
+	if err != nil {
+		return "", 0, fmt.Errorf("encode api key access token: %w", err)
+	}
+	return encoded, int64(exp.Sub(now).Seconds()), nil
+}
+
 func marshalSessionScope(scope *authmw.SessionScope) (json.RawMessage, error) {
 	if scope == nil {
 		return nil, nil

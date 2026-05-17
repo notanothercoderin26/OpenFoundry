@@ -240,6 +240,7 @@ export interface ProjectReference {
 
 export interface OntologyProject {
   id: string;
+  rid?: string;
   slug: string;
   display_name: string;
   description: string;
@@ -249,6 +250,9 @@ export interface OntologyProject {
   point_of_contact_user_id?: string | null;
   point_of_contact_email?: string | null;
   references: ProjectReference[];
+  marking_rids?: string[];
+  propagate_view_requirements_enabled?: boolean;
+  propagate_view_requirements_disabled_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -373,6 +377,7 @@ export async function updateProject(
     point_of_contact_user_id: string | null;
     point_of_contact_email: string | null;
     references: ProjectReference[];
+    propagate_view_requirements_enabled: boolean;
   }>,
 ): Promise<OntologyProject> {
   return api.fetch<OntologyProject>(`/projects/${projectId}`, {

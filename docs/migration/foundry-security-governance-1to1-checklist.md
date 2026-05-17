@@ -585,17 +585,30 @@ OpenFoundry canonical IDs.
 
 ### OAuth, tokens, and third-party applications
 
-- [ ] `SG.30` Developer API token governance (`P1`, `todo`)
+- [x] `SG.30` Developer API token governance (`P1`, `done` 2026-05-17)
   - Allow users to create, view, and revoke temporary API tokens with explicit expiry and warnings against production use.
   - Ensure temporary tokens inherit the creating user's permissions and become unusable after expiry, revocation, or user inactivity/disablement.
   - Detect and warn on committed/shared-token patterns where local secret scanning exists.
   - Docs: [API authentication](https://www.palantir.com/docs/foundry/api/v2/general/overview/authentication/), [Manage users](https://www.palantir.com/docs/foundry/platform-security-management/manage-users).
+  - Implementation notes:
+    - [`api_keys`](../../services/identity-federation-service/internal/repo/migrations/0019_sg30_developer_api_tokens.sql) now stores visible prefixes, scope/permission/role snapshots, explicit expirations, status metadata, and the non-production warning while retaining only the SHA-256 token hash.
+    - `POST /api/v1/api-keys` requires `expires_at`, caps developer token TTL at 30 days, derives scopes from the caller's current role/permission snapshot, and returns the plaintext `ofapikey_...` secret exactly once.
+    - `POST /api/v1/auth/api-key/exchange` validates the opaque token against expiry, revocation, owner disablement/deletion, and the documented 30-day inactivity rule before issuing a short-lived access JWT carrying `auth_methods=["api_key"]` and `api_key_id`.
+    - `GET /api/v1/api-keys` and `DELETE /api/v1/api-keys/{id}` provide token metadata viewing and revocation; expired/revoked keys are unusable even when their hash remains for auditability.
+    - `POST /api/v1/api-keys/leak-scan` detects `ofapikey_...` patterns in pasted local diffs/config snippets, redacts matches, and escalates warnings when a match has the caller's known prefix. The Settings API key panel exposes expiry-required creation, warnings, revocation, and local exposure checks.
 
-- [ ] `SG.31` Third-party application registration (`P1`, `todo`)
+- [x] `SG.31` Third-party application registration (`P1`, `done` 2026-05-17)
   - Register OAuth2 third-party applications with owners, redirect URIs, client type, enabled grants, scopes, service user, credentials, and organization enablement.
   - Gate administration by third-party application administrator and OAuth client management permissions.
   - Support Developer Console-first management while providing Control Panel fallback where local product decisions allow it.
   - Docs: [Third-party applications overview](https://www.palantir.com/docs/foundry/platform-security-third-party/third-party-apps-overview/), [Writing OAuth2 clients for Foundry](https://www.palantir.com/docs/foundry/platform-security-third-party/writing-oauth2-clients).
+  - Implementation notes:
+    - [`third_party_applications`](../../services/identity-federation-service/internal/repo/migrations/0020_sg31_third_party_applications.sql) stores OAuth client registrations with client ID, client type, grants, redirect URIs, scopes, owner users, managing organization, discovery organizations, optional service user, secret prefix/hash metadata, and Developer Console-first management metadata.
+    - Confidential clients receive a one-time `of3pa_secret_...` client secret; only the SHA-256 hash and visible prefix are persisted. `POST /api/v1/third-party-applications/{id}/rotate-secret` rotates the secret and returns the new value once.
+    - `client_credentials` is rejected for public clients. Confidential clients that enable `client_credentials` get an OpenFoundry service user whose username matches the generated client ID, mirroring the documented service-user grant behavior.
+    - `PUT /api/v1/third-party-applications/{id}/organizations/{organization_id}/enablement` records per-organization enablement, project scope placeholders, marking restrictions, and organization-consent flags for the SG.32 authorization/consent flow.
+    - Administration routes are gated by `admin`, `third_party_application_admin` / `third_party_application_administrator`, or `oauth_clients:manage` / `third_party_applications:manage`; read-only listing also accepts `oauth_clients:read` / `third_party_applications:read`.
+    - [`ThirdPartyApplicationsPage.tsx`](../../apps/web/src/routes/control-panel/ThirdPartyApplicationsPage.tsx) adds the Control Panel fallback at `/control-panel/third-party-applications`, with registration, one-time secret display, rotation, revocation, and organization enablement controls.
 
 - [ ] `SG.32` Third-party application enablement and consent (`P1`, `todo`)
   - Require organization-specific application enablement before users can authorize an OAuth application.

@@ -55,6 +55,7 @@ const PRIMARY_NAV: NavItem[] = [
 ];
 
 const SECONDARY_NAV: NavItem[] = [
+  { to: '/favorites', label: 'Favorites', icon: 'star' },
   { to: '/recent', label: 'Recent', icon: 'history' },
   { to: '/projects', label: 'Files', icon: 'folder' },
 ];

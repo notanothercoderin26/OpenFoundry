@@ -152,6 +152,27 @@ and must not drift:
   edges; `GET|PUT /api/v1/workspace/resources/{kind}/{id}/references` exposes
   `depends_on` and `used_by`; the web resource details, move, and trash flows
   warn when upstream or downstream resources are present).
+- Compass stable resource URLs
+  (`apps/web/src/lib/compass/stableResourceUrls.ts` builds project/folder/app
+  links from immutable RIDs, strips optional human-readable `--slug` suffixes
+  before API calls, and keeps legacy UUID routes as compatibility aliases).
+- Compass favorites
+  (`user_favorites` and `user_favorite_groups` are the user-profile-backed
+  resource shortcut store; `/api/v1/workspace/favorites` lists/adds/removes
+  favorites and persists per-user group/order metadata consumed by `/favorites`
+  and Quicksearch jump-to mode).
+- Compass recents
+  (`resource_access_log` is the per-user last-opened event stream; `/api/v1/workspace/recents`
+  deduplicates by resource, caps responses at 50 by default, sorts by
+  `last_accessed_at DESC`, and filters every row through current project
+  visibility before Quicksearch or `/recent` can render it).
+- Compass propagate view requirements
+  (`tenancy-organizations-service` treats the planned-deprecated Palantir
+  setting as a legacy compatibility toggle. Project/folder rows store enabled
+  state and the non-reenableable `disabled_at` marker; child folders and
+  project resource bindings snapshot inherited view-requirement marking RIDs
+  only at create time, with later descendant jobs owned by the CMP.19
+  re-propagation path).
 - Dataset RID format `ri.foundry.main.dataset.<uuid-v7>`.
 - Transaction state / type tokens (`open|committed|aborted`,
   `snapshot|append|update|delete`).

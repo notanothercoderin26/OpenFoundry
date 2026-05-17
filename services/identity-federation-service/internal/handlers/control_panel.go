@@ -14,8 +14,9 @@ import (
 )
 
 type ControlPanel struct {
-	mu       sync.RWMutex
-	settings ControlPanelSettings
+	mu               sync.RWMutex
+	settings         ControlPanelSettings
+	streamingProfiles []StreamingProfile
 }
 
 type ControlPanelSettings struct {
@@ -806,6 +807,7 @@ func sameFileAccessPresetConfig(a, b FileAccessPresetConfig) bool {
 }
 
 func comparableFileAccessPresetConfig(cfg FileAccessPresetConfig) FileAccessPresetConfig {
+	cfg = cloneFileAccessPresetConfig(cfg)
 	cfg.History = nil
 	for i := range cfg.Presets {
 		cfg.Presets[i].CreatedBy = nil

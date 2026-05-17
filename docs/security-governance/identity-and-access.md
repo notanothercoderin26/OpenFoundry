@@ -358,6 +358,76 @@ authorization.
 > [Configure file access presets](https://www.palantir.com/docs/foundry/administration/configure-file-access-presets/) ·
 > [Markings](https://www.palantir.com/docs/foundry/security/markings/).
 
+## Developer API Token Governance (SG.30)
+
+Developer API tokens are temporary user-generated credentials for local
+development. They are not production application credentials: use OAuth
+clients or service users for production integrations.
+
+- `POST /api/v1/api-keys` creates an opaque `ofapikey_...` secret,
+  returns it once, and persists only its SHA-256 hash plus a visible
+  prefix.
+- Creation requires an explicit `expires_at` within 30 days. The token
+  stores role and permission snapshots from the creating user; requested
+  scopes must be a subset of those effective permissions unless the user
+  is an administrator.
+- `POST /api/v1/auth/api-key/exchange` turns a usable opaque key into a
+  short-lived access JWT with `auth_methods=["api_key"]` and
+  `api_key_id` for audit correlation. Exchange fails after expiry,
+  revocation, owner disablement/deletion, or 30 days without a
+  successful owner login.
+- `GET /api/v1/api-keys` lists metadata and status only. The plaintext
+  secret is never shown again after creation. `DELETE /api/v1/api-keys/{id}`
+  revokes a key without deleting its audit metadata.
+- `POST /api/v1/api-keys/leak-scan` checks local snippets or diffs for
+  `ofapikey_...` patterns, redacts matches, and escalates warnings when
+  the visible prefix matches one of the caller's known keys.
+- The Settings API key panel requires expiry at creation, shows the
+  non-production warning, exposes revoke controls, and includes the
+  local token exposure check.
+
+> Parity reference:
+> [API authentication](https://www.palantir.com/docs/foundry/api/v2/general/overview/authentication/) ·
+> [Manage users](https://www.palantir.com/docs/foundry/platform-security-management/manage-users).
+
+## Third-Party Application Registration (SG.31)
+
+Third-party application registration is the durable OAuth2 client
+registry for integrations that should use production OAuth flows rather
+than developer API tokens. Developer Console is the preferred
+management surface; Control Panel remains available as a fallback when
+Developer Console is not enabled locally.
+
+- `POST /api/v1/third-party-applications` registers an OAuth2 client
+  with owner users, managing organization, discovery organizations,
+  redirect URIs, requested scopes, client type, and enabled grant types.
+- Confidential clients receive a one-time `of3pa_secret_...` client
+  secret. OpenFoundry stores only the SHA-256 hash, visible prefix, and
+  credential timestamp. Secrets can be rotated through
+  `POST /api/v1/third-party-applications/{id}/rotate-secret`.
+- Public clients are limited to `authorization_code` and require PKCE in
+  the downstream authorization flow. `client_credentials` is accepted
+  only for confidential clients.
+- When a confidential client enables `client_credentials`, identity
+  creates a service user whose username is the generated client ID. The
+  service user starts with no resource access; administrators must grant
+  roles/permissions explicitly.
+- `PUT /api/v1/third-party-applications/{id}/organizations/{org}/enablement`
+  records organization-specific enablement, project-scope placeholders,
+  marking restrictions, and organization-consent flags. SG.32 consumes
+  this when implementing authorization-code consent and token issuance.
+- Administration is gated by the third-party application administrator
+  role or OAuth client management permissions (`oauth_clients:manage` /
+  `third_party_applications:manage`), with read-only listing allowed via
+  the matching read permissions.
+- The Control Panel fallback UI lives at
+  [`/control-panel/third-party-applications`](../../apps/web/src/routes/control-panel/ThirdPartyApplicationsPage.tsx).
+
+> Parity reference:
+> [Third-party applications overview](https://www.palantir.com/docs/foundry/platform-security-third-party/third-party-apps-overview/) ·
+> [Registering third-party applications](https://www.palantir.com/docs/foundry/platform-security-third-party/register-3pa/) ·
+> [Writing OAuth2 clients for Foundry](https://www.palantir.com/docs/foundry/platform-security-third-party/writing-oauth2-clients).
+
 ## Why this matters
 
 This gives OpenFoundry a strong foundation for identity-aware operational workflows, not only for simple API authentication.

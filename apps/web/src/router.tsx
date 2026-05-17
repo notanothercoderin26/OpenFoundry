@@ -55,6 +55,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/recent/RecentPage')).RecentPage }),
       },
       {
+        path: 'favorites',
+        lazy: async () => ({ Component: (await import('./routes/favorites/FavoritesPage')).FavoritesPage }),
+      },
+      {
         path: 'settings',
         lazy: async () => ({ Component: (await import('./routes/settings/SettingsPage')).SettingsPage }),
       },
@@ -313,6 +317,10 @@ export const router = createBrowserRouter([
       {
         path: 'control-panel/application-access',
         lazy: async () => ({ Component: (await import('./routes/control-panel/ApplicationAccessPage')).ApplicationAccessPage }),
+      },
+      {
+        path: 'control-panel/third-party-applications',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/ThirdPartyApplicationsPage')).ThirdPartyApplicationsPage }),
       },
       {
         path: 'control-panel/member-discovery',

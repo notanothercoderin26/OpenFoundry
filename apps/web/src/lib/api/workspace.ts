@@ -29,27 +29,75 @@ export interface UserFavorite {
   user_id: string;
   resource_kind: ResourceKind;
   resource_id: string;
+  group_id: string | null;
+  display_order: number;
   created_at: string;
+  updated_at: string;
+}
+
+export interface FavoriteGroup {
+  id: string;
+  user_id: string;
+  name: string;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListFavoritesEnvelope {
+  data: UserFavorite[];
+  groups: FavoriteGroup[];
 }
 
 export function listFavorites(params?: { kind?: ResourceKind; limit?: number }) {
+  return listFavoritesWithGroups(params).then((response) => response.data);
+}
+
+export function listFavoritesWithGroups(params?: { kind?: ResourceKind; limit?: number }) {
   const qs = new URLSearchParams();
   if (params?.kind) qs.set('kind', params.kind);
   if (params?.limit) qs.set('limit', String(params.limit));
   const query = qs.toString();
   return api
-    .get<{ data: UserFavorite[] }>(
+    .get<ListFavoritesEnvelope>(
       `/workspace/favorites${query ? `?${query}` : ''}`,
-    )
-    .then((response) => response.data);
+    );
 }
 
-export function createFavorite(body: { resource_kind: ResourceKind; resource_id: string }) {
+export function createFavorite(body: {
+  resource_kind: ResourceKind;
+  resource_id: string;
+  group_id?: string | null;
+  display_order?: number;
+}) {
   return api.post<UserFavorite>('/workspace/favorites', body);
 }
 
 export function deleteFavorite(kind: ResourceKind, id: string) {
   return api.delete(`/workspace/favorites/${kind}/${id}`);
+}
+
+export function listFavoriteGroups() {
+  return api
+    .get<{ data: FavoriteGroup[] }>('/workspace/favorites/groups')
+    .then((response) => response.data);
+}
+
+export function createFavoriteGroup(body: { name: string; display_order?: number }) {
+  return api.post<FavoriteGroup>('/workspace/favorites/groups', body);
+}
+
+export function updateFavoriteOrder(items: Array<{
+  resource_kind: ResourceKind;
+  resource_id: string;
+  group_id?: string | null;
+  display_order: number;
+}>) {
+  return api.put<void>('/workspace/favorites/order', { items });
+}
+
+export function updateFavoriteGroupsOrder(groups: Array<{ id: string; display_order: number }>) {
+  return api.put<void>('/workspace/favorites/groups/order', { groups });
 }
 
 // ---------------------------------------------------------------------------

@@ -98,6 +98,7 @@ func New(
 		api.Delete("/projects/{id}/memberships/{user_id}", ph.DeleteProjectMembership)
 		api.Get("/projects/{id}/folders", ph.ListProjectFolders)
 		api.Post("/projects/{id}/folders", ph.CreateProjectFolder)
+		api.Patch("/projects/{id}/folders/{folder_id}/propagate-view-requirements", ph.UpdateProjectFolderPropagation)
 		api.Get("/projects/{id}/resources", ph.ListProjectResources)
 		api.Post("/projects/{id}/resources", ph.BindProjectResource)
 		api.Delete("/projects/{id}/resources/{kind}/{resource_id}", ph.UnbindProjectResource)
@@ -143,6 +144,10 @@ func New(
 		api.Route("/workspace", func(wr chi.Router) {
 			wr.Get("/favorites", ws.ListFavorites)
 			wr.Post("/favorites", ws.CreateFavorite)
+			wr.Get("/favorites/groups", ws.ListFavoriteGroups)
+			wr.Post("/favorites/groups", ws.CreateFavoriteGroup)
+			wr.Put("/favorites/groups/order", ws.UpdateFavoriteGroupsOrder)
+			wr.Put("/favorites/order", ws.UpdateFavoriteOrder)
 			wr.Delete("/favorites/{kind}/{id}", ws.DeleteFavorite)
 			wr.Get("/recents", ws.ListRecents)
 			wr.Post("/recents", ws.RecordAccess)

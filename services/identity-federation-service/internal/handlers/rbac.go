@@ -6,8 +6,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -520,6 +524,10 @@ func (h *RBAC) RemoveGroupMember(w http.ResponseWriter, r *http.Request) {
 
 // ─── API keys ───────────────────────────────────────────────────────────
 
+const developerAPIKeyMaxTTL = 30 * 24 * time.Hour
+
+var apiKeyTokenPattern = regexp.MustCompile(`ofapikey_[A-Za-z0-9_-]{20,}`)
+
 func (h *RBAC) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	c := authCallerID(r)
 	keys, err := h.Repo.ListAPIKeys(r.Context(), c)
@@ -532,13 +540,34 @@ func (h *RBAC) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 
 func (h *RBAC) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	c := authCallerID(r)
+	if c == uuid.Nil {
+		writeJSONErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	var body models.CreateAPIKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+	body.Name = strings.TrimSpace(body.Name)
 	if body.Name == "" {
 		writeJSONErr(w, http.StatusBadRequest, "name required")
+		return
+	}
+	expiresAt, err := validateDeveloperAPIKeyExpiry(body.ExpiresAt, time.Now().UTC())
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	roles, permissions, err := h.Repo.ListUserSecuritySnapshot(r.Context(), c)
+	if err != nil {
+		slog.Error("api key security snapshot", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	scopes, err := deriveAPIKeyScopes(body.Scopes, roles, permissions)
+	if err != nil {
+		writeJSONErr(w, http.StatusForbidden, err.Error())
 		return
 	}
 	plaintext, err := newAPIKeyPlaintext()
@@ -548,12 +577,22 @@ func (h *RBAC) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hash := hashAPIKey(plaintext)
-	k, err := h.Repo.CreateAPIKey(r.Context(), c, body.Name, hash, body.ExpiresAt)
+	prefix := visibleAPIKeyPrefix(plaintext)
+	k, err := h.Repo.CreateAPIKey(r.Context(), c, body.Name, hash, prefix, scopes, scopes, roles, expiresAt)
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, models.CreateAPIKeyResponse{APIKey: *k, Token: plaintext})
+	writeJSON(w, http.StatusCreated, models.CreateAPIKeyResponse{
+		ID:        k.ID,
+		Name:      k.Name,
+		Prefix:    k.Prefix,
+		Token:     plaintext,
+		Scopes:    k.Scopes,
+		ExpiresAt: expiresAt,
+		CreatedAt: k.CreatedAt,
+		Warning:   k.Warning,
+	})
 }
 
 func (h *RBAC) RevokeAPIKey(w http.ResponseWriter, r *http.Request) {
@@ -567,6 +606,28 @@ func (h *RBAC) RevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *RBAC) ScanAPIKeyLeaks(w http.ResponseWriter, r *http.Request) {
+	c := authCallerID(r)
+	if c == uuid.Nil {
+		writeJSONErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var body models.APIKeyLeakScanRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	keys, err := h.Repo.ListAPIKeys(r.Context(), c)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, models.APIKeyLeakScanResponse{
+		Warnings: detectAPIKeyLeakWarnings(body.Content, body.Source, keys),
+		Patterns: []string{apiKeyTokenPattern.String()},
+	})
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────
@@ -600,4 +661,141 @@ func newAPIKeyPlaintext() (string, error) {
 func hashAPIKey(plaintext string) string {
 	sum := sha256.Sum256([]byte(plaintext))
 	return hex.EncodeToString(sum[:])
+}
+
+func visibleAPIKeyPrefix(plaintext string) string {
+	const max = len("ofapikey_") + 16
+	if len(plaintext) <= max {
+		return plaintext
+	}
+	return plaintext[:max]
+}
+
+func validateDeveloperAPIKeyExpiry(expiresAt *time.Time, now time.Time) (time.Time, error) {
+	if expiresAt == nil {
+		return time.Time{}, fmt.Errorf("expires_at is required for temporary developer API tokens")
+	}
+	exp := expiresAt.UTC()
+	if !exp.After(now) {
+		return time.Time{}, fmt.Errorf("expires_at must be in the future")
+	}
+	if exp.After(now.Add(developerAPIKeyMaxTTL)) {
+		return time.Time{}, fmt.Errorf("expires_at must be within 30 days")
+	}
+	return exp, nil
+}
+
+func deriveAPIKeyScopes(requested, roles, permissions []string) ([]string, error) {
+	requested = normalizeAPIKeyStringSet(requested)
+	roles = normalizeAPIKeyStringSet(roles)
+	permissions = normalizeAPIKeyStringSet(permissions)
+	if len(requested) == 0 {
+		if containsString(roles, "admin") {
+			return []string{"*:*"}, nil
+		}
+		return permissions, nil
+	}
+	if containsString(roles, "admin") || containsString(permissions, "*:*") {
+		return requested, nil
+	}
+	missing := make([]string, 0)
+	for _, scope := range requested {
+		if !scopeAllowedByPermissions(scope, permissions) {
+			missing = append(missing, scope)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("requested scopes exceed caller permissions: %s", strings.Join(missing, ", "))
+	}
+	return requested, nil
+}
+
+func scopeAllowedByPermissions(scope string, permissions []string) bool {
+	if containsString(permissions, scope) || containsString(permissions, "*:*") {
+		return true
+	}
+	if i := strings.Index(scope, ":"); i > 0 {
+		return containsString(permissions, scope[:i]+":*")
+	}
+	return false
+}
+
+func normalizeAPIKeyStringSet(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func detectAPIKeyLeakWarnings(content, source string, keys []models.APIKey) []models.APIKeyLeakWarning {
+	matches := apiKeyTokenPattern.FindAllString(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	known := make(map[string]models.APIKey, len(keys))
+	for _, key := range keys {
+		if key.Prefix != "" {
+			known[key.Prefix] = key
+		}
+	}
+	seen := make(map[string]struct{}, len(matches))
+	warnings := make([]models.APIKeyLeakWarning, 0, len(matches))
+	for _, match := range matches {
+		if _, ok := seen[match]; ok {
+			continue
+		}
+		seen[match] = struct{}{}
+		prefix := visibleAPIKeyPrefix(match)
+		warning := models.APIKeyLeakWarning{
+			Source:   strings.TrimSpace(source),
+			Prefix:   prefix,
+			Redacted: redactAPIKey(match),
+			Severity: "high",
+			Message:  "Possible committed or shared developer API token. Revoke the token and rotate any derived access credentials.",
+		}
+		if key, ok := known[prefix]; ok {
+			id := key.ID
+			warning.APIKeyID = &id
+			warning.Severity = "critical"
+			warning.Message = "This content appears to include one of your developer API tokens. Revoke it immediately and remove it from shared history."
+		}
+		warnings = append(warnings, warning)
+	}
+	return warnings
+}
+
+func redactAPIKey(token string) string {
+	if len(token) <= len("ofapikey_")+8 {
+		return token
+	}
+	return token[:len("ofapikey_")+4] + "..." + token[len(token)-4:]
+}
+
+func bearerTokenFromRequest(r *http.Request) string {
+	header := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(header, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(header[len(prefix):])
 }

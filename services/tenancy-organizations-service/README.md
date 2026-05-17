@@ -1,7 +1,7 @@
 # tenancy-organizations-service
 
 Owns organizations, workspace enrollments, Compass project/folder resources,
-sharing, trash, favorites, reverse references, and the resource-resolve /
+sharing, trash, favorites, recents, reverse references, and the resource-resolve /
 resource-ops helpers.
 
 ## Service surface
@@ -17,9 +17,12 @@ Endpoints (all under `/api/v1`, JWT-protected):
 - `POST   /enrollments`              — create
 - `DELETE /enrollments/{id}`         — delete
 - `GET|POST /projects/{id-or-rid}/folders` — list/create nested folder resources
+- `PATCH /projects/{id-or-rid}/folders/{folder_id-or-rid}/propagate-view-requirements` — manage the legacy folder-level view-requirement propagation toggle
 - `POST /workspace/resources/{kind}/{id}/move|rename` — RID-preserving resource operations
 - `GET|PUT /workspace/resources/{kind}/{id}/references` — Compass reverse-reference graph (`depends_on` / `used_by`)
 - `GET /workspace/trash`, `POST /workspace/resources/{kind}/{id}/restore`, `DELETE /workspace/resources/{kind}/{id}/purge` — Compass Trash list, restore, and permanent-delete surface
+- `GET|POST /workspace/favorites`, `PUT /workspace/favorites/order`, `GET|POST /workspace/favorites/groups`, `PUT /workspace/favorites/groups/order` — synced per-user Compass favorites, groups, and display order
+- `GET|POST /workspace/recents` — per-user Compass recent resources, capped and permission-filtered at read time
 - `GET    /compass/search`           — permission-aware Compass resource search over project/folder index entries
 
 Plus the standard `/healthz` + `/metrics` foundation surface.
@@ -46,6 +49,21 @@ owning `project_rid`, `parent_folder_rid`, `space_rid`, trash status, and
 policy-inheritance flags. Create requests accept legacy `parent_folder_id`
 or canonical `parent_folder_rid`; folder access inherits project policies and
 uses folder-scope resource grants for explicit overrides.
+
+## Propagate view requirements contract
+
+`propagate_view_requirements_enabled` is kept only as a legacy compatibility
+setting because Palantir documents the feature as planned-deprecated and
+recommends migration to Markings. Project and folder rows default the toggle
+off, store `propagate_view_requirements_disabled_at` when the setting is
+turned off, and reject future re-enable attempts after that timestamp exists.
+
+When enabled, the setting copies a snapshot of inherited
+`view_requirement_marking_rids` onto newly created child folders and project
+resource bindings. It does not backfill existing descendants; that background
+audit/re-propagation flow belongs to CMP.19. The Control Panel project editor
+shows the migration note so operators know to secure sensitive data with
+Markings before disabling the legacy setting.
 
 ## Move / rename contract
 
@@ -76,6 +94,33 @@ The web Quicksearch shell consumes this endpoint alongside ontology search:
 resource rows surface the immutable RID, type, owning project, marking badges,
 and `open_url`, while the frontend resource type registry controls display
 labels, icons, and "Open with" targets.
+
+`open_url` is a stable RID-based deep link, not a path slug. Project entries use
+`/projects/{projectRid}`, folder entries use
+`/projects/{projectRid}/folders/{folderRid}`, and optional UI slugs are added
+only by the web router. Migration `0017_cmp15_stable_resource_urls.sql`
+rewrites existing project/folder search-index rows to this contract.
+
+## Favorites profile contract
+
+`user_favorites` stores each caller's profile-backed Compass resource
+shortcuts by `(user_id, resource_kind, resource_id)`. Migration
+`0018_cmp16_favorites_profile.sql` adds `group_id`, `display_order`, and
+`updated_at`, plus `user_favorite_groups` for named per-user groups. The list
+response keeps the existing `{data:[...]}` envelope and adds `groups`, so older
+clients still read favorites while newer clients can render grouped, reordered
+shortcuts across devices.
+
+## Recents profile contract
+
+`resource_access_log` stores best-effort per-user resource opens written by
+`POST /api/v1/workspace/recents`. `GET /api/v1/workspace/recents` deduplicates
+the log by `(resource_kind, resource_id)`, returns at most `limit` rows
+(`50` by default, capped at `500`), orders by `last_accessed_at DESC`, and
+filters every candidate through the caller's current accessible projects.
+Projects, folders, resource bindings, project-bound external resources, and
+Compass search-indexed resources all disappear from recents when their project
+access is revoked or the resource is trashed.
 
 ## Reference graph contract
 

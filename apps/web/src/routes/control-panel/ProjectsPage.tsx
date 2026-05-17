@@ -158,6 +158,9 @@ function ProjectDetail({
   const [pocUserID, setPocUserID] = useState(project.point_of_contact_user_id ?? '');
   const [pocEmail, setPocEmail] = useState(project.point_of_contact_email ?? '');
   const [refsJson, setRefsJson] = useState(JSON.stringify(project.references ?? [], null, 2));
+  const [propagateViewRequirements, setPropagateViewRequirements] = useState(
+    Boolean(project.propagate_view_requirements_enabled),
+  );
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -165,6 +168,7 @@ function ProjectDetail({
     setPocUserID(project.point_of_contact_user_id ?? '');
     setPocEmail(project.point_of_contact_email ?? '');
     setRefsJson(JSON.stringify(project.references ?? [], null, 2));
+    setPropagateViewRequirements(Boolean(project.propagate_view_requirements_enabled));
   }, [project]);
 
   async function save() {
@@ -183,6 +187,7 @@ function ProjectDetail({
         point_of_contact_user_id: pocUserID.trim() || null,
         point_of_contact_email: pocEmail.trim() || null,
         references: parsedRefs,
+        propagate_view_requirements_enabled: propagateViewRequirements,
       });
       onUpdated(updated);
     } catch (cause) {
@@ -200,6 +205,7 @@ function ProjectDetail({
           <p className="of-text-muted" style={{ fontSize: 12 }}>
             ID <code>{project.id}</code> · slug <code>{project.slug}</code> · owner{' '}
             <code>{project.owner_id}</code>
+            {project.rid && <> · RID <code>{project.rid}</code></>}
           </p>
         </header>
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
@@ -236,6 +242,46 @@ function ProjectDetail({
             />
           </label>
         </div>
+        <section
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: 12,
+            display: 'grid',
+            gap: 8,
+            background: 'var(--bg-subtle)',
+          }}
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={propagateViewRequirements}
+              disabled={
+                Boolean(project.propagate_view_requirements_disabled_at) &&
+                !project.propagate_view_requirements_enabled
+              }
+              onChange={(event) => setPropagateViewRequirements(event.target.checked)}
+            />
+            Propagate view requirements
+          </label>
+          <p className="of-text-muted" style={{ margin: 0, fontSize: 12, lineHeight: 1.45 }}>
+            Legacy compatibility setting. New child folders and project resource
+            bindings copy the project/folder view requirement markings at create
+            time; existing descendants are left for the migration job. Migrate
+            sensitive data to Markings before disabling this setting.
+          </p>
+          {project.propagate_view_requirements_disabled_at ? (
+            <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+              Disabled at <code>{project.propagate_view_requirements_disabled_at}</code>.
+              Once disabled, it cannot be re-enabled.
+            </p>
+          ) : (
+            <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+              New projects should leave this off unless migrating an existing
+              Foundry project that still depends on propagated view requirements.
+            </p>
+          )}
+        </section>
         <label style={{ fontSize: 12 }}>
           References (JSON array of {`{kind, id, label?}`})
           <textarea

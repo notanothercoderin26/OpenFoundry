@@ -180,6 +180,7 @@ export function ControlPanelPage() {
         <Link to="/control-panel/marking-categories" className="of-button">Marking categories →</Link>
         <Link to="/control-panel/scoped-sessions" className="of-button">Scoped sessions →</Link>
         <Link to="/control-panel/application-access" className="of-button">Application access →</Link>
+        <Link to="/control-panel/third-party-applications" className="of-button">Third-party applications →</Link>
         <Link to="/control-panel/member-discovery" className="of-button">User &amp; group visibility →</Link>
         <Link to="/control-panel/file-access-presets" className="of-button">File access presets →</Link>
       </div>

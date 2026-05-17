@@ -87,17 +87,15 @@ func writeRepoError(w http.ResponseWriter, err error) {
 	}
 }
 
-// tenantID resolves the caller's tenant from the JWT claims. Empty when
-// the caller is anonymous; function-mode handlers reject those with 401.
+// tenantID resolves the caller's tenant (claims.OrgID) from the JWT.
+// Function-mode invocations require a tenant claim; anonymous and
+// pre-onboarding callers are rejected by the handler.
 func tenantID(r *http.Request) (uuid.UUID, bool) {
 	c, ok := authmw.FromContext(r.Context())
-	if !ok {
+	if !ok || c.OrgID == nil || *c.OrgID == uuid.Nil {
 		return uuid.UUID{}, false
 	}
-	if c.TenantID == uuid.Nil {
-		return uuid.UUID{}, false
-	}
-	return c.TenantID, true
+	return *c.OrgID, true
 }
 
 // callerID returns the authenticated caller's UUID, or false when the

@@ -425,3 +425,151 @@ export function evaluateApplicationAccess(body: ApplicationAccessEvaluateRequest
 export function listVisibleFileAccessPresets(body: FileAccessPresetVisibilityRequest = {}) {
 	return api.post<FileAccessPresetVisibilityResponse>('/file-access-presets/visible', body);
 }
+
+// ── Streaming profiles ──────────────────────────────────────────────
+// Parked under control-panel per ADR-0046. Mirrors the Go wire shape
+// in services/identity-federation-service/internal/handlers/streaming_profiles.go.
+
+export type StreamingProfileStatus = 'active' | 'paused' | 'error' | 'draft';
+
+export type StreamingProfileConnectorType =
+	| 'streaming_kafka'
+	| 'streaming_kinesis'
+	| 'streaming_sqs'
+	| 'streaming_pubsub'
+	| 'streaming_aveva_pi'
+	| 'streaming_external';
+
+export type StreamingProfileWatermarkPolicy =
+	| 'none'
+	| 'bounded_out_of_orderness'
+	| 'monotonic_event_time'
+	| 'ingestion_time';
+
+export interface StreamingProfile {
+	id: string;
+	name: string;
+	description?: string;
+	connector_type: StreamingProfileConnectorType;
+	status: StreamingProfileStatus;
+	parallelism: number;
+	watermark_policy: StreamingProfileWatermarkPolicy;
+	checkpoint_interval_ms: number;
+	source_config: Record<string, unknown>;
+	destination_dataset_id?: string;
+	last_event_at?: string;
+	throughput_eps?: number;
+	created_by?: string;
+	created_at?: string;
+	updated_by?: string;
+	updated_at?: string;
+}
+
+export interface ListStreamingProfilesResponse {
+	items: StreamingProfile[];
+	total: number;
+}
+
+export interface ListStreamingProfilesFilter {
+	status?: StreamingProfileStatus;
+	connector_type?: StreamingProfileConnectorType;
+}
+
+export interface CreateStreamingProfileRequest {
+	id?: string;
+	name: string;
+	description?: string;
+	connector_type: StreamingProfileConnectorType;
+	status?: StreamingProfileStatus;
+	parallelism?: number;
+	watermark_policy?: StreamingProfileWatermarkPolicy;
+	checkpoint_interval_ms?: number;
+	source_config?: Record<string, unknown>;
+	destination_dataset_id?: string;
+}
+
+export type UpdateStreamingProfileRequest = Partial<{
+	name: string;
+	description: string;
+	connector_type: StreamingProfileConnectorType;
+	parallelism: number;
+	watermark_policy: StreamingProfileWatermarkPolicy;
+	checkpoint_interval_ms: number;
+	source_config: Record<string, unknown>;
+	destination_dataset_id: string;
+}>;
+
+export const STREAMING_PROFILE_CONNECTOR_TYPES: ReadonlyArray<{
+	value: StreamingProfileConnectorType;
+	label: string;
+}> = [
+	{ value: 'streaming_kafka', label: 'Apache Kafka' },
+	{ value: 'streaming_kinesis', label: 'Amazon Kinesis' },
+	{ value: 'streaming_sqs', label: 'Amazon SQS' },
+	{ value: 'streaming_pubsub', label: 'Google Cloud Pub/Sub' },
+	{ value: 'streaming_aveva_pi', label: 'Aveva PI' },
+	{ value: 'streaming_external', label: 'External (Magritte)' },
+];
+
+export const STREAMING_PROFILE_WATERMARK_POLICIES: ReadonlyArray<{
+	value: StreamingProfileWatermarkPolicy;
+	label: string;
+}> = [
+	{ value: 'none', label: 'None' },
+	{ value: 'bounded_out_of_orderness', label: 'Bounded out-of-orderness' },
+	{ value: 'monotonic_event_time', label: 'Monotonic event time' },
+	{ value: 'ingestion_time', label: 'Ingestion time' },
+];
+
+export const STREAMING_PROFILE_STATUSES: ReadonlyArray<{
+	value: StreamingProfileStatus;
+	label: string;
+}> = [
+	{ value: 'active', label: 'Active' },
+	{ value: 'paused', label: 'Paused' },
+	{ value: 'error', label: 'Error' },
+	{ value: 'draft', label: 'Draft' },
+];
+
+export function listStreamingProfiles(filter: ListStreamingProfilesFilter = {}) {
+	const params = new URLSearchParams();
+	if (filter.status) params.set('status', filter.status);
+	if (filter.connector_type) params.set('connector_type', filter.connector_type);
+	const query = params.toString();
+	return api.get<ListStreamingProfilesResponse>(
+		`/control-panel/streaming-profiles${query ? `?${query}` : ''}`,
+	);
+}
+
+export function getStreamingProfile(id: string) {
+	return api.get<StreamingProfile>(`/control-panel/streaming-profiles/${encodeURIComponent(id)}`);
+}
+
+export function createStreamingProfile(body: CreateStreamingProfileRequest) {
+	return api.post<StreamingProfile>('/control-panel/streaming-profiles', body);
+}
+
+export function updateStreamingProfile(id: string, body: UpdateStreamingProfileRequest) {
+	return api.patch<StreamingProfile>(
+		`/control-panel/streaming-profiles/${encodeURIComponent(id)}`,
+		body,
+	);
+}
+
+export function deleteStreamingProfile(id: string) {
+	return api.delete<void>(`/control-panel/streaming-profiles/${encodeURIComponent(id)}`);
+}
+
+export function pauseStreamingProfile(id: string) {
+	return api.post<StreamingProfile>(
+		`/control-panel/streaming-profiles/${encodeURIComponent(id)}:pause`,
+		{},
+	);
+}
+
+export function resumeStreamingProfile(id: string) {
+	return api.post<StreamingProfile>(
+		`/control-panel/streaming-profiles/${encodeURIComponent(id)}:resume`,
+		{},
+	);
+}
