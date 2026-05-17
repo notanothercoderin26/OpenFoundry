@@ -48,15 +48,20 @@ func TestDeploymentRoutesMounted(t *testing.T) {
 	srv := httptest.NewServer(BuildRouter(cfg, observability.NewMetrics()))
 	t.Cleanup(srv.Close)
 
-	for _, path := range []string{
-		"/api/v1/deployments",
-		"/api/v1/model-deployment/deployments",
-	} {
-		resp, err := http.Get(srv.URL + path)
-		require.NoError(t, err)
-		defer resp.Body.Close()
-		assert.Equal(t, http.StatusOK, resp.StatusCode, "path %s should be mounted", path)
-	}
+	// Legacy ml-kernel surface is unauthenticated and lives under the
+	// namespaced prefix.
+	resp, err := http.Get(srv.URL + "/api/v1/model-deployment/deployments")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "legacy ml-kernel path should be mounted")
+
+	// New lifecycle CRUD is mounted and protected by auth: an
+	// unauthenticated GET must hit the middleware (401) rather than
+	// produce a 404.
+	resp2, err := http.Get(srv.URL + "/api/v1/deployments")
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode, "lifecycle path should require auth")
 }
 
 func TestModelDeploymentServiceCreateAndGetDeployment(t *testing.T) {

@@ -16,13 +16,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/domain/serving"
 	mlhandlers "github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/handlers"
 	mlmodels "github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/model-deployment-service/internal/config"
+	lifecyclehandlers "github.com/openfoundry/openfoundry-go/services/model-deployment-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/model-deployment-service/internal/repo"
 )
 
 var (
@@ -68,6 +71,10 @@ func buildRouterE(cfg *config.Config, m *observability.Metrics, probes ...capabi
 	if err != nil {
 		return nil, err
 	}
+	lifecycleRepo, err := defaultLifecycleRepository(cfg, deploymentHandler.Pool)
+	if err != nil {
+		return nil, err
+	}
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(15 * time.Second))
@@ -86,8 +93,25 @@ func buildRouterE(cfg *config.Config, m *observability.Metrics, probes ...capabi
 		caps.RegisterDependency(p)
 	}
 	caps.Mount(r)
-	mountDeploymentRoutes(r, "/api/v1/deployments", deploymentHandler)
+
+	// Lifecycle CRUD (POST/GET/PATCH/DELETE /api/v1/deployments) — auth
+	// required, owner-scoped mutations enforced inside the handler.
+	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
+	lifecycle := lifecyclehandlers.New(lifecycleRepo)
+	r.Route("/api/v1/deployments", func(api chi.Router) {
+		api.Use(authmw.Middleware(jwt))
+		api.Post("/", lifecycle.Create)
+		api.Get("/", lifecycle.List)
+		api.Get("/{id}", lifecycle.Get)
+		api.Patch("/{id}/status", lifecycle.UpdateStatus)
+		api.Delete("/{id}", lifecycle.Delete)
+	})
+
+	// Legacy ml-kernel-go surface remains under the namespaced prefix
+	// so the richer ModelDeployment shape (traffic split, drift reports)
+	// stays available without colliding with the lifecycle CRUD.
 	mountDeploymentRoutes(r, "/api/v1/model-deployment/deployments", deploymentHandler)
+
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "model-deployment",
 		AuthPaths: []string{"/api/v1"},
@@ -96,6 +120,25 @@ func buildRouterE(cfg *config.Config, m *observability.Metrics, probes ...capabi
 		panic("model-deployment-service: capability ingest failed: " + err.Error())
 	}
 	return r, nil
+}
+
+// defaultLifecycleRepository wires the lifecycle CRUD repo. When a
+// Postgres pool is already configured (DATABASE_URL set) the
+// pgx-backed implementation runs its migrations and returns. In the
+// fake-runtime test mode (OF_MODEL_DEPLOYMENT_RUNTIME=fake without
+// DATABASE_URL) we fall back to the in-memory repo so the service can
+// boot without a database.
+func defaultLifecycleRepository(cfg *config.Config, pool *pgxpool.Pool) (repo.DeploymentRepository, error) {
+	if pool != nil {
+		if err := repo.Migrate(context.Background(), pool); err != nil {
+			return nil, fmt.Errorf("apply lifecycle migrations: %w", err)
+		}
+		return &repo.PGDeploymentRepository{Pool: pool}, nil
+	}
+	if explicitFakeRuntime(cfg) {
+		return repo.NewMemoryDeploymentRepository(nil), nil
+	}
+	return nil, errors.New("DATABASE_URL is required for lifecycle deployments repository")
 }
 
 func defaultDeploymentHandler(cfg *config.Config) (*mlhandlers.DeploymentsHandlers, error) {
