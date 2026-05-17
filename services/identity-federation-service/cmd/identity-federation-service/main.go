@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
@@ -88,11 +89,16 @@ func main() {
 		log.Error("oidc config failed", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
-	oidcSvc, err := oidcpkg.NewService(ctx, oidcConfigs)
+	metrics := observability.NewMetrics()
+	oidcInitFailures := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "identity_oidc_init_failures_total",
+		Help: "OIDC provider initialisation failures encountered during service boot. Non-zero means /readyz reports oidc:degraded and SSO endpoints will return unknown_provider until restart.",
+	})
+	metrics.Register(oidcInitFailures)
+	oidcSvc, oidcDegraded, err := initOIDC(ctx, oidcConfigs, oidcInitFailures, log)
 	if err != nil {
-		log.Warn("oidc init failed — SSO endpoints will return 'unknown provider'",
-			slog.String("error", err.Error()))
-		oidcSvc, _ = oidcpkg.NewService(ctx, nil)
+		log.Error("oidc fallback init failed", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 
 	auth := &handlers.Auth{Repo: r, Issuer: issuer, WebAuthn: waService}
@@ -101,7 +107,6 @@ func main() {
 	sso := &handlers.SSO{Repo: r, OIDC: oidcSvc, Issuer: issuer}
 	ssoAdmin := handlers.NewSsoAdmin(r, nil)
 	rbac := &handlers.RBAC{Repo: r}
-	metrics := observability.NewMetrics()
 
 	// Signing-key rotation (S3.1.c). Manager is wired only when
 	// JWT_SIGNING_SEALING_KEY is set — without it the RS256 path
@@ -120,9 +125,36 @@ func main() {
 			slog.String("reason", sealErr.Error()))
 	}
 
-	srv := server.New(cfg, jwt, auth, mfa, wa, sso, ssoAdmin, rbac, jwksHandler, metrics, probes.Postgres("primary", pool))
+	srv := server.New(cfg, jwt, auth, mfa, wa, sso, ssoAdmin, rbac, jwksHandler, metrics, &server.Readiness{OIDCDegraded: oidcDegraded}, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+}
+
+// initOIDC builds the OIDC service from `configs`. On discovery failure
+// (network unreachable, JWKS missing, …) it logs a warning, increments
+// `failures`, and falls back to an empty Service so the rest of the
+// auth surface stays available; the returned degraded bool feeds
+// /readyz so an operator can spot the masked failure.
+//
+// The only error path returned to the caller is when the fallback
+// itself fails — currently unreachable since oidc.NewService with nil
+// configs cannot fail, but kept as a real error so future changes to
+// NewService surface here instead of silently corrupting boot.
+func initOIDC(ctx context.Context, configs []oidcpkg.ProviderConfig, failures prometheus.Counter, log *slog.Logger) (*oidcpkg.Service, bool, error) {
+	svc, err := oidcpkg.NewService(ctx, configs)
+	if err == nil {
+		return svc, false, nil
+	}
+	log.Warn("oidc init failed; sso endpoints will return unknown_provider",
+		slog.String("error", err.Error()))
+	if failures != nil {
+		failures.Inc()
+	}
+	fallback, fbErr := oidcpkg.NewService(ctx, nil)
+	if fbErr != nil {
+		return nil, true, fbErr
+	}
+	return fallback, true, nil
 }

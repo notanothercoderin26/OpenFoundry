@@ -22,11 +22,24 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/signingkeys"
 )
 
+// Readiness aggregates boot-time degraded states the operator should
+// see on /readyz. Fields are read-only after server construction —
+// they reflect decisions taken during main()'s boot sequence (e.g.
+// OIDC discovery failed but we kept the process up so the rest of the
+// auth surface stays available).
+type Readiness struct {
+	// OIDCDegraded is true when oidc.NewService returned an error at
+	// boot and we fell back to an empty provider set. SSO endpoints
+	// will respond with `unknown_provider` until restart.
+	OIDCDegraded bool
+}
+
 // New builds the http.Server with slice-1 routes.
 //
 // Slice 1 mounts:
 //
 //	GET    /healthz
+//	GET    /readyz
 //	GET    /metrics
 //	GET    /api/v1/auth/bootstrap-status
 //	POST   /api/v1/auth/register
@@ -36,7 +49,7 @@ import (
 // Subsequent slices add: /auth/sessions/*, /auth/sso/*, /users/*,
 // /roles/*, /groups/*, /permissions/*, /policies/*, /control-panel/*,
 // /scim/v2/*, /jwks/rotate, /audit/metrics.
-func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *handlers.MFA, wa *handlers.WebAuthn, sso *handlers.SSO, ssoAdmin *handlers.SsoAdmin, rbac *handlers.RBAC, jwks *signingkeys.Handler, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *handlers.MFA, wa *handlers.WebAuthn, sso *handlers.SSO, ssoAdmin *handlers.SsoAdmin, rbac *handlers.RBAC, jwks *signingkeys.Handler, m *observability.Metrics, ready *Readiness, probes ...capabilities.DependencyProbe) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -44,6 +57,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
+	})
+	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		payload := map[string]string{"status": "ready", "oidc": "ok"}
+		if ready != nil && ready.OIDCDegraded {
+			payload["oidc"] = "degraded"
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(payload)
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
 
