@@ -4067,6 +4067,153 @@ func (r *Repo) CompareBranches(ctx context.Context, datasetID uuid.UUID, base st
 	return &models.BranchCompareResponse{BaseBranch: baseBranch.Name, CompareBranch: compareBranch.Name, LCABranchRID: lca, AOnlyTransactions: aOnly, BOnlyTransactions: bOnly, ConflictingFiles: conflicts}, nil
 }
 
+// MergeRuntimeBranch performs a fast-forward merge of `source` into
+// `target`. v1 deliberately rejects anything more complex than the FF
+// case so we never invent merge commits without a transactional model
+// for them.
+//
+// FF is allowed when:
+//   - source has committed transactions to project (source.head != nil);
+//   - target has not moved past the fork point (target.head ==
+//     source.created_from), i.e. every commit reachable from source is
+//     "ahead" of target;
+//   - source descends from target through the parent_branch chain (so a
+//     FF makes ancestral sense — we don't allow merging unrelated
+//     branches without a 3-way merge).
+//
+// When target.head == source.head we return AlreadyMerged=true and
+// leave HEAD unchanged. Any other configuration returns
+// ErrPreconditionFailed (mapped to 412 by writeBranchError) so callers
+// know to rebase or pick a 3-way merge tool that doesn't exist yet.
+func (r *Repo) MergeRuntimeBranch(ctx context.Context, datasetID uuid.UUID, target string, source string, actor uuid.UUID) (*models.MergeBranchResult, error) {
+	if strings.TrimSpace(target) == strings.TrimSpace(source) {
+		return nil, fmt.Errorf("%w: source and target branches must differ", ErrValidation)
+	}
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	targetRow := tx.QueryRow(ctx, `SELECT id, rid, dataset_id, dataset_rid, name, parent_branch_id, head_transaction_id,
+		created_from_transaction_id, last_activity_at, labels, fallback_chain, created_at, updated_at
+		FROM dataset_branches WHERE dataset_id = $1 AND name = $2 AND deleted_at IS NULL AND archived_at IS NULL FOR UPDATE`, datasetID, target)
+	targetBranch, err := scanRuntimeBranch(targetRow)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	sourceRow := tx.QueryRow(ctx, `SELECT id, rid, dataset_id, dataset_rid, name, parent_branch_id, head_transaction_id,
+		created_from_transaction_id, last_activity_at, labels, fallback_chain, created_at, updated_at
+		FROM dataset_branches WHERE dataset_id = $1 AND name = $2 AND deleted_at IS NULL AND archived_at IS NULL FOR UPDATE`, datasetID, source)
+	sourceBranch, err := scanRuntimeBranch(sourceRow)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	previousRID := transactionRIDOpt(targetBranch.HeadTransactionID)
+
+	// Idempotent no-op: target already at source.head.
+	if sourceBranch.HeadTransactionID != nil && targetBranch.HeadTransactionID != nil &&
+		*sourceBranch.HeadTransactionID == *targetBranch.HeadTransactionID {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		committed = true
+		return &models.MergeBranchResult{
+			Branch:                     *targetBranch,
+			PreviousHeadTransactionRID: previousRID,
+			NewHeadTransactionRID:      previousRID,
+			FastForwarded:              false,
+			AlreadyMerged:              true,
+		}, nil
+	}
+
+	if sourceBranch.HeadTransactionID == nil {
+		return nil, fmt.Errorf("%w: source branch %q has no committed transactions to merge", ErrPreconditionFailed, source)
+	}
+
+	// FF precondition: target must be at source's fork point. Both nil
+	// is fine — root case where target never received a commit and
+	// source forked at empty head.
+	if !transactionPointersEqual(targetBranch.HeadTransactionID, sourceBranch.CreatedFromTransactionID) {
+		return nil, fmt.Errorf("%w: fast-forward not possible — target %q has moved past source %q's fork point", ErrPreconditionFailed, target, source)
+	}
+
+	// Lineage precondition: source must descend from target via
+	// parent_branch_id. Walked in SQL so we don't ship N+1 round trips.
+	var lineageOK bool
+	if err := tx.QueryRow(ctx, `WITH RECURSIVE chain AS (
+		SELECT id, parent_branch_id FROM dataset_branches
+			WHERE id = $1 AND dataset_id = $2 AND deleted_at IS NULL
+		UNION ALL
+		SELECT p.id, p.parent_branch_id FROM dataset_branches p
+			JOIN chain c ON p.id = c.parent_branch_id
+			WHERE p.deleted_at IS NULL
+	)
+	SELECT EXISTS(SELECT 1 FROM chain WHERE id = $3)`, sourceBranch.ID, datasetID, targetBranch.ID).Scan(&lineageOK); err != nil {
+		return nil, err
+	}
+	if !lineageOK {
+		return nil, fmt.Errorf("%w: source %q is not a descendant of target %q", ErrPreconditionFailed, source, target)
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE dataset_branches
+		SET head_transaction_id = $2, last_activity_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND dataset_id = $3 AND deleted_at IS NULL`, targetBranch.ID, *sourceBranch.HeadTransactionID, datasetID); err != nil {
+		return nil, err
+	}
+
+	updatedRow := tx.QueryRow(ctx, `SELECT id, rid, dataset_id, dataset_rid, name, parent_branch_id, head_transaction_id,
+		created_from_transaction_id, last_activity_at, labels, fallback_chain, created_at, updated_at
+		FROM dataset_branches WHERE id = $1`, targetBranch.ID)
+	updated, err := scanRuntimeBranch(updatedRow)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	committed = true
+	_ = actor // reserved for future audit-row insertion alongside merge metadata
+	return &models.MergeBranchResult{
+		Branch:                     *updated,
+		PreviousHeadTransactionRID: previousRID,
+		NewHeadTransactionRID:      transactionRIDOpt(updated.HeadTransactionID),
+		FastForwarded:              true,
+		AlreadyMerged:              false,
+	}, nil
+}
+
+func transactionRIDOpt(id *uuid.UUID) *string {
+	if id == nil {
+		return nil
+	}
+	rid := models.TransactionRID(*id)
+	return &rid
+}
+
+func transactionPointersEqual(a, b *uuid.UUID) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
 func (r *Repo) PreviewMetadata(ctx context.Context, datasetID uuid.UUID, branch string) (int64, int64, error) {
 	row := r.Pool.QueryRow(ctx, `SELECT COUNT(*)::bigint AS file_count, COALESCE(SUM(f.size_bytes),0)::bigint AS size_bytes
 		FROM dataset_branches b

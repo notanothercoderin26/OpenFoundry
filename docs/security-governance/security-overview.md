@@ -166,15 +166,25 @@ A user can read a marked resource only if they are a **member** of
 every marking that applies — directly, through project/folder
 inheritance, or through dataset lineage propagation.
 
-- Marking categories, marking metadata, and member grants are owned by
+- Marking categories and markings are owned by
   `authorization-policy-service` today; a dedicated `marking-service`
-  carve-out is planned (see
-  [checklist `SG.11`–`SG.15`](../migration/foundry-security-governance-1to1-checklist.md)).
-- `apply`, `remove`, `manage`, and `member` are **four distinct
-  permissions**. `apply` and `manage` deliberately do not imply access.
-- Removing a marking from a derived resource requires both
-  `remove marking` and a permission to expand access — this prevents
-  silent declassification.
+  carve-out is planned for enforcement/inheritance follow-ups (see
+  [checklist `SG.14`–`SG.15`](../migration/foundry-security-governance-1to1-checklist.md)).
+- Categories carry visible/hidden state, optional organization
+  restriction, Category Administrator / Category Viewer grants, and
+  immutable lifecycle rules. Category deletion is blocked and audited.
+- Markings live inside categories with stable IDs, metadata, and
+  distinct `administrator`, `remover`, `applier`, and `member` grants.
+  Deletion and category moves are blocked and audited.
+- `applier`, `remover`, `administrator`, and `member` are **four distinct
+  permissions**. `applier` and `administrator` deliberately do not imply access.
+- The SG.13 permission-check endpoint reports the four grants separately
+  and only treats `member` as access to marked data.
+- Applying a direct resource marking requires `apply marking` plus
+  resource update-markings evidence. Removing a direct marking requires
+  `remove marking`, resource update-markings evidence, and either
+  `apply marking` or equivalent expand-access authority; denied attempts
+  are audited to prevent silent declassification.
 
 > Parity reference:
 > [Markings](https://www.palantir.com/docs/foundry/security/markings/) ·

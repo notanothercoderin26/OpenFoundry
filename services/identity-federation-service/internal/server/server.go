@@ -105,6 +105,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 	r.Route("/api/v1/auth/mfa", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 		api.Get("/status", mfa.Status)
+		api.Get("/factors", mfa.ListFactors)
 		api.Post("/totp/enroll", mfa.Enroll)
 		api.Post("/totp/verify", mfa.Verify)
 		api.Post("/totp/disable", mfa.Disable)

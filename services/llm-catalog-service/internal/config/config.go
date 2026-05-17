@@ -1,13 +1,10 @@
 // Package config resolves llm-catalog-service env config.
 //
-// The Rust binary is `fn main(){}` with handlers/models/domain re-
-// exported from libs/ai-kernel via `#[path = "..."]`. The Go port
-// becomes the canonical implementation by consuming
-// libs/ai-kernel-go/models for the wire-format DTO surface.
-//
-// Foundation slice scope: substrate-only HTTP. The `/api/v1/*`
-// routes (provider CRUD, list, etc.) wire in a follow-up slice
-// alongside libs/ai-kernel-go/handlers + libs/ai-kernel-go/domain/llm.
+// The Rust binary was `fn main(){}` with handlers/models/domain re-
+// exported from libs/ai-kernel. The Go port is the canonical
+// implementation: it owns the catalog table and the unified invoke
+// endpoint, and reuses libs/ai-kernel-go/models for the upstream
+// provider DTOs.
 package config
 
 import (
@@ -17,17 +14,34 @@ import (
 	"strconv"
 )
 
+// Config is the resolved env state for the service.
 type Config struct {
 	Service struct{ Name, Version string }
 	Server  struct {
 		Host string
 		Port uint16
 	}
-	DatabaseURL                   string
-	JWTSecret                     string
-	CheckpointsPurposeServiceURL  string
+	DatabaseURL                  string
+	JWTSecret                    string
+	CheckpointsPurposeServiceURL string
+
+	// Provider API keys / base URLs. Each is optional; the
+	// corresponding provider returns an error at invoke time when its
+	// key is unset.
+	AnthropicAPIKey  string
+	AnthropicBaseURL string
+	OpenAIAPIKey     string
+	OpenAIBaseURL    string
+	OllamaBaseURL    string
+
+	// Per-(subject, model) token-bucket settings.
+	// 0 disables rate limiting.
+	RateLimitCapacity        float64
+	RateLimitRefillPerSecond float64
 }
 
+// FromEnv builds a Config, applying production defaults for everything
+// that is not strictly required.
 func FromEnv() (*Config, error) {
 	cfg := &Config{}
 	cfg.Service.Name = "llm-catalog-service"
@@ -37,15 +51,26 @@ func FromEnv() (*Config, error) {
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
 	cfg.CheckpointsPurposeServiceURL = defaultStr(os.Getenv("CHECKPOINTS_PURPOSE_SERVICE_URL"), "http://localhost:50116")
+
+	cfg.AnthropicAPIKey = os.Getenv("ANTHROPIC_API_KEY")
+	cfg.AnthropicBaseURL = os.Getenv("ANTHROPIC_BASE_URL")
+	cfg.OpenAIAPIKey = os.Getenv("OPENAI_API_KEY")
+	cfg.OpenAIBaseURL = os.Getenv("OPENAI_BASE_URL")
+	cfg.OllamaBaseURL = os.Getenv("OLLAMA_BASE_URL")
+
+	cfg.RateLimitCapacity = parseFloat(os.Getenv("LLM_RATE_LIMIT_CAPACITY"), 60)
+	cfg.RateLimitRefillPerSecond = parseFloat(os.Getenv("LLM_RATE_LIMIT_REFILL_PER_SECOND"), 1)
 	return cfg, nil
 }
 
+// MissingEnvError is returned for required-but-unset env vars.
 type MissingEnvError struct{ Key string }
 
 func (e *MissingEnvError) Error() string {
 	return fmt.Sprintf("required environment variable %s is not set", e.Key)
 }
 
+// IsMissingEnv reports whether err is a *MissingEnvError.
 func IsMissingEnv(err error) bool { var me *MissingEnvError; return errors.As(err, &me) }
 
 func defaultStr(v, fallback string) string {
@@ -64,4 +89,15 @@ func parseUint16(v string, fallback uint16) uint16 {
 		return fallback
 	}
 	return uint16(n)
+}
+
+func parseFloat(v string, fallback float64) float64 {
+	if v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return fallback
+	}
+	return f
 }

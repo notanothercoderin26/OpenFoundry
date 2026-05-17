@@ -42,6 +42,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/marketplace"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/productdistribution"
+	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/products"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/server"
 )
@@ -93,13 +94,40 @@ func main() {
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	var marketplaceHandlers *marketplace.Handlers
 	var distributionHandlers *productdistribution.Handlers
+	var productsHandlers *products.Handlers
 	if pool != nil {
 		marketplaceHandlers = marketplace.NewHandlers(marketplace.NewPGXRepository(pool))
 		distributionHandlers = productdistribution.NewHandlers(productdistribution.NewPGXRepository(pool))
+		productsHandlers = buildProductsHandlers(cfg, pool, log)
 	}
-	srv := server.New(cfg, jwt, marketplaceHandlers, distributionHandlers, metrics, probes.Postgres("primary", pool))
+	srv := server.New(cfg, jwt, marketplaceHandlers, distributionHandlers, productsHandlers, metrics, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+}
+
+// buildProductsHandlers wires the Marketplace Products feature. It
+// requires the symmetric HMAC sign key (MARKETPLACE_SIGN_KEY) and a
+// bundle root on disk (MARKETPLACE_BUNDLE_ROOT). When either is
+// missing the function logs a warning and returns nil — the server
+// then skips mounting the /api/v1/marketplace/products surface.
+func buildProductsHandlers(cfg *config.Config, pool *pgxpool.Pool, log *slog.Logger) *products.Handlers {
+	if cfg.MarketplaceSignKey == "" {
+		log.Warn("MARKETPLACE_SIGN_KEY unset — marketplace products surface disabled")
+		return nil
+	}
+	if cfg.MarketplaceBundleRoot == "" {
+		log.Warn("MARKETPLACE_BUNDLE_ROOT unset — marketplace products surface disabled")
+		return nil
+	}
+	repo := products.NewPGXRepository(pool)
+	storage := products.NewFilesystemBundleStorage(cfg.MarketplaceBundleRoot)
+	clients := products.NewHTTPResourceClient(products.ServiceEndpoints{
+		OntologyDefinitionURL:     cfg.OntologyDefinitionURL,
+		OntologyActionsURL:        cfg.OntologyActionsURL,
+		PipelineBuildURL:          cfg.PipelineBuildURL,
+		ApplicationCompositionURL: cfg.ApplicationCompositionURL,
+	}, nil)
+	return products.NewHandlers(repo, storage, clients, []byte(cfg.MarketplaceSignKey), "marketplace")
 }

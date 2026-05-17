@@ -22,6 +22,13 @@ type Config struct {
 	DatabaseURL string
 	JWTSecret   string
 
+	// MFAAtRestKey is a standard-base64-encoded 32-byte AES-256-GCM
+	// key used to encrypt TOTP secrets in user_mfa_totp. Optional:
+	// when empty the service refuses to enrol new TOTP factors
+	// (handlers return 503). Existing factors keep working against
+	// the legacy plaintext column until re-enrolled.
+	MFAAtRestKey string
+
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
 
@@ -45,6 +52,8 @@ func FromEnv() (*Config, error) {
 	if cfg.JWTSecret == "" {
 		return nil, &MissingEnvError{Key: "JWT_SECRET"}
 	}
+
+	cfg.MFAAtRestKey = os.Getenv("MFA_AT_REST_KEY")
 
 	cfg.AccessTTL = parseDur(os.Getenv("ACCESS_TOKEN_TTL"), time.Hour)
 	cfg.RefreshTTL = parseDur(os.Getenv("REFRESH_TOKEN_TTL"), 7*24*time.Hour)

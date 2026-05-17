@@ -303,6 +303,12 @@ type fakeStore struct {
 	versionConflict     bool
 	branchConflict      bool
 	permissionConflict  bool
+
+	// mergeOverride lets a handler test substitute the default
+	// MergeRuntimeBranch behaviour without re-implementing the whole
+	// stub — handy for exercising the 412 / 404 / validation error
+	// paths in writeBranchError.
+	mergeOverride func(target, source string, actor uuid.UUID) (*models.MergeBranchResult, error)
 }
 
 func newFakeStore(owner uuid.UUID) *fakeStore {
@@ -948,6 +954,16 @@ func (f *fakeStore) ListBranchMarkings(_ context.Context, branchID uuid.UUID) ([
 }
 func (f *fakeStore) CompareBranches(_ context.Context, _ uuid.UUID, base string, compare string) (*models.BranchCompareResponse, error) {
 	return &models.BranchCompareResponse{BaseBranch: base, CompareBranch: compare, AOnlyTransactions: []models.TransactionSummary{}, BOnlyTransactions: []models.TransactionSummary{}, ConflictingFiles: []models.ConflictingFile{}}, nil
+}
+func (f *fakeStore) MergeRuntimeBranch(_ context.Context, datasetID uuid.UUID, target string, source string, actor uuid.UUID) (*models.MergeBranchResult, error) {
+	if f.mergeOverride != nil {
+		return f.mergeOverride(target, source, actor)
+	}
+	b, err := f.GetRuntimeBranch(context.Background(), datasetID, target)
+	if err != nil {
+		return nil, err
+	}
+	return &models.MergeBranchResult{Branch: *b, FastForwarded: true}, nil
 }
 func (f *fakeStore) RollbackBranch(_ context.Context, _ uuid.UUID, branch string, _ *models.RollbackBody, _ uuid.UUID) (map[string]any, error) {
 	return map[string]any{"view": map[string]any{"branch": branch}}, nil

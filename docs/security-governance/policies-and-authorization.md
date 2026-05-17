@@ -78,3 +78,70 @@ backwards compatibility. The
 [`/control-panel/role-sets`](../../apps/web/src/routes/control-panel/RoleSetsPage.tsx)
 admin UI exposes a "Delegation check" tool that hits the same
 endpoint without performing the grant.
+
+## Marking categories, markings, and permission checks (SG.11-SG.13)
+
+Marking administration is currently implemented in
+[`authorization-policy-service`](../../services/authorization-policy-service/).
+Migration
+[`0009_sg11_marking_categories.sql`](../../services/authorization-policy-service/internal/repo/migrations/0009_sg11_marking_categories.sql)
+adds category metadata, visibility, category permissions, and category
+audit events. Migration
+[`0010_sg12_markings.sql`](../../services/authorization-policy-service/internal/repo/migrations/0010_sg12_markings.sql)
+adds stable markings inside those categories, per-marking permissions,
+and marking audit events. Migration
+[`0011_sg13_marking_permission_model.sql`](../../services/authorization-policy-service/internal/repo/migrations/0011_sg13_marking_permission_model.sql)
+adds direct resource marking rows and audited apply/remove attempts.
+
+| Table | Purpose |
+|---|---|
+| `marking_categories` | Tenant-scoped category slug/display name/description, `visible` or `hidden` visibility, optional organization restriction, metadata, creator, and timestamps. |
+| `marking_category_permissions` | Category Administrator / Category Viewer grants to users or groups. |
+| `marking_category_audit_events` | Audit rows for category creation, updates, permission grants/revocations, and blocked deletion attempts. |
+| `markings` | Stable marking ID, category, slug/display name/description, metadata, creator, and timestamps. `category_id` is immutable. |
+| `marking_permissions` | Marking `administrator`, `remover`, `applier`, and `member` grants to users or groups. |
+| `marking_audit_events` | Audit rows for marking creation, updates, permission grants/revocations, blocked deletion, and blocked category moves. |
+| `resource_markings` | Direct markings applied to resources, with resource kind/id, marking id, metadata, actor, and timestamp. |
+| `resource_marking_audit_events` | Audit rows for resource marking application/removal plus denied attempts. |
+
+The API surface is:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET/POST/PATCH/DELETE /api/v1/marking-categories[/{id}]` | Category list/create/read/update plus audited delete-block response. |
+| `PUT/DELETE /api/v1/marking-categories/{id}/permissions[...]` | Grant/revoke Category Administrator / Category Viewer. |
+| `GET /api/v1/marking-categories/{id}/audit-events` | Category audit history. |
+| `GET/POST /api/v1/marking-categories/{id}/markings` | List or create markings inside a category. Creation accepts an optional stable `id`. |
+| `GET/PATCH/DELETE /api/v1/markings/{id}` | Read/update a marking plus audited delete-block response. |
+| `PUT /api/v1/markings/{id}/category` | Always returns `405` and audits `marking.category_move_blocked`; markings cannot move categories. |
+| `PUT/DELETE /api/v1/markings/{id}/permissions[...]` | Grant/revoke marking `administrator`, `remover`, `applier`, or `member`. |
+| `GET /api/v1/markings/{id}/audit-events` | Marking audit history. |
+| `POST /api/v1/markings/{id}/permission-check` | Explain whether a principal can manage, apply, remove, or access data protected by a marking. |
+| `GET /api/v1/resource-markings` | List direct markings for a `resource_kind` and `resource_id`. |
+| `POST /api/v1/resource-markings` | Apply a direct marking when the caller can apply the marking and has resource update-markings evidence. |
+| `POST /api/v1/resource-markings/remove` | Remove a direct marking when the caller can remove it and has apply or equivalent expand-access evidence. |
+
+Discoverability mirrors the category visibility rules: visible
+categories are listed to callers with `markings:read`; hidden
+categories are listed only to marking writers/auditors, category
+viewers/admins, or principals that hold a permission on any marking
+inside the category. Marking metadata is redacted from ordinary readers
+unless they are marking writers/auditors or hold category/marking
+administrator rights.
+
+The SG.13 permission check intentionally keeps marking administration
+separate from data access. `administrator`, `applier`, `remover`, and
+`member` are independent grants; only `member` satisfies access to data
+protected by the marking. Applying a direct resource marking requires
+`applier` plus proof that the caller can update markings on the target
+resource. Removing a direct resource marking requires `remover`, that
+same resource proof, and either `applier` or an equivalent expand-access
+authorization. Both denied apply/remove attempts are written to
+`resource_marking_audit_events`.
+
+The Control Panel surface lives at
+[`/control-panel/marking-categories`](../../apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx)
+and supports category creation, marking creation, permission grants,
+revocation, audit inspection, delete-block probes, category-move block
+probes, permission checks, and direct resource marking apply/remove
+probes.

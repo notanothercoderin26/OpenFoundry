@@ -100,6 +100,22 @@ func (s *CassandraLinkStore) Delete(ctx context.Context, tenant TenantId, lt Lin
 	return deleted, fromRepoError(err)
 }
 
+// DeleteIncident is intentionally a no-op on the Cassandra adapter.
+// The production link tables (`ontology_links.{outgoing,incoming}`)
+// are partitioned on (link_type_rid, src|dst), so a cross-link-type
+// scan to find every incident edge of one object would degenerate
+// into a full-table scan. The cassandra-kernel indexer / outbox is
+// responsible for emitting per-(link_type, from, to) tombstones in
+// response to the object delete; the handler degrades to "best
+// effort" cascade in that case and the FK-equivalent cleanup is
+// asynchronous. See ADR-0020 §S1.7.
+//
+// Tests that exercise cascade behaviour run against
+// InMemoryLinkStore, which does the real cleanup synchronously.
+func (s *CassandraLinkStore) DeleteIncident(_ context.Context, _ TenantId, _ ObjectId) (int, error) {
+	return 0, nil
+}
+
 func (s *CassandraLinkStore) ListOutgoing(ctx context.Context, tenant TenantId, lt LinkTypeId, from ObjectId, page Page, c ReadConsistency) (PagedResult[Link], error) {
 	res, err := s.inner.ListOutgoing(ctx, repos.TenantId(tenant), repos.LinkTypeId(lt), repos.ObjectId(from), toRepoPage(page), toRepoConsistency(c))
 	if err != nil {

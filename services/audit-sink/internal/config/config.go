@@ -75,7 +75,7 @@ func FromEnv() (*Config, error) {
 	}
 	jsonlPath := os.Getenv("AUDIT_SINK_JSONL_PATH")
 	catalogURL := os.Getenv("ICEBERG_CATALOG_URL")
-	if catalogURL == "" && jsonlPath == "" {
+	if catalogURL == "" && jsonlPath == "" && os.Getenv("DATABASE_URL") == "" {
 		return nil, &MissingEnvError{Key: "ICEBERG_CATALOG_URL"}
 	}
 

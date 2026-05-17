@@ -18,7 +18,7 @@ func TestSubstrateHealthzMounted(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Service.Name = "llm-catalog-service"
 	cfg.Service.Version = "test"
-	srv := httptest.NewServer(BuildRouter(cfg, observability.NewMetrics()))
+	srv := httptest.NewServer(BuildRouter(cfg, Deps{}, observability.NewMetrics()))
 	t.Cleanup(srv.Close)
 
 	resp, err := http.Get(srv.URL + "/healthz")
@@ -36,7 +36,7 @@ func TestKernelDefaultsRouteUsesAiKernelModels(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Service.Name = "llm-catalog-service"
 	cfg.Service.Version = "test"
-	srv := httptest.NewServer(BuildRouter(cfg, observability.NewMetrics()))
+	srv := httptest.NewServer(BuildRouter(cfg, Deps{}, observability.NewMetrics()))
 	t.Cleanup(srv.Close)
 
 	resp, err := http.Get(srv.URL + "/api/v1/kernel-defaults")

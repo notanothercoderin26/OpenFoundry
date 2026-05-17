@@ -18,6 +18,15 @@ type Handlers struct {
 	Objects storage.ObjectStore
 	Links   storage.LinkStore
 	Backend config.BackendMode
+	// Cedar guards every ontology handler when set. nil → gate
+	// disabled, preserving the legacy "internal-only, gated by
+	// edge-gateway" deployment shape. See cedar_gate.go.
+	Cedar CedarGate
+	// Schemas resolves a type's property schema for write-side
+	// validation. nil → skip validation (preserves dev/test mode).
+	// Production wiring passes a client that hits
+	// ontology-definition-service.
+	Schemas PropertySchemaResolver
 }
 
 // --- request / response wire types --------------------------------------

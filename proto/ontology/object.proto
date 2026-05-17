@@ -1,2 +1,174 @@
 syntax = "proto3";
 package open_foundry.ontology;
+
+import "common/types.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// OntologyObjectService manages the **instances** of object types
+// defined by OntologyService (see ontology.proto). The runtime HTTP
+// surface for these RPCs is owned by object-database-service and
+// proxied verbatim by edge-gateway at `/api/v1/ontology/types/*`.
+//
+// Tenancy is implicit in the bearer token / `x-of-tenant` header at
+// the HTTP edge — the proto stays tenant-agnostic so the same wire
+// format works on the wire and from offline tooling.
+service OntologyObjectService {
+  rpc GetObject(GetObjectRequest) returns (ObjectInstance);
+  rpc ListObjects(ListObjectsRequest) returns (ListObjectsResponse);
+  rpc CreateObject(CreateObjectRequest) returns (ObjectInstance);
+  rpc UpdateObject(UpdateObjectRequest) returns (ObjectInstance);
+  rpc DeleteObject(DeleteObjectRequest) returns (DeleteObjectResponse);
+  rpc SearchObjects(SearchObjectsRequest) returns (SearchObjectsResponse);
+  rpc TraverseLinks(TraverseLinksRequest) returns (TraverseLinksResponse);
+}
+
+// ObjectInstance is one row of an ObjectType. `properties` is a
+// JSON-shaped Struct so the wire format can carry arbitrary scalar /
+// nested values (mirrors the SPA's `Record<string, unknown>` shape).
+message ObjectInstance {
+  string id = 1;
+  string object_type_id = 2;
+  google.protobuf.Struct properties = 3;
+  string created_by = 4;
+  string organization_id = 5;
+  string marking = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// PropertyFilter is the wire form of a single ILIKE / equals / range
+// predicate over JSONB property values. Mirrors the SPA's
+// `ObjectQueryFilter` interface.
+message PropertyFilter {
+  string property_name = 1;
+  // One of: equals, not_equals, contains, gte, lte, gt, lt, in,
+  // is_empty, is_not_empty. Defaults to equals when empty.
+  string operator = 2;
+  google.protobuf.Value value = 3;
+}
+
+message PropertySort {
+  string property_name = 1;
+  // asc | desc
+  string direction = 2;
+}
+
+// --- GetObject -----------------------------------------------------
+
+message GetObjectRequest {
+  string object_type_id = 1;
+  // Primary-key value of the target object. The type's PK property is
+  // resolved from ontology-definition-service when needed.
+  string primary_key = 2;
+}
+
+// --- ListObjects ---------------------------------------------------
+
+message ListObjectsRequest {
+  string object_type_id = 1;
+  repeated PropertyFilter filters = 2;
+  repeated PropertySort sort = 3;
+  // Opaque cursor returned by the previous page. Empty for the first
+  // page.
+  string cursor = 4;
+  // Page size, clamped server-side to [1, 5000]. 0 → server default.
+  int32 page_size = 5;
+}
+
+message ListObjectsResponse {
+  repeated ObjectInstance objects = 1;
+  string next_cursor = 2;
+  int64 total = 3;
+}
+
+// --- CreateObject --------------------------------------------------
+
+message CreateObjectRequest {
+  string object_type_id = 1;
+  google.protobuf.Struct properties = 2;
+  string marking = 3;
+}
+
+// --- UpdateObject --------------------------------------------------
+
+message UpdateObjectRequest {
+  string object_type_id = 1;
+  string primary_key = 2;
+  google.protobuf.Struct properties = 3;
+  // When true, `properties` replaces the existing payload wholesale.
+  // When false, it is merged key-wise on top of the current payload.
+  bool replace = 4;
+  string marking = 5;
+}
+
+// --- DeleteObject --------------------------------------------------
+
+message DeleteObjectRequest {
+  string object_type_id = 1;
+  string primary_key = 2;
+}
+
+message DeleteObjectResponse {
+  bool deleted = 1;
+  // Number of incident links removed transitively (cascade).
+  int32 cascaded_links = 2;
+}
+
+// --- SearchObjects -------------------------------------------------
+
+message SearchObjectsRequest {
+  string object_type_id = 1;
+  // Plain-text query, matched case-insensitively against every text
+  // property of the type via ILIKE in the v1 implementation.
+  string query = 2;
+  open_foundry.common.PageRequest pagination = 3;
+}
+
+message SearchObjectsResponse {
+  repeated ObjectInstance objects = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+// --- TraverseLinks -------------------------------------------------
+
+// LinkDirection mirrors the SPA's `ObjectSearchAroundQuery.direction`
+// values. UNSPECIFIED is treated as outgoing for backward
+// compatibility with the existing search_around handler.
+enum LinkDirection {
+  LINK_DIRECTION_UNSPECIFIED = 0;
+  LINK_DIRECTION_OUTGOING = 1;
+  LINK_DIRECTION_INCOMING = 2;
+  LINK_DIRECTION_BOTH = 3;
+}
+
+message TraverseLinksRequest {
+  // The source object (by type + PK) whose neighbourhood we want.
+  string object_type_id = 1;
+  string primary_key = 2;
+  // Restrict the traversal to a single link type's api_name. Empty
+  // means "every link type". `link_type_api_names` overrides when set.
+  string link_type_api_name = 3;
+  repeated string link_type_api_names = 4;
+  LinkDirection direction = 5;
+  // Depth in [1, 5]. 0 → 1.
+  int32 depth = 6;
+  // Optional cap on returned edges (server-side clamped). 0 → 1000.
+  int32 limit = 7;
+}
+
+message LinkedEdge {
+  string link_id = 1;
+  string link_type_api_name = 2;
+  string source_object_id = 3;
+  string target_object_id = 4;
+  LinkDirection direction = 5;
+  int32 depth = 6;
+  google.protobuf.Struct properties = 7;
+}
+
+message TraverseLinksResponse {
+  repeated LinkedEdge edges = 1;
+  // The fully-hydrated neighbours, deduplicated by object id.
+  repeated ObjectInstance objects = 2;
+}

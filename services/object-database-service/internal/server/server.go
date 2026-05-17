@@ -101,6 +101,16 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 		api.Delete("/{object_id}", h.DeleteObjectByOntologyType)
 	})
 
+	// Dedicated link-traversal endpoint. Mirrors the proto
+	// `OntologyObjectService.TraverseLinks` RPC and is the preferred
+	// client surface for "give me the neighbourhood of X by link type
+	// Y" — the equivalent functionality is also reachable via the
+	// `search_around` block of POST .../objects/query, but that path
+	// requires a full object-set request.
+	r.Route("/api/v1/ontology/types/{type_id}/links", func(api chi.Router) {
+		api.Post("/traverse", h.TraverseLinks)
+	})
+
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix: "object-database",
 		// No per-route auth on this service — leave RequiresAuth=false.

@@ -356,23 +356,43 @@ OpenFoundry canonical IDs.
 
 ### Markings and mandatory access controls
 
-- [ ] `SG.11` Marking categories (`P0`, `todo`)
+- [x] `SG.11` Marking categories (`P0`, `done` 2026-05-17)
   - Create marking categories with metadata, category visibility, administrators, and category permissions.
   - Treat category deletion as unsupported or blocked if mirroring documented immutable-category behavior.
   - Audit category creation and permission changes.
   - Docs: [Manage markings](https://www.palantir.com/docs/foundry/platform-security-management/manage-markings/).
+  - Implementation:
+    - Migration [`0009_sg11_marking_categories.sql`](../../services/authorization-policy-service/internal/repo/migrations/0009_sg11_marking_categories.sql) adds `marking_categories`, `marking_category_permissions`, and `marking_category_audit_events`, plus `markings:read|write|audit` permission seeds.
+    - API routes in [`authorization-policy-service/internal/server/server.go`](../../services/authorization-policy-service/internal/server/server.go): `GET/POST/PATCH/DELETE /marking-categories`, `PUT/DELETE /marking-categories/{id}/permissions`, and `GET /marking-categories/{id}/audit-events`.
+    - Deletion parity: `DELETE /marking-categories/{id}` never removes rows; it writes `category.delete_blocked` audit evidence and returns `405` with "hide the category instead".
 
-- [ ] `SG.12` Marking CRUD and lifecycle (`P0`, `todo`)
+- [x] `SG.12` Marking CRUD and lifecycle (`P0`, `done` 2026-05-17)
   - Create markings inside categories with stable IDs, display names, descriptions, administrators, removers, appliers, members, and audit metadata.
   - Prevent marking deletion or category moves if mirroring documented marking immutability.
   - Support discoverability and metadata visibility according to marking/category permissions.
   - Docs: [Markings](https://www.palantir.com/docs/foundry/security/markings/), [Manage markings](https://www.palantir.com/docs/foundry/platform-security-management/manage-markings/).
+  - Implementation:
+    - Migration [`0010_sg12_markings.sql`](../../services/authorization-policy-service/internal/repo/migrations/0010_sg12_markings.sql) adds `markings`, `marking_permissions`, and `marking_audit_events`.
+    - API routes in [`authorization-policy-service/internal/server/server.go`](../../services/authorization-policy-service/internal/server/server.go): `GET/POST /marking-categories/{id}/markings`, `GET/PATCH/DELETE /markings/{id}`, `PUT /markings/{id}/category`, `PUT/DELETE /markings/{id}/permissions`, and `GET /markings/{id}/audit-events`.
+    - Stable IDs: creation accepts an optional caller-supplied UUID and otherwise generates one.
+    - Lifecycle parity: marking deletion and category moves never mutate state; they write `marking.delete_blocked` / `marking.category_move_blocked` audit evidence and return `405`.
+    - Discoverability: hidden categories are visible only to marking writers/auditors, category viewers/admins, or principals with a permission on any marking in the category. Marking metadata is redacted for ordinary readers unless they hold category/marking administrator rights.
+    - Frontend client [`apps/web/src/lib/api/marking-categories.ts`](../../apps/web/src/lib/api/marking-categories.ts) and UI [`apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx`](../../apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx) cover category and marking CRUD, permission grant/revoke, audit inspection, delete-block checks, and category-move block checks.
+    - Out-of-scope follow-ups tracked under `SG.13`–`SG.15`: applying/removing markings to resources, resource access enforcement, inherited markings, and lineage propagation.
 
-- [ ] `SG.13` Marking permission model (`P0`, `todo`)
+- [x] `SG.13` Marking permission model (`P0`, `done` 2026-05-17)
   - Implement distinct manage permissions, apply marking, remove marking, and member/access grants.
   - Ensure apply/manage permissions do not imply membership and therefore do not imply access to marked data.
   - Require remove marking and apply marking or equivalent expand-access permission before a marking can be removed from protected resources.
   - Docs: [Manage markings](https://www.palantir.com/docs/foundry/platform-security-management/manage-markings/), [Markings](https://www.palantir.com/docs/foundry/security/markings/).
+  - Implementation:
+    - Migration [`0011_sg13_marking_permission_model.sql`](../../services/authorization-policy-service/internal/repo/migrations/0011_sg13_marking_permission_model.sql) adds direct `resource_markings` plus `resource_marking_audit_events` for apply/remove attempts and denials.
+    - [`Repo.CheckMarkingPermission`](../../services/authorization-policy-service/internal/repo/marking_permissions.go) resolves user and group grants into distinct `can_manage`, `can_apply`, `can_remove`, and `is_member` flags; only `is_member` sets `can_access_marked_data`.
+    - API routes in [`authorization-policy-service/internal/server/server.go`](../../services/authorization-policy-service/internal/server/server.go): `POST /markings/{id}/permission-check`, `GET/POST /resource-markings`, and `POST /resource-markings/remove`.
+    - Apply rule: direct resource marking application requires `Apply marking` plus caller-supplied resource "Update Markings" authorization evidence.
+    - Remove rule: direct resource marking removal requires `Remove marking`, resource "Update Markings" authorization evidence, and either `Apply marking` or an equivalent expand-access flag; denied attempts are audited.
+    - Frontend client [`apps/web/src/lib/api/marking-categories.ts`](../../apps/web/src/lib/api/marking-categories.ts) and UI [`apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx`](../../apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx) expose the permission check plus direct apply/remove workbench.
+    - Out-of-scope follow-ups tracked under `SG.14`–`SG.15`: inherited markings, lineage propagation, cross-service resource role proofing, and build/output declassification guards.
 
 - [ ] `SG.14` Marking enforcement and inheritance (`P0`, `todo`)
   - Require users to satisfy all applied markings plus organization and role requirements before reading or acting on a resource.

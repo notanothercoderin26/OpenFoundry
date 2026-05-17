@@ -24,6 +24,18 @@ type Config struct {
 	DatabaseURL            string
 	MarketplaceDatabaseURL string
 	JWTSecret              string
+	// Products feature — see internal/products. The sign key is the
+	// symmetric HMAC-SHA256 secret used to authenticate bundles; the
+	// bundle root is the on-disk root used by the filesystem storage
+	// (empty → in-memory storage, which is suitable for tests but not
+	// for prod). The four service URLs are the base URLs of the
+	// owner services called by Publish/Install.
+	MarketplaceSignKey         string
+	MarketplaceBundleRoot      string
+	OntologyDefinitionURL      string
+	OntologyActionsURL         string
+	PipelineBuildURL           string
+	ApplicationCompositionURL  string
 }
 
 func FromEnv() (*Config, error) {
@@ -39,6 +51,12 @@ func FromEnv() (*Config, error) {
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	cfg.MarketplaceDatabaseURL = os.Getenv("MARKETPLACE_DATABASE_URL")
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
+	cfg.MarketplaceSignKey = os.Getenv("MARKETPLACE_SIGN_KEY")
+	cfg.MarketplaceBundleRoot = os.Getenv("MARKETPLACE_BUNDLE_ROOT")
+	cfg.OntologyDefinitionURL = os.Getenv("ONTOLOGY_DEFINITION_URL")
+	cfg.OntologyActionsURL = os.Getenv("ONTOLOGY_ACTIONS_URL")
+	cfg.PipelineBuildURL = os.Getenv("PIPELINE_BUILD_URL")
+	cfg.ApplicationCompositionURL = os.Getenv("APPLICATION_COMPOSITION_URL")
 	return cfg, nil
 }
 

@@ -21,7 +21,7 @@ import (
 func TestHealthAliasMounted(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	srv := httptest.NewServer(BuildRouter(cfg, nil, nil, nil, observability.NewMetrics()))
+	srv := httptest.NewServer(BuildRouter(cfg, nil, nil, nil, nil, observability.NewMetrics()))
 	t.Cleanup(srv.Close)
 	resp, err := srv.Client().Get(srv.URL + "/health")
 	require.NoError(t, err)

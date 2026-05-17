@@ -25,7 +25,7 @@ import (
 func TestSubstrateHealthzMounted(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	srv := httptest.NewServer(BuildRouter(cfg, nil, nil, nil, observability.NewMetrics()))
+	srv := httptest.NewServer(BuildRouter(cfg, nil, nil, nil, nil, observability.NewMetrics()))
 	t.Cleanup(srv.Close)
 
 	resp, err := http.Get(srv.URL + "/healthz")
@@ -195,7 +195,7 @@ func newMarketplaceTestServer(t *testing.T) (*httptest.Server, string) {
 	cfg := testConfig()
 	jwt := authmw.NewJWTConfig("test-secret")
 	token := testToken(t, jwt)
-	srv := httptest.NewServer(BuildRouter(cfg, jwt, marketplace.NewHandlers(newMemoryRepo()), nil, observability.NewMetrics()))
+	srv := httptest.NewServer(BuildRouter(cfg, jwt, marketplace.NewHandlers(newMemoryRepo()), nil, nil, observability.NewMetrics()))
 	t.Cleanup(srv.Close)
 	return srv, token
 }

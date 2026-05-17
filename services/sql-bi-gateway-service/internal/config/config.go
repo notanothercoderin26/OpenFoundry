@@ -37,6 +37,13 @@ type Config struct {
 	PostgresFlightSQLURL    string
 	TrinoFlightSQLURL       string
 
+	// IcebergCatalogURL is the base URL of iceberg-catalog-service used by
+	// the Flight SQL surface to populate GetSchemas / GetTables with real
+	// catalog metadata. When empty, the gateway falls back to the
+	// per-backend sentinel rows so BI clients still render a non-empty
+	// navigator panel.
+	IcebergCatalogURL string
+
 	// AllowAnonymous lets the Flight SQL surface accept unauthenticated
 	// requests. Intended only for local dev / CI; production must keep
 	// this false.
@@ -57,6 +64,7 @@ func FromEnv() (*Config, error) {
 	c.VespaFlightSQLURL = os.Getenv("VESPA_FLIGHT_SQL_URL")
 	c.PostgresFlightSQLURL = os.Getenv("POSTGRES_FLIGHT_SQL_URL")
 	c.TrinoFlightSQLURL = os.Getenv("TRINO_FLIGHT_SQL_URL")
+	c.IcebergCatalogURL = os.Getenv("ICEBERG_CATALOG_URL")
 	c.AllowAnonymous = os.Getenv("ALLOW_ANONYMOUS") == "true"
 	return c, nil
 }

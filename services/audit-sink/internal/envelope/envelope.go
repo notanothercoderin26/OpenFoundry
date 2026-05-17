@@ -17,12 +17,19 @@ import (
 //
 // `at` is Unix epoch microseconds — the partition key for the
 // downstream `day(at)` Iceberg transform.
+//
+// `Raw` is not part of the wire shape; it carries the original record
+// bytes so downstream writers that need richer fields (Postgres, query
+// surface) can re-decode without forcing the Iceberg path to materialise
+// every column.
 type AuditEnvelope struct {
 	EventID       uuid.UUID       `json:"event_id"`
 	At            int64           `json:"at"`
 	CorrelationID *string         `json:"correlation_id,omitempty"`
 	Kind          string          `json:"kind"`
 	Payload       json.RawMessage `json:"payload"`
+
+	Raw []byte `json:"-"`
 }
 
 // Decode is the canonical JSON decoder. Returns DecodeError so callers
@@ -32,6 +39,7 @@ func Decode(b []byte) (AuditEnvelope, error) {
 	if err := json.Unmarshal(b, &env); err != nil {
 		return AuditEnvelope{}, &DecodeError{Cause: err}
 	}
+	env.Raw = append(env.Raw[:0:0], b...)
 	return env, nil
 }
 

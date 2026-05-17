@@ -70,6 +70,7 @@ type Store interface {
 	RestoreBranch(ctx context.Context, datasetID uuid.UUID, branch string) (*models.RuntimeBranch, error)
 	ListBranchMarkings(ctx context.Context, branchID uuid.UUID) ([]models.BranchMarking, error)
 	CompareBranches(ctx context.Context, datasetID uuid.UUID, base string, compare string) (*models.BranchCompareResponse, error)
+	MergeRuntimeBranch(ctx context.Context, datasetID uuid.UUID, target string, source string, actor uuid.UUID) (*models.MergeBranchResult, error)
 	RollbackBranch(ctx context.Context, datasetID uuid.UUID, branch string, body *models.RollbackBody, actor uuid.UUID) (map[string]any, error)
 	ForceSnapshotOnNextBuild(ctx context.Context, datasetID uuid.UUID, branch string, body *models.ForceSnapshotBody, actor uuid.UUID) (*models.RuntimeBranch, error)
 	ConsumeForceSnapshotOnNextBuild(ctx context.Context, datasetID uuid.UUID, branchID uuid.UUID, transactionID uuid.UUID) error

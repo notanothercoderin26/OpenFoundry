@@ -22,10 +22,11 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/marketplace"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/productdistribution"
+	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/products"
 )
 
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
-	r := buildRouter(cfg, jwt, h, d, m, probes...)
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, p *products.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, jwt, h, d, p, m, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -34,11 +35,11 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *
 	}
 }
 
-func BuildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
-	return buildRouter(cfg, jwt, h, d, m, probes...)
+func BuildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, p *products.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, jwt, h, d, p, m, probes...)
 }
 
-func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) chi.Router {
+func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, p *products.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -111,6 +112,21 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handl
 		})
 	}
 
+	if p != nil {
+		r.Route("/api/v1/marketplace/products", func(api chi.Router) {
+			if jwt != nil {
+				api.Use(authmw.Middleware(jwt))
+			}
+			api.Get("/", p.ListProducts)
+			api.Post("/", p.CreateProduct)
+			api.Get("/installations", p.ListInstallations)
+			api.Post("/installations/{rid}/uninstall", p.Uninstall)
+			api.Get("/{rid}", p.GetProduct)
+			api.Post("/{rid}/versions", p.PublishVersion)
+			api.Post("/{rid}/install", p.InstallProduct)
+		})
+	}
+
 	if d != nil {
 		r.Route("/api/v1/product-distribution", func(api chi.Router) {
 			if jwt != nil {
@@ -135,7 +151,7 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handl
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "federation",
-		AuthPaths: []string{"/api/v1/marketplace", "/v1/marketplace", "/v1/products", "/api/v1/product-distribution"},
+		AuthPaths: []string{"/api/v1/marketplace", "/v1/marketplace", "/v1/products", "/api/v1/product-distribution", "/api/v1/marketplace/products"},
 		Tags:      []string{"marketplace"},
 	}); err != nil {
 		panic("federation-product-exchange-service: capability ingest failed: " + err.Error())

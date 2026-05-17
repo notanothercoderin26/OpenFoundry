@@ -140,3 +140,16 @@ type LinkStore interface {
 	ListOutgoing(ctx context.Context, tenant TenantId, lt LinkTypeId, from ObjectId, page Page, c ReadConsistency) (PagedResult[Link], error)
 	ListIncoming(ctx context.Context, tenant TenantId, lt LinkTypeId, to ObjectId, page Page, c ReadConsistency) (PagedResult[Link], error)
 }
+
+// IncidentLinkDeleter is the optional cascade-delete contract used by
+// the ontology DeleteObject handler. Stores that can scan their full
+// link surface (in-memory) implement this directly; the Cassandra
+// adapter wires it as a no-op (returns 0 + a guidance comment) because
+// the production cassandra-kernel link tables are keyed on
+// `(link_type_rid, src/dst)` and a scan across all link types is
+// degenerate without a separate index. The handler degrades to a soft
+// "best-effort" cascade in that case and the FK-equivalent cleanup is
+// expected to come from the indexer / outbox.
+type IncidentLinkDeleter interface {
+	DeleteIncident(ctx context.Context, tenant TenantId, id ObjectId) (int, error)
+}

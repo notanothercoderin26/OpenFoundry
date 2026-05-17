@@ -101,6 +101,46 @@ func (h *Handlers) BranchAncestry(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, payload)
 }
 
+// MergeBranch fast-forwards a target branch to a source branch's HEAD.
+// Path branch is the target; the body carries the source. v1 only does
+// FF (see Repo.MergeRuntimeBranch); diverged target or unrelated
+// branches return 412 via writeBranchError.
+func (h *Handlers) MergeBranch(w http.ResponseWriter, r *http.Request) {
+	datasetID, ok := h.resolveDatasetForCatalog(w, r)
+	if !ok {
+		return
+	}
+	claims, ok := h.requireDatasetWrite(w, r, datasetID)
+	if !ok {
+		return
+	}
+	var body models.MergeBranchBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	source := strings.TrimSpace(body.SourceBranch)
+	if source == "" {
+		writeJSONErr(w, http.StatusBadRequest, "source_branch is required")
+		return
+	}
+	target := branchNameParam(r)
+	out, err := h.Repo.MergeRuntimeBranch(r.Context(), datasetID, target, source, claims.Sub)
+	if err != nil {
+		writeBranchError(w, err)
+		return
+	}
+	h.emitAudit(r.Context(), AuditEvent{Actor: claims.Sub.String(), Action: "dataset.branch.merge", DatasetRID: datasetID.String(), Details: map[string]any{
+		"target_branch":                 target,
+		"source_branch":                 source,
+		"previous_head_transaction_rid": out.PreviousHeadTransactionRID,
+		"new_head_transaction_rid":      out.NewHeadTransactionRID,
+		"fast_forwarded":                out.FastForwarded,
+		"already_merged":                out.AlreadyMerged,
+	}})
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (h *Handlers) PreviewDeleteBranch(w http.ResponseWriter, r *http.Request) {
 	datasetID, ok := h.resolveDatasetForCatalog(w, r)
 	if !ok {

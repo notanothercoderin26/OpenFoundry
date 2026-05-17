@@ -31,6 +31,8 @@ import (
 	pythonsidecar "github.com/openfoundry/openfoundry-go/libs/python-sidecar"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/kernel"
+	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/kernelgw"
+	nbrepo "github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/server"
 )
 
@@ -83,6 +85,16 @@ func main() {
 			} else {
 				defer pool.Close()
 				log.Info("DB pool ready")
+				// Apply service-owned migrations (today: notebook_kernels
+				// mapping table for the gateway proxy). Idempotent — safe
+				// to run on every boot.
+				migCtx, cancelMig := context.WithTimeout(ctx, 30*time.Second)
+				if err := nbrepo.Migrate(migCtx, pool); err != nil {
+					log.Error("migrate failed", slog.String("error", err.Error()))
+					cancelMig()
+					os.Exit(1)
+				}
+				cancelMig()
 			}
 		}
 	} else {
@@ -121,7 +133,44 @@ func main() {
 	if pool != nil {
 		nbProbes = append(nbProbes, probes.Postgres("primary", pool))
 	}
-	srv := server.NewWithKernel(cfg, pool, metrics, pyKernel, nbProbes...)
+
+	// jupyter/kernel-gateway proxy. Only wires up when both the URL is
+	// configured and a DB pool is available — the mapping table lives in
+	// Postgres and we don't have an in-memory shim for it yet.
+	var gw server.GatewayDeps
+	if cfg.KernelGatewayHTTPURL != "" && pool != nil {
+		client, err := kernelgw.New(kernelgw.Config{
+			HTTPBaseURL: cfg.KernelGatewayHTTPURL,
+			WSBaseURL:   cfg.KernelGatewayWSURL,
+			AuthToken:   cfg.KernelGatewayAuthToken,
+		})
+		if err != nil {
+			log.Error("kernel-gateway client init failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		mappings := kernelgw.PostgresMappingRepo{Pool: pool}
+		gw = server.GatewayDeps{
+			Client:   client,
+			Mappings: mappings,
+			Guard:    kernelgw.NoopGuard{Log: log},
+		}
+		// Start the idle GC. It exits when ctx is cancelled.
+		gc := &kernelgw.GC{
+			Repo:        mappings,
+			Client:      client,
+			IdleTimeout: time.Duration(cfg.KernelIdleTimeoutSeconds) * time.Second,
+			Interval:    time.Duration(cfg.KernelGCIntervalSeconds) * time.Second,
+			Log:         log,
+		}
+		go gc.Run(ctx)
+		log.Info("kernel-gateway proxy enabled",
+			slog.String("http_url", cfg.KernelGatewayHTTPURL),
+			slog.Duration("idle_timeout", time.Duration(cfg.KernelIdleTimeoutSeconds)*time.Second))
+	} else if cfg.KernelGatewayHTTPURL != "" && pool == nil {
+		log.Warn("KERNEL_GATEWAY_HTTP_URL set but DATABASE_URL missing — gateway proxy disabled")
+	}
+
+	srv := server.NewWithDeps(cfg, pool, metrics, pyKernel, gw, nbProbes...)
 	if err := run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

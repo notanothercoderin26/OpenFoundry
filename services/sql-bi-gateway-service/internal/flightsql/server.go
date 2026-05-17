@@ -21,6 +21,7 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	queryengine "github.com/openfoundry/openfoundry-go/libs/query-engine"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/audit"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/auth"
+	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/catalog"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/routing"
 )
@@ -63,21 +65,22 @@ var (
 type Service struct {
 	flightsql.BaseServer
 
-	cfg    *config.Config
-	ctx    *queryengine.QueryContext
-	router *routing.BackendRouter
-	auth   *auth.Authenticator
-	log    *slog.Logger
-	alloc  memory.Allocator
+	cfg     *config.Config
+	ctx     *queryengine.QueryContext
+	router  *routing.BackendRouter
+	auth    *auth.Authenticator
+	catalog *catalog.Client
+	log     *slog.Logger
+	alloc   memory.Allocator
 
 	mu     sync.Mutex
 	srv    flight.Server
 	closed chan struct{}
 }
 
-// New builds a Service. The query context, BackendRouter and
-// Authenticator are resolved here once so they are stable across
-// requests.
+// New builds a Service. The query context, BackendRouter,
+// Authenticator and iceberg-catalog client are resolved here once so
+// they are stable across requests.
 func New(cfg *config.Config, log *slog.Logger) *Service {
 	s := &Service{
 		cfg:    cfg,
@@ -88,9 +91,17 @@ func New(cfg *config.Config, log *slog.Logger) *Service {
 		alloc:  memory.DefaultAllocator,
 		closed: make(chan struct{}),
 	}
+	if cfg.IcebergCatalogURL != "" {
+		s.catalog = catalog.NewClient(cfg.IcebergCatalogURL)
+	}
 	s.BaseServer.Alloc = s.alloc
+	registerSqlInfo(&s.BaseServer, cfg.Service.Version)
 	return s
 }
+
+// SetCatalogClient overrides the iceberg-catalog HTTP client. Used by
+// tests to inject an httptest.Server-backed client.
+func (s *Service) SetCatalogClient(c *catalog.Client) { s.catalog = c }
 
 // Authenticator borrows the gateway's JWT authenticator (useful for
 // in-process tests).
@@ -182,6 +193,26 @@ func (m metadataAdapter) Get(key string) string {
 	return ""
 }
 
+// bearerFromContext extracts the raw JWT (no `Bearer ` prefix) from
+// the incoming gRPC metadata so it can be forwarded to the catalog
+// HTTP client. Returns "" when no token is present — catalog lookups
+// in that case will fall back to the sentinel rows.
+func bearerFromContext(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ""
+	}
+	for _, header := range md.Get("authorization") {
+		switch {
+		case strings.HasPrefix(header, "Bearer "):
+			return strings.TrimSpace(header[len("Bearer "):])
+		case strings.HasPrefix(header, "bearer "):
+			return strings.TrimSpace(header[len("bearer "):])
+		}
+	}
+	return ""
+}
+
 // authenticate pulls the bearer JWT from the gRPC metadata, decodes
 // it via the Authenticator and returns the resulting
 // AuthenticatedRequest plus EnforcedQuotas. When AllowAnonymous is
@@ -262,9 +293,9 @@ func (s *Service) DoGetStatement(ctx context.Context, ticket flightsql.Statement
 	case bytesEqual(handle, sentinelCatalogs):
 		return s.serveCatalogs()
 	case bytesEqual(handle, sentinelSchemas):
-		return s.serveSchemas()
+		return s.serveSchemas(ctx, bearerFromContext(ctx))
 	case bytesEqual(handle, sentinelTables):
-		return s.serveTables()
+		return s.serveTables(ctx, bearerFromContext(ctx))
 	}
 
 	sql := string(handle)
@@ -323,21 +354,24 @@ func (s *Service) GetFlightInfoCatalogs(ctx context.Context, desc *flight.Flight
 }
 
 // GetFlightInfoSchemas returns a FlightInfo carrying the
-// `__schemas__` sentinel.
+// `__schemas__` sentinel. TotalRecords is reported as `-1` because the
+// real row count is only known once iceberg-catalog-service responds —
+// the BI client adapts to a streaming-unknown size the same way it
+// does for arbitrary SELECTs.
 func (s *Service) GetFlightInfoSchemas(ctx context.Context, _ flightsql.GetDBSchemas, desc *flight.FlightDescriptor) (*flight.FlightInfo, error) {
 	if _, _, err := s.authenticate(ctx); err != nil {
 		return nil, err
 	}
-	return s.flightInfoForSentinel(desc, sentinelSchemas, int64(len(routing.AllBackends()))), nil
+	return s.flightInfoForSentinel(desc, sentinelSchemas, -1), nil
 }
 
 // GetFlightInfoTables returns a FlightInfo carrying the `__tables__`
-// sentinel.
+// sentinel. See [GetFlightInfoSchemas] for the rationale behind `-1`.
 func (s *Service) GetFlightInfoTables(ctx context.Context, _ flightsql.GetTables, desc *flight.FlightDescriptor) (*flight.FlightInfo, error) {
 	if _, _, err := s.authenticate(ctx); err != nil {
 		return nil, err
 	}
-	return s.flightInfoForSentinel(desc, sentinelTables, int64(len(routing.AllBackends()))), nil
+	return s.flightInfoForSentinel(desc, sentinelTables, -1), nil
 }
 
 // DoGetCatalogs / DoGetDBSchemas / DoGetTables delegate to the
@@ -354,14 +388,14 @@ func (s *Service) DoGetDBSchemas(ctx context.Context, _ flightsql.GetDBSchemas) 
 	if _, _, err := s.authenticate(ctx); err != nil {
 		return nil, nil, err
 	}
-	return s.serveSchemas()
+	return s.serveSchemas(ctx, bearerFromContext(ctx))
 }
 
 func (s *Service) DoGetTables(ctx context.Context, _ flightsql.GetTables) (*arrow.Schema, <-chan flight.StreamChunk, error) {
 	if _, _, err := s.authenticate(ctx); err != nil {
 		return nil, nil, err
 	}
-	return s.serveTables()
+	return s.serveTables(ctx, bearerFromContext(ctx))
 }
 
 // flightInfoForSentinel builds a FlightInfo whose only endpoint
@@ -398,42 +432,132 @@ func (s *Service) serveCatalogs() (*arrow.Schema, <-chan flight.StreamChunk, err
 	return schema, wrapBatch(rec), nil
 }
 
-// serveSchemas returns one row per registered backend.
-func (s *Service) serveSchemas() (*arrow.Schema, <-chan flight.StreamChunk, error) {
-	schema := arrow.NewSchema([]arrow.Field{
-		{Name: "catalog_name", Type: arrow.BinaryTypes.String, Nullable: false},
-		{Name: "db_schema_name", Type: arrow.BinaryTypes.String, Nullable: false},
-	}, nil)
-	backends := routing.AllBackends()
+// schemasArrowSchema is the Arrow schema for the `GetSchemas` response
+// stream — shared by the catalog and sentinel paths so BI clients see a
+// stable shape regardless of whether iceberg-catalog is reachable.
+var schemasArrowSchema = arrow.NewSchema([]arrow.Field{
+	{Name: "catalog_name", Type: arrow.BinaryTypes.String, Nullable: false},
+	{Name: "db_schema_name", Type: arrow.BinaryTypes.String, Nullable: false},
+}, nil)
 
+// tablesArrowSchema is the Arrow schema for the `GetTables` response
+// stream. See [schemasArrowSchema] for why it's hoisted to a package
+// var.
+var tablesArrowSchema = arrow.NewSchema([]arrow.Field{
+	{Name: "catalog_name", Type: arrow.BinaryTypes.String, Nullable: false},
+	{Name: "db_schema_name", Type: arrow.BinaryTypes.String, Nullable: false},
+	{Name: "table_name", Type: arrow.BinaryTypes.String, Nullable: false},
+	{Name: "table_type", Type: arrow.BinaryTypes.String, Nullable: false},
+}, nil)
+
+// serveSchemas returns one row per discoverable namespace. When
+// iceberg-catalog-service is configured, fetches the real namespace
+// list with the BI client's bearer token; otherwise falls back to the
+// per-backend sentinel rows so the BI navigator stays non-empty.
+func (s *Service) serveSchemas(ctx context.Context, bearer string) (*arrow.Schema, <-chan flight.StreamChunk, error) {
+	if s.catalog != nil {
+		namespaces, err := s.catalog.ListNamespaces(ctx, bearer)
+		if err != nil {
+			s.log.Warn("flight-sql: iceberg-catalog ListNamespaces failed; falling back to sentinel schemas",
+				slog.String("error", err.Error()))
+			return s.serveSchemasSentinel()
+		}
+		return schemasArrowSchema, s.buildSchemasBatch(toSchemaNames(namespaces)), nil
+	}
+	return s.serveSchemasSentinel()
+}
+
+// serveTables returns one row per dataset visible through the
+// configured iceberg-catalog. The BI client's bearer token is
+// propagated so the catalog enforces the same row-level / marking
+// authorization a direct REST caller would see. Falls back to a
+// per-backend `_meta` placeholder when no catalog is configured.
+func (s *Service) serveTables(ctx context.Context, bearer string) (*arrow.Schema, <-chan flight.StreamChunk, error) {
+	if s.catalog != nil {
+		rows, err := s.collectCatalogTables(ctx, bearer)
+		if err != nil {
+			s.log.Warn("flight-sql: iceberg-catalog table walk failed; falling back to sentinel tables",
+				slog.String("error", err.Error()))
+			return s.serveTablesSentinel()
+		}
+		return tablesArrowSchema, s.buildTablesBatch(rows), nil
+	}
+	return s.serveTablesSentinel()
+}
+
+// collectCatalogTables walks every namespace surfaced by
+// iceberg-catalog and collects the table identifiers under each. The
+// fan-out is sequential to keep the catalog's per-tenant rate limits
+// happy on connection bring-up.
+func (s *Service) collectCatalogTables(ctx context.Context, bearer string) ([]tableRow, error) {
+	namespaces, err := s.catalog.ListNamespaces(ctx, bearer)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]tableRow, 0, len(namespaces))
+	for _, ns := range namespaces {
+		if len(ns) == 0 {
+			continue
+		}
+		ids, err := s.catalog.ListTables(ctx, bearer, ns)
+		if err != nil {
+			return nil, err
+		}
+		schemaName := strings.Join(ns, ".")
+		for _, id := range ids {
+			rows = append(rows, tableRow{
+				schemaName: schemaName,
+				tableName:  id.Name,
+			})
+		}
+	}
+	return rows, nil
+}
+
+// tableRow is the minimal shape projected into the GetTables Arrow
+// batch — one row per real catalog table.
+type tableRow struct {
+	schemaName string
+	tableName  string
+}
+
+// toSchemaNames flattens namespace paths to dotted strings, dropping
+// empty entries so the schema column stays NOT-NULL safe.
+func toSchemaNames(namespaces [][]string) []string {
+	out := make([]string, 0, len(namespaces))
+	for _, ns := range namespaces {
+		if len(ns) == 0 {
+			continue
+		}
+		out = append(out, strings.Join(ns, "."))
+	}
+	return out
+}
+
+// buildSchemasBatch materialises the GetSchemas Arrow batch from a
+// list of schema names — shared between the catalog and sentinel
+// paths.
+func (s *Service) buildSchemasBatch(schemaNames []string) <-chan flight.StreamChunk {
 	cat := array.NewStringBuilder(s.alloc)
 	defer cat.Release()
 	sch := array.NewStringBuilder(s.alloc)
 	defer sch.Release()
-	for _, b := range backends {
+	for _, name := range schemaNames {
 		cat.Append(GatewayCatalog)
-		sch.Append(string(b))
+		sch.Append(name)
 	}
 	catCol, schCol := cat.NewArray(), sch.NewArray()
 	defer catCol.Release()
 	defer schCol.Release()
-	rec := array.NewRecordBatch(schema, []arrow.Array{catCol, schCol}, int64(len(backends)))
-	return schema, wrapBatch(rec), nil
+	rec := array.NewRecordBatch(schemasArrowSchema,
+		[]arrow.Array{catCol, schCol}, int64(len(schemaNames)))
+	return wrapBatch(rec)
 }
 
-// serveTables returns one placeholder `_meta` row per backend so the
-// BI navigator tree is non-empty even before catalog metadata is
-// wired in. Real tables are still discoverable via standard
-// `SHOW TABLES` / `information_schema` queries.
-func (s *Service) serveTables() (*arrow.Schema, <-chan flight.StreamChunk, error) {
-	schema := arrow.NewSchema([]arrow.Field{
-		{Name: "catalog_name", Type: arrow.BinaryTypes.String, Nullable: false},
-		{Name: "db_schema_name", Type: arrow.BinaryTypes.String, Nullable: false},
-		{Name: "table_name", Type: arrow.BinaryTypes.String, Nullable: false},
-		{Name: "table_type", Type: arrow.BinaryTypes.String, Nullable: false},
-	}, nil)
-	backends := routing.AllBackends()
-
+// buildTablesBatch materialises the GetTables Arrow batch from a list
+// of (schema, table) rows — shared between the catalog and sentinel
+// paths.
+func (s *Service) buildTablesBatch(rows []tableRow) <-chan flight.StreamChunk {
 	cat := array.NewStringBuilder(s.alloc)
 	defer cat.Release()
 	sch := array.NewStringBuilder(s.alloc)
@@ -442,10 +566,10 @@ func (s *Service) serveTables() (*arrow.Schema, <-chan flight.StreamChunk, error
 	defer name.Release()
 	kind := array.NewStringBuilder(s.alloc)
 	defer kind.Release()
-	for _, b := range backends {
+	for _, row := range rows {
 		cat.Append(GatewayCatalog)
-		sch.Append(string(b))
-		name.Append("_meta")
+		sch.Append(row.schemaName)
+		name.Append(row.tableName)
 		kind.Append("TABLE")
 	}
 	catCol, schCol, nameCol, kindCol :=
@@ -454,9 +578,32 @@ func (s *Service) serveTables() (*arrow.Schema, <-chan flight.StreamChunk, error
 	defer schCol.Release()
 	defer nameCol.Release()
 	defer kindCol.Release()
-	rec := array.NewRecordBatch(schema, []arrow.Array{catCol, schCol, nameCol, kindCol},
-		int64(len(backends)))
-	return schema, wrapBatch(rec), nil
+	rec := array.NewRecordBatch(tablesArrowSchema,
+		[]arrow.Array{catCol, schCol, nameCol, kindCol}, int64(len(rows)))
+	return wrapBatch(rec)
+}
+
+// serveSchemasSentinel returns one row per registered backend — used
+// when iceberg-catalog-service is not configured.
+func (s *Service) serveSchemasSentinel() (*arrow.Schema, <-chan flight.StreamChunk, error) {
+	backends := routing.AllBackends()
+	names := make([]string, len(backends))
+	for i, b := range backends {
+		names[i] = string(b)
+	}
+	return schemasArrowSchema, s.buildSchemasBatch(names), nil
+}
+
+// serveTablesSentinel returns one placeholder `_meta` row per backend
+// so the BI navigator tree is non-empty even before catalog metadata
+// is wired in.
+func (s *Service) serveTablesSentinel() (*arrow.Schema, <-chan flight.StreamChunk, error) {
+	backends := routing.AllBackends()
+	rows := make([]tableRow, len(backends))
+	for i, b := range backends {
+		rows[i] = tableRow{schemaName: string(b), tableName: "_meta"}
+	}
+	return tablesArrowSchema, s.buildTablesBatch(rows), nil
 }
 
 // wrapBatch returns a closed channel populated with a single
@@ -581,6 +728,23 @@ func (s *Service) audit(sql string, authReq *auth.AuthenticatedRequest, decision
 		Duration:   duration,
 		Outcome:    outcome,
 	}.Emit()
+}
+
+// registerSqlInfo seeds the Flight SQL server's SqlInfo map with the
+// minimum entries Tableau / Superset / DBeaver request on connect.
+// Without these the base server answers GetFlightInfoSqlInfo with
+// NotFound and the BI client refuses to advance past the
+// version-handshake step.
+func registerSqlInfo(b *flightsql.BaseServer, version string) {
+	if version == "" {
+		version = "dev"
+	}
+	_ = b.RegisterSqlInfo(flightsql.SqlInfoFlightSqlServerName, "openfoundry-sql-bi-gateway")
+	_ = b.RegisterSqlInfo(flightsql.SqlInfoFlightSqlServerVersion, version)
+	_ = b.RegisterSqlInfo(flightsql.SqlInfoFlightSqlServerArrowVersion, "18.0.0")
+	_ = b.RegisterSqlInfo(flightsql.SqlInfoFlightSqlServerReadOnly, true)
+	_ = b.RegisterSqlInfo(flightsql.SqlInfoFlightSqlServerSql, true)
+	_ = b.RegisterSqlInfo(flightsql.SqlInfoFlightSqlServerSubstrait, false)
 }
 
 // bytesEqual is a tiny constant-time-free byte comparator. Used only

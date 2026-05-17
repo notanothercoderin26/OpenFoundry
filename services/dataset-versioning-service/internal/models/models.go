@@ -659,6 +659,22 @@ type RuntimeBranch struct {
 	UpdatedAt                time.Time  `json:"updated_at"`
 }
 
+// MergeBranchBody is the JSON body of POST /api/v1/datasets/{rid}/branches/{target}:merge.
+// The target is taken from the URL path; only the source branch travels in the body.
+type MergeBranchBody struct {
+	SourceBranch string `json:"source_branch"`
+}
+
+// MergeBranchResult is the JSON returned by the merge endpoint. Mirrors
+// proto MergeBranchResponse.
+type MergeBranchResult struct {
+	Branch                      RuntimeBranch `json:"branch"`
+	PreviousHeadTransactionRID  *string       `json:"previous_head_transaction_rid"`
+	NewHeadTransactionRID       *string       `json:"new_head_transaction_rid"`
+	FastForwarded               bool          `json:"fast_forwarded"`
+	AlreadyMerged               bool          `json:"already_merged"`
+}
+
 type FoundryBranch struct {
 	Name           string  `json:"name"`
 	TransactionRID *string `json:"transactionRid,omitempty"`

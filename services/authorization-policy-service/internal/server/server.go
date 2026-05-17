@@ -92,6 +92,32 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/role-sets/{id}/delegation:check", h.CheckRoleSetDelegation)
 		api.Get("/operations", h.ListOperations)
 
+		// SG.11-SG.12: marking categories and markings are immutable
+		// security metadata containers. DELETE / category-move routes
+		// are mounted deliberately so callers receive audited "hide /
+		// recreate instead" rejections instead of silent 404s.
+		api.Get("/marking-categories", h.ListMarkingCategories)
+		api.Post("/marking-categories", h.CreateMarkingCategory)
+		api.Get("/marking-categories/{id}", h.GetMarkingCategory)
+		api.Patch("/marking-categories/{id}", h.UpdateMarkingCategory)
+		api.Delete("/marking-categories/{id}", h.DeleteMarkingCategory)
+		api.Get("/marking-categories/{id}/markings", h.ListMarkingsForCategory)
+		api.Post("/marking-categories/{id}/markings", h.CreateMarking)
+		api.Put("/marking-categories/{id}/permissions", h.UpsertMarkingCategoryPermission)
+		api.Delete("/marking-categories/{id}/permissions/{principal_kind}/{principal_id}/{permission}", h.DeleteMarkingCategoryPermission)
+		api.Get("/marking-categories/{id}/audit-events", h.ListMarkingCategoryAuditEvents)
+		api.Get("/markings/{id}", h.GetMarking)
+		api.Patch("/markings/{id}", h.UpdateMarking)
+		api.Delete("/markings/{id}", h.DeleteMarking)
+		api.Put("/markings/{id}/category", h.MoveMarkingCategory)
+		api.Post("/markings/{id}/permission-check", h.CheckMarkingPermission)
+		api.Put("/markings/{id}/permissions", h.UpsertMarkingPermission)
+		api.Delete("/markings/{id}/permissions/{principal_kind}/{principal_id}/{permission}", h.DeleteMarkingPermission)
+		api.Get("/markings/{id}/audit-events", h.ListMarkingAuditEvents)
+		api.Get("/resource-markings", h.ListResourceMarkings)
+		api.Post("/resource-markings", h.ApplyResourceMarking)
+		api.Post("/resource-markings/remove", h.RemoveResourceMarking)
+
 		api.Get("/governance-template-applications", h.ListGovernanceTemplateApplications)
 		api.Post("/governance-template-applications", h.ApplyGovernanceTemplate)
 		api.Delete("/governance-template-applications/{id}", h.DeleteGovernanceTemplateApplication)

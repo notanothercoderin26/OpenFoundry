@@ -30,6 +30,10 @@ import (
 type Options struct {
 	JWT      *authmw.JWTConfig
 	Handlers *handlers.Handlers
+	// Graph hosts the OpenLineage upstream/downstream/runs/events
+	// surface. Nullable so HTTP-health-only mode (or tests that pin
+	// only the legacy surface) can leave it unset.
+	Graph *handlers.GraphHandlers
 }
 
 func New(cfg *config.Config, m *observability.Metrics, opts *Options, probes ...capabilities.DependencyProbe) *http.Server {
@@ -89,6 +93,20 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options, pr
 
 			api.Post("/workflows/{id}/sync", opts.Handlers.SyncWorkflowLineage)
 			api.Delete("/workflows/{id}", opts.Handlers.DeleteWorkflowLineage)
+
+			if opts.Graph != nil {
+				// OpenLineage dataset-level graph surface. The rid is a
+				// chi wildcard so a `<namespace>/<name>` RID round-trips
+				// without URL-escaping the slash; the handler also
+				// accepts a single segment for compatibility with the
+				// task contract.
+				api.Get("/upstream/{rid}", opts.Graph.Upstream)
+				api.Get("/upstream/*", opts.Graph.Upstream)
+				api.Get("/downstream/{rid}", opts.Graph.Downstream)
+				api.Get("/downstream/*", opts.Graph.Downstream)
+				api.Get("/job/{namespace}/{name}/runs", opts.Graph.JobRuns)
+				api.Post("/events", opts.Graph.PostEvent)
+			}
 		})
 	}
 

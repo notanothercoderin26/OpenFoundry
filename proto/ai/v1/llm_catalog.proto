@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+// LLM catalog + unified invocation surface. The single entry-point any
+// AIP-style flow uses to register, list, and invoke an LLM regardless of
+// upstream provider (Anthropic, OpenAI, Ollama, Bedrock, ...). Handlers
+// in services/llm-catalog-service implement this service over HTTP/JSON;
+// the proto is the source of truth for the wire shape.
+package open_foundry.ai.v1;
+
+import "common/types.proto";
+import "google/protobuf/timestamp.proto";
+
+service LlmCatalogService {
+  // Catalog admin (admin role required).
+  rpc RegisterModel(RegisterModelRequest) returns (Model);
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+  rpc GetModel(GetModelRequest) returns (Model);
+  rpc EnableModel(EnableModelRequest) returns (Model);
+  rpc DisableModel(DisableModelRequest) returns (Model);
+
+  // Unified invocation (any authenticated caller).
+  rpc Invoke(InvokeRequest) returns (InvokeResponse);
+  rpc InvokeStream(InvokeRequest) returns (stream InvokeStreamChunk);
+}
+
+// Provider enumeration. Anthropic and OpenAI-compatible (also covers
+// Ollama and vLLM via the chat_completions API mode) are wired in v1;
+// BEDROCK is reserved — registration succeeds, invocation returns
+// UNIMPLEMENTED.
+enum Provider {
+  PROVIDER_UNSPECIFIED = 0;
+  ANTHROPIC            = 1;
+  OPENAI               = 2;
+  OLLAMA               = 3;
+  BEDROCK              = 4;
+}
+
+// Capabilities advertised by a registered model. Capability filtering is
+// applied at the planner layer; the invoke handler does not enforce.
+enum Capability {
+  CAPABILITY_UNSPECIFIED = 0;
+  TEXT                   = 1;
+  VISION                 = 2;
+  TOOLS                  = 3;
+}
+
+// Model is one row of the catalog. `rid` is the stable resource handle
+// callers reference in InvokeRequest.
+message Model {
+  open_foundry.common.Uuid rid                    = 1;
+  Provider                 provider               = 2;
+  string                   model_id               = 3;
+  string                   display_name           = 4;
+  int32                    context_window         = 5;
+  double                   input_cost_per_1k      = 6;
+  double                   output_cost_per_1k     = 7;
+  repeated Capability      capabilities           = 8;
+  bool                     enabled                = 9;
+  google.protobuf.Timestamp created_at            = 10;
+  google.protobuf.Timestamp updated_at            = 11;
+}
+
+message RegisterModelRequest {
+  Provider            provider              = 1;
+  string              model_id              = 2;
+  string              display_name          = 3;
+  int32               context_window        = 4;
+  double              input_cost_per_1k     = 5;
+  double              output_cost_per_1k    = 6;
+  repeated Capability capabilities          = 7;
+  bool                enabled               = 8;
+}
+
+message ListModelsRequest {
+  // Optional filters. Empty = no filter.
+  Provider provider = 1;
+  bool     only_enabled = 2;
+}
+
+message ListModelsResponse {
+  repeated Model data = 1;
+}
+
+message GetModelRequest    { open_foundry.common.Uuid rid = 1; }
+message EnableModelRequest { open_foundry.common.Uuid rid = 1; }
+message DisableModelRequest{ open_foundry.common.Uuid rid = 1; }
+
+// Wire-compatible chat message — mirrors the OpenAI chat-completions
+// shape so apps/web speaks one schema across providers.
+message Message {
+  string role    = 1;  // system | user | assistant | tool
+  string content = 2;
+}
+
+// Tool definition (registered for forward-compat — v1 does not execute
+// tools, it just round-trips the schema).
+message Tool {
+  string name        = 1;
+  string description = 2;
+  string parameters_json_schema = 3;
+}
+
+message InvokeRequest {
+  open_foundry.common.Uuid model_rid       = 1;
+  repeated Message         messages        = 2;
+  int32                    max_tokens      = 3;
+  float                    temperature     = 4;
+  repeated Tool            tools           = 5;
+  bool                     stream          = 6;  // hint; server-side stream uses InvokeStream
+}
+
+// Usage block mirrors OpenAI {prompt_tokens, completion_tokens,
+// total_tokens}. completion_tokens is filled from provider counts when
+// available, otherwise estimated.
+message Usage {
+  int32 prompt_tokens     = 1;
+  int32 completion_tokens = 2;
+  int32 total_tokens      = 3;
+}
+
+message InvokeResponse {
+  repeated Message  messages   = 1;
+  Usage             usage      = 2;
+  string            model_rid  = 3;   // echo for client correlation
+  double            cost_usd   = 4;
+}
+
+message InvokeStreamChunk {
+  string delta = 1;          // token / partial content
+  bool   done  = 2;          // last chunk for the stream
+  Usage  usage = 3;          // populated on the last chunk only
+}

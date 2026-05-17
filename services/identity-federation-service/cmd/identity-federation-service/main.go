@@ -101,8 +101,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	var mfaSealer *service.Sealer
+	if cfg.MFAAtRestKey != "" {
+		mfaSealer, err = service.NewSealerFromBase64Key(cfg.MFAAtRestKey)
+		if err != nil {
+			log.Error("mfa at-rest sealer init failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+	} else {
+		log.Warn("MFA_AT_REST_KEY unset — TOTP enrolment will return 503 until configured")
+	}
+
 	auth := &handlers.Auth{Repo: r, Issuer: issuer, WebAuthn: waService}
-	mfa := &handlers.MFA{JWT: jwt, Repo: r, Issuer: issuer}
+	mfa := &handlers.MFA{JWT: jwt, Repo: r, Issuer: issuer, Sealer: mfaSealer}
 	wa := &handlers.WebAuthn{JWT: jwt, Repo: r, Service: waService, Issuer: issuer}
 	sso := &handlers.SSO{Repo: r, OIDC: oidcSvc, Issuer: issuer}
 	ssoAdmin := handlers.NewSsoAdmin(r, nil)

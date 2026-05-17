@@ -1,13 +1,11 @@
-// Command iceberg-catalog-service hosts the Foundry Iceberg REST
-// Catalog (Apache Iceberg REST Catalog OpenAPI spec + Foundry-internal
-// admin surface).
+// Command solution-design-service hosts the Foundry solution-design
+// surface (solution_diagrams + solution_references CRUD behind JWT auth).
 package main
 
 import (
 	"context"
 	"errors"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,13 +13,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
-	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/authz"
-	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/config"
-	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/handlers"
-	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/handlers/auth"
-	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/repo"
-	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/server"
+	"github.com/openfoundry/openfoundry-go/services/solution-design-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/solution-design-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/solution-design-service/internal/repo"
+	"github.com/openfoundry/openfoundry-go/services/solution-design-service/internal/server"
 )
 
 var version = "dev"
@@ -58,34 +55,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	jwt := authmw.NewJWTConfig(cfg.JWTSecret).
-		WithIssuer(cfg.JWTIssuer).
-		WithAudience(cfg.JWTAudience)
-	repoBackend := &repo.Repo{Pool: pool}
-	h := &handlers.Handlers{Repo: repoBackend}
-	mh := &handlers.MarkingsHandlers{
-		Store:         repoBackend,
-		Authz:         authz.NewPolicyEngine(cfg.DefaultTenant),
-		DefaultTenant: cfg.DefaultTenant,
-	}
-	bearer := &auth.Config{
-		Secret:              auth.LoadSecret(),
-		JWTAudience:         cfg.JWTAudience,
-		JWTIssuer:           cfg.JWTIssuer,
-		DefaultTokenTTLSecs: cfg.DefaultTokenTTLSecs,
-		DefaultTenant:       cfg.DefaultTenant,
-	}
-	oauthValidator := &auth.HTTPClientValidator{BaseURL: cfg.OAuthIntegrationURL, HTTP: http.DefaultClient}
-
+	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
+	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}}
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, jwt, server.Deps{
-		Handlers:       h,
-		Markings:       mh,
-		Bearer:         bearer,
-		BearerStore:    repoBackend,
-		IssueAPIStore:  repoBackend,
-		OAuthValidator: oauthValidator,
-	}, metrics)
+
+	srv := server.New(cfg, jwt, h, metrics, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

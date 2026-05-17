@@ -303,6 +303,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/control-panel/RoleSetsPage')).RoleSetsPage }),
       },
       {
+        path: 'control-panel/marking-categories',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/MarkingCategoriesPage')).MarkingCategoriesPage }),
+      },
+      {
         path: 'functions',
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionsPage')).FunctionsPage }),
       },

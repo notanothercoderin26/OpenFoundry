@@ -1,41 +1,58 @@
-// Package server hosts the small HTTP surface (healthz + metrics) the
-// sinks expose for the platform's k8s probes and Prometheus scrape.
+// Package server hosts the audit-sink HTTP surface — `/healthz`,
+// `/metrics`, and the read/write `/api/v1/audit/*` API backing
+// AuditService.
 package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
 
-	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
-	"github.com/openfoundry/openfoundry-go/services/audit-sink/internal/runtime"
-
-	"encoding/json"
-
+	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	"github.com/openfoundry/openfoundry-go/services/audit-sink/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/audit-sink/internal/runtime"
 )
 
-// Server bundles a tiny http.Server.
+// Server bundles the chi router + http.Server.
 type Server struct {
-	srv *http.Server
+	srv    *http.Server
+	Router chi.Router
 }
 
-// New wires GET /healthz + GET /metrics on `addr`.
-func New(addr, serviceName, version string, m *runtime.Metrics) *Server {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(health.OK(serviceName, version))
-	})
-	mux.Handle("/metrics", promhttp.HandlerFor(m.Registry,
-		promhttp.HandlerOpts{Registry: m.Registry}))
-
-	return &Server{srv: &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}}
+// New wires:
+//
+//	GET  /healthz
+//	GET  /metrics
+//	GET  /api/v1/audit/events
+//	GET  /api/v1/audit/events/export   (NDJSON stream)
+//	POST /api/v1/audit/events          (write-through; see handlers.RecordEvent)
+//
+// `h` may be nil — in writer-only deployments (no Postgres pool) the
+// API routes are skipped and only /healthz + /metrics are served.
+func New(addr, serviceName, version string, m *runtime.Metrics, h *handlers.Handlers) *Server {
+	r := chi.NewRouter()
+	r.Get("/healthz", healthHandler(serviceName, version))
+	r.Handle("/metrics", promhttp.HandlerFor(m.Registry, promhttp.HandlerOpts{Registry: m.Registry}))
+	if h != nil {
+		r.Route("/api/v1/audit", func(r chi.Router) {
+			r.Get("/events", h.QueryEvents)
+			r.Get("/events/export", h.ExportEvents)
+			r.Post("/events", h.RecordEvent)
+		})
+	}
+	return &Server{
+		srv: &http.Server{
+			Addr:              addr,
+			Handler:           r,
+			ReadHeaderTimeout: 5 * time.Second,
+		},
+		Router: r,
+	}
 }
 
 // Run blocks until ctx is done or the listener returns.
@@ -54,5 +71,12 @@ func (s *Server) Run(ctx context.Context) error {
 		return s.srv.Shutdown(shutdownCtx)
 	case err := <-errCh:
 		return err
+	}
+}
+
+func healthHandler(serviceName, version string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(health.OK(serviceName, version))
 	}
 }

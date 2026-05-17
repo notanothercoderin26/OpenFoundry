@@ -23,6 +23,7 @@ func TestRouteAuditSurfaceGroupedByDomain(t *testing.T) {
 		authmwConfigForTest(),
 		marketplace.NewHandlers(newMemoryRepo()),
 		productdistribution.NewHandlers(newDistributionMemoryRepo()),
+		nil,
 		observability.NewMetrics(),
 	).(chi.Routes)
 	require.True(t, ok, "router must expose chi routes for route-audit parity checks")
@@ -103,6 +104,7 @@ func TestRouteAuditAliasesServeWithHTTPTest(t *testing.T) {
 		jwt,
 		marketplace.NewHandlers(newMemoryRepo()),
 		productdistribution.NewHandlers(newDistributionMemoryRepo()),
+		nil,
 		observability.NewMetrics(),
 	))
 	t.Cleanup(srv.Close)

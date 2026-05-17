@@ -31,6 +31,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/domain/environment"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/domain/notepad"
+	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/kernelgw"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/models"
 	nbrepo "github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/repo"
 )
@@ -46,6 +47,12 @@ type State struct {
 	NotepadRepo  nbrepo.NotepadRepository
 	ListRepo     NotebookListRepository
 	MemoryRepo   *MemoryNotebookRepo
+
+	// jupyter/kernel-gateway proxy deps. All optional — when nil the
+	// gateway-backed routes return 503.
+	KernelGW       *kernelgw.Client
+	KernelMappings kernelgw.MappingRepo
+	ExecuteGuard   kernelgw.ExecuteGuard
 }
 
 func (s *State) smokeMode() bool {

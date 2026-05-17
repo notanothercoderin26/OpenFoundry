@@ -1,0 +1,83 @@
+syntax = "proto3";
+package open_foundry.audit.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// AuditService is the read/write surface for the audit trail.
+//
+// Production callers are expected to publish through libs/audit-trail
+// (Kafka topic audit.events.v1). RecordEvent is the synchronous
+// write-through path retained for low-volume system callers and tests
+// that cannot reach Kafka. The same record lands on `audit_events`.
+service AuditService {
+  rpc RecordEvent(RecordEventRequest) returns (RecordEventResponse);
+  rpc QueryEvents(QueryEventsRequest) returns (QueryEventsResponse);
+  rpc ExportEvents(ExportEventsRequest) returns (stream AuditEventExport);
+}
+
+// AuditEvent is the canonical row shape returned by the query API.
+// Field tags are stable; new optional fields may be appended.
+message AuditEvent {
+  string event_id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string kind = 3;
+  repeated string categories = 4;
+  string actor_id = 5;
+  string resource_rid = 6;
+  string project_rid = 7;
+  string action = 8;
+  repeated string markings_at_event = 9;
+  string source_service = 10;
+  string request_id = 11;
+  string correlation_id = 12;
+  string ip = 13;
+  string user_agent = 14;
+  // payload is the JSON-encoded variant body.
+  bytes payload = 15;
+}
+
+message RecordEventRequest {
+  // Either provide the structured fields below…
+  AuditEvent event = 1;
+  // …or the raw envelope bytes already produced by libs/audit-trail.
+  // When both are set, raw_envelope wins.
+  bytes raw_envelope = 2;
+}
+
+message RecordEventResponse {
+  string event_id = 1;
+}
+
+// QueryEventsRequest filters the audit_events table.
+// All filter fields are AND-combined. Empty/zero values mean "no
+// constraint". `page_size` is clamped to [1, 1000] server-side;
+// pagination uses an opaque `next_cursor` cursor (created_at,event_id).
+message QueryEventsRequest {
+  string actor_id = 1;
+  string resource_rid = 2;
+  string action = 3;
+  google.protobuf.Timestamp from = 4;
+  google.protobuf.Timestamp to = 5;
+  int32 page_size = 6;
+  string cursor = 7;
+}
+
+message QueryEventsResponse {
+  repeated AuditEvent events = 1;
+  string next_cursor = 2;
+}
+
+// ExportEvents streams NDJSON-encoded events. Each AuditEventExport
+// frame carries one event's bytes (`event_ndjson`), allowing clients
+// to write straight to disk without re-encoding.
+message ExportEventsRequest {
+  string actor_id = 1;
+  string resource_rid = 2;
+  string action = 3;
+  google.protobuf.Timestamp from = 4;
+  google.protobuf.Timestamp to = 5;
+}
+
+message AuditEventExport {
+  bytes event_ndjson = 1;
+}

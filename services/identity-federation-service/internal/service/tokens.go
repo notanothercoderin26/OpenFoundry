@@ -22,6 +22,11 @@ type Issuer struct {
 	RefreshTTL time.Duration
 }
 
+// AccessTokenTTL exposes the access-token TTL through the
+// handlers.TokenIssuer interface so handlers can stay decoupled from
+// the concrete struct.
+func (i *Issuer) AccessTokenTTL() time.Duration { return i.AccessTTL }
+
 // IssueTokens creates an access JWT + refresh token for a user.
 //
 // `authMethods` lists the methods that authenticated this session

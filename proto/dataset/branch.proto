@@ -57,3 +57,40 @@ message CreateBranchRequest {
   repeated string fallback_chain = 6;
   map<string, string> labels = 7;
 }
+
+// MergeBranchRequest asks for a fast-forward merge of `source_branch`
+// into `target_branch`. v1 only supports the FF case: the target must
+// not have moved past the source's fork point (target.head ==
+// source.created_from). Three-way merges are explicitly out of scope.
+message MergeBranchRequest {
+  // Dataset RID (ri.foundry.main.dataset.<uuid>) or bare UUID. The
+  // target branch name is normally taken from the URL path; this field
+  // exists so the proto message stands on its own.
+  string dataset_rid = 1;
+  // Branch receiving the new HEAD pointer.
+  string target_branch = 2;
+  // Branch whose HEAD will be projected onto the target.
+  string source_branch = 3;
+}
+
+// MergeBranchResponse echoes the post-merge target branch state plus
+// the transaction RIDs involved so callers don't need a follow-up GET.
+message MergeBranchResponse {
+  // The target branch after the merge applied (HEAD is advanced if the
+  // merge fast-forwarded, unchanged if `already_merged` is true).
+  Branch branch = 1;
+  // Target's HEAD transaction RID *before* the merge. Empty when the
+  // target had no committed transactions yet.
+  string previous_head_transaction_rid = 2;
+  // Target's HEAD transaction RID *after* the merge — same as
+  // `branch.head_transaction_rid`, repeated here for symmetry with
+  // `previous_head_transaction_rid`.
+  string new_head_transaction_rid = 3;
+  // True when the merge moved the target's HEAD forward. False when
+  // the source had no new commits beyond the target — i.e. the merge
+  // was a no-op.
+  bool fast_forwarded = 4;
+  // True when the target already pointed at source.head before the
+  // call. Distinguishes "no work to do" from "we advanced HEAD".
+  bool already_merged = 5;
+}

@@ -915,6 +915,11 @@ services:
       DATA_DIR: /var/lib/openfoundry/notebook-data
       QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
       AI_SERVICE_URL: http://agent-runtime-service:50127
+      KERNEL_GATEWAY_HTTP_URL: http://notebook-kernel-gateway:8888
+      # KERNEL_GATEWAY_AUTH_TOKEN intentionally unset in dev; gateway
+      # is started with --KernelGatewayApp.auth_token='' below.
+      KERNEL_IDLE_TIMEOUT_SECONDS: "1800"
+      KERNEL_GC_INTERVAL_SECONDS: "60"
     depends_on:
       postgres:
         condition: service_healthy
@@ -922,10 +927,37 @@ services:
         condition: service_started
       agent-runtime-service:
         condition: service_started
+      notebook-kernel-gateway:
+        condition: service_healthy
     volumes:
       - notebook_data:/var/lib/openfoundry/notebook-data
     ports:
       - "${OPENFOUNDRY_NOTEBOOK_RUNTIME_HOST_PORT:-50134}:50134"
+
+  # jupyter/kernel-gateway sidecar — backs the gateway-proxy execute
+  # path. Uses the upstream image as-is. `notebook_http` is the API
+  # mode that exposes a REST surface for kernel CRUD + per-kernel WS
+  # at /api/kernels/{id}/channels.
+  # https://jupyter-kernel-gateway.readthedocs.io/
+  notebook-kernel-gateway:
+    image: jupyter/kernel-gateway:2.5.2
+    profiles: *profiles-intelligence
+    command:
+      - jupyter
+      - kernelgateway
+      - --KernelGatewayApp.ip=0.0.0.0
+      - --KernelGatewayApp.port=8888
+      - --KernelGatewayApp.api=kernel_gateway.notebook_http
+      - --KernelGatewayApp.auth_token=
+      - --KernelGatewayApp.allow_origin=*
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8888/api/kernels').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    ports:
+      - "${OPENFOUNDRY_KERNEL_GATEWAY_HOST_PORT:-8888}:8888"
 
   # ── S8 / ADR-0030 — spreadsheet-computation-service merged →
   # notebook-runtime-service. Source was a scaffold placeholder

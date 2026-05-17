@@ -21,17 +21,31 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/handler"
+	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/kernelgw"
 )
+
+// GatewayDeps bundles the optional jupyter/kernel-gateway proxy
+// dependencies. When any of these is nil, the gateway-backed routes
+// return 503.
+type GatewayDeps struct {
+	Client   *kernelgw.Client
+	Mappings kernelgw.MappingRepo
+	Guard    kernelgw.ExecuteGuard
+}
 
 func New(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	return NewWithKernel(cfg, pool, m, nil, probes...)
 }
 
 func NewWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel, probes ...capabilities.DependencyProbe) *http.Server {
+	return NewWithDeps(cfg, pool, m, py, GatewayDeps{}, probes...)
+}
+
+func NewWithDeps(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel, gw GatewayDeps, probes ...capabilities.DependencyProbe) *http.Server {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	return &http.Server{
 		Addr:              addr,
-		Handler:           BuildRouterWithKernel(cfg, pool, m, py, probes...),
+		Handler:           BuildRouterWithDeps(cfg, pool, m, py, gw, probes...),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }
@@ -41,7 +55,18 @@ func BuildRouter(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metric
 }
 
 func BuildRouterWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel, probes ...capabilities.DependencyProbe) http.Handler {
-	state := &handler.State{Cfg: cfg, Pool: pool, PythonKernel: py}
+	return BuildRouterWithDeps(cfg, pool, m, py, GatewayDeps{}, probes...)
+}
+
+func BuildRouterWithDeps(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel, gw GatewayDeps, probes ...capabilities.DependencyProbe) http.Handler {
+	state := &handler.State{
+		Cfg:            cfg,
+		Pool:           pool,
+		PythonKernel:   py,
+		KernelGW:       gw.Client,
+		KernelMappings: gw.Mappings,
+		ExecuteGuard:   gw.Guard,
+	}
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
@@ -83,12 +108,12 @@ func BuildRouterWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observabil
 		api.Patch("/notebooks/{notebook_id}/cells/{cell_id}", state.UpdateCell)
 		api.Delete("/notebooks/{notebook_id}/cells/{cell_id}", state.DeleteCell)
 
-		// Sessions.
+		// Sessions (legacy python-sidecar path).
 		api.Get("/notebooks/{notebook_id}/sessions", state.ListSessions)
 		api.Post("/notebooks/{notebook_id}/sessions", state.CreateSession)
 		api.Post("/notebooks/{notebook_id}/sessions/{session_id}/stop", state.StopSession)
 
-		// Execute.
+		// Execute (legacy python-sidecar / SQL / R / LLM dispatch).
 		api.Post("/notebooks/{notebook_id}/cells/{cell_id}/execute", state.ExecuteCell)
 		api.Post("/notebooks/{notebook_id}/cells/execute-all", state.ExecuteAllCells)
 
@@ -106,6 +131,15 @@ func BuildRouterWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observabil
 		api.Get("/notepad/documents/{document_id}/presence", state.ListPresence)
 		api.Post("/notepad/documents/{document_id}/presence", state.UpsertPresence)
 		api.Post("/notepad/documents/{document_id}/export", state.ExportDocument)
+
+		// jupyter/kernel-gateway proxy surface. CRUD over upstream
+		// kernels + per-session execute streaming.
+		api.Post("/kernels", state.CreateKernel)
+		api.Get("/kernels", state.ListKernels)
+		api.Delete("/kernels/{kernel_id}", state.DeleteKernel)
+		api.Post("/notebooks/{notebook_id}/gateway-sessions", state.CreateGatewaySession)
+		api.Delete("/notebooks/{notebook_id}/gateway-sessions/{session_id}", state.DeleteGatewaySession)
+		api.Post("/notebooks/{notebook_id}/gateway-sessions/{session_id}/execute", state.ExecuteGatewayCell)
 	})
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{

@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	servicecedar "github.com/openfoundry/openfoundry-go/services/object-database-service/internal/cedarauthz"
 	"github.com/openfoundry/openfoundry-go/services/object-database-service/internal/storage"
 )
 
@@ -88,6 +89,10 @@ func toOntologyObject(obj *storage.Object) ontologyObject {
 func (h *Handlers) ListObjectsByOntologyType(w http.ResponseWriter, r *http.Request) {
 	tenant := tenantFromRequest(r)
 	typeID := storage.TypeId(chi.URLParam(r, "type_id"))
+	if ok, err := runCedarGate(h, r, servicecedar.ActionRead(), string(typeID), nil); !ok {
+		writeCedarError(w, err)
+		return
+	}
 
 	q := r.URL.Query()
 	perPage := uint32(25)
@@ -139,7 +144,12 @@ func (h *Handlers) ListObjectsByOntologyType(w http.ResponseWriter, r *http.Requ
 // GetObjectByOntologyType serves GET /api/v1/ontology/types/{type_id}/objects/{object_id}.
 func (h *Handlers) GetObjectByOntologyType(w http.ResponseWriter, r *http.Request) {
 	tenant := tenantFromRequest(r)
+	typeID := chi.URLParam(r, "type_id")
 	objID := storage.ObjectId(chi.URLParam(r, "object_id"))
+	if ok, err := runCedarGate(h, r, servicecedar.ActionRead(), typeID, nil); !ok {
+		writeCedarError(w, err)
+		return
+	}
 	obj, err := h.Objects.Get(r.Context(), tenant, objID, parseConsistency(r.URL.Query().Get("consistency")))
 	if err != nil {
 		writeError(w, err)
@@ -160,6 +170,10 @@ func (h *Handlers) UpdateObjectByOntologyType(w http.ResponseWriter, r *http.Req
 	tenant := tenantFromRequest(r)
 	typeID := storage.TypeId(chi.URLParam(r, "type_id"))
 	objID := storage.ObjectId(chi.URLParam(r, "object_id"))
+	if ok, err := runCedarGate(h, r, servicecedar.ActionWrite(), string(typeID), nil); !ok {
+		writeCedarError(w, err)
+		return
+	}
 
 	var body struct {
 		Properties map[string]any `json:"properties"`
@@ -188,7 +202,7 @@ func (h *Handlers) UpdateObjectByOntologyType(w http.ResponseWriter, r *http.Req
 	for k, v := range body.Properties {
 		props[k] = v
 	}
-	payload, err := json.Marshal(props)
+	payload, err := validateProperties(r.Context(), h.Schemas, string(typeID), props)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -218,9 +232,22 @@ func (h *Handlers) UpdateObjectByOntologyType(w http.ResponseWriter, r *http.Req
 
 // DeleteObjectByOntologyType serves DELETE /api/v1/ontology/types/{type_id}/objects/{object_id}.
 // Matches the SPA's `deleteObject(typeId, objectId)` contract.
+//
+// Cascade: after the object row is removed we sweep every incident
+// link via the optional [storage.IncidentLinkDeleter] hook. The
+// in-memory store implements it synchronously; the Cassandra adapter
+// no-ops and delegates to the indexer (ADR-0020 §S1.7). Failures on
+// the cascade are logged via the response header rather than
+// short-circuiting the request — the object is already gone and the
+// link sweep is asynchronous in production.
 func (h *Handlers) DeleteObjectByOntologyType(w http.ResponseWriter, r *http.Request) {
 	tenant := tenantFromRequest(r)
+	typeID := chi.URLParam(r, "type_id")
 	objID := storage.ObjectId(chi.URLParam(r, "object_id"))
+	if ok, err := runCedarGate(h, r, servicecedar.ActionDelete(), typeID, nil); !ok {
+		writeCedarError(w, err)
+		return
+	}
 	deleted, err := h.Objects.Delete(r.Context(), tenant, objID)
 	if err != nil {
 		writeError(w, err)
@@ -229,6 +256,11 @@ func (h *Handlers) DeleteObjectByOntologyType(w http.ResponseWriter, r *http.Req
 	if !deleted {
 		http.NotFound(w, r)
 		return
+	}
+	if cascader, ok := h.Links.(storage.IncidentLinkDeleter); ok {
+		if n, cerr := cascader.DeleteIncident(r.Context(), tenant, objID); cerr == nil {
+			w.Header().Set("x-of-cascaded-links", strconv.Itoa(n))
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -837,6 +869,10 @@ func scoreKNNVectors(query []float64, candidate []float64, metric string) (float
 func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Request) {
 	tenant := tenantFromRequest(r)
 	typeID := storage.TypeId(chi.URLParam(r, "type_id"))
+	if ok, err := runCedarGate(h, r, servicecedar.ActionRead(), string(typeID), nil); !ok {
+		writeCedarError(w, err)
+		return
+	}
 
 	var body queryRequest
 	dec := json.NewDecoder(r.Body)
@@ -1185,6 +1221,10 @@ func compactStrings(values []string) []string {
 func (h *Handlers) CreateObjectByOntologyType(w http.ResponseWriter, r *http.Request) {
 	tenant := tenantFromRequest(r)
 	typeID := storage.TypeId(chi.URLParam(r, "type_id"))
+	if ok, err := runCedarGate(h, r, servicecedar.ActionWrite(), string(typeID), nil); !ok {
+		writeCedarError(w, err)
+		return
+	}
 
 	var body struct {
 		Properties map[string]any `json:"properties"`
@@ -1193,7 +1233,7 @@ func (h *Handlers) CreateObjectByOntologyType(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	payload, err := json.Marshal(body.Properties)
+	payload, err := validateProperties(r.Context(), h.Schemas, string(typeID), body.Properties)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

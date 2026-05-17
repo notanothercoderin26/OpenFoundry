@@ -47,4 +47,5 @@ go test ./services/sql-bi-gateway-service/...
 | `VESPA_FLIGHT_SQL_URL` | unset |
 | `POSTGRES_FLIGHT_SQL_URL` | unset |
 | `TRINO_FLIGHT_SQL_URL` | unset |
+| `ICEBERG_CATALOG_URL` | unset — when set, `GetSchemas` / `GetTables` proxy to iceberg-catalog-service and forward the BI client's bearer token |
 | `ALLOW_ANONYMOUS` | `false` (set to `true` for local dev only) |

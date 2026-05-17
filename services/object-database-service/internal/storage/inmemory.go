@@ -196,6 +196,25 @@ func (s *InMemoryLinkStore) listLinks(filter func(Link) bool, page Page) PagedRe
 	return PagedResult[Link]{Items: items, NextToken: nil}
 }
 
+// DeleteIncident removes every link whose `from` or `to` equals `id`.
+// Implements the cascade hook used by the ontology DeleteObject
+// handler so unit / integration tests on the in-memory store exercise
+// the same surface the production indexer is expected to emit.
+func (s *InMemoryLinkStore) DeleteIncident(_ context.Context, tenant TenantId, id ObjectId) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	before := len(s.rows)
+	kept := s.rows[:0]
+	for _, l := range s.rows {
+		if l.Tenant == tenant && (l.From == id || l.To == id) {
+			continue
+		}
+		kept = append(kept, l)
+	}
+	s.rows = kept
+	return before - len(s.rows), nil
+}
+
 func (s *InMemoryLinkStore) ListOutgoing(_ context.Context, tenant TenantId, lt LinkTypeId, from ObjectId, page Page, _ ReadConsistency) (PagedResult[Link], error) {
 	return s.listLinks(func(l Link) bool {
 		return l.Tenant == tenant && l.LinkType == lt && l.From == from

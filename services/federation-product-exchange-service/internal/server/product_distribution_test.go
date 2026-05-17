@@ -203,7 +203,7 @@ func newDistributionTestServer(t *testing.T) (*httptest.Server, string, *distrib
 	jwt := authmwConfigForTest()
 	token := testToken(t, jwt)
 	repo := newDistributionMemoryRepo()
-	srv := httptest.NewServer(BuildRouter(cfg, jwt, nil, productdistribution.NewHandlers(repo), observability.NewMetrics()))
+	srv := httptest.NewServer(BuildRouter(cfg, jwt, nil, productdistribution.NewHandlers(repo), nil, observability.NewMetrics()))
 	t.Cleanup(srv.Close)
 	return srv, token, repo
 }

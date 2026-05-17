@@ -1,0 +1,207 @@
+syntax = "proto3";
+package open_foundry.marketplace.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// MarketplaceProductService is the read/write surface for the Foundry
+// "Marketplace products" feature: a Product is a reusable bundle of
+// Ontology types, Action types, Pipelines and Workshop/Slate Apps that
+// can be packaged once and installed many times into different target
+// workspaces.
+//
+// The Go service (federation-product-exchange-service) exposes the same
+// surface over JSON+REST on /api/v1/marketplace/products. This proto is
+// the canonical contract; the JSON shapes mirror the message fields
+// 1:1 (snake_case) so SDKs generated from this file stay in sync with
+// the handlers.
+service MarketplaceProductService {
+  // Creates a Product in DRAFT status. Resources can still be added or
+  // removed up until a version is published. Returns the new Product.
+  rpc CreateProduct(CreateProductRequest) returns (Product);
+
+  // Lists products optionally filtered by status. Page/cursor pagination
+  // mirrors the listings endpoint shape (limit + offset).
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+
+  // GetProduct returns a single product by rid.
+  rpc GetProduct(GetProductRequest) returns (Product);
+
+  // PublishVersion takes a snapshot of every resource referenced by
+  // the product, packages it into a tar.gz bundle whose root contains
+  // a manifest.json (signed with HMAC-SHA256 using MARKETPLACE_SIGN_KEY)
+  // plus per-resource folders, uploads the bundle to object storage,
+  // and records a ProductVersion row.
+  rpc PublishVersion(PublishVersionRequest) returns (ProductVersion);
+
+  // InstallProduct downloads the published bundle, verifies its
+  // signature, then re-creates each resource in the target workspace
+  // by calling the owning service. The returned Installation records
+  // the mapping between the source ref (snapshotted in the bundle)
+  // and the new rid in the target workspace.
+  //
+  // The (product_rid, version, target_workspace_rid) triple is unique:
+  // installing the same bundle twice into the same workspace is a
+  // no-op and returns the prior Installation unchanged.
+  rpc InstallProduct(InstallProductRequest) returns (Installation);
+
+  // ListInstallations returns installations filtered optionally by
+  // target_workspace_rid.
+  rpc ListInstallations(ListInstallationsRequest) returns (ListInstallationsResponse);
+
+  // Uninstall flips an INSTALLED installation back to UNINSTALLED.
+  // Resource cleanup on the target services is best-effort and is the
+  // workspace owner's responsibility (v1 does not cascade deletes).
+  rpc Uninstall(UninstallRequest) returns (Installation);
+}
+
+// ResourceType discriminates the four bundle-eligible resource kinds.
+enum ResourceType {
+  RESOURCE_TYPE_UNSPECIFIED = 0;
+  RESOURCE_TYPE_ONTOLOGY_TYPE = 1;
+  RESOURCE_TYPE_ACTION_TYPE = 2;
+  RESOURCE_TYPE_PIPELINE = 3;
+  RESOURCE_TYPE_APP = 4;
+}
+
+// ProductStatus is the lifecycle of the Product row. Resources cannot
+// be edited once a version has been published unless the product is
+// rolled back to DRAFT (out of scope for v1).
+enum ProductStatus {
+  PRODUCT_STATUS_UNSPECIFIED = 0;
+  PRODUCT_STATUS_DRAFT = 1;
+  PRODUCT_STATUS_PUBLISHED = 2;
+  PRODUCT_STATUS_ARCHIVED = 3;
+}
+
+// InstallationStatus is the lifecycle of one install attempt. The
+// transitions are PENDING → INSTALLING → INSTALLED|FAILED; the
+// terminal state can be moved to UNINSTALLED via the Uninstall RPC.
+enum InstallationStatus {
+  INSTALLATION_STATUS_UNSPECIFIED = 0;
+  INSTALLATION_STATUS_PENDING = 1;
+  INSTALLATION_STATUS_INSTALLING = 2;
+  INSTALLATION_STATUS_INSTALLED = 3;
+  INSTALLATION_STATUS_FAILED = 4;
+  INSTALLATION_STATUS_UNINSTALLED = 5;
+}
+
+// ResourceRef is a typed pointer to a resource owned by another
+// service. `ref` is the rid/id understood by that service (UUID string).
+message ResourceRef {
+  ResourceType type = 1;
+  string ref = 2;
+}
+
+// Product is the bundle definition. `manifest_url` is only set once
+// at least one version has been published; otherwise empty.
+message Product {
+  string rid = 1;
+  string name = 2;
+  // Version exposed at the Product level is the latest published
+  // version (semver string, exact match only; ranges are out of scope).
+  string version = 3;
+  string description = 4;
+  string author = 5;
+  // manifest_url points to the bundle of the latest published version
+  // (object storage URI); empty when no version has been published.
+  string manifest_url = 6;
+  // signature is the hex-encoded HMAC-SHA256 of the latest manifest.
+  string signature = 7;
+  ProductStatus status = 8;
+  repeated ResourceRef resources = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+// ProductVersion is the snapshot row. `bundle_path` is the storage
+// key (relative to the storage root), not a presigned URL.
+message ProductVersion {
+  string rid = 1;
+  string product_rid = 2;
+  string version = 3;
+  // manifest is the JSON-encoded manifest.json (resources, signature,
+  // sign_alg, signed_at).
+  bytes manifest = 4;
+  string bundle_path = 5;
+  string signature = 6;
+  google.protobuf.Timestamp published_at = 7;
+}
+
+// ResourceMapping records that the source `src_ref` (as referenced in
+// the bundle manifest) was created in the target workspace as
+// `dst_rid`.
+message ResourceMapping {
+  ResourceType type = 1;
+  string src_ref = 2;
+  string dst_rid = 3;
+}
+
+// Installation records one install attempt of a specific
+// (product_rid, version) into a target workspace.
+message Installation {
+  string rid = 1;
+  string product_rid = 2;
+  string version = 3;
+  string target_workspace_rid = 4;
+  InstallationStatus status = 5;
+  repeated ResourceMapping resource_mappings = 6;
+  // failure_reason is populated when status == FAILED.
+  string failure_reason = 7;
+  google.protobuf.Timestamp installed_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// ── Request / response envelopes ───────────────────────────────────────
+
+message CreateProductRequest {
+  string name = 1;
+  string description = 2;
+  string author = 3;
+  repeated ResourceRef resources = 4;
+}
+
+message ListProductsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  ProductStatus status = 3;
+}
+
+message ListProductsResponse {
+  repeated Product items = 1;
+  int32 total = 2;
+}
+
+message GetProductRequest {
+  string rid = 1;
+}
+
+message PublishVersionRequest {
+  string product_rid = 1;
+  string version = 2;
+}
+
+message InstallProductRequest {
+  string product_rid = 1;
+  string version = 2;
+  string target_workspace_rid = 3;
+  // parameter_map is an opaque JSON blob forwarded to the receiving
+  // services so an installation can override e.g. names, marking ids,
+  // or branding. The v1 server passes it through unchanged.
+  bytes parameter_map = 4;
+}
+
+message ListInstallationsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  string target_workspace_rid = 3;
+  string product_rid = 4;
+}
+
+message ListInstallationsResponse {
+  repeated Installation items = 1;
+  int32 total = 2;
+}
+
+message UninstallRequest {
+  string installation_rid = 1;
+}

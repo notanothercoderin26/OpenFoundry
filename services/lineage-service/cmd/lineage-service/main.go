@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,10 +34,13 @@ import (
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
+	databus "github.com/openfoundry/openfoundry-go/libs/event-bus-data"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/lineage"
+	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/lineageconsumer"
+	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/lineagegraph"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/lineagestore"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/server"
@@ -105,9 +109,35 @@ func main() {
 			DistributedPipelineWorkers: int(cfg.DistributedPipelineWorkers),
 		}
 
+		graphRepo := lineagegraph.New(pool)
 		lineageOpts = &server.Options{
 			JWT:      authmw.NewJWTConfig(cfg.JWTSecret),
 			Handlers: handlers.NewHandlers(state),
+			Graph:    handlers.NewGraphHandlers(graphRepo),
+		}
+
+		// OpenLineage Kafka consumer. Only boots when KAFKA_BOOTSTRAP_SERVERS
+		// is set so the binary stays usable in pure-HTTP environments (CI,
+		// single-process compose, the legacy http_health mode). Producers
+		// can always fall back to POST /api/v1/lineage/events.
+		if brokers := strings.TrimSpace(os.Getenv("KAFKA_BOOTSTRAP_SERVERS")); brokers != "" {
+			busCfg := databus.NewConfig(strings.Split(brokers, ","), databus.InsecureDev(cfg.Service.Name))
+			sub, err := databus.NewKafkaSubscriber(busCfg, lineageconsumer.ConsumerGroup, []string{lineageconsumer.Topic})
+			if err != nil {
+				log.Error("lineage Kafka subscriber init failed", slog.String("error", err.Error()))
+				os.Exit(1)
+			}
+			go func() {
+				defer func() { _ = sub.Close() }()
+				if err := lineageconsumer.Run(ctx, sub, graphRepo, log); err != nil {
+					log.Error("lineage consumer exited", slog.String("error", err.Error()))
+				}
+			}()
+			log.Info("lineage OpenLineage consumer started",
+				slog.String("topic", lineageconsumer.Topic),
+				slog.String("group", lineageconsumer.ConsumerGroup))
+		} else {
+			log.Info("KAFKA_BOOTSTRAP_SERVERS unset — OpenLineage Kafka consumer disabled (POST /api/v1/lineage/events still available)")
 		}
 	} else {
 		log.Warn("DATABASE_URL or JWT_SECRET unset — booting in HTTP-health-only mode (lineage query surface disabled)")

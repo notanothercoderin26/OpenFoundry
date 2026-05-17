@@ -51,14 +51,28 @@ func CreateEnrollment(email string) (*Enrollment, error) {
 // VerifyTOTP returns true when `code` matches the secret in the ±1
 // 30-second window. The Rust impl uses the same window.
 func VerifyTOTP(secret, code string) bool {
+	_, ok := VerifyTOTPCounter(secret, code)
+	return ok
+}
+
+// VerifyTOTPCounter is like VerifyTOTP but returns the absolute
+// 30-second counter that matched. Callers persist that counter and
+// reject any subsequent code whose matching counter is <= the stored
+// one — that gives RFC 6238 replay protection without locking the
+// account when the user re-uses the same window deliberately.
+//
+// Returns (counter, true) on match, (0, false) on miss or malformed
+// secret.
+func VerifyTOTPCounter(secret, code string) (int64, bool) {
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
+	base := time.Now().Unix() / 30
 	for offset := int64(-1); offset <= 1; offset++ {
 		got, err := generateTOTP(secret, offset)
 		if err == nil && got == code {
-			return true
+			return base + offset, true
 		}
 	}
-	return false
+	return 0, false
 }
 
 // HashToken returns the SHA-256 of `value` URL-safe-base64-encoded

@@ -215,6 +215,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Patch("/datasets/{rid}/branches/{branch}/retention", h.UpdateRetention)
 		api.Get("/datasets/{rid}/branches/{branch}/markings", h.GetBranchMarkings)
 		api.Post("/datasets/{rid}/branches/{branch}:restore", h.RestoreBranch)
+		api.Post("/datasets/{rid}/branches/{branch}:merge", h.MergeBranch)
 		api.Post("/datasets/{rid}/branches/{branch}:force-snapshot", h.ForceSnapshotOnNextBuild)
 		api.Post("/datasets/{rid}/branches/{branch}/rollback", h.RollbackBranch)
 		api.Get("/datasets/{rid}/branches/{branch}/fallbacks", h.ListFallbacks)

@@ -1,8 +1,10 @@
 package service_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,6 +63,33 @@ func TestRecoveryCodeRoundTrip(t *testing.T) {
 	// Unknown code.
 	_, ok = service.ConsumeRecoveryCode(hashes, "ZZZZ-ZZZZ")
 	assert.False(t, ok)
+}
+
+func TestVerifyTOTPCounterReturnsAbsoluteWindow(t *testing.T) {
+	t.Parallel()
+	e, err := service.CreateEnrollment("a@b")
+	require.NoError(t, err)
+	// Compute the current valid code via the exported VerifyTOTP path —
+	// we don't poke at internals, we just exercise the API.
+	now := time.Now().Unix() / 30
+	for guess := 0; guess < 1_000_000; guess++ {
+		code := fmt.Sprintf("%06d", guess)
+		if counter, ok := service.VerifyTOTPCounter(e.Secret, code); ok {
+			// matching counter must be one of {now-1, now, now+1}
+			assert.InDelta(t, now, counter, 1.0)
+			return
+		}
+	}
+	t.Fatalf("did not find a matching code for secret %q within 1e6 guesses", e.Secret)
+}
+
+func TestVerifyTOTPCounterRejectsGarbage(t *testing.T) {
+	t.Parallel()
+	e, err := service.CreateEnrollment("a@b")
+	require.NoError(t, err)
+	c, ok := service.VerifyTOTPCounter(e.Secret, "garbage")
+	assert.False(t, ok)
+	assert.Equal(t, int64(0), c)
 }
 
 func TestHashTokenIsURLSafeBase64NoPadding(t *testing.T) {
