@@ -62,8 +62,7 @@ data-plane consumers, CLI tools, or runtime workers.
 | `ai-sink` | storage | Kafka consumer that lands AI runtime events into Iceberg sinks |
 | `audit-sink` | storage | Kafka consumer that lands audit events into the Iceberg audit archive |
 | `ontology-indexer` | compute | Cassandra → Vespa indexer for ontology read models |
-| `pipeline-runner` | compute | Generic pipeline-step runner used by `pipeline-build-service` |
-| `pipeline-runner-spark` | compute | Spark variant of the pipeline runner (Iceberg writes, heavy transforms) |
+| `pipeline-runner` | compute | Plan-driven runner: decodes a `pipelineplan.Plan` and executes it via `libs/pipeline-runtime` against Iceberg. ADR-0045 retired the Scala `pipeline-runner-spark` variant. |
 | `reindex-coordinator-service` | compute | Foundry-pattern reindex coordinator (Kafka-driven full-keyspace scan; ADR-0037) |
 | `compute-module-service` | compute | Hosts user-supplied compute modules (Foundry-style container UDFs) |
 | `media-transform-runtime-service` | compute | Worker runtime for media transforms scheduled by `media-sets-service` |

@@ -40,7 +40,7 @@ OpenFoundry aims to deliver **25 core capabilities** that match Palantir Foundry
 | # | Foundry Component | OpenFoundry Service(s) | Status | Target Phase |
 |---|---|---|---|---|
 | 1 | Ontology | `ontology-definition-service` · `ontology-query-service` · `object-database-service` · `ontology-indexer` | ✅ Done | Phase 1 |
-| 2 | Transforms / Pipeline Builder | `pipeline-build-service` · `pipeline-runner` · `pipeline-runner-spark` (+ lib `pipeline-expression`) | ✅ Done | Phase 1 |
+| 2 | Transforms / Pipeline Builder | `pipeline-build-service` · `pipeline-runner` (+ libs `pipeline-expression`, `pipeline-plan`, `pipeline-runtime`) | ✅ Done | Phase 1 (ADR-0045 retired the Scala/Spark variant) |
 | 3 | Data Connections | `connector-management-service` · `ingestion-replication-service` | ✅ Done | Phase 1 |
 | 4 | Contour (Visual Analytics) | `sql-bi-gateway-service` (Flight SQL) + frontend `/contour`, `/queries` | ✅ Done | Phase 1 |
 | 5 | Dataset Management & Versioning | `dataset-versioning-service` | ✅ Done | Phase 1 |
@@ -97,7 +97,7 @@ Current repo audit: 24 components are shipped on `main`. The two remaining gaps 
 ### Milestone 1.3 — Ontology & Pipelines
 
 - [x] **Ontology services** — `ontology-definition-service` (object types, properties, link types, action types), `ontology-query-service` (read path), `object-database-service` (Cassandra/Scylla storage), `ontology-indexer` (Kafka → search backend)
-- [x] **Pipeline services (basic)** — `pipeline-build-service` (authoring + build orchestration), `pipeline-runner` (Spark orchestrator), `pipeline-runner-spark` (Scala JAR for Iceberg transforms)
+- [x] **Pipeline services (basic)** — `pipeline-build-service` (authoring + build orchestration) and `pipeline-runner` (pure-Go runner that executes a `pipelineplan.Plan` against Iceberg; ADR-0045 retired the prior Scala/Spark variant)
 - [x] **Data lineage** — `lineage-service`: OpenLineage events sink, lineage graph query API
 - [x] **Frontend: Ontology Explorer** — `/ontologies`, `/ontology-design`, `/object-explorer`: type editor, graph view (Cytoscape.js)
 - [x] **Frontend: Pipeline Builder** — `/pipelines` DAG canvas (React Flow), node palette, transform editor
@@ -364,7 +364,7 @@ Current repo audit: 24 components are shipped on `main`. The two remaining gaps 
 ### Milestone 5.3 — Performance & Scale
 
 - [x] **Distributed query execution** — Multi-node DataFusion queries served by `sql-bi-gateway-service`
-- [x] **Distributed pipeline execution** — Parallel transform execution across workers (Spark Operator + `pipeline-runner-spark`)
+- [x] **Distributed pipeline execution** — Plan-driven transform execution via `pipeline-runner` Jobs dispatched by `pipeline-build-service`. Multi-pod sharding is a v2 follow-up; v1 covers single-pod execution at the PoC online-retail scale (ADR-0045 § Consequences). The Spark Operator + `pipeline-runner-spark` path that previously sat here was removed in Phase D.
 - [x] **Auto-scaling** — HPA/KEDA-based scaling per service
 - [x] **Multi-tenancy** — Logical tenant isolation, resource quotas (`tenancy-organizations-service`)
 - [x] **Global CDN** — Tile server (lib `geospatial-tiles`) and static asset caching at the edge

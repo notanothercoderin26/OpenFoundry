@@ -10,7 +10,12 @@ disagreement ever appears, **this file wins** for agent purposes.
 
 Single Go module (`github.com/openfoundry/openfoundry-go`) plus a React
 frontend. Originated as a port of a Rust workspace; the Rust side is gone
-from this tree but its vocabulary still leaks into docs.
+from this tree but its vocabulary still leaks into docs. A second
+historical caveat — the Scala `services/pipeline-runner-spark` module
+that drove `spark-submit` for the distributed pipeline runtime — was
+retired by [ADR-0045](docs/architecture/adr/ADR-0045-eliminate-pipeline-runner-spark-pure-go-runtime.md);
+the pipeline runtime is now pure Go (`services/pipeline-runner` +
+`libs/pipeline-plan` + `libs/pipeline-runtime`).
 
 ```
 apps/web/        React 19 + Vite + TypeScript frontend

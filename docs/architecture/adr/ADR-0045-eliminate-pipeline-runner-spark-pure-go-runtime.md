@@ -1,8 +1,8 @@
 # ADR-0045: Eliminate `pipeline-runner-spark`, port the pipeline runtime to pure Go
 
-- **Status:** Proposed
-- **Date:** 2026-05-17
-- **Deciders:** Pipelines working group + Architecture committee (pending review)
+- **Status:** Accepted (Phase D shipped 2026-05-18)
+- **Date:** 2026-05-17 (Proposed) / 2026-05-18 (Accepted)
+- **Deciders:** Pipelines working group + Architecture committee
 - **Related ADRs:**
   - [ADR-0014](./ADR-0014-retire-trino-flight-sql-only.md) — Trino removal precedent (analytical SQL retired from the runtime path; Flight SQL gateway is the only edge BI surface).
   - [ADR-0036](./ADR-0036-builds-foundry-parity.md) — builds parity targets that the pipeline runner serves.

@@ -29,8 +29,7 @@ Use this page when you need to quickly answer "where should this change live?"
 | `services/media-sets-service` | media set CRUD, items, branches |
 | `services/media-transform-runtime-service` | image / PDF / OCR / geospatial transforms |
 | `services/pipeline-build-service` | pipeline authoring + build orchestration |
-| `services/pipeline-runner` | Spark orchestrator for `SparkApplication` CRs |
-| `services/pipeline-runner-spark` | Scala JAR for Spark transforms (Iceberg read/write) |
+| `services/pipeline-runner` | Distroless Go runner that decodes a `pipelineplan.Plan` and executes it via `libs/pipeline-runtime` against Iceberg (ADR-0045) |
 | `services/sql-bi-gateway-service` | Apache Arrow Flight SQL server over DataFusion |
 | `services/reindex-coordinator-service` | Cassandra reindex coordinator |
 

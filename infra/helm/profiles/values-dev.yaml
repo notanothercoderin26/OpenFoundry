@@ -45,8 +45,7 @@ icebergRestCatalog:
 trino:
   enabled: false
 
-spark-operator:
-  enabled: false
+# spark-operator: removed by ADR-0045 Phase D.
 
 mimir:
   enabled: false

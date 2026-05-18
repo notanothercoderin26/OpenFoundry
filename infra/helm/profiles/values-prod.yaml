@@ -42,10 +42,9 @@ trino:
       minReplicas: 4
       maxReplicas: 16
 
-spark-operator:
-  enabled: true
-  webhook:
-    enable: true
+# spark-operator: removed by ADR-0045 Phase D. Pipeline runs now go
+# through the pipeline-runner Job dispatched by
+# pipeline-build-service's internal/dispatch package.
 
 mimir:
   enabled: true
