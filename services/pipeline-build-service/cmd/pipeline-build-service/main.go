@@ -67,20 +67,18 @@ func main() {
 	if cfg.PythonSidecarBinary != "" {
 		pyMgr, err = pythonsidecar.New(pythonsidecar.Config{
 			BinaryPath:      cfg.PythonSidecarBinary,
+			StartupTimeout:  15 * time.Second,
 			HardCallTimeout: time.Duration(cfg.PythonSidecarTimeoutSeconds+5) * time.Second,
 		}, log)
 		if err != nil {
 			log.Error("python sidecar config failed", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
-		startCtx, cancelStart := context.WithTimeout(ctx, 15*time.Second)
-		if err := pyMgr.Start(startCtx); err != nil {
-			cancelStart()
+		if err := pyMgr.Start(ctx); err != nil {
 			log.Error("python sidecar start failed", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
-		cancelStart()
-		defer func() { _ = pyMgr.Stop(context.Background()) }()
+		defer func() { _ = pyMgr.Close() }()
 		pythonRuntime = runtimepkg.NewSidecarTransformExecutor(runtimepkg.SidecarTransform{Mgr: pyMgr})
 		log.Info("python sidecar runtime wired")
 	} else {

@@ -8,10 +8,14 @@
 //   - pipeline-build-service  — Python pipeline transforms
 //   - notebook-runtime-service — notebook cell execution (stateful)
 //
-// Lifecycle: callers construct a [Manager] with [New], call Start to
-// spawn the sidecar (the manager picks a Unix socket under TempDir and
-// blocks until the gRPC health check reports SERVING), pass Client() to
-// downstream code, and call Stop on shutdown.
+// Lifecycle: callers construct a [Manager] with [New], call Start with
+// a long-lived context to spawn the sidecar (the manager picks a Unix
+// socket under TempDir and blocks until the gRPC health check reports
+// SERVING, bounded by cfg.StartupTimeout), pass Client() to downstream
+// code, and call Close (or Stop) on shutdown. The supervisor goroutine
+// is parented on the Start context, so cancelling it also unwinds the
+// supervisor — Close is still required to reap the subprocess and the
+// gRPC connection.
 //
 // The manager owns the gRPC connection. It restarts the sidecar with
 // exponential backoff after three consecutive failed health probes.

@@ -103,14 +103,11 @@ func main() {
 			log.Error("python-sidecar config invalid", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
-		startCtx, cancelStart := context.WithTimeout(ctx, cfg.PythonSidecarTimeout)
-		if err := mgr.Start(startCtx); err != nil {
-			cancelStart()
+		if err := mgr.Start(ctx); err != nil {
 			log.Error("python-sidecar start failed", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
-		cancelStart()
-		defer func() { _ = mgr.Stop(context.Background()) }()
+		defer func() { _ = mgr.Close() }()
 		state.PythonRuntime = pythonRuntimeAdapter{mgr: mgr}
 		log.Info("python sidecar wired", slog.String("binary", cfg.PythonSidecarBinary))
 	} else if state != nil {

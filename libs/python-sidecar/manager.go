@@ -51,6 +51,12 @@ func New(cfg Config, logger *slog.Logger) (*Manager, error) {
 // Start spawns the sidecar, waits for the gRPC health check to report
 // SERVING, and launches the supervisor goroutine. Subsequent calls
 // after a successful start return ErrAlreadyStarted.
+//
+// ctx becomes the parent of the supervisor's lifetime: if the caller
+// cancels it without invoking Stop/Close, the supervisor goroutine
+// still unwinds. Callers should pass the service's long-lived context
+// (not a short startup-timeout ctx) and rely on cfg.StartupTimeout for
+// the spawn deadline.
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	if m.cmd != nil {
@@ -62,13 +68,20 @@ func (m *Manager) Start(ctx context.Context) error {
 	if err := m.spawnAndConnect(ctx); err != nil {
 		return err
 	}
-	superviseCtx, cancel := context.WithCancel(context.Background())
+	superviseCtx, cancel := context.WithCancel(ctx)
 	m.mu.Lock()
 	m.supervise = cancel
 	m.mu.Unlock()
 	m.wg.Add(1)
 	go m.superviseLoop(superviseCtx)
 	return nil
+}
+
+// Close cancels the supervisor and tears down the sidecar with a
+// background context. It is a convenience wrapper around Stop suitable
+// for `defer mgr.Close()`.
+func (m *Manager) Close() error {
+	return m.Stop(context.Background())
 }
 
 // Stop terminates the sidecar and closes the connection. Safe to call
@@ -217,7 +230,11 @@ func (m *Manager) superviseLoop(ctx context.Context) {
 			continue
 		}
 		m.log.Warn("python sidecar restart triggered", "backoff", backoff)
-		time.Sleep(backoff)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
 		if backoff < m.cfg.MaxRestartBackoff {
 			backoff *= 2
 		}
