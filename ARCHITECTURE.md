@@ -121,7 +121,7 @@ and must not drift:
   lifecycle mutations so search backends can consume changes without
   resource-table polling).
 - Compass search API
-  ([`GET /api/v1/compass/search`](services/tenancy-organizations-service/internal/workspace)
+  ([handler-level Compass search](services/tenancy-organizations-service/internal/workspace); `GET /api/v1/compass/search` has no current edge-gateway route until `router_table.go` adds a branch)
   intersects all results with project visibility, accepts text/type/project/
   owner/marking/last-modified filters, returns long-text snippets and facets
   for type/project/owner/marking/last-modified buckets, and pages by opaque

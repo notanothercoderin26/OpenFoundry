@@ -1,6 +1,6 @@
 # Services and Ports
 
-All backend services expose a health endpoint and bind to fixed default ports in local development. The edge gateway listens on `8080` and proxies public traffic to these internal services.
+All backend services expose a health endpoint and bind to fixed default ports in local development. Service defaults come from each service's `internal/config/config.go`, or `services/<service>/config.yaml` when there is no Go config. The edge gateway listens on `8080` and proxies public traffic to these internal services.
 
 > Current-source note: this page describes runtime service names and default
 > ports. It is not a filesystem map. The HTTP gateway source lives at
@@ -26,7 +26,7 @@ of services are dual-anchored (e.g. write-path services that govern
 | `ingestion-replication-service` | `50090` | ingestion | Ingest-job materialization, replication control plane, and CDC metadata endpoints |
 | `dataset-versioning-service` | `50078` | state | Dataset metadata, branches, transactions, versions, files, and Iceberg-backed snapshot state |
 | `media-sets-service` | `50156` / `50157` | state | Media set metadata, media item references, and media storage APIs |
-| `iceberg-catalog-service` | `50118` (service default); `8197` in gateway config YAML | storage | Iceberg REST catalog compatibility surface |
+| `iceberg-catalog-service` | `50118` service default; `8197` gateway YAML default | storage | Iceberg REST catalog compatibility surface; `DefaultUpstreams()` also uses `50118`, while checked-in gateway `config.yaml` overrides `iceberg_catalog_service_url` to `8197` |
 | `sql-bi-gateway-service` | `50133` / `50134` | compute | Flight SQL / BI edge plus HTTP `/healthz` and saved-query style surfaces |
 | `pipeline-build-service` | `50081` | compute | Pipeline definitions, validation, preview/build execution, run history, and scheduled/cron trigger ownership after consolidation |
 | `lineage-service` | `50083` | compute | Dataset and column lineage APIs |
@@ -45,16 +45,16 @@ of services are dual-anchored (e.g. write-path services that govern
 | `model-deployment-service` | `50086` | compute | Model deployments, predictions, drift, and batch prediction APIs |
 | `ai-evaluation-service` | `50075` | compute | AI guardrail and evaluation APIs |
 | `llm-catalog-service` | `50095` | compute | AI provider catalog APIs |
-| `retrieval-context-service` | `50098` | compute | Knowledge-base retrieval and RAG context APIs |
+| `retrieval-context-service` | `50098` | compute | RAG context APIs; `router_table.go` does not currently select this upstream for public `/api/*` paths |
 | `agent-runtime-service` | `50127` | compute | Agent/AI runtime, tool execution, prompt workflow compatibility, and conversation surfaces |
 | `entity-resolution-service` | `50058` | compute | Entity resolution and fusion-style APIs |
 | `ontology-exploratory-analysis-service` | `50131` | compute | Exploratory ontology analysis and geospatial-style APIs after consolidation |
 | `telemetry-governance-service` | `50153` | control | Monitoring views, monitor rules, and telemetry governance |
-| `cipher-service` | `:8080` from `config.yaml`; `50160` in compose/gateway | control | Current `/api/v1/auth/cipher/*` key/encryption lifecycle surface |
+| `cipher-service` | `:8080` from `config.yaml`; `50160` in compose/gateway | control | Default target behind the gateway `Cipher` alias for `/api/v1/auth/cipher/*` |
 | `network-boundary-service` | `:8080` from `config.yaml` | control | Egress-policy APIs plus network-boundary placeholder routes |
 | `global-branch-service` | `:8080` from `config.yaml`; `50161` in compose/gateway | state | `/api/v1/global-branches` branch CRUD owner; legacy `/api/v1/code-repos/.../branches` stays on code-repository-review without gateway rewrites |
-| `report-service` | `:8080` from `config.yaml`; `50163` in compose/gateway | compute | `/api/v1/reports*` owner |
-| `knowledge-index-service` | `:8080` from `config.yaml`; `50162` in compose/gateway | compute | `/api/v1/ai/knowledge-bases*` owner for CRUD, documents, and search |
+| `report-service` | `:8080` from `config.yaml`; `50163` in compose/gateway | compute | Default target behind the gateway `Report` alias for `/api/v1/reports*` |
+| `knowledge-index-service` | `:8080` from `config.yaml`; `50162` in compose/gateway | compute | Current router owner for `/api/v1/ai/knowledge-bases*` CRUD, documents, and search |
 | `function-runtime-service` | `50190` | compute | User-authored TypeScript/Python function registry and execution runtime |
 
 ### Internal / data-plane binaries (no gateway routes)
@@ -95,7 +95,7 @@ confuse; their roles are intentionally disjoint:
 
 | Component                      | Plano objetivo            | Role                                                                                                                                                                                                                            |
 | ------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sql-bi-gateway-service`       | compute (edge BI gateway) | **Edge BI gateway**. The single Apache Arrow Flight SQL surface for external BI clients (Tableau, Superset, JDBC/ODBC). The Flight SQL gRPC port (`50133`) is substrate-only today: a literal-SELECT evaluator (`libs/query-engine`) answers BI client probes and richer statements are federated by catalog prefix to optional Flight SQL backends (`WAREHOUSING_FLIGHT_SQL_URL`, `TRINO_FLIGHT_SQL_URL`, `VESPA_FLIGHT_SQL_URL`, `POSTGRES_FLIGHT_SQL_URL`) — see [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md), [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md) and [ADR-0030](./adr/ADR-0030-service-consolidation-30-targets.md). The companion HTTP port (`50134`) owns the warehousing (`/api/v1/warehouse/*`) and tabular-analysis (`/api/v1/tabular/*`) HTTP CRUD absorbed from the retired `sql-warehousing-service` and `tabular-analysis-service` (S8 consolidation); the analytical-expressions surface lives in the `libs/analytical-logic` internal package (no duplicated routes). |
+| `sql-bi-gateway-service`       | compute (edge BI gateway) | **Edge BI gateway**. The single Apache Arrow Flight SQL surface for external BI clients (Tableau, Superset, JDBC/ODBC). The Flight SQL gRPC port (`50133`) is substrate-only today: a literal-SELECT evaluator (`libs/query-engine`) answers BI client probes and richer statements are federated by catalog prefix to optional Flight SQL backends (`WAREHOUSING_FLIGHT_SQL_URL`, `TRINO_FLIGHT_SQL_URL`, `VESPA_FLIGHT_SQL_URL`, `POSTGRES_FLIGHT_SQL_URL`) — see [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md), [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md) and [ADR-0030](./adr/ADR-0030-service-consolidation-30-targets.md). The companion HTTP port (`50134`) owns service-local warehousing (`/api/v1/warehouse/*`) and tabular-analysis (`/api/v1/tabular/*`) HTTP CRUD absorbed from the retired `sql-warehousing-service` and `tabular-analysis-service` (S8 consolidation); `router_table.go` has no current edge-gateway route for those two prefixes, so do not document them as public gateway-owned routes. The analytical-expressions surface lives in the `libs/analytical-logic` internal package (no duplicated routes). |
 
 ## Gateway Route Ownership
 
@@ -155,43 +155,45 @@ service that is **not** a separate binary on disk. The mapping is:
 | `audit_service_url` (`:50115`) | `audit-compliance-service` |
 | `ml_service_url` (`:50085`) | `model-catalog-service` |
 | `ai_service_url` (`:50127`) | `agent-runtime-service` |
-| `security_governance_service_url` (`:50093`) | `authorization-policy-service` (absorbed surface) |
-| `cipher_service_url` (`:50160`) | `cipher-service` |
+| `security_governance_service_url` (`:50093`) | Legacy gateway alias; by default resolves to `authorization-policy-service` (absorbed Security/Governance surface). No `services/security-governance-service` binary exists. |
+| `cipher_service_url` (`:50160`) | Gateway alias; by default resolves to the real `cipher-service` binary. The same-named directory exists and is the default target. |
 | `oauth_integration_service_url` (`:50112`) | `identity-federation-service` (absorbed surface) |
 | `session_governance_service_url` (`:50112`) | `identity-federation-service` (absorbed surface) |
-| `network_boundary_service_url` (`:50093`) | `authorization-policy-service` in code defaults; `network-boundary-service` exists separately and must be targeted explicitly when deployed |
-| `checkpoints_purpose_service_url` (`:50093`) | `authorization-policy-service` |
+| `network_boundary_service_url` (`:50093`) | Legacy gateway alias; `DefaultUpstreams()` resolves to `authorization-policy-service`. The `network-boundary-service` directory exists, but the code default does not route there unless config overrides it; the checked-in `config.yaml` currently overrides this key to `http://localhost:50119`. |
+| `checkpoints_purpose_service_url` (`:50093`) | Legacy gateway alias; by default resolves to `authorization-policy-service`. No same-named Go service exists. |
 | `retention_policy_service_url` (`:50115`) | `audit-compliance-service` |
 | `lineage_deletion_service_url` (`:50115`) | `audit-compliance-service` |
 | `sds_service_url` (`:50115`) | `audit-compliance-service` |
 | `pipeline_authoring_service_url` (`:50081`) | `pipeline-build-service` (absorbed surface) |
 | `pipeline_schedule_service_url` (`:50081`) | `pipeline-build-service` (absorbed surface) |
-| `data_asset_catalog_service_url` (`:50078`) | `dataset-versioning-service` (absorbed surface) |
-| `dataset_quality_service_url` (`:50078`) | `dataset-versioning-service` (absorbed surface) |
+| `data_asset_catalog_service_url` (`:50078`) | Legacy gateway alias; by default resolves to `dataset-versioning-service` (absorbed Data Asset Catalog surface). No `services/data-asset-catalog-service` binary exists. |
+| `dataset_quality_service_url` (`:50078`) | Legacy gateway alias; by default resolves to `dataset-versioning-service` (absorbed dataset quality/health surface). No `services/dataset-quality-service` binary exists. |
 | `approvals_service_url` (no `UpstreamURLs` field) | `workflow-automation-service` routes own approvals directly |
 | `app_builder_service_url` (no `UpstreamURLs` field) | `application-composition-service` routes app-builder paths directly |
-| `application_curation_service_url` (`:50140`) | `application-composition-service` (absorbed surface) |
+| `application_curation_service_url` (`:50140`) | Legacy gateway alias; by default resolves to `application-composition-service` (absorbed curation/app-builder surface). |
 | `model_evaluation_service_url` (`:50086`) | `model-deployment-service` alias in code defaults |
 | `model_serving_service_url` (`:50086`) | `model-deployment-service` (absorbed surface) |
 | `model_inference_history_service_url` (`:50086`) | `model-deployment-service` (absorbed surface) |
 | `prompt_workflow_service_url` (no `UpstreamURLs` field) | `agent-runtime-service` routes own prompt paths directly |
-| `knowledge_index_service_url` (`:50162`) | `knowledge-index-service`; CRUD, documents, and search keep the original `/api/v1/ai/knowledge-bases*` paths |
+| `knowledge_index_service_url` (`:50162`) | Gateway key for a real binary; by default resolves to `knowledge-index-service`. `router_table.go` sends CRUD, documents, and search on `/api/v1/ai/knowledge-bases*` here. |
+| `retrieval_context_service_url` (`:50098`) | `retrieval-context-service`; configured upstream, but no current `SelectUpstream` branch returns it |
 | `conversation_state_service_url` (no `UpstreamURLs` field) | `agent-runtime-service` routes conversation paths directly |
-| `document_reporting_service_url` (`:50134`) | `notebook-runtime-service` (absorbed surface) |
+| `document_reporting_service_url` (`:50134`) | Legacy gateway alias; by default resolves to `notebook-runtime-service` (absorbed document reporting surface). No `services/document-reporting-service` binary exists. |
 | `streaming_service_url` (no `UpstreamURLs` field) | retired; no surviving gateway branch |
-| `report_service_url` (`:50163`) | `report-service` |
+| `report_service_url` (`:50163`) | Gateway alias; by default resolves to the real `report-service` binary. The same-named directory exists and is the current `DefaultUpstreams()` target for `/api/v1/reports*`. |
 | `geospatial_intelligence_service_url` (`:50131`) | `ontology-exploratory-analysis-service` |
 | `code_repo_service_url` (`:50155`) | `code-repository-review-service` |
-| `global_branch_service_url` (`:50161`) | `global-branch-service` for `/api/v1/global-branches`; legacy code-repos branches stay on `code_repo_service_url` until a compatible upstream path or rewrite exists |
-| `marketplace_catalog_service_url` (`:50120`) | `federation-product-exchange-service` (absorbed surface) |
-| `product_distribution_service_url` (`:50120`) | `federation-product-exchange-service` (absorbed surface) |
-| `nexus_service_url` (`:50113`) | `tenancy-organizations-service` (Nexus spaces route) |
+| `global_branch_service_url` (`:50161`) | Gateway alias; by default resolves to the real `global-branch-service` binary for `/api/v1/global-branches`. The same-named directory exists and is the default target; legacy code-repos branch paths stay on `code_repo_service_url` until a compatible upstream path or rewrite exists. |
+| `marketplace_catalog_service_url` (`:50120`) | Legacy gateway alias; by default resolves to `federation-product-exchange-service` (absorbed marketplace catalog surface). |
+| `product_distribution_service_url` (`:50120`) | Legacy gateway alias; by default resolves to `federation-product-exchange-service` (absorbed product distribution surface). |
+| `nexus_service_url` (`:50113`) | Legacy gateway alias; by default resolves to `tenancy-organizations-service` for `/api/v1/nexus/spaces`; broader `/api/v1/nexus*` routes use `federation-product-exchange-service`. No `services/nexus-service` binary exists. |
 
 > **Do not point a real Helm deployment at stale substitute URLs.** Point
-> each alias at its current owner. `cipher-service`, `knowledge-index-service`,
-> `report-service`, and `global-branch-service` now have explicit compose
-> services and gateway defaults; `network_boundary_service_url` is still an
-> authorization-policy alias until its standalone runtime is wired.
+> each alias at its current owner. A key named `*_service_url` is not proof
+> that `services/<name>/` exists. `cipher-service`, `knowledge-index-service`,
+> `report-service`, and `global-branch-service` are real same-named default
+> targets; `network_boundary_service_url` is a legacy alias whose Go default is
+> still `authorization-policy-service` unless configuration overrides it.
 
 ## Cross-Service Dependencies
 

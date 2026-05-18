@@ -16,8 +16,8 @@ Use this page when you need to quickly answer "where should this change live?"
 | `services/tenancy-organizations-service` | tenant resolution, organizations, workspace enrollments, sharing boundaries |
 | `services/audit-compliance-service` | audit ledger, retention policies, lineage deletion subsystem |
 | `services/audit-sink` | Kafka → Iceberg consumer for `audit.events.v1` |
-| `services/cipher-service` | `/api/v1/auth/cipher/*` stub and future encryption/key lifecycle surface |
-| `services/network-boundary-service` | egress-policy APIs plus network-boundary placeholder routes |
+| `services/cipher-service` | real same-named backend for the gateway `Cipher` alias (`cipher_service_url`); `DefaultUpstreams()` routes `/api/v1/auth/cipher/*` here by default |
+| `services/network-boundary-service` | network-boundary placeholder/API skeleton; the directory exists, but `DefaultUpstreams().NetworkBoundary` still resolves the `network_boundary_service_url` alias to `authorization-policy-service` unless configuration overrides it (the checked-in gateway `config.yaml` does override to port `50119`) |
 
 ### Data engine (ingestion, datasets, lineage, pipelines, BI)
 
@@ -58,8 +58,8 @@ Use this page when you need to quickly answer "where should this change live?"
 | `services/model-deployment-service` | model serving runtime adapter |
 | `services/agent-runtime-service` | agent runtime API + OpenAI-compatible chat endpoint |
 | `services/llm-catalog-service` | LLM provider/model catalog |
-| `services/retrieval-context-service` | RAG context retrieval surface |
-| `services/knowledge-index-service` | placeholder owner for non-search knowledge-base routes |
+| `services/retrieval-context-service` | RAG context retrieval surface; configured as an upstream but not selected by any current `router_table.go` public route |
+| `services/knowledge-index-service` | real same-named backend for `knowledge_index_service_url`; current gateway owner for `/api/v1/ai/knowledge-bases*` CRUD, document, and search routes |
 | `services/ai-evaluation-service` | LLM evaluation + guardrail benchmarking |
 | `services/ai-sink` | Kafka → Iceberg consumer for `ai.events.v1` |
 
@@ -74,14 +74,35 @@ Use this page when you need to quickly answer "where should this change live?"
 | `services/telemetry-governance-service` | telemetry permissions, export policies, monitoring rules |
 | `services/federation-product-exchange-service` | marketplace, product distribution, federation registry (Nexus capability) |
 | `services/code-repository-review-service` | code-security scanning and code review plane |
-| `services/global-branch-service` | branch CRUD service skeleton for global branch milestones |
+| `services/global-branch-service` | real same-named backend for `global_branch_service_url` and `/api/v1/global-branches`; legacy `/api/v1/code-repos/.../branches` remains on `code-repository-review-service` |
 | `services/sdk-generation-service` | SDK + OpenAPI contract generation/publication |
 | `services/solution-design-service` | solution design plane |
 | `services/entity-resolution-service` | match rules, merge strategies, fuzzy-matching (Fusion) |
 | `services/compute-module-service` | compute module resources |
-| `services/report-service` | placeholder owner for `/api/v1/reports*` routes |
+| `services/report-service` | real same-named backend for `report_service_url`; current default backend for the gateway `Report` alias used by `/api/v1/reports*` |
 
-> Older docs referenced services that **do not exist** as binaries in this monorepo (`ontology-service`, `auth-service`, `audit-service`, `data-connector`, `pipeline-service`, `dataset-service`, `ai-service`, `ml-service`, `marketplace-service`, `document-reporting-service`, `fusion-service`, `streaming-service`, `nexus-service`, `dataset-quality-service`, `lineage-deletion-service`, `event-streaming-service`, `data-asset-catalog-service`). Their capabilities are consolidated in the services above; see the per-area pages for the mapping. `report-service` does exist now, but only as the current placeholder owner for `/api/v1/reports*`.
+> Older docs referenced services that **do not exist** as binaries in this monorepo (`ontology-service`, `auth-service`, `audit-service`, `data-connector`, `pipeline-service`, `dataset-service`, `ai-service`, `ml-service`, `marketplace-service`, `document-reporting-service`, `fusion-service`, `streaming-service`, `nexus-service`, `dataset-quality-service`, `lineage-deletion-service`, `event-streaming-service`, `data-asset-catalog-service`). Their capabilities are consolidated in the services above. A gateway key named `*_service_url` is not a guarantee that `services/<name>/` exists or is the code default target; verify aliases against `services/edge-gateway-service/internal/config/config.go` and `docs/architecture/services-and-ports.md`. `cipher-service`, `knowledge-index-service`, `global-branch-service`, and `report-service` do exist now and are the current same-named default backends for their gateway aliases.
+>
+> Current owners for common retired or legacy names:
+>
+> | Retired / legacy name | Current owner or route-specific owner |
+> | --- | --- |
+> | `auth-service` | `identity-federation-service` for login/session/user routes; `authorization-policy-service` for role, permission, group, and policy routes |
+> | `audit-service` | gateway legacy alias for `audit-compliance-service` |
+> | `pipeline-service` | `pipeline-build-service` |
+> | `dataset-service`, `data-asset-catalog-service`, `dataset-quality-service` | `dataset-versioning-service` |
+> | `ai-service` | gateway legacy alias for `agent-runtime-service`; provider catalog routes use `llm-catalog-service` |
+> | `ml-service` | gateway legacy alias for `model-catalog-service`; deployment/batch-prediction routes use `model-deployment-service` |
+> | `streaming-service`, `event-streaming-service` | no current gateway branch; ingestion/streaming capabilities live in `ingestion-replication-service` with `libs/event-bus-data` |
+> | `nexus-service` | no binary; `nexus_service_url` is a legacy gateway alias that defaults to `tenancy-organizations-service` for `/api/v1/nexus/spaces`, while broader `/api/v1/nexus*` routes select `federation-product-exchange-service` |
+> | `ontology-service` | gateway legacy alias for `ontology-definition-service`; runtime ontology routes are split across `ontology-definition-service`, `object-database-service`, `ontology-query-service`, and `ontology-actions-service` |
+> | `lineage-deletion-service` | gateway legacy alias for `audit-compliance-service` |
+> | `approvals-service` | `workflow-automation-service/internal/approvals` inside `workflow-automation-service` |
+> | `automation-operations-service` | `workflow-automation-service/internal/automationoperations` inside `workflow-automation-service` |
+> | `security-governance-service` | no binary; `security_governance_service_url` is a gateway legacy alias for `authorization-policy-service` |
+> | `app-builder-service` | `application-composition-service` |
+> | `virtual-table-service` | gateway legacy alias for `connector-management-service` |
+> | `document-reporting-service` | no binary; `document_reporting_service_url` is a gateway legacy alias for `notebook-runtime-service` |
 
 ## Shared Libraries
 

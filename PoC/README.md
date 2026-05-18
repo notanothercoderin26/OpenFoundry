@@ -29,7 +29,7 @@ The **single message** for the customer: *"everything Foundry does today, in the
 | # | Document | Purpose |
 |---|---|---|
 | 01 | [`01-vision-y-caso-de-uso.md`](01-vision-y-caso-de-uso.md) | Vertical, personas, business KPIs, scope |
-| 02 | [`02-arquitectura-y-servicios.md`](02-arquitectura-y-servicios.md) | Which microservices to spin up from the 42 real ones (~15 subset) |
+| 02 | [`02-arquitectura-y-servicios.md`](02-arquitectura-y-servicios.md) | Which microservices to spin up from the 50 current service directories (~15 subset; see [`docs/reference/repository-layout.md`](../docs/reference/repository-layout.md)) |
 | 03 | [`03-datasets-y-fuentes-de-datos.md`](03-datasets-y-fuentes-de-datos.md) | How to obtain ≥ 1 TB of real, legal data |
 | 04 | [`04-infraestructura-y-despliegue.md`](04-infraestructura-y-despliegue.md) | Hardware, cloud, deployment with compose/k8s |
 | 05 | [`05-ontologia-aviacion.md`](05-ontologia-aviacion.md) | Entities, properties, relationships, actions |
@@ -85,5 +85,5 @@ To be honest with the customer:
 
 - It does not replace a certified maintenance system (AMOS, TRAX, etc.).
 - It does not aim to be EASA Part-145 compliant — it is a platform proof.
-- It does not demonstrate all 42 available microservices; only the subset documented in [`02-arquitectura-y-servicios.md`](02-arquitectura-y-servicios.md).
+- It does not demonstrate all 50 current service directories from [`docs/reference/repository-layout.md`](../docs/reference/repository-layout.md); only the subset documented in [`02-arquitectura-y-servicios.md`](02-arquitectura-y-servicios.md).
 - It does not use customer data — it uses public sources. The next phase would be a *pilot* with their data.

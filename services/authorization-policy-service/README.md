@@ -95,6 +95,8 @@ settings during ABAC evaluation.
 | `METRICS_ADDR`                           | no       | `0.0.0.0:9090` |
 | `SERVICE_VERSION`                        | no       | `dev`          |
 
+Default tomado de `internal/config/config.go`.
+
 When `NATS_URL` is set, every successful CRUD write publishes to
 `authz.policy.changed` (the subject `libs/authz-cedar-go`'s
 `PolicyReloadSubscriber` listens on by default).

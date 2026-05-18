@@ -217,8 +217,9 @@ This ADR must be reopened if **any** of the following conditions holds:
 - `infra/helm/infra/manifests/rook/objectstore.yaml`, `infra/helm/infra/manifests/rook/bucket.yaml` —
   S3 provider for `s3://openfoundry-pg-backups/`.
 - `services/*/migrations/` — per-service schemas (e.g.
-  `services/cipher-service/migrations`,
-  `services/data-asset-catalog-service/migrations`).
+  `services/cipher-service/migrations`; historical examples such as
+  `services/data-asset-catalog-service/migrations` are pre-consolidation names,
+  and current dataset/catalog ownership is in `dataset-versioning-service`).
 - CloudNativePG: <https://cloudnative-pg.io/> (Apache-2.0).
 - Barman / `barmanObjectStore`:
   <https://cloudnative-pg.io/documentation/current/backup_recovery/>.
