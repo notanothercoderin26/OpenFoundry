@@ -65,7 +65,7 @@ settings during ABAC evaluation.
 | `OPENFOUNDRY_JWT_SECRET` / `JWT_SECRET`  | yes      | —              |
 | `NATS_URL`                               | no       | unset (no publish) |
 | `HOST`                                   | no       | `0.0.0.0`      |
-| `PORT`                                   | no       | `50115`        |
+| `PORT`                                   | no       | `50093`        |
 | `METRICS_ADDR`                           | no       | `0.0.0.0:9090` |
 | `SERVICE_VERSION`                        | no       | `dev`          |
 

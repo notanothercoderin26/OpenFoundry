@@ -147,7 +147,7 @@ operator** for every Postgres cluster in OpenFoundry's production plane.
   in-place upgrade flow or via a logical-replica `Cluster` + cutover,
   as documented in the runbook.
 - **Local development.** `infra/compose/docker-compose.yml` and
-  `infra/docker-compose.dev.yml` continue to use standard Postgres
+  `infra/compose/docker-compose.dev.yml` continue to use standard Postgres
   containers for DX. CNPG applies only to the Kubernetes plane.
 
 ## Consequences
