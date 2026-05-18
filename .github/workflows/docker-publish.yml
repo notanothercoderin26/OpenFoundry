@@ -17,41 +17,79 @@ jobs:
       contents: read
       packages: write
     strategy:
+      fail-fast: false
       matrix:
+        # All publishable Go services under services/* (one matrix entry
+        # per services/<svc>/cmd/<svc>/main.go). Sorted alphabetically;
+        # keep in sync with `ls services/` minus the exclusions below.
+        #
+        # Excluded — DO NOT add to the matrix:
+        #   * pipeline-runner-spark — Scala/sbt build that emits a JAR
+        #     via a `FROM scratch AS exporter` stage. It is consumed by
+        #     services/pipeline-runner at build time, not published as a
+        #     runtime image. Re-evaluate in Wave 2.5 when the PySpark
+        #     base-image story lands.
         service:
-          # Foundry-pattern services that are wired into the apps
-          # helm charts and ship as Docker images. The matrix was
-          # rebuilt by FASE 9 / Tarea 9.4 — the previous entries
-          # (`gateway`, `auth-service`, `dataset-service`,
-          # `pipeline-service`, `ontology-service`) referenced
-          # legacy service names that never had Dockerfiles in
-          # services/ and silently failed every push.
-          # S8 / ADR-0030: approvals-service merged → workflow-automation-service.
-          # S8 / ADR-0030: automation-operations-service merged → workflow-automation-service.
+          - action-log-sink
+          - agent-runtime-service
+          - ai-evaluation-service
+          - ai-sink
+          - application-composition-service
           - audit-compliance-service
-          # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+          - audit-sink
+          - authorization-policy-service
+          - cipher-service
+          - code-repository-review-service
+          - compute-module-service
+          - connector-management-service
           - dataset-versioning-service
           - edge-gateway-service
+          - entity-resolution-service
+          - federation-product-exchange-service
+          - function-runtime-service
+          - global-branch-service
           - iceberg-catalog-service
+          - iceberg-object-indexer
           - identity-federation-service
+          - ingestion-replication-service
+          - knowledge-index-service
+          - lineage-service
+          - llm-catalog-service
+          - media-sets-service
+          - media-transform-runtime-service
+          - model-catalog-service
+          - model-deployment-service
+          - network-boundary-service
+          - notebook-runtime-service
+          - notification-alerting-service
+          - object-database-service
           - ontology-actions-service
           - ontology-definition-service
+          - ontology-exploratory-analysis-service
           - ontology-indexer
-          # S8 / ADR-0030: pipeline-authoring-service and
-          # pipeline-schedule-service merged → pipeline-build-service.
+          - ontology-query-service
           - pipeline-build-service
           - pipeline-runner
           - reindex-coordinator-service
+          - report-service
+          - retrieval-context-service
+          - sdk-generation-service
+          - solution-design-service
           - sql-bi-gateway-service
+          - telemetry-governance-service
+          - tenancy-organizations-service
           - workflow-automation-service
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Tag policy: branch ref (e.g. `main`), semver on tag push (e.g.
+      # `1.2.3`), and the commit SHA. We intentionally do NOT emit a
+      # `latest` tag — production deploys pin to an immutable SHA.
       - uses: docker/metadata-action@v5
         id: meta
         with:
