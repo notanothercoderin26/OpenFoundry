@@ -31,9 +31,12 @@ const (
 //
 // Two design points worth pinning down:
 //
-//   - **Fire-and-forget.** Emit returns immediately; the actual Publish
-//     call runs on a detached goroutine so a slow broker can never stall
-//     the request hot path. Failures are swallowed at WARN level.
+//   - **Blocking publish.** Emit is synchronous; the engine's audit
+//     worker pool bounds it with EngineConfig.AuditEmitTimeout via the
+//     ctx passed in. A slow broker therefore parks a single worker (and
+//     contributes to authz_audit_emit_dropped_total{reason="buffer_full"}
+//     once all workers stall) instead of spawning unbounded goroutines.
+//     Failures are swallowed at WARN level.
 //   - **Partition-by-principal.** The Kafka record key is the principal
 //     EntityUID string. All decisions for a given user therefore land
 //     on the same partition, which lets downstream sinks reconstruct a
@@ -58,37 +61,35 @@ func NewKafkaAuditSinkDefault(publisher databus.Publisher) *KafkaAuthzAuditSink 
 // Topic returns the topic this sink writes to (exposed for tests / metrics).
 func (s *KafkaAuthzAuditSink) Topic() string { return s.topic }
 
-// Emit serialises the event to JSON and publishes it asynchronously.
+// Emit serialises the event to JSON and publishes it. The engine
+// invokes Emit from its audit worker pool with a deadline already
+// applied to ctx, so Emit MUST respect ctx and return promptly.
 //
 // Implements [AuthzAuditSink].
 func (s *KafkaAuthzAuditSink) Emit(ctx context.Context, event AuthzAuditEvent) {
-	publisher := s.publisher
-	topic := s.topic
-	go func() {
-		payload, err := json.Marshal(event)
-		if err != nil {
-			slog.Warn("authz.audit.kafka: failed to serialise AuthzAuditEvent — dropping",
-				slog.String("error", err.Error()),
-				slog.String("principal", event.Principal),
-				slog.String("action", event.Action),
-			)
-			return
-		}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		slog.Warn("authz.audit.kafka: failed to serialise AuthzAuditEvent — dropping",
+			slog.String("error", err.Error()),
+			slog.String("principal", event.Principal),
+			slog.String("action", event.Action),
+		)
+		return
+	}
 
-		headers := databus.NewOpenLineageHeaders(
-			olAuditNamespace, olAuditJobName,
-			uuid.NewString(), olAuditProducer,
-		).WithEventTime(event.Timestamp)
+	headers := databus.NewOpenLineageHeaders(
+		olAuditNamespace, olAuditJobName,
+		uuid.NewString(), olAuditProducer,
+	).WithEventTime(event.Timestamp)
 
-		key := []byte(event.Principal)
-		if err := publisher.Publish(detachContext(ctx), topic, key, payload, &headers); err != nil {
-			slog.Warn("authz.audit.kafka: kafka publish failed for authz audit event — dropping",
-				slog.String("error", err.Error()),
-				slog.String("topic", topic),
-				slog.String("principal", event.Principal),
-				slog.String("action", event.Action),
-				slog.String("decision", event.Decision),
-			)
-		}
-	}()
+	key := []byte(event.Principal)
+	if err := s.publisher.Publish(ctx, s.topic, key, payload, &headers); err != nil {
+		slog.Warn("authz.audit.kafka: kafka publish failed for authz audit event — dropping",
+			slog.String("error", err.Error()),
+			slog.String("topic", s.topic),
+			slog.String("principal", event.Principal),
+			slog.String("action", event.Action),
+			slog.String("decision", event.Decision),
+		)
+	}
 }
