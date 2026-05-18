@@ -27,14 +27,14 @@ type Manager struct {
 	cfg Config
 	log *slog.Logger
 
-	mu        sync.RWMutex
-	cmd       *exec.Cmd
-	conn      *grpc.ClientConn
-	client    pb.PythonRuntimeServiceClient
-	health    healthpb.HealthClient
-	supervise context.CancelFunc
-	stopped   atomic.Bool
-	wg        sync.WaitGroup
+	mu      sync.RWMutex
+	cmd     *exec.Cmd
+	conn    *grpc.ClientConn
+	client  pb.PythonRuntimeServiceClient
+	health  healthpb.HealthClient
+	cancel  context.CancelFunc
+	stopped atomic.Bool
+	wg      sync.WaitGroup
 }
 
 // New constructs a manager. Logger may be nil (slog.Default is used).
@@ -51,6 +51,13 @@ func New(cfg Config, logger *slog.Logger) (*Manager, error) {
 // Start spawns the sidecar, waits for the gRPC health check to report
 // SERVING, and launches the supervisor goroutine. Subsequent calls
 // after a successful start return ErrAlreadyStarted.
+//
+// ctx is treated as the manager's lifecycle context: if the caller
+// cancels it (e.g. on service shutdown) the supervisor goroutine exits
+// without requiring an explicit [Manager.Close] call. Pass the
+// long-lived service context here, not a startup-bounded timeout — the
+// per-call startup deadline is enforced internally via
+// Config.StartupTimeout.
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	if m.cmd != nil {
@@ -62,24 +69,32 @@ func (m *Manager) Start(ctx context.Context) error {
 	if err := m.spawnAndConnect(ctx); err != nil {
 		return err
 	}
-	superviseCtx, cancel := context.WithCancel(context.Background())
+	superviseCtx, cancel := context.WithCancel(ctx)
 	m.mu.Lock()
-	m.supervise = cancel
+	m.cancel = cancel
 	m.mu.Unlock()
 	m.wg.Add(1)
 	go m.superviseLoop(superviseCtx)
 	return nil
 }
 
+// Close cancels the supervisor goroutine, terminates the sidecar
+// subprocess, and releases the gRPC connection. Safe to call multiple
+// times and intended for use in defer. Equivalent to
+// Stop(context.Background()).
+func (m *Manager) Close() error {
+	return m.Stop(context.Background())
+}
+
 // Stop terminates the sidecar and closes the connection. Safe to call
-// multiple times.
+// multiple times. Prefer [Manager.Close] for defer-style cleanup.
 func (m *Manager) Stop(ctx context.Context) error {
 	if !m.stopped.CompareAndSwap(false, true) {
 		return nil
 	}
 	m.mu.Lock()
-	cancel := m.supervise
-	m.supervise = nil
+	cancel := m.cancel
+	m.cancel = nil
 	cmd := m.cmd
 	conn := m.conn
 	m.cmd = nil

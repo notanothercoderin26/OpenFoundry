@@ -159,7 +159,7 @@ func TestFunctionPackageSimulateUsesPythonSidecarManager(t *testing.T) {
 	if err := mgr.Start(ctx); err != nil {
 		t.Fatalf("start fake python sidecar manager: %v", err)
 	}
-	t.Cleanup(func() { _ = mgr.Stop(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 	state.PythonRuntime = pythonRuntimeAdapter{mgr: mgr}
 
 	router := server.BuildRouter(cfg, state, nil)

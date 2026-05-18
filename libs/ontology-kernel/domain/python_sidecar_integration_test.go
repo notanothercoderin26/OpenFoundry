@@ -48,7 +48,7 @@ func startOntologySidecar(t *testing.T) *pythonsidecar.Manager {
 	if err := mgr.Start(ctx); err != nil {
 		t.Fatalf("Start sidecar: %v", err)
 	}
-	t.Cleanup(func() { _ = mgr.Stop(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 	return mgr
 }
 

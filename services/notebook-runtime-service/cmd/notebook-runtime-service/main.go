@@ -109,20 +109,18 @@ func main() {
 			Env: []string{
 				"OPENFOUNDRY_NOTEBOOK_DATA_DIR=" + cfg.DataDir,
 			},
+			StartupTimeout:  15 * time.Second,
 			HardCallTimeout: time.Duration(cfg.PythonSidecarTimeoutSeconds+5) * time.Second,
 		}, log)
 		if err != nil {
 			log.Error("python sidecar config failed", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
-		startCtx, cancelStart := context.WithTimeout(ctx, 15*time.Second)
-		if err := pyMgr.Start(startCtx); err != nil {
-			cancelStart()
+		if err := pyMgr.Start(ctx); err != nil {
 			log.Error("python sidecar start failed", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
-		cancelStart()
-		defer func() { _ = pyMgr.Stop(context.Background()) }()
+		defer func() { _ = pyMgr.Close() }()
 		pyKernel = &kernel.SidecarKernel{Mgr: pyMgr}
 	} else {
 		log.Warn("PYTHON_SIDECAR_BINARY unset; Python ExecuteCell will return an explicit sidecar-not-configured error")

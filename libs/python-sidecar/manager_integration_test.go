@@ -60,7 +60,7 @@ func TestSidecarEndToEnd(t *testing.T) {
 	if err := mgr.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	t.Cleanup(func() { _ = mgr.Stop(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	t.Run("inline", func(t *testing.T) {
 		out, err := mgr.ExecuteInline(ctx, `import sys`+"\n"+`print("hi")`+"\n"+`print("err", file=sys.stderr)`+"\n"+`result = {"k": 1}`, []byte("{}"), 0)
@@ -160,7 +160,7 @@ func TestSidecarEndToEndWithFakeBinary(t *testing.T) {
 	if err := mgr.Start(ctx); err != nil {
 		t.Fatalf("Start fake sidecar: %v", err)
 	}
-	t.Cleanup(func() { _ = mgr.Stop(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	healthResp, err := mgr.health.Check(ctx, &healthpb.HealthCheckRequest{})
 	if err != nil {
