@@ -235,13 +235,15 @@ func TestFlightSQLGetTablesEndToEnd(t *testing.T) {
 func issueTestJWT(t *testing.T, secret string) string {
 	t.Helper()
 	jwt := authmw.NewJWTConfig(secret)
+	accessUse := "access"
 	tok, err := authmw.EncodeToken(jwt, &authmw.Claims{
-		Sub:   uuid.New(),
-		JTI:   uuid.New(),
-		IAT:   time.Now().Unix(),
-		EXP:   time.Now().Add(time.Hour).Unix(),
-		Email: "bi-client@example.com",
-		Roles: []string{"viewer"},
+		Sub:      uuid.New(),
+		JTI:      uuid.New(),
+		IAT:      time.Now().Unix(),
+		EXP:      time.Now().Add(time.Hour).Unix(),
+		Email:    "bi-client@example.com",
+		Roles:    []string{"viewer"},
+		TokenUse: &accessUse,
 	})
 	if err != nil {
 		t.Fatalf("issue test jwt: %v", err)

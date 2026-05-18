@@ -135,6 +135,7 @@ export function ProjectFolderPage() {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [detailsResource, setDetailsResource] = useState<ResourceSummary | null>(null);
   const [shareTarget, setShareTarget] = useState<DialogTarget | null>(null);
+  const [bulkShareOpen, setBulkShareOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<ExplorerItem | null>(null);
   const [moveTarget, setMoveTarget] = useState<ExplorerItem | null>(null);
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
@@ -419,12 +420,17 @@ export function ProjectFolderPage() {
     setBusy(true);
     setError('');
     try {
-      await batchApply([{
+      const response = await batchApply([{
         op: 'move',
         resource_kind: 'ontology_folder',
         resource_id: item.id,
         target_folder_id: targetFolderId,
       }]);
+      const failed = response.results.find((entry) => !entry.ok);
+      if (failed) {
+        setError(failed.error ?? 'Move failed during preflight.');
+        return;
+      }
       await refreshAfterMutation();
       if (item.id === folderRouteID && targetFolderId) navigate(folderPathByID(targetFolderId));
     } catch (cause) {
@@ -456,12 +462,14 @@ export function ProjectFolderPage() {
 
   function handleBulkAction(action: string) {
     if (action === 'move') setBulkMoveOpen(true);
+    else if (action === 'share') setBulkShareOpen(true);
     else if (action === 'duplicate') void duplicateSelected();
     else if (action === 'delete') setBulkDeleteOpen(true);
   }
 
   const bulkActions: BulkAction[] = [
     { id: 'move', label: 'Move', disabled: !selectedFoldersOnly },
+    { id: 'share', label: 'Share' },
     { id: 'duplicate', label: 'Duplicate', disabled: !selectedFoldersOnly },
     { id: 'delete', label: 'Move to trash', danger: true },
   ];
@@ -699,6 +707,18 @@ export function ProjectFolderPage() {
         resourceId={shareTarget?.id ?? null}
         resourceLabel={shareTarget?.label}
         onClose={() => setShareTarget(null)}
+      />
+
+      <ShareDialog
+        open={bulkShareOpen}
+        resourceKind={null}
+        resourceId={null}
+        targets={selectedItems.map((item) => ({ kind: item.shareKind, id: item.id, label: item.name }))}
+        onClose={() => setBulkShareOpen(false)}
+        onShared={() => {
+          setBulkShareOpen(false);
+          clearSelection();
+        }}
       />
 
       <RenameDialog

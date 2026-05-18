@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { listRoles, type RoleRecord } from '@/lib/api/auth';
 import {
+  assignThirdPartyServiceUserRole,
   createThirdPartyApplication,
+  createThirdPartyServiceUserGrant,
   deleteThirdPartyApplication,
   disableThirdPartyApplicationEnablement,
+  ensureThirdPartyApplicationServiceUser,
+  getThirdPartyApplicationServiceUser,
   listThirdPartyApplications,
   rotateThirdPartyApplicationSecret,
+  revokeThirdPartyServiceUserGrant,
+  revokeThirdPartyServiceUserRole,
   upsertThirdPartyApplicationEnablement,
   type CreateThirdPartyApplicationRequest,
+  type ThirdPartyServiceUserInspection,
   type ThirdPartyApplication,
   type ThirdPartyGrantType,
 } from '@/lib/api/third-party-applications';
@@ -24,6 +32,18 @@ const DEFAULT_FORM = {
   managing_organization_id: '',
   discoverable_organization_ids: '',
   enablement_organization_ids: '',
+};
+
+type ServiceGrantForm = {
+  scope_type: 'project' | 'resource';
+  scope_id: string;
+  role_key: string;
+};
+
+const DEFAULT_GRANT_FORM: ServiceGrantForm = {
+  scope_type: 'project',
+  scope_id: '',
+  role_key: 'viewer',
 };
 
 function splitList(value: string) {
@@ -56,6 +76,10 @@ export function ThirdPartyApplicationsPage() {
   const [form, setForm] = useState(DEFAULT_FORM);
   const [enablementOrg, setEnablementOrg] = useState('');
   const [selectedAppID, setSelectedAppID] = useState('');
+  const [roles, setRoles] = useState<RoleRecord[]>([]);
+  const [serviceUser, setServiceUser] = useState<ThirdPartyServiceUserInspection | null>(null);
+  const [serviceRoleID, setServiceRoleID] = useState('');
+  const [grantForm, setGrantForm] = useState(DEFAULT_GRANT_FORM);
   const [secret, setSecret] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -84,7 +108,25 @@ export function ThirdPartyApplicationsPage() {
 
   useEffect(() => {
     void reload();
+    void listRoles().then(setRoles).catch(() => setRoles([]));
   }, []);
+
+  useEffect(() => {
+    if (!selectedApp?.id) {
+      setServiceUser(null);
+      return;
+    }
+    void loadServiceUser(selectedApp.id);
+  }, [selectedApp?.id]);
+
+  async function loadServiceUser(appID: string) {
+    try {
+      const response = await getThirdPartyApplicationServiceUser(appID);
+      setServiceUser(response);
+    } catch {
+      setServiceUser(null);
+    }
+  }
 
   function toggleGrant(grant: ThirdPartyGrantType) {
     setForm((current) => {
@@ -122,8 +164,92 @@ export function ThirdPartyApplicationsPage() {
       setSecret(response.client_secret);
       setNotice(response.warning);
       await reload();
+      await loadServiceUser(app.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to rotate secret');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function ensureServiceUser() {
+    if (!selectedApp) return;
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const response = await ensureThirdPartyApplicationServiceUser(selectedApp.id);
+      setServiceUser(response);
+      setNotice(`Service user ready for ${selectedApp.name}.`);
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to prepare service user');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function assignServiceRole() {
+    if (!selectedApp || !serviceRoleID) return;
+    setSaving(true);
+    setError('');
+    try {
+      const response = await assignThirdPartyServiceUserRole(selectedApp.id, serviceRoleID);
+      setServiceUser(response);
+      setServiceRoleID('');
+      setNotice('Service-user role assigned.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to assign service-user role');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function revokeServiceRole(roleID: string) {
+    if (!selectedApp) return;
+    setSaving(true);
+    setError('');
+    try {
+      const response = await revokeThirdPartyServiceUserRole(selectedApp.id, roleID);
+      setServiceUser(response);
+      setNotice('Service-user role revoked.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke service-user role');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createServiceGrant() {
+    if (!selectedApp || !grantForm.scope_id.trim() || !grantForm.role_key.trim()) return;
+    setSaving(true);
+    setError('');
+    try {
+      await createThirdPartyServiceUserGrant(selectedApp.id, {
+        scope_type: grantForm.scope_type,
+        scope_id: grantForm.scope_id.trim(),
+        role_key: grantForm.role_key.trim(),
+      });
+      setGrantForm(DEFAULT_GRANT_FORM);
+      await loadServiceUser(selectedApp.id);
+      setNotice('Service-user project/resource grant saved.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create service-user grant');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function revokeServiceGrant(grantID: string) {
+    if (!selectedApp) return;
+    setSaving(true);
+    setError('');
+    try {
+      await revokeThirdPartyServiceUserGrant(selectedApp.id, grantID);
+      await loadServiceUser(selectedApp.id);
+      setNotice('Service-user grant revoked.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke service-user grant');
     } finally {
       setSaving(false);
     }
@@ -386,6 +512,162 @@ export function ThirdPartyApplicationsPage() {
                 </span>
               ))
             )}
+          </div>
+        </section>
+      )}
+
+      {selectedApp && (
+        <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <p className="of-eyebrow">Client credentials</p>
+              <h2 style={{ margin: 0, fontSize: 18 }}>Service user</h2>
+              {serviceUser?.warning && <p className="of-text-muted" style={{ marginBottom: 0 }}>{serviceUser.warning}</p>}
+            </div>
+            <button
+              type="button"
+              className="of-button"
+              disabled={saving || selectedApp.client_type !== 'confidential'}
+              onClick={() => void ensureServiceUser()}
+            >
+              Prepare service user
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+            <div>
+              <p className="of-eyebrow">Identity</p>
+              <dl className="settings-definition-list">
+                <dt>Client credentials</dt>
+                <dd>{serviceUser?.client_credentials_enabled ? 'Enabled' : 'Disabled'}</dd>
+                <dt>User ID</dt>
+                <dd><code>{serviceUser?.service_user?.id ?? selectedApp.service_user_id ?? 'Not created'}</code></dd>
+                <dt>Username</dt>
+                <dd><code>{serviceUser?.service_user?.username ?? selectedApp.client_id}</code></dd>
+              </dl>
+            </div>
+            <div>
+              <p className="of-eyebrow">Effective API permissions</p>
+              <div className="settings-chip-row">
+                {(serviceUser?.permissions ?? []).length === 0 ? (
+                  <span className="of-text-muted">No platform permissions assigned.</span>
+                ) : (
+                  serviceUser?.permissions.map((permission) => <span key={permission} className="of-chip">{permission}</span>)
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: 10 }}>
+            <p className="of-eyebrow">Platform roles</p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <select className="of-input" value={serviceRoleID} onChange={(e) => setServiceRoleID(e.target.value)} style={{ maxWidth: 320 }}>
+                <option value="">Select role</option>
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>{role.name}</option>
+                ))}
+              </select>
+              <button type="button" className="of-button" disabled={saving || !serviceRoleID || !serviceUser?.service_user} onClick={() => void assignServiceRole()}>
+                Assign role
+              </button>
+            </div>
+            <div className="settings-chip-row">
+              {(serviceUser?.platform_roles ?? []).length === 0 ? (
+                <span className="of-text-muted">No platform roles.</span>
+              ) : (
+                serviceUser?.platform_roles.map((role) => (
+                  <button key={role.id} type="button" className="of-chip" onClick={() => void revokeServiceRole(role.id)} disabled={saving}>
+                    {role.name} ×
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: 10 }}>
+            <p className="of-eyebrow">Project and resource roles</p>
+            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', alignItems: 'end' }}>
+              <label style={{ fontSize: 13 }}>
+                Scope
+                <select
+                  className="of-input"
+                  value={grantForm.scope_type}
+                  onChange={(e) => setGrantForm((current) => ({ ...current, scope_type: e.target.value as 'project' | 'resource' }))}
+                >
+                  <option value="project">Project</option>
+                  <option value="resource">Resource</option>
+                </select>
+              </label>
+              <label style={{ fontSize: 13 }}>
+                Scope ID
+                <input className="of-input" value={grantForm.scope_id} onChange={(e) => setGrantForm((current) => ({ ...current, scope_id: e.target.value }))} />
+              </label>
+              <label style={{ fontSize: 13 }}>
+                Role key
+                <input className="of-input" value={grantForm.role_key} onChange={(e) => setGrantForm((current) => ({ ...current, role_key: e.target.value }))} />
+              </label>
+              <button
+                type="button"
+                className="of-button"
+                disabled={saving || !serviceUser?.service_user || !grantForm.scope_id.trim() || !grantForm.role_key.trim()}
+                onClick={() => void createServiceGrant()}
+              >
+                Add grant
+              </button>
+            </div>
+            <table className="settings-table">
+              <thead>
+                <tr>
+                  <th>Scope</th>
+                  <th>Role</th>
+                  <th style={{ width: 120 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(serviceUser?.resource_grants ?? []).map((grant) => (
+                  <tr key={grant.id}>
+                    <td>
+                      <code>{grant.scope_id}</code>
+                      <div className="settings-table__sub">{grant.scope_type}</div>
+                    </td>
+                    <td>{grant.role_key}</td>
+                    <td>
+                      <button type="button" className="of-button" disabled={saving} onClick={() => void revokeServiceGrant(grant.id)}>
+                        Revoke
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {(serviceUser?.resource_grants ?? []).length === 0 && (
+                  <tr><td colSpan={3} className="of-text-muted">No project or resource grants.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div>
+            <p className="of-eyebrow">Audit history</p>
+            <table className="settings-table">
+              <thead>
+                <tr>
+                  <th>Action</th>
+                  <th>Actor</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(serviceUser?.audit_events ?? []).map((event) => (
+                  <tr key={event.id}>
+                    <td>{event.action}</td>
+                    <td><code>{event.actor_id ?? 'system'}</code></td>
+                    <td>{new Date(event.created_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+                {(serviceUser?.audit_events ?? []).length === 0 && (
+                  <tr><td colSpan={3} className="of-text-muted">No service-user audit events yet.</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </section>
       )}

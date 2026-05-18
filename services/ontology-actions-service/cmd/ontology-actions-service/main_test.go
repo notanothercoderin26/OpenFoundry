@@ -261,14 +261,16 @@ func postJSON(t *testing.T, router http.Handler, path string, payload map[string
 func serviceTestToken(t *testing.T, owner uuid.UUID) string {
 	t.Helper()
 	now := time.Now()
+	accessUse := "access"
 	tok, err := authmw.EncodeToken(authmw.NewJWTConfig(serviceTestConfig().JWTSecret), &authmw.Claims{
-		Sub:   owner,
-		IAT:   now.Unix(),
-		EXP:   now.Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "runtime-smoke@openfoundry.test",
-		Name:  "Runtime Smoke",
-		Roles: []string{"ontology.editor"},
+		Sub:      owner,
+		IAT:      now.Unix(),
+		EXP:      now.Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "runtime-smoke@openfoundry.test",
+		Name:     "Runtime Smoke",
+		Roles:    []string{"ontology.editor"},
+		TokenUse: &accessUse,
 	})
 	if err != nil {
 		t.Fatalf("encode test token: %v", err)

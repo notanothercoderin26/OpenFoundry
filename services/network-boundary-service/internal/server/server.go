@@ -1,5 +1,5 @@
 // Package server wires the HTTP router, observability and graceful
-// shutdown for the network-boundary-service stub. The shape mirrors
+// shutdown for the network-boundary-service. The shape mirrors
 // docs/templates/service-skeleton/internal/server so platform tooling stays uniform;
 // the only divergence is the route table in `mountAPIRoutes`, which
 // reflects the gateway's `u.NetworkBoundary` prefixes.
@@ -107,7 +107,6 @@ var placeholderRoutes = []struct {
 }{
 	{"network-boundary.boundaries.stub", "/api/v1/network-boundaries"},
 	{"network-boundary.boundary.stub", "/api/v1/network-boundary"},
-	{"network-boundary.egress-policies.stub", "/api/v1/data-connection/egress-policies"},
 }
 
 // mountAPIRoutes registers the gateway-facing endpoints. Each prefix
@@ -117,6 +116,89 @@ var placeholderRoutes = []struct {
 func mountAPIRoutes(r chi.Router, caps *capabilities.Registry) {
 	const milestone = "S8.6/B14"
 	stub := handler.NotImplemented(milestone)
+	egress := handler.NewEgressHandler(handler.NewMemoryEgressPolicyStore())
+
+	registerCapability(caps, r, capabilities.Capability{
+		ID:           "network-boundary.egress-policies.list",
+		Method:       http.MethodGet,
+		Path:         "/api/v1/data-connection/egress-policies",
+		Stable:       false,
+		RequiresAuth: true,
+		Summary:      "List visible network egress policies.",
+		Tags:         []string{"network-boundary", "egress", "security-governance"},
+	}, egress.ListPolicies)
+	registerCapability(caps, r, capabilities.Capability{
+		ID:           "network-boundary.egress-policies.create",
+		Method:       http.MethodPost,
+		Path:         "/api/v1/data-connection/egress-policies",
+		Stable:       false,
+		RequiresAuth: true,
+		Summary:      "Create direct, agent-proxy, or same-region bucket egress policies.",
+		Tags:         []string{"network-boundary", "egress", "security-governance"},
+	}, egress.CreatePolicy)
+	registerCapability(caps, r, capabilities.Capability{
+		ID:           "network-boundary.egress-policies.evaluate-workload",
+		Method:       http.MethodPost,
+		Path:         "/api/v1/data-connection/egress-policies:evaluate-workload",
+		Stable:       false,
+		RequiresAuth: true,
+		Summary:      "Evaluate explicit workload egress imports at runtime.",
+		Tags:         []string{"network-boundary", "egress", "runtime"},
+	}, egress.EvaluateWorkload)
+	registerCapability(caps, r, capabilities.Capability{
+		ID:           "network-boundary.egress-policies.approvals.list",
+		Method:       http.MethodGet,
+		Path:         "/api/v1/data-connection/egress-policies/approvals",
+		Stable:       false,
+		RequiresAuth: true,
+		Summary:      "List network egress approval tasks.",
+		Tags:         []string{"network-boundary", "egress", "approvals"},
+	}, egress.ListApprovals)
+	registerCapability(caps, r, capabilities.Capability{
+		ID:           "network-boundary.egress-policies.approvals.decide",
+		Method:       http.MethodPost,
+		Path:         "/api/v1/data-connection/egress-policies/approvals/{task_id}/decision",
+		Stable:       false,
+		RequiresAuth: true,
+		Summary:      "Approve or deny a network egress workflow task.",
+		Tags:         []string{"network-boundary", "egress", "approvals"},
+	}, egress.DecideApproval)
+	registerCapability(caps, r, capabilities.Capability{
+		ID:           "network-boundary.egress-policies.get",
+		Method:       http.MethodGet,
+		Path:         "/api/v1/data-connection/egress-policies/{id}",
+		Stable:       false,
+		RequiresAuth: true,
+		Summary:      "Get one network egress policy.",
+		Tags:         []string{"network-boundary", "egress", "security-governance"},
+	}, egress.GetPolicy)
+	registerCapability(caps, r, capabilities.Capability{
+		ID:           "network-boundary.egress-policies.update-state",
+		Method:       http.MethodPatch,
+		Path:         "/api/v1/data-connection/egress-policies/{id}/state",
+		Stable:       false,
+		RequiresAuth: true,
+		Summary:      "Approve, pause, or revoke an egress policy.",
+		Tags:         []string{"network-boundary", "egress", "security-governance"},
+	}, egress.UpdateState)
+	registerCapability(caps, r, capabilities.Capability{
+		ID:           "network-boundary.egress-policies.update-sharing",
+		Method:       http.MethodPatch,
+		Path:         "/api/v1/data-connection/egress-policies/{id}/sharing",
+		Stable:       false,
+		RequiresAuth: true,
+		Summary:      "Update viewer, importer, and administrator grants for an egress policy.",
+		Tags:         []string{"network-boundary", "egress", "security-governance"},
+	}, egress.UpdateSharing)
+	registerCapability(caps, r, capabilities.Capability{
+		ID:           "network-boundary.egress-policies.delete-blocked",
+		Method:       http.MethodDelete,
+		Path:         "/api/v1/data-connection/egress-policies/{id}",
+		Stable:       false,
+		RequiresAuth: true,
+		Summary:      "Reject deletion because egress policies are immutable; use revoke instead.",
+		Tags:         []string{"network-boundary", "egress", "security-governance"},
+	}, egress.DeletePolicy)
 
 	for _, route := range placeholderRoutes {
 		caps.MustRegister(r, capabilities.Capability{
@@ -136,4 +218,8 @@ func mountAPIRoutes(r chi.Router, caps *capabilities.Registry) {
 			r.Method(method, route.path, stub)
 		}
 	}
+}
+
+func registerCapability(caps *capabilities.Registry, r chi.Router, cap capabilities.Capability, h http.HandlerFunc) {
+	caps.MustRegister(r, cap, h)
 }

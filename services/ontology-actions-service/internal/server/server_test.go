@@ -55,14 +55,16 @@ func devToken(t *testing.T) string {
 	t.Helper()
 	now := time.Now()
 	cfg := authmw.NewJWTConfig(testJWTSecret)
+	accessUse := "access"
 	tok, err := authmw.EncodeToken(cfg, &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   now.Unix(),
-		EXP:   now.Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "smoke@openfoundry.test",
-		Name:  "Smoke Tester",
-		Roles: []string{"ontology.editor"},
+		Sub:      uuid.New(),
+		IAT:      now.Unix(),
+		EXP:      now.Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "smoke@openfoundry.test",
+		Name:     "Smoke Tester",
+		Roles:    []string{"ontology.editor"},
+		TokenUse: &accessUse,
 	})
 	if err != nil {
 		t.Fatalf("encode dev token: %v", err)

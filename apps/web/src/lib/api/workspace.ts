@@ -193,15 +193,32 @@ export interface CompassSearchResult {
   owner_id?: string | null;
   tags: string[];
   summary: string;
+  long_text_sources?: Array<{ kind: string; label?: string }>;
   open_url: string;
   is_deleted: boolean;
   score?: number;
+  snippet?: string;
+}
+
+export interface CompassFacetValue {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface CompassSearchFacets {
+  types?: CompassFacetValue[] | null;
+  projects?: CompassFacetValue[] | null;
+  owners?: CompassFacetValue[] | null;
+  markings?: CompassFacetValue[] | null;
+  modified?: CompassFacetValue[] | null;
 }
 
 export interface CompassSearchResponse {
   data: CompassSearchResult[];
   next_cursor?: string | null;
   limit: number;
+  facets?: CompassSearchFacets | null;
 }
 
 export interface CompassSearchParams {
@@ -210,6 +227,7 @@ export interface CompassSearchParams {
   project?: string;
   owner?: string;
   marking?: string[];
+  modified?: string;
   limit?: number;
   cursor?: string;
 }
@@ -220,6 +238,7 @@ export function searchCompass(params: CompassSearchParams) {
   if (params.type) qs.set('type', params.type);
   if (params.project) qs.set('project', params.project);
   if (params.owner) qs.set('owner', params.owner);
+  if (params.modified) qs.set('modified', params.modified);
   for (const marking of params.marking ?? []) {
     if (marking.trim()) qs.append('marking', marking.trim());
   }
@@ -227,6 +246,96 @@ export function searchCompass(params: CompassSearchParams) {
   if (params.cursor) qs.set('cursor', params.cursor);
   const query = qs.toString();
   return api.get<CompassSearchResponse>(`/compass/search${query ? `?${query}` : ''}`);
+}
+
+export interface SavedSearch {
+  id: string;
+  user_id: string;
+  name: string;
+  query: string;
+  tab: 'top' | 'apps' | 'objects' | 'datasets' | 'files' | string;
+  type?: string | null;
+  project_id?: string | null;
+  project_rid?: string | null;
+  owner_id?: string | null;
+  marking_rids: string[];
+  modified_bucket?: string | null;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listSavedSearches(params?: { limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.limit) qs.set('limit', String(params.limit));
+  const query = qs.toString();
+  return api
+    .get<{ data: SavedSearch[] }>(
+      `/workspace/saved-searches${query ? `?${query}` : ''}`,
+    )
+    .then((response) => response.data);
+}
+
+export function createSavedSearch(body: {
+  name: string;
+  query: string;
+  tab?: string;
+  type?: string | null;
+  project?: string | null;
+  owner_id?: string | null;
+  marking_rids?: string[];
+  modified_bucket?: string | null;
+  display_order?: number;
+}) {
+  return api.post<SavedSearch>('/workspace/saved-searches', body);
+}
+
+export function deleteSavedSearch(id: string) {
+  return api.delete(`/workspace/saved-searches/${id}`);
+}
+
+export interface ProjectFollow {
+  user_id: string;
+  project_id: string;
+  project_rid?: string | null;
+  created_at: string;
+}
+
+export function listProjectFollows(params?: { limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.limit) qs.set('limit', String(params.limit));
+  const query = qs.toString();
+  return api
+    .get<{ data: ProjectFollow[] }>(
+      `/workspace/project-follows${query ? `?${query}` : ''}`,
+    )
+    .then((response) => response.data);
+}
+
+export function followProject(body: { project_id?: string; project_rid?: string }) {
+  return api.post<ProjectFollow>('/workspace/project-follows', body);
+}
+
+export function unfollowProject(project: string) {
+  return api.delete(`/workspace/project-follows/${encodeURIComponent(project)}`);
+}
+
+export interface ResourceRecommendation extends CompassSearchResult {
+  reason: string;
+  signals: string[];
+  collaborator_count: number;
+  last_activity_at?: string | null;
+}
+
+export function listRecommendations(params?: { limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.limit) qs.set('limit', String(params.limit));
+  const query = qs.toString();
+  return api
+    .get<{ data: ResourceRecommendation[] }>(
+      `/workspace/recommendations${query ? `?${query}` : ''}`,
+    )
+    .then((response) => response.data);
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +488,7 @@ export function softDeleteResource(kind: ResourceKind, id: string, params?: { re
 }
 
 export interface BatchAction {
-  op: 'move' | 'delete' | 'restore' | 'purge' | 'rename' | 'duplicate' | 'soft_delete';
+  op: 'move' | 'delete' | 'trash' | 'share';
   resource_kind: ResourceKind;
   resource_id: string;
   target_folder_id?: string | null;
@@ -389,7 +498,11 @@ export interface BatchAction {
   confirm_access_policy_change?: boolean;
   confirm_marking_change?: boolean;
   retention_days?: number;
-  name?: string;
+  shared_with_user_id?: string | null;
+  shared_with_group_id?: string | null;
+  access_level?: AccessLevel;
+  note?: string | null;
+  expires_at?: string | null;
 }
 
 export interface BatchResultEntry {
@@ -398,10 +511,18 @@ export interface BatchResultEntry {
   resource_id: string;
   ok: boolean;
   error: string | null;
+  share_id?: string;
+  share_change_type?: 'granted' | 'updated';
+}
+
+export interface BatchResponse {
+  batch_id?: string;
+  preflight_failed?: boolean;
+  results: BatchResultEntry[];
 }
 
 export function batchApply(actions: BatchAction[]) {
-  return api.post<{ results: BatchResultEntry[] }>('/workspace/resources/batch', { actions });
+  return api.post<BatchResponse>('/workspace/resources/batch', { actions });
 }
 
 // ---------------------------------------------------------------------------

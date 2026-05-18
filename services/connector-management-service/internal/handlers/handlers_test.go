@@ -343,23 +343,23 @@ func TestTestConnectionAdapterErrorMarksConnectionError(t *testing.T) {
 }
 
 type fakeStore struct {
-	connections    []models.Connection
-	syncJobs       map[uuid.UUID][]models.SyncJob
-	exports        map[uuid.UUID][]models.DataExport
-	mediaSyncs     map[uuid.UUID][]models.MediaSetSync
-	runs           map[uuid.UUID][]models.SyncRun
-	links          map[string]models.VirtualTableSourceLink
-	vtables        map[string]models.VirtualTable
-	polls          map[string][]models.PollHistoryRow
-	registrations  map[uuid.UUID][]models.ConnectionRegistration
-	policies       map[uuid.UUID][]models.SourcePolicyBindingResponse
-	credentials    map[uuid.UUID][]models.CredentialResponse
-	codeImports    map[uuid.UUID]models.SourceCodeImport
-	governance     map[uuid.UUID]models.SourceGovernance
-	auditEvents    map[uuid.UUID][]models.SourceGovernanceAuditEvent
-	agents         []models.ConnectorAgent
-	webhookHistory map[uuid.UUID][]models.WebhookHistoryEntry
-	listenerEvents map[uuid.UUID][]models.InboundListenerEvent
+	connections     []models.Connection
+	syncJobs        map[uuid.UUID][]models.SyncJob
+	exports         map[uuid.UUID][]models.DataExport
+	mediaSyncs      map[uuid.UUID][]models.MediaSetSync
+	runs            map[uuid.UUID][]models.SyncRun
+	links           map[string]models.VirtualTableSourceLink
+	vtables         map[string]models.VirtualTable
+	polls           map[string][]models.PollHistoryRow
+	registrations   map[uuid.UUID][]models.ConnectionRegistration
+	policies        map[uuid.UUID][]models.SourcePolicyBindingResponse
+	credentials     map[uuid.UUID][]models.CredentialResponse
+	codeImports     map[uuid.UUID]models.SourceCodeImport
+	governance      map[uuid.UUID]models.SourceGovernance
+	auditEvents     map[uuid.UUID][]models.SourceGovernanceAuditEvent
+	agents          []models.ConnectorAgent
+	webhookHistory  map[uuid.UUID][]models.WebhookHistoryEntry
+	listenerEvents  map[uuid.UUID][]models.InboundListenerEvent
 	retryPolicies   map[uuid.UUID]models.SourceRetryPolicy
 	retryFailures   map[uuid.UUID][]models.RetryRecoveryRunSummary
 	mediaSyncRuns   map[uuid.UUID][]models.MediaSetSyncRun
@@ -2169,6 +2169,11 @@ func TestSourcePolicyBindingHandlersMatchRustContract(t *testing.T) {
 	require.Equal(t, sourceID, attached.SourceID)
 	require.Equal(t, policyID, attached.PolicyID)
 	require.Equal(t, "direct", attached.Kind)
+	require.Len(t, store.auditEvents[sourceID], 1)
+	require.Equal(t, "egress_policy_attached", store.auditEvents[sourceID][0].Action)
+	require.Equal(t, "network_egress", store.auditEvents[sourceID][0].Capability)
+	require.Equal(t, true, store.auditEvents[sourceID][0].Metadata["potential_data_export"])
+	require.Equal(t, []string{"networkEgress", "dataExport", "managementPermissions"}, store.auditEvents[sourceID][0].Metadata["audit_categories"])
 
 	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+sourceID.String()+"/egress-policies", `{"policy_id":"`+policyID.String()+`","kind":"agent_proxy"}`, owner), "id", sourceID.String())
 	rec = httptest.NewRecorder()
@@ -2186,11 +2191,20 @@ func TestSourcePolicyBindingHandlersMatchRustContract(t *testing.T) {
 	require.Len(t, listed, 1)
 	require.Equal(t, "agent_proxy", listed[0].Kind)
 
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+sourceID.String()+"/egress-policies", `{"policy_id":"`+policyID.String()+`","kind":"same_region_bucket"}`, owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.AttachPolicy(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, store.policies[sourceID], 1)
+	require.Equal(t, "same_region_bucket", store.policies[sourceID][0].Kind)
+
 	req = withRouteParam(withRouteParam(authedReq(http.MethodDelete, "/sources/"+sourceID.String()+"/egress-policies/"+policyID.String(), ``, owner), "source_id", sourceID.String()), "policy_id", policyID.String())
 	rec = httptest.NewRecorder()
 	h.DetachPolicy(rec, req)
 	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 	require.Empty(t, store.policies[sourceID])
+	require.Equal(t, "egress_policy_detached", store.auditEvents[sourceID][0].Action)
+	require.Equal(t, policyID.String(), store.auditEvents[sourceID][0].Metadata["policy_id"])
 }
 
 func TestAttachPolicyRejectsEdgeCases(t *testing.T) {

@@ -526,42 +526,44 @@ func (d *projectTemplateDeployment) insertFolders(
 	projectID uuid.UUID,
 	projectRID string,
 	createdBy uuid.UUID,
-) error {
+) ([]uuid.UUID, error) {
 	if d == nil || len(d.folderPlans) == 0 {
-		return nil
+		return nil, nil
 	}
 	createdByKey := map[string]uuid.UUID{}
+	createdIDs := make([]uuid.UUID, 0, len(d.folderPlans))
 	for i := range d.folderPlans {
 		plan := d.folderPlans[i]
 		var parentID *uuid.UUID
 		if plan.parentKey != "" {
 			resolved, ok := createdByKey[plan.parentKey]
 			if !ok {
-				return fmt.Errorf("template folder %q references unknown parent_key %q", plan.request.Name, plan.parentKey)
+				return nil, fmt.Errorf("template folder %q references unknown parent_key %q", plan.request.Name, plan.parentKey)
 			}
 			parentID = &resolved
 		} else {
 			resolved, status, msg, err := resolveProjectFolderParent(ctx, tx, projectID, projectRID, &plan.request)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if status != 0 {
-				return projectTemplateHTTPError{status: status, message: msg}
+				return nil, projectTemplateHTTPError{status: status, message: msg}
 			}
 			parentID = resolved
 		}
 		folder, err := insertProjectFolder(ctx, tx, projectID, createdBy, &plan.request, parentID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if plan.key != "" {
 			createdByKey[plan.key] = folder.ID
 		}
+		createdIDs = append(createdIDs, folder.ID)
 		if err := workspace.UpsertFolderSearchIndexTx(ctx, tx, folder.ID, workspace.ResourceSearchEventCreated); err != nil {
-			return fmt.Errorf("failed to index ontology project folder: %w", err)
+			return nil, fmt.Errorf("failed to index ontology project folder: %w", err)
 		}
 	}
-	return nil
+	return createdIDs, nil
 }
 
 func (d *projectTemplateDeployment) applyPostCreate(ctx context.Context, tx pgx.Tx, projectID uuid.UUID, projectSlug string, actor uuid.UUID) error {

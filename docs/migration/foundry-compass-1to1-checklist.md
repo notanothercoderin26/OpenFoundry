@@ -261,26 +261,47 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 
 ### Audit and bulk operations
 
-- [ ] `CMP.20` Resource audit (`P1`, `todo`)
+- [x] `CMP.20` Resource audit (`P1`, `done`)
   - Standard audit events for create, move, rename, trash, restore, hard-delete, sharing change, marking change.
   - Audit consumable from the central audit query surface.
-  - Docs: [Audit on resources](https://www.palantir.com/docs/foundry/compass/audit).
+  - Event contract: `libs/audit-trail` now defines standard Compass lifecycle events: `compass.resource.created`, `compass.resource.moved`, `compass.resource.renamed`, `compass.resource.trashed`, `compass.resource.restored`, existing `compass.resource.purged`, `compass.resource.share_changed`, and `compass.resource.markings_changed`. Events carry `resource_rid`, `project_rid`, `markings_at_event`, `resource_type`, display-name/path deltas, share principal details, retention/restore metadata, and are mapped to audit categories (`dataCreate`, `dataUpdate`, `dataDelete`, `managementMarkings`).
+  - Producers: project/folder create, template-generated folders, resource-binding create, folder/resource-binding moves, rename, duplicate-as-create, trash, restore, purge, direct share grant/update/revoke, and project marking changes emit audit envelopes to `audit.events.v1` in the same SQL transaction as the resource mutation.
+  - Central query surface: `services/audit-sink` already consumes `audit.events.v1` and exposes `GET /api/v1/audit/events` plus NDJSON export with filters for `actor_id`, `resource_rid`, `action`, `from`, `to`, and cursor pagination, so Compass resource audit is searchable through the shared audit surface.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the resource audit contract.
+  - Verification: `go test ./libs/audit-trail ./services/tenancy-organizations-service/internal/workspace ./services/tenancy-organizations-service/internal/handlers ./services/audit-sink/internal/handlers ./services/audit-sink/internal/repo -run 'Compass|Audit|Resource|Share|Trash|Restore|Project|Folder|Query' -count=1`, and `git diff --check`.
+  - Docs: [Audit logs](https://www.palantir.com/docs/foundry/security/audit-logs-overview), [Audit log categories](https://www.palantir.com/docs/foundry/security/audit-log-categories), [Monitor audit logs](https://www.palantir.com/docs/foundry/security/monitor-audit-logs). The older [Audit on resources](https://www.palantir.com/docs/foundry/compass/audit) URL currently redirects to Palantir's 404 page.
 
-- [ ] `CMP.21` Bulk move/trash/share (`P1`, `todo`)
+- [x] `CMP.21` Bulk move/trash/share (`P1`, `done`)
   - Bulk operations from search results or folder listings with pre-flight policy checks and a single audit event per batch.
+  - API/UI: `POST /api/v1/workspace/resources/batch` now supports `move`, `delete`/`trash`, and `share` actions over project, folder, and resource-binding selections. Folder listings expose bulk move/trash/share actions and surface per-row preflight failures instead of silently closing dialogs. Responses include a UUIDv7 `batch_id`, per-row results, share ids/change types for share rows, and `preflight_failed=true` when no mutations were applied because any row failed validation.
+  - Pre-flight: the handler validates all selected rows before mutating anything. Trash checks retention bounds and project-owner/admin policy; moves reuse the same folder cross-project policy/marking confirmation checks as single-resource move and support resource-binding project moves; share validates one user/group principal, access level, and owner/admin policy for ontology resources while requiring admin for externally owned resources.
+  - Audit: batch mutations suppress the per-resource lifecycle/share events used by single-resource routes and emit exactly one `compass.resource.bulk_operation` event to `audit.events.v1` with `batch_operation`, total/succeeded/failed counts, preflight status, target RIDs, retention/share fields, and per-row outcome details.
+  - Implementation: folder move validation is split from mutation so batch preflight can run without side effects; trash/share/move helpers accept an audit-suppression flag for batch execution while individual endpoints still emit their CMP.20 lifecycle events.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the batch contract.
+  - Verification: `go test ./libs/audit-trail ./services/tenancy-organizations-service/internal/workspace`, `pnpm --filter @open-foundry/web exec eslint src/lib/api/workspace.ts src/routes/projects/ProjectFolderPage.tsx src/lib/components/workspace/MoveDialog.tsx src/lib/components/workspace/ShareDialog.tsx`, and `git diff --check`.
   - Docs: [Filesystem Get Resource API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/resources/get-resource/), [Filesystem Get Folder API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/folders/get-folder/).
 
 ## Milestone C: catalog, recommendations, dependency graph, multi-region
 
 ### Full-text catalog
 
-- [ ] `CMP.22` Long-text catalog index (`P2`, `todo`)
+- [x] `CMP.22` Long-text catalog index (`P2`, `done`)
   - Index resource descriptions, README content, ontology object/property descriptions, code repo READMEs, dashboard descriptions; surface in search with snippet highlighting.
+  - Implementation: migration `0021_cmp22_long_text_catalog_index.sql` extends `compass_resource_search_index` with `long_text` and `long_text_sources`, backfills project/folder descriptions as catalog text, and rebuilds the generated Postgres `search_vector` so title/summary/long-text/resource metadata contribute with decreasing weights.
+  - Ingestion contract: `ResourceSearchEntry` now carries bounded long text plus source metadata, with canonical source kinds for resource descriptions, general READMEs, ontology object descriptions, ontology property descriptions, code repository READMEs, and dashboard descriptions. `BuildResourceSearchLongText` and `UpdateResourceSearchLongTextTx` give owning services a shared way to feed multiple text contributors into one catalog document, persist it by RID, and emit the search-update outbox event while preserving source labels for downstream search backends.
+  - API/UI: `GET /api/v1/compass/search` matches `long_text` in addition to display names, summaries, and RIDs, computes bounded snippets from the matching catalog body, strips the full long-text body from the HTTP response, and keeps existing permission-aware project filtering. Quicksearch resource rows render snippets with query-term highlighting in top and full Files views.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the long-text catalog fields, source kinds, event/API contract, and snippet behavior.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/workspace`, `pnpm --filter @open-foundry/web exec eslint src/lib/api/workspace.ts src/routes/search/SearchPage.tsx`, and `git diff --check`.
   - Docs: [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch), [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog).
 
-- [ ] `CMP.23` Facets and saved searches (`P2`, `todo`)
+- [x] `CMP.23` Facets and saved searches (`P2`, `done`)
   - Facets on type, project, owner, marking, last-modified bucket.
   - Save a search as a named query that appears in the user's sidebar.
+  - API: `GET /api/v1/compass/search` now returns a `facets` envelope for resource `types`, `projects`, `owners`, `markings`, and `modified` buckets. The same permission-aware search predicate powers both results and facets, and `modified=24h|7d|30d|older` is accepted as a last-modified filter.
+  - Saved searches: migration `0022_cmp23_saved_searches.sql` adds `compass_saved_searches` with per-user `name`, `query`, `tab`, `type`, `project_id`/`project_rid`, `owner_id`, `marking_rids`, `modified_bucket`, and `display_order`. `GET|POST|DELETE /api/v1/workspace/saved-searches` lists, creates, and removes the caller's named searches.
+  - UI: Quicksearch's sidebar renders saved searches, a "Save current search" action, backend-provided resource facets, project/owner/marking selectors, and last-modified bucket toggles. Opening a saved search restores query, tab, type, project, owner, marking, and modified filters.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the facets and saved-search contract.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/workspace`, `go test ./services/tenancy-organizations-service/internal/server`, `pnpm --filter @open-foundry/web exec eslint src/lib/api/workspace.ts src/routes/search/SearchPage.tsx`, and `git diff --check`.
   - Docs: [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch), [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog).
 
 ### Recommendations and dependency graph

@@ -35,7 +35,7 @@ type trashPurgeSnapshot struct {
 	AffectedDependents []audittrail.AffectedDependent
 }
 
-func auditCtxFromWorkspaceRequest(claims *authmw.Claims, r *http.Request) audittrail.AuditContext {
+func AuditContextFromRequest(claims *authmw.Claims, r *http.Request) audittrail.AuditContext {
 	requestID := strings.TrimSpace(r.Header.Get("X-Request-Id"))
 	if requestID == "" {
 		requestID = uuid.New().String()
@@ -48,6 +48,10 @@ func auditCtxFromWorkspaceRequest(claims *authmw.Claims, r *http.Request) auditt
 		CorrelationID: r.Header.Get("X-Correlation-Id"),
 		SourceService: workspaceAuditSourceService,
 	}
+}
+
+func auditCtxFromWorkspaceRequest(claims *authmw.Claims, r *http.Request) audittrail.AuditContext {
+	return AuditContextFromRequest(claims, r)
 }
 
 func workspaceClientIP(r *http.Request) string {
@@ -672,7 +676,7 @@ func deleteFolderScopedGrantsTx(ctx context.Context, tx pgx.Tx, folderID uuid.UU
 }
 
 func resourceBindingRIDFromID(id uuid.UUID) string {
-	return "ri.compass.main.resource_binding." + id.String()
+	return resourceRIDForKind(ResourceOntologyResourceBinding, id)
 }
 
 func formatAuditTime(t time.Time) string {

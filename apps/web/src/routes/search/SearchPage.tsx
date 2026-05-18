@@ -1,18 +1,23 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ApiError } from '@/lib/api/client';
 import { searchOntology, type SearchResult } from '@/lib/api/ontology';
 import {
+  createSavedSearch,
   createFavorite,
+  deleteSavedSearch,
   listFavorites,
   listRecents,
+  listSavedSearches,
   recordAccess,
   resolveResourceLabels,
   searchCompass,
+  type CompassSearchFacets,
   type CompassSearchResult,
   type RecentEntry,
   type ResourceKind,
+  type SavedSearch,
   type UserFavorite,
 } from '@/lib/api/workspace';
 import {
@@ -46,6 +51,7 @@ interface CompassSearchFamilyState {
   data: CompassSearchResult[];
   total: number;
   nextCursor: string | null;
+  facets: CompassSearchFacets;
 }
 
 interface FamilyResults {
@@ -120,7 +126,7 @@ function emptyFamily(): SearchFamilyState {
 }
 
 function emptyCompassFamily(): CompassSearchFamilyState {
-  return { data: [], total: 0, nextCursor: null };
+  return { data: [], total: 0, nextCursor: null, facets: {} };
 }
 
 function emptyFamilies(): FamilyResults {
@@ -144,6 +150,11 @@ function formatCount(n: number): string {
   if (n >= 10_000) return `${Math.round(n / 1000)}K`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return String(n);
+}
+
+function onlySelected(values: Set<string>): string | undefined {
+  if (values.size !== 1) return undefined;
+  return Array.from(values)[0];
 }
 
 function loadRecentSearches(): string[] {
@@ -209,6 +220,49 @@ function formatDateTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function highlightTerms(query: string): string[] {
+  const seen = new Set<string>();
+  return query
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}_-]+/u)
+    .map((term) => term.trim())
+    .filter((term) => {
+      if (term.length < 2 || seen.has(term)) return false;
+      seen.add(term);
+      return true;
+    })
+    .slice(0, 8);
+}
+
+function HighlightedSnippet({ text, query }: { text: string; query: string }) {
+  const terms = highlightTerms(query);
+  if (terms.length === 0) return <>{text}</>;
+  const regex = new RegExp(terms.map(escapeRegExp).join('|'), 'gi');
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  for (const match of text.matchAll(regex)) {
+    const start = match.index ?? 0;
+    const value = match[0];
+    if (start > lastIndex) {
+      nodes.push(text.slice(lastIndex, start));
+    }
+    nodes.push(
+      <mark key={`${start}-${value}`} className="of-quicksearch__snippetMark">
+        {value}
+      </mark>,
+    );
+    lastIndex = start + value.length;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  return <>{nodes}</>;
 }
 
 function resourceKindForCompassType(type: string): ResourceKind {
@@ -295,17 +349,19 @@ export function SearchPage() {
   const [recent, setRecent] = useState<string[]>(() => loadRecentSearches());
   const [favoriteShortcuts, setFavoriteShortcuts] = useState<ResourceShortcut[]>([]);
   const [recentResourceShortcuts, setRecentResourceShortcuts] = useState<ResourceShortcut[]>([]);
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
 
   // Per-tab filter state
   const [appsTypeFilter, setAppsTypeFilter] = useState<Set<string>>(new Set());
   const [objectsTypeFilter, setObjectsTypeFilter] = useState<Set<string>>(new Set());
   const [filesKindFilter, setFilesKindFilter] = useState<Set<string>>(new Set());
   const [showCatalogOnly, setShowCatalogOnly] = useState(false);
-  const [createdBy, setCreatedBy] = useState('');
+  const [createdBy, setCreatedBy] = useState(() => searchParams.get('owner') ?? '');
   const [tagFilter, setTagFilter] = useState('');
-  const [markingFilter, setMarkingFilter] = useState('');
+  const [markingFilter, setMarkingFilter] = useState(() => searchParams.getAll('marking').join(' '));
   const [pathFilter, setPathFilter] = useState('');
-  const [projectFilter, setProjectFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState(() => searchParams.get('project') ?? '');
+  const [modifiedFilter, setModifiedFilter] = useState(() => searchParams.get('modified') ?? '');
   const [includeTrash, setIncludeTrash] = useState(false);
 
   const requestRef = useRef(0);
@@ -318,6 +374,10 @@ export function SearchPage() {
     setQuery(nextQuery);
     setSubmittedQuery(nextQuery);
     setTab(nextTab);
+    setCreatedBy(searchParams.get('owner') ?? '');
+    setMarkingFilter(searchParams.getAll('marking').join(' '));
+    setProjectFilter(searchParams.get('project') ?? '');
+    setModifiedFilter(searchParams.get('modified') ?? '');
   }, [searchParams]);
 
   // Hotkeys: Cmd/Ctrl + J → focus input. ESC closes the page.
@@ -379,8 +439,22 @@ export function SearchPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    listSavedSearches({ limit: 30 })
+      .then((items) => {
+        if (!cancelled) setSavedSearches(items);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedSearches([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Run a parallel multi-kind search whenever the submitted query or Compass
-  // project/marking facets change.
+  // resource facets change.
   useEffect(() => {
     const trimmed = submittedQuery.trim();
     if (!trimmed) {
@@ -407,6 +481,9 @@ export function SearchPage() {
 
     const compassProject = projectFilter.trim();
     const compassMarkings = splitFilterTokens(markingFilter);
+    const compassOwner = createdBy.trim();
+    const compassType = onlySelected(filesKindFilter);
+    const compassModified = modifiedFilter.trim();
 
     Promise.all([
       fetchFamily('app', 12),
@@ -416,8 +493,11 @@ export function SearchPage() {
       fetchFamily(undefined, 50),
       searchCompass({
         q: trimmed,
+        type: compassType,
         project: compassProject || undefined,
+        owner: compassOwner || undefined,
         marking: compassMarkings.length > 0 ? compassMarkings : undefined,
+        modified: compassModified || undefined,
         limit: 50,
       }),
     ])
@@ -435,6 +515,7 @@ export function SearchPage() {
             data: resources.data,
             total: resources.data.length,
             nextCursor: resources.next_cursor ?? null,
+            facets: resources.facets ?? {},
           },
         };
         setFamilies(next);
@@ -447,7 +528,7 @@ export function SearchPage() {
         setError(cause instanceof Error ? cause.message : 'Search failed');
         setStatus(cause instanceof ApiError && (cause.status === 401 || cause.status === 403) ? 'permission_denied' : 'error');
       });
-  }, [markingFilter, projectFilter, submittedQuery]);
+  }, [createdBy, filesKindFilter, markingFilter, modifiedFilter, projectFilter, submittedQuery]);
 
   const tabCounts = useMemo(
     () => ({
@@ -506,6 +587,55 @@ export function SearchPage() {
 
   function closePage() {
     navigate(-1);
+  }
+
+  function applySavedSearch(saved: SavedSearch) {
+    const nextTab = tabFromParam(saved.tab);
+    const nextProject = saved.project_rid || saved.project_id || '';
+    const nextOwner = saved.owner_id || '';
+    const nextMarkings = (saved.marking_rids ?? []).join(' ');
+    const nextModified = saved.modified_bucket || '';
+    setQuery(saved.query);
+    setSubmittedQuery(saved.query);
+    setTab(nextTab);
+    setProjectFilter(nextProject);
+    setCreatedBy(nextOwner);
+    setMarkingFilter(nextMarkings);
+    setModifiedFilter(nextModified);
+    setFilesKindFilter(saved.type ? new Set([saved.type]) : new Set());
+    const params = new URLSearchParams();
+    if (saved.query) params.set('q', saved.query);
+    if (nextTab !== 'top') params.set('tab', nextTab);
+    if (nextProject) params.set('project', nextProject);
+    if (nextOwner) params.set('owner', nextOwner);
+    for (const marking of saved.marking_rids ?? []) {
+      if (marking.trim()) params.append('marking', marking.trim());
+    }
+    if (nextModified) params.set('modified', nextModified);
+    setSearchParams(params, { replace: false });
+  }
+
+  async function saveCurrentSearch() {
+    const trimmed = submittedQuery.trim();
+    if (!trimmed) return;
+    const name = window.prompt('Name this search', trimmed);
+    if (!name?.trim()) return;
+    const saved = await createSavedSearch({
+      name: name.trim(),
+      query: trimmed,
+      tab,
+      type: onlySelected(filesKindFilter) ?? null,
+      project: projectFilter.trim() || null,
+      owner_id: looksLikeUUID(createdBy.trim()) ? createdBy.trim() : null,
+      marking_rids: splitFilterTokens(markingFilter),
+      modified_bucket: modifiedFilter.trim() || null,
+    });
+    setSavedSearches((current) => [saved, ...current.filter((item) => item.id !== saved.id)].slice(0, 30));
+  }
+
+  async function removeSavedSearch(id: string) {
+    await deleteSavedSearch(id);
+    setSavedSearches((current) => current.filter((item) => item.id !== id));
   }
 
   const showFilterChip = tab !== 'top' && hasQuery;
@@ -580,22 +710,32 @@ export function SearchPage() {
           })}
         </div>
         <div className="of-quicksearch__topRight">
-          {!hasQuery && (
-            <div className="of-quicksearch__topActions">
-              <Link to="/projects" className="of-quicksearch__topAction">
-                <span className="of-quicksearch__topActionBadge of-quicksearch__topActionBadge--catalog">
-                  <Glyph name="check" size={11} tone="#ffffff" />
+          <div className="of-quicksearch__topActions">
+            {hasQuery && (
+              <button type="button" className="of-quicksearch__topAction" onClick={() => { void saveCurrentSearch(); }}>
+                <span className="of-quicksearch__topActionBadge of-quicksearch__topActionBadge--saved">
+                  <Glyph name="bookmark" size={11} />
+                </span>
+                <span>Save search</span>
+              </button>
+            )}
+            {!hasQuery && (
+              <>
+                <Link to="/projects" className="of-quicksearch__topAction">
+                  <span className="of-quicksearch__topActionBadge of-quicksearch__topActionBadge--catalog">
+                    <Glyph name="check" size={11} tone="#ffffff" />
                 </span>
                 <span>Data Catalog</span>
               </Link>
               <Link to="/object-explorer" className="of-quicksearch__topAction">
                 <span className="of-quicksearch__topActionBadge of-quicksearch__topActionBadge--explorer">
                   <Glyph name="search" size={11} />
-                </span>
-                <span>Object Explorer</span>
-              </Link>
-            </div>
-          )}
+                  </span>
+                  <span>Object Explorer</span>
+                </Link>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -613,6 +753,11 @@ export function SearchPage() {
               setObjectsTypeFilter={setObjectsTypeFilter}
               filesKindFilter={filesKindFilter}
               setFilesKindFilter={setFilesKindFilter}
+              savedSearches={savedSearches}
+              onApplySavedSearch={applySavedSearch}
+              onDeleteSavedSearch={removeSavedSearch}
+              onSaveCurrentSearch={saveCurrentSearch}
+              canSaveCurrentSearch={hasQuery}
               createdBy={createdBy}
               setCreatedBy={setCreatedBy}
               tagFilter={tagFilter}
@@ -623,6 +768,8 @@ export function SearchPage() {
               setPathFilter={setPathFilter}
               projectFilter={projectFilter}
               setProjectFilter={setProjectFilter}
+              modifiedFilter={modifiedFilter}
+              setModifiedFilter={setModifiedFilter}
               includeTrash={includeTrash}
               setIncludeTrash={setIncludeTrash}
             />
@@ -679,7 +826,12 @@ export function SearchPage() {
           )}
           {status === 'success' && tab === 'datasets' && <DatasetsTabView families={families} />}
           {status === 'success' && tab === 'files' && (
-            <FilesTabView families={families} filesKindFilter={filesKindFilter} tagFilter={tagFilter} />
+            <FilesTabView
+              families={families}
+              filesKindFilter={filesKindFilter}
+              tagFilter={tagFilter}
+              query={submittedQuery}
+            />
           )}
         </main>
       </div>
@@ -885,7 +1037,7 @@ function FilesQuadrant({ title, rows, resources, allLabel, onSeeMore, query }: F
           <div className="of-quicksearch__quadEmpty">No matches for "{query}"</div>
         ) : (
           <>
-            {resources.map((row) => <CompactResourceRow key={row.rid} result={row} />)}
+            {resources.map((row) => <CompactResourceRow key={row.rid} result={row} query={query} />)}
             {rows.map((row) => <CompactResultRow key={`${row.kind}-${row.id}`} result={row} />)}
           </>
         )}
@@ -914,9 +1066,10 @@ function CompactResultRow({ result }: { result: SearchResult }) {
   );
 }
 
-function CompactResourceRow({ result }: { result: CompassSearchResult }) {
+function CompactResourceRow({ result, query }: { result: CompassSearchResult; query: string }) {
   const definition = getResourceTypeDefinition(result.type);
   const href = openURLForCompassResource(result);
+  const snippet = result.snippet || result.summary;
   return (
     <Link
       to={href}
@@ -932,6 +1085,11 @@ function CompactResourceRow({ result }: { result: CompassSearchResult }) {
           <span className="of-quicksearch__rowTitle">{result.display_name || compactRID(result.rid)}</span>
         </div>
         <span className="of-quicksearch__rowMeta">{definition.displayName} · {compactRID(result.rid)}</span>
+        {snippet && (
+          <span className="of-quicksearch__rowMeta of-quicksearch__rowSnippet">
+            <HighlightedSnippet text={snippet} query={query} />
+          </span>
+        )}
       </div>
     </Link>
   );
@@ -1103,10 +1261,12 @@ function FilesTabView({
   families,
   filesKindFilter,
   tagFilter,
+  query,
 }: {
   families: FamilyResults;
   filesKindFilter: Set<string>;
   tagFilter: string;
+  query: string;
 }) {
   const rows = families.files.data;
   const filtered = filesKindFilter.size === 0 ? rows : rows.filter((r) => filesKindFilter.has(r.kind));
@@ -1128,7 +1288,7 @@ function FilesTabView({
             <span className="of-quicksearch__sectionCount">{formatCount(families.resources.total)}</span>
           </header>
           {resources.map((r) => (
-            <CompassResourceRow key={r.rid} result={r} />
+            <CompassResourceRow key={r.rid} result={r} query={query} />
           ))}
         </>
       )}
@@ -1145,12 +1305,13 @@ function FilesTabView({
   );
 }
 
-function CompassResourceRow({ result }: { result: CompassSearchResult }) {
+function CompassResourceRow({ result, query }: { result: CompassSearchResult; query: string }) {
   const definition = getResourceTypeDefinition(result.type);
   const href = openURLForCompassResource(result);
   const markings = result.marking_rids.slice(0, 4);
   const hiddenMarkings = result.marking_rids.length - markings.length;
   const tags = result.tags.slice(0, 3);
+  const snippet = result.snippet || result.summary;
   const [favoriteState, setFavoriteState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const favoriteResourceID = ridLocator(result.rid);
   const canFavorite = looksLikeUUID(favoriteResourceID);
@@ -1177,7 +1338,11 @@ function CompassResourceRow({ result }: { result: CompassSearchResult }) {
           <span className="of-quicksearch__rowMeta">· {definition.displayName}</span>
           {result.is_deleted && <span className="of-quicksearch__rowChip of-quicksearch__rowChip--danger">Trash</span>}
         </div>
-        {result.summary && <span className="of-quicksearch__rowMeta">{result.summary}</span>}
+        {snippet && (
+          <span className="of-quicksearch__rowMeta of-quicksearch__rowSnippet">
+            <HighlightedSnippet text={snippet} query={query} />
+          </span>
+        )}
         <span className="of-quicksearch__rowPath">{result.open_url || href}</span>
         <div className="of-quicksearch__badgeRow">
           {markings.map((marking) => (
@@ -1272,6 +1437,11 @@ interface SidebarFiltersProps {
   setObjectsTypeFilter: (v: Set<string>) => void;
   filesKindFilter: Set<string>;
   setFilesKindFilter: (v: Set<string>) => void;
+  savedSearches: SavedSearch[];
+  onApplySavedSearch: (saved: SavedSearch) => void;
+  onDeleteSavedSearch: (id: string) => Promise<void>;
+  onSaveCurrentSearch: () => Promise<void>;
+  canSaveCurrentSearch: boolean;
   createdBy: string;
   setCreatedBy: (v: string) => void;
   tagFilter: string;
@@ -1282,6 +1452,8 @@ interface SidebarFiltersProps {
   setPathFilter: (v: string) => void;
   projectFilter: string;
   setProjectFilter: (v: string) => void;
+  modifiedFilter: string;
+  setModifiedFilter: (v: string) => void;
   includeTrash: boolean;
   setIncludeTrash: (v: boolean) => void;
 }
@@ -1298,6 +1470,11 @@ function SidebarFilters(props: SidebarFiltersProps) {
     setObjectsTypeFilter,
     filesKindFilter,
     setFilesKindFilter,
+    savedSearches,
+    onApplySavedSearch,
+    onDeleteSavedSearch,
+    onSaveCurrentSearch,
+    canSaveCurrentSearch,
     createdBy,
     setCreatedBy,
     tagFilter,
@@ -1308,6 +1485,8 @@ function SidebarFilters(props: SidebarFiltersProps) {
     setPathFilter,
     projectFilter,
     setProjectFilter,
+    modifiedFilter,
+    setModifiedFilter,
     includeTrash,
     setIncludeTrash,
   } = props;
@@ -1318,6 +1497,20 @@ function SidebarFilters(props: SidebarFiltersProps) {
     else next.add(value);
     setter(next);
   }
+
+  function toggleTokenFilter(current: string, value: string, setter: (next: string) => void) {
+    const next = new Set(splitFilterTokens(current));
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    setter(Array.from(next).join(' '));
+  }
+
+  const resourceFacets = families.resources.facets ?? {};
+  const typeFacets = resourceFacets.types ?? [];
+  const projectFacets = resourceFacets.projects ?? [];
+  const ownerFacets = resourceFacets.owners ?? [];
+  const markingFacets = resourceFacets.markings ?? [];
+  const modifiedFacets = resourceFacets.modified ?? [];
 
   // Buckets per tab
   const buckets = useMemo(() => {
@@ -1352,6 +1545,14 @@ function SidebarFilters(props: SidebarFiltersProps) {
       }));
     }
     if (tab === 'files') {
+      if (typeFacets.length > 0) {
+        return typeFacets.map((facet) => ({
+          key: facet.key,
+          label: KIND_CHIP[facet.key] ?? getResourceTypeDefinition(facet.key).displayName,
+          count: facet.count,
+          icon: KIND_ICON[facet.key] ?? getResourceTypeDefinition(facet.key).defaultIcon,
+        }));
+      }
       const byKind = new Map<string, number>();
       for (const r of families.files.data) byKind.set(r.kind, (byKind.get(r.kind) ?? 0) + 1);
       for (const r of families.resources.data) byKind.set(r.type, (byKind.get(r.type) ?? 0) + 1);
@@ -1363,12 +1564,44 @@ function SidebarFilters(props: SidebarFiltersProps) {
       }));
     }
     return [];
-  }, [tab, families]);
+  }, [tab, families, typeFacets]);
 
   const maxCount = Math.max(1, ...buckets.map((b) => b.count));
 
   return (
     <div>
+      {(savedSearches.length > 0 || canSaveCurrentSearch) && (
+        <div className="of-quicksearch__filterGroup">
+          <span className="of-quicksearch__filterLabel">Saved searches</span>
+          {savedSearches.slice(0, 8).map((saved) => (
+            <div key={saved.id} className="of-quicksearch__savedRow">
+              <button
+                type="button"
+                className="of-quicksearch__savedPick"
+                onClick={() => onApplySavedSearch(saved)}
+                title={saved.query || saved.name}
+              >
+                <Glyph name="bookmark" size={13} />
+                <span>{saved.name}</span>
+              </button>
+              <button
+                type="button"
+                className="of-quicksearch__savedDelete"
+                aria-label={`Delete ${saved.name}`}
+                onClick={() => { void onDeleteSavedSearch(saved.id); }}
+              >
+                <Glyph name="x" size={12} />
+              </button>
+            </div>
+          ))}
+          {canSaveCurrentSearch && (
+            <button type="button" className="of-quicksearch__filterMore" onClick={() => { void onSaveCurrentSearch(); }}>
+              Save current search
+            </button>
+          )}
+        </div>
+      )}
+
       {(tab === 'apps' || tab === 'datasets' || tab === 'files') && (
         <div className="of-quicksearch__filterGroup">
           <span className="of-quicksearch__filterLabel">Only show</span>
@@ -1460,8 +1693,15 @@ function SidebarFilters(props: SidebarFiltersProps) {
                 value={createdBy}
                 onChange={(e) => setCreatedBy(e.target.value)}
               >
-                <option value="">Select a user…</option>
-                <option value="me">Me</option>
+                <option value="">Any owner</option>
+                {createdBy && !ownerFacets.some((facet) => facet.key === createdBy) && (
+                  <option value={createdBy}>{shortToken(createdBy, 22)}</option>
+                )}
+                {ownerFacets.slice(0, 8).map((facet) => (
+                  <option key={facet.key} value={facet.key}>
+                    {shortToken(facet.label, 22)} ({formatCount(facet.count)})
+                  </option>
+                ))}
               </select>
               {createdBy && (
                 <button
@@ -1496,6 +1736,22 @@ function SidebarFilters(props: SidebarFiltersProps) {
               value={markingFilter}
               onChange={(e) => setMarkingFilter(e.target.value)}
             />
+            {markingFacets.slice(0, 6).map((facet) => {
+              const active = splitFilterTokens(markingFilter).includes(facet.key);
+              return (
+                <button
+                  key={facet.key}
+                  type="button"
+                  className="of-quicksearch__facetPill"
+                  data-active={active ? 'true' : undefined}
+                  onClick={() => toggleTokenFilter(markingFilter, facet.key, setMarkingFilter)}
+                >
+                  <Glyph name="shield" size={12} />
+                  <span>{shortToken(facet.label, 18)}</span>
+                  <span>{formatCount(facet.count)}</span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="of-quicksearch__filterGroup">
@@ -1518,7 +1774,44 @@ function SidebarFilters(props: SidebarFiltersProps) {
               value={projectFilter}
               onChange={(e) => setProjectFilter(e.target.value)}
             />
+            {projectFacets.slice(0, 6).map((facet) => (
+              <button
+                key={facet.key}
+                type="button"
+                className="of-quicksearch__facetPill"
+                data-active={projectFilter === facet.key ? 'true' : undefined}
+                onClick={() => setProjectFilter(projectFilter === facet.key ? '' : facet.key)}
+              >
+                <Glyph name="folder" size={12} />
+                <span>{shortToken(facet.label, 18)}</span>
+                <span>{formatCount(facet.count)}</span>
+              </button>
+            ))}
           </div>
+
+          {modifiedFacets.length > 0 && (
+            <div className="of-quicksearch__filterGroup">
+              <span className="of-quicksearch__filterLabel">Last modified</span>
+              {modifiedFacets.map((facet) => (
+                <button
+                  key={facet.key}
+                  type="button"
+                  className="of-quicksearch__facetPill"
+                  data-active={modifiedFilter === facet.key ? 'true' : undefined}
+                  onClick={() => setModifiedFilter(modifiedFilter === facet.key ? '' : facet.key)}
+                >
+                  <Glyph name="history" size={12} />
+                  <span>{facet.label}</span>
+                  <span>{formatCount(facet.count)}</span>
+                </button>
+              ))}
+              {modifiedFilter && (
+                <button type="button" className="of-quicksearch__filterMore" onClick={() => setModifiedFilter('')}>
+                  Clear last modified
+                </button>
+              )}
+            </div>
+          )}
 
           <label className="of-quicksearch__filterRow" style={{ marginTop: 16 }}>
             <input

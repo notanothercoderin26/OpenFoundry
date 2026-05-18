@@ -174,6 +174,10 @@ func (h *RBAC) RotateThirdPartyApplicationSecret(w http.ResponseWriter, r *http.
 		writeJSONErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	if saved == nil {
+		writeJSONErr(w, http.StatusNotFound, "not found")
+		return
+	}
 	writeJSON(w, http.StatusOK, models.RotateThirdPartyApplicationSecretResponse{
 		Application:  *saved,
 		ClientSecret: secret,

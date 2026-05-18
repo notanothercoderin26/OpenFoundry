@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -12,8 +11,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5"
 
+	audittrail "github.com/openfoundry/openfoundry-go/libs/audit-trail"
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 )
 
@@ -119,7 +119,7 @@ func (h *Handlers) CreateShare(w http.ResponseWriter, r *http.Request) {
 		AccessLevel:       body.AccessLevel,
 		Note:              note,
 		ExpiresAt:         body.ExpiresAt,
-	})
+	}, AuditContextFromRequest(c, r), true)
 	if err != nil {
 		slog.Error("create share", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "failed to create share")
@@ -144,7 +144,7 @@ func (h *Handlers) RevokeShare(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid share id")
 		return
 	}
-	deleted, err := h.Repo.RevokeShare(r.Context(), shareID, c.Sub, c.HasRole("admin"))
+	deleted, err := h.Repo.RevokeShare(r.Context(), shareID, c.Sub, c.HasRole("admin"), AuditContextFromRequest(c, r))
 	if err != nil {
 		slog.Error("revoke share", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "failed to revoke share")
@@ -262,19 +262,24 @@ type upsertShareArgs struct {
 // so the user-share path uses ON CONFLICT against idx_resource_shares_user
 // and the group-share path uses a manual UPDATE-then-INSERT to mirror the
 // Rust two-path logic. Returns 201 on insert, 200 on update.
-func (r *Repo) UpsertShare(ctx context.Context, args upsertShareArgs) (*ResourceShare, int, error) {
+func (r *Repo) UpsertShare(ctx context.Context, args upsertShareArgs, auditCtx audittrail.AuditContext, emitAudit bool) (*ResourceShare, int, error) {
 	if (args.SharedWithUserID == nil) == (args.SharedWithGroupID == nil) {
 		return nil, http.StatusBadRequest, errors.New("exactly one principal required")
 	}
 	if !args.AccessLevel.IsValid() {
 		return nil, http.StatusBadRequest, errors.New("invalid access_level")
 	}
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer tx.Rollback(context.Background())
 
 	// User-share path: ON CONFLICT against the (resource_kind, resource_id,
 	// shared_with_user_id) partial unique index. RETURNING xmax = 0 lets us
 	// distinguish insert vs update so the handler can pick the right status.
 	if args.SharedWithUserID != nil {
-		row := r.Pool.QueryRow(ctx,
+		row := tx.QueryRow(ctx,
 			`INSERT INTO resource_shares
 			    (resource_kind, resource_id, shared_with_user_id, shared_with_group_id,
 			     sharer_id, access_level, note, expires_at)
@@ -295,62 +300,97 @@ func (r *Repo) UpsertShare(ctx context.Context, args upsertShareArgs) (*Resource
 		if err != nil {
 			return nil, 0, err
 		}
+		changeType := "updated"
+		status := http.StatusOK
 		if inserted {
-			return share, http.StatusCreated, nil
+			changeType = "granted"
+			status = http.StatusCreated
 		}
-		return share, http.StatusOK, nil
+		if emitAudit {
+			if err := r.EmitResourceShareChangedTx(ctx, tx, *share, changeType, auditCtx); err != nil {
+				return nil, 0, err
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, 0, err
+		}
+		return share, status, nil
 	}
 
-	// Group-share path. Try INSERT; on unique-violation (idx_resource_shares_group)
-	// fall back to UPDATE.
-	row := r.Pool.QueryRow(ctx,
+	// Group-share path: same partial-index ON CONFLICT pattern as user shares.
+	row := tx.QueryRow(ctx,
 		`INSERT INTO resource_shares
 		    (resource_kind, resource_id, shared_with_user_id, shared_with_group_id,
 		     sharer_id, access_level, note, expires_at)
 		 VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)
+		 ON CONFLICT (resource_kind, resource_id, shared_with_group_id)
+		   WHERE shared_with_group_id IS NOT NULL
+		   DO UPDATE SET access_level = EXCLUDED.access_level,
+		                 note = EXCLUDED.note,
+		                 expires_at = EXCLUDED.expires_at,
+		                 sharer_id = EXCLUDED.sharer_id,
+		                 updated_at = NOW()
 		 RETURNING id, resource_kind, resource_id, shared_with_user_id,
 		           shared_with_group_id, sharer_id, access_level, note,
-		           expires_at, created_at, updated_at, true AS inserted`,
+		           expires_at, created_at, updated_at, (xmax = 0) AS inserted`,
 		string(args.ResourceKind), args.ResourceID, args.SharedWithGroupID,
 		args.SharerID, string(args.AccessLevel), args.Note, args.ExpiresAt)
-	share, _, err := scanShareWithFlag(row)
-	if err == nil {
-		return share, http.StatusCreated, nil
-	}
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "idx_resource_shares_group" {
+	share, inserted, err := scanShareWithFlag(row)
+	if err != nil {
 		return nil, 0, err
 	}
-	// Fall through to UPDATE.
-	row = r.Pool.QueryRow(ctx,
-		`UPDATE resource_shares
-		    SET access_level = $5, note = $6, expires_at = $7,
-		        sharer_id = $4, updated_at = NOW()
-		  WHERE resource_kind = $1 AND resource_id = $2
-		    AND shared_with_group_id = $3
-		 RETURNING id, resource_kind, resource_id, shared_with_user_id,
-		           shared_with_group_id, sharer_id, access_level, note,
-		           expires_at, created_at, updated_at, false AS inserted`,
-		string(args.ResourceKind), args.ResourceID, args.SharedWithGroupID,
-		args.SharerID, string(args.AccessLevel), args.Note, args.ExpiresAt)
-	share, _, err = scanShareWithFlag(row)
-	if err != nil {
-		return nil, 0, fmt.Errorf("upsert group share fallback: %w", err)
+	changeType := "updated"
+	status := http.StatusOK
+	if inserted {
+		changeType = "granted"
+		status = http.StatusCreated
 	}
-	return share, http.StatusOK, nil
+	if emitAudit {
+		if err := r.EmitResourceShareChangedTx(ctx, tx, *share, changeType, auditCtx); err != nil {
+			return nil, 0, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, 0, err
+	}
+	return share, status, nil
 }
 
 // RevokeShare deletes a share if the caller is the sharer or an admin.
 // Returns true when a row was removed.
-func (r *Repo) RevokeShare(ctx context.Context, shareID, callerID uuid.UUID, isAdmin bool) (bool, error) {
-	cmd, err := r.Pool.Exec(ctx,
+func (r *Repo) RevokeShare(ctx context.Context, shareID, callerID uuid.UUID, isAdmin bool, auditCtx audittrail.AuditContext) (bool, error) {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(context.Background())
+	row := tx.QueryRow(ctx,
+		shareSelect+` WHERE id = $1 AND ($2 OR sharer_id = $3)`,
+		shareID, isAdmin, callerID)
+	share, err := scanShare(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	cmd, err := tx.Exec(ctx,
 		`DELETE FROM resource_shares
 		 WHERE id = $1 AND ($2 OR sharer_id = $3)`,
 		shareID, isAdmin, callerID)
 	if err != nil {
 		return false, err
 	}
-	return cmd.RowsAffected() > 0, nil
+	if cmd.RowsAffected() == 0 {
+		return false, nil
+	}
+	if err := r.EmitResourceShareChangedTx(ctx, tx, *share, "revoked", auditCtx); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ListSharedWithUser returns active shares (expires_at NULL or future)
@@ -440,6 +480,22 @@ func scanShareWithFlag(row interface{ Scan(...any) error }) (*ResourceShare, boo
 	s.ResourceKind = ResourceKind(k)
 	s.AccessLevel = AccessLevel(access)
 	return &s, inserted, nil
+}
+
+func scanShare(row interface{ Scan(...any) error }) (*ResourceShare, error) {
+	var (
+		s      ResourceShare
+		k      string
+		access string
+	)
+	if err := row.Scan(&s.ID, &k, &s.ResourceID, &s.SharedWithUserID,
+		&s.SharedWithGroupID, &s.SharerID, &access, &s.Note,
+		&s.ExpiresAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		return nil, err
+	}
+	s.ResourceKind = ResourceKind(k)
+	s.AccessLevel = AccessLevel(access)
+	return &s, nil
 }
 
 func scanShares(rows pgxRowsLike) ([]ResourceShare, error) {

@@ -27,7 +27,15 @@ func TestEventKindAndCategoriesMatchRustMapping(t *testing.T) {
 		{audittrail.NewMediaItemUploaded("itm", "ms", "p", nil, "/x", "image/png", 100, "deadbeef", ""), audittrail.KindMediaItemUploaded, audittrail.CategoryDataImport},
 		{audittrail.NewMediaItemDownloaded("itm", "ms", "p", nil, 100, 60), audittrail.KindMediaItemDownloaded, audittrail.CategoryDataExport},
 		{audittrail.NewVirtualMediaItemRegistered("itm", "ms", "p", nil, "s3://x", "/p"), audittrail.KindVirtualMediaItemRegistered, audittrail.CategoryDataCreate},
+		{audittrail.NewCompassResourceCreated("ri.compass.main.project.p", "ri.compass.main.project.p", nil, "project", "Ops"), audittrail.KindCompassResourceCreated, audittrail.CategoryDataCreate},
+		{audittrail.NewCompassResourceMoved("ri.compass.main.folder.f", "ri.compass.main.project.p2", nil, "folder", "Docs", "ri.compass.main.project.p1", "ri.compass.main.project.p2", "ri.compass.main.folder.a", "ri.compass.main.folder.b"), audittrail.KindCompassResourceMoved, audittrail.CategoryDataUpdate},
+		{audittrail.NewCompassResourceRenamed("ri.compass.main.folder.f", "ri.compass.main.project.p", nil, "folder", "Old", "New"), audittrail.KindCompassResourceRenamed, audittrail.CategoryDataUpdate},
+		{audittrail.NewCompassResourceTrashed("ri.compass.main.folder.f", "ri.compass.main.project.p", nil, "folder", "Docs", "2026-05-17T00:00:00Z", "user-a", 30, "2026-06-16T00:00:00Z"), audittrail.KindCompassResourceTrashed, audittrail.CategoryDataDelete},
+		{audittrail.NewCompassResourceRestored("ri.compass.main.folder.f", "ri.compass.main.project.p", nil, "folder", "Docs", "user-a", "original_path", true), audittrail.KindCompassResourceRestored, audittrail.CategoryDataUpdate},
 		{audittrail.NewCompassResourcePurged("ri.compass.main.folder.f", "ri.compass.main.project.p", []string{"public"}, "folder", "Docs", "2026-05-17T00:00:00Z", "user-a", "admin-a", 30, "2026-06-16T00:00:00Z", "admin_override", nil, false), audittrail.KindCompassResourcePurged, audittrail.CategoryDataDelete},
+		{audittrail.NewCompassResourceShareChanged("ri.compass.main.folder.f", "ri.compass.main.project.p", nil, "folder", "Docs", "share-1", "granted", "user", "user-a", "viewer"), audittrail.KindCompassResourceShareChanged, audittrail.CategoryDataUpdate},
+		{audittrail.NewCompassResourceBulkOperation("018f2f1c-aaaa-7bbb-8ccc-000000000021", nil, false), audittrail.KindCompassResourceBulkOperation, audittrail.CategoryDataUpdate},
+		{audittrail.NewCompassResourceMarkingsChanged("ri.compass.main.project.p", "ri.compass.main.project.p", []string{"new"}, []string{"old"}, "project", "Ops"), audittrail.KindCompassResourceMarkingsChanged, audittrail.CategoryManagementMarkings},
 		{audittrail.NewCompassViewRequirementsPropagated("ri.compass.main.project.p", "ri.compass.main.project.p", []string{"public"}, nil, "project", "job-1", 3, 2, 1, 1, nil, false), audittrail.KindCompassViewReqPropagated, audittrail.CategoryManagementMarkings},
 	}
 
@@ -58,6 +66,109 @@ func TestEnvelopeJSONShape(t *testing.T) {
 	}
 	assert.Equal(t, "media_set.created", view["kind"])
 	assert.Equal(t, []any{"dataCreate"}, view["categories"])
+}
+
+func TestCompassResourceLifecyclePayloads(t *testing.T) {
+	t.Parallel()
+	moved := audittrail.NewCompassResourceMoved(
+		"ri.compass.main.folder.f",
+		"ri.compass.main.project.new",
+		[]string{"ri.marking.main.marking.public"},
+		"folder",
+		"Runbooks",
+		"ri.compass.main.project.old",
+		"ri.compass.main.project.new",
+		"ri.compass.main.folder.old-parent",
+		"ri.compass.main.folder.new-parent",
+	)
+	renamed := audittrail.NewCompassResourceRenamed(
+		"ri.compass.main.folder.f",
+		"ri.compass.main.project.new",
+		nil,
+		"folder",
+		"Runbooks",
+		"Operations runbooks",
+	)
+	share := audittrail.NewCompassResourceShareChanged(
+		"ri.compass.main.folder.f",
+		"ri.compass.main.project.new",
+		nil,
+		"folder",
+		"Operations runbooks",
+		"share-1",
+		"granted",
+		"group",
+		"group-a",
+		"viewer",
+	)
+
+	out, err := json.Marshal([]audittrail.AuditEvent{moved, renamed, share})
+	require.NoError(t, err)
+	var events []map[string]any
+	require.NoError(t, json.Unmarshal(out, &events))
+
+	assert.Equal(t, "compass.resource.moved", events[0]["kind"])
+	assert.Equal(t, "ri.compass.main.project.old", events[0]["previous_project_rid"])
+	assert.Equal(t, "ri.compass.main.folder.new-parent", events[0]["new_parent_rid"])
+	assert.Equal(t, "compass.resource.renamed", events[1]["kind"])
+	assert.Equal(t, "Runbooks", events[1]["previous_display_name"])
+	assert.Equal(t, "Operations runbooks", events[1]["new_display_name"])
+	assert.Equal(t, "compass.resource.share_changed", events[2]["kind"])
+	assert.Equal(t, "granted", events[2]["share_change_type"])
+	assert.Equal(t, "group", events[2]["share_principal_kind"])
+}
+
+func TestCompassResourceBulkOperationPayload(t *testing.T) {
+	t.Parallel()
+	retentionDays := 30
+	evt := audittrail.NewCompassResourceBulkOperation(
+		"018f2f1c-aaaa-7bbb-8ccc-000000000021",
+		[]audittrail.BulkResourceAction{
+			{
+				Op:              "trash",
+				ResourceKind:    "ontology_folder",
+				ResourceID:      "018f2f1c-aaaa-7bbb-8ccc-000000000001",
+				ResourceRID:     "ri.compass.main.folder.018f2f1c-aaaa-7bbb-8ccc-000000000001",
+				ProjectRID:      "ri.compass.main.project.018f2f1c-aaaa-7bbb-8ccc-000000000002",
+				MarkingsAtEvent: []string{"ri.marking.main.marking.public"},
+				Status:          "succeeded",
+				RetentionDays:   &retentionDays,
+			},
+			{
+				Op:           "share",
+				ResourceKind: "dataset",
+				ResourceID:   "018f2f1c-aaaa-7bbb-8ccc-000000000003",
+				ResourceRID:  "ri.foundry.main.dataset.018f2f1c-aaaa-7bbb-8ccc-000000000003",
+				Status:       "preflight_failed",
+				Error:        "only an admin may bulk-share externally owned resources",
+			},
+		},
+		true,
+	)
+
+	out, err := json.Marshal(evt)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+
+	assert.Equal(t, "compass.resource.bulk_operation", view["kind"])
+	assert.Equal(t, "mixed", view["batch_operation"])
+	assert.Equal(t, float64(2), view["batch_total"])
+	assert.Equal(t, float64(1), view["batch_succeeded"])
+	assert.Equal(t, float64(1), view["batch_failed"])
+	assert.Equal(t, true, view["batch_preflight_failed"])
+	assert.Equal(t, "ri.compass.main.bulk-operation.018f2f1c-aaaa-7bbb-8ccc-000000000021", view["resource_rid"])
+	actions, ok := view["batch_actions"].([]any)
+	require.True(t, ok)
+	require.Len(t, actions, 2)
+	first, ok := actions[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "trash", first["op"])
+	assert.Equal(t, float64(30), first["retention_days"])
+	second, ok := actions[1].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "preflight_failed", second["status"])
+	assert.Contains(t, second["error"], "externally owned resources")
 }
 
 func TestCompassResourcePurgedPayloadListsDependents(t *testing.T) {

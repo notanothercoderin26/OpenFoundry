@@ -112,21 +112,30 @@ and must not drift:
   confirmations).
 - Compass search index
   ([`services/tenancy-organizations-service/internal/workspace`](services/tenancy-organizations-service/internal/workspace)
-  projects project/folder resources into `compass_resource_search_index` and
-  emits `compass.resource.search.updated.v1` outbox events on lifecycle
-  mutations so search backends can consume changes without resource-table
-  polling).
+  projects project/folder resources into `compass_resource_search_index`,
+  stores long-text catalog bodies/source metadata for descriptions, READMEs,
+  ontology object/property descriptions, code repository READMEs, and dashboard
+  descriptions, and emits `compass.resource.search.updated.v1` outbox events on
+  lifecycle mutations so search backends can consume changes without
+  resource-table polling).
 - Compass search API
   ([`GET /api/v1/compass/search`](services/tenancy-organizations-service/internal/workspace)
   intersects all results with project visibility, accepts text/type/project/
-  owner/marking filters, and returns opaque cursor pages ordered by score,
-  last-modified time, and RID).
+  owner/marking/last-modified filters, returns long-text snippets and facets
+  for type/project/owner/marking/last-modified buckets, and pages by opaque
+  cursor ordered by score, last-modified time, and RID).
 - Compass search UI shell
   ([`apps/web/src/routes/search/SearchPage.tsx`](apps/web/src/routes/search/SearchPage.tsx)
   preserves the Quicksearch-style global shell, combines ontology search with
   permission-aware Compass resource search, loads recents/favorites for
-  jump-to mode, shows marking badges, and resolves resource "Open with"
-  actions through the frontend resource type registry).
+  jump-to mode, shows marking badges, highlighted snippets, and resource
+  facets, and resolves resource "Open with" actions through the frontend
+  resource type registry).
+- Compass saved searches
+  ([`compass_saved_searches`](services/tenancy-organizations-service/internal/repo/migrations/0022_cmp23_saved_searches.sql)
+  stores per-user named search queries with tab, type, project, owner, marking,
+  and last-modified filters; `/api/v1/workspace/saved-searches` exposes the
+  profile-backed sidebar list).
 - Compass open-with menu
   ([`apps/web/src/lib/components/workspace/OpenWithMenu.tsx`](apps/web/src/lib/components/workspace/OpenWithMenu.tsx)
   is the shared launcher for search results, project/folder list rows, and
@@ -147,6 +156,17 @@ and must not drift:
   caller is an admin, removes directly affected Compass surface metadata, and
   emits `compass.resource.purged` through `audit.events.v1` with project
   markings and affected dependents).
+- Compass resource audit
+  (`libs/audit-trail` defines the standard `compass.resource.*` lifecycle
+  events for create, move, rename, trash, restore, purge, share changes, and
+  marking changes. Project/workspace handlers emit them in the same transaction
+  as the resource mutation, and `audit-sink` serves them from the central audit
+  query/export API).
+- Compass bulk operations
+  (`POST /api/v1/workspace/resources/batch` accepts selected search/folder rows
+  for move, trash, and share; it performs all policy, marking, retention, and
+  confirmation preflight checks before mutating any row and emits a single
+  `compass.resource.bulk_operation` audit event with per-row outcomes).
 - Compass reverse-reference graph
   (`compass_resource_references` stores directed source-depends-on-target
   edges; `GET|PUT /api/v1/workspace/resources/{kind}/{id}/references` exposes

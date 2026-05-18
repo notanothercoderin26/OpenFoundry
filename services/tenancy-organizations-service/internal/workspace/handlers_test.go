@@ -107,6 +107,42 @@ func TestRecentEntryJSONShape(t *testing.T) {
 	}
 }
 
+func TestSavedSearchJSONShapeCMP23(t *testing.T) {
+	t.Parallel()
+	projectID := uuid.New()
+	projectRID := "ri.compass.main.project." + projectID.String()
+	ownerID := uuid.New()
+	modified := "7d"
+	resourceType := "dataset"
+	search := workspace.SavedSearch{
+		ID:             uuid.New(),
+		UserID:         uuid.New(),
+		Name:           "Daily ops datasets",
+		Query:          "operations",
+		Tab:            "files",
+		ResourceType:   &resourceType,
+		ProjectID:      &projectID,
+		ProjectRID:     &projectRID,
+		OwnerID:        &ownerID,
+		MarkingRIDs:    []string{"ri.security.main.marking.internal"},
+		ModifiedBucket: &modified,
+		DisplayOrder:   10,
+		CreatedAt:      time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC),
+		UpdatedAt:      time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC),
+	}
+	out, err := json.Marshal(search)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	for _, k := range []string{
+		"id", "user_id", "name", "query", "tab", "type", "project_id",
+		"project_rid", "owner_id", "marking_rids", "modified_bucket",
+		"display_order", "created_at", "updated_at",
+	} {
+		assert.Contains(t, view, k)
+	}
+}
+
 func TestListEnvelopeIsData(t *testing.T) {
 	t.Parallel()
 	out, err := json.Marshal(workspace.ListFavoritesResponse{Data: []workspace.UserFavorite{}})
@@ -146,6 +182,29 @@ func TestCreateFavoriteRequiresAuth(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.CreateFavorite(rec, req)
 	assert.Equal(t, 401, rec.Code)
+}
+
+func TestCreateSavedSearchRequiresAuthCMP23(t *testing.T) {
+	t.Parallel()
+	h := &workspace.Handlers{}
+	req := httptest.NewRequest("POST", "/workspace/saved-searches",
+		strings.NewReader(`{"name":"Daily","query":"ops"}`))
+	rec := httptest.NewRecorder()
+	h.CreateSavedSearch(rec, req)
+	assert.Equal(t, 401, rec.Code)
+}
+
+func TestCreateSavedSearchRequiresNameCMP23(t *testing.T) {
+	t.Parallel()
+	h := &workspace.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("POST", "/workspace/saved-searches",
+		strings.NewReader(`{"name":" ","query":"ops"}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateSavedSearch(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "name required")
 }
 
 func TestCreateFavoriteRejectsNilResourceID(t *testing.T) {

@@ -45,14 +45,16 @@ func TestAuthenticateBearerSchemeRequired(t *testing.T) {
 func TestAuthenticateValidJWT(t *testing.T) {
 	t.Parallel()
 	cfg := authmw.NewJWTConfig("test-secret")
+	accessUse := "access"
 	claims := &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   time.Now().Unix(),
-		EXP:   time.Now().Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "user@example.com",
-		Name:  "Tester",
-		Roles: []string{"viewer"},
+		Sub:      uuid.New(),
+		IAT:      time.Now().Unix(),
+		EXP:      time.Now().Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "user@example.com",
+		Name:     "Tester",
+		Roles:    []string{"viewer"},
+		TokenUse: &accessUse,
 	}
 	tok, err := authmw.EncodeToken(cfg, claims)
 	if err != nil {

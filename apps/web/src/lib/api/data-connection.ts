@@ -921,10 +921,66 @@ export interface EgressPort {
   value: string;
 }
 
-export type EgressPolicyKind = 'direct' | 'agent_proxy';
+export type EgressPolicyKind = 'direct' | 'agent_proxy' | 'same_region_bucket';
 export type EgressProtocol = 'tcp' | 'tls' | 'http' | 'https';
-export type EgressPolicyStatus = 'draft' | 'pending_review' | 'active' | 'revoked' | 'failed';
+export type EgressPolicyStatus = 'pending_approval' | 'active' | 'paused' | 'revoked';
 export type AgentProxyMode = 'none' | 'http_connect' | 'socks5' | 'mtls_tunnel';
+export type EgressSNIBehavior = 'verify' | 'disabled' | 'passthrough';
+export type EgressBucketAccessLevel = 'read' | 'write' | 'read_write';
+
+export interface EgressRiskWarning {
+  code: string;
+  severity: 'info' | 'warning' | 'error' | string;
+  message: string;
+}
+
+export interface EgressPolicyAuditEvent {
+  id: string;
+  timestamp: string;
+  actor_id: string;
+  action: string;
+  categories?: string[];
+  outcome: string;
+  reason?: string;
+  high_risk?: boolean;
+  potential_data_export?: boolean;
+  workload_id?: string;
+  workload_kind?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type EgressApprovalStatus = 'pending' | 'approved' | 'denied';
+
+export interface EgressApprovalTask {
+  id: string;
+  policy_id: string;
+  action: string;
+  status: EgressApprovalStatus | string;
+  requested_by: string;
+  requested_at: string;
+  requested_state?: EgressPolicyStatus;
+  required_roles: string[];
+  summary: string;
+  reason?: string;
+  decided_by?: string;
+  decided_at?: string | null;
+  decision_reason?: string;
+  high_risk: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EgressPolicyWorkloadUsage {
+  workload_id: string;
+  workload_kind: string;
+  actor_id: string;
+  organization_id?: string;
+  last_decision: string;
+  last_used_at: string;
+  potential_data_export: boolean;
+  export_risk_reason?: string;
+  destination: EgressEndpoint;
+  port?: number;
+}
 
 export interface NetworkEgressPolicy {
   id: string;
@@ -935,13 +991,30 @@ export interface NetworkEgressPolicy {
   port: EgressPort;
   protocol?: EgressProtocol;
   proxy_mode?: AgentProxyMode;
+  sni_behavior?: EgressSNIBehavior;
+  agents?: string[];
+  bucket_name?: string;
+  bucket_access_level?: EgressBucketAccessLevel;
+  state?: EgressPolicyStatus;
   status?: EgressPolicyStatus;
   allowed_organizations?: string[];
   is_global: boolean;
-  // Permissions are modelled as opaque marking / group identifiers; the
-  // authorization-policy-service is responsible for resolving them.
+  viewer_grants?: string[];
+  importer_grants?: string[];
+  admin_grants?: string[];
+  importer_grants_high_risk?: boolean;
+  risk_warnings?: EgressRiskWarning[];
+  egress_ip_ranges?: string[];
+  agent_hosts?: string[];
+  overlap_policy_ids?: string[];
+  bucket_policy_requirements?: string[];
+  approval_tasks?: EgressApprovalTask[];
+  workload_usages?: EgressPolicyWorkloadUsage[];
+  audit_events?: EgressPolicyAuditEvent[];
+  // Legacy alias for importer grants, kept for source/detail compatibility.
   permissions: string[];
   created_at: string;
+  updated_at?: string;
 }
 
 export interface CreateEgressPolicyRequest {
@@ -952,10 +1025,42 @@ export interface CreateEgressPolicyRequest {
   port: EgressPort;
   protocol?: EgressProtocol;
   proxy_mode?: AgentProxyMode;
+  sni_behavior?: EgressSNIBehavior;
+  agents?: string[];
+  bucket_name?: string;
+  bucket_access_level?: EgressBucketAccessLevel;
+  state?: EgressPolicyStatus;
   status?: EgressPolicyStatus;
   allowed_organizations?: string[];
   is_global: boolean;
+  viewer_grants?: string[];
+  importer_grants?: string[];
+  admin_grants?: string[];
   permissions: string[];
+  reason?: string;
+}
+
+export interface UpdateEgressPolicyStateRequest {
+  state: EgressPolicyStatus;
+  reason?: string;
+}
+
+export interface UpdateEgressPolicySharingRequest {
+  viewer_grants?: string[];
+  importer_grants?: string[];
+  admin_grants?: string[];
+  permissions?: string[];
+  reason?: string;
+}
+
+export interface DecideEgressApprovalRequest {
+  decision: 'approved' | 'denied';
+  reason?: string;
+}
+
+export interface DecideEgressApprovalResponse {
+  policy: NetworkEgressPolicy;
+  approval_task: EgressApprovalTask;
 }
 
 export interface SourcePolicyBinding {
@@ -1009,7 +1114,7 @@ function validatePort(port: EgressPort): EgressPolicyValidationIssue[] {
   return [];
 }
 
-export function validateEgressPolicy(policy: Pick<NetworkEgressPolicy, 'kind' | 'address' | 'port'> & Partial<Pick<NetworkEgressPolicy, 'protocol' | 'proxy_mode' | 'status' | 'allowed_organizations'>>): EgressPolicyValidationIssue[] {
+export function validateEgressPolicy(policy: Pick<NetworkEgressPolicy, 'kind' | 'address' | 'port'> & Partial<Pick<NetworkEgressPolicy, 'protocol' | 'proxy_mode' | 'sni_behavior' | 'agents' | 'bucket_name' | 'bucket_access_level' | 'state' | 'status' | 'allowed_organizations'>>): EgressPolicyValidationIssue[] {
   const issues = [...validateEndpoint(policy.address), ...validatePort(policy.port)];
   if (policy.kind === 'direct' && policy.proxy_mode && policy.proxy_mode !== 'none') {
     issues.push({ field: 'proxy_mode', message: 'Direct egress policies cannot use an agent proxy mode.', severity: 'error' });
@@ -1017,10 +1122,34 @@ export function validateEgressPolicy(policy: Pick<NetworkEgressPolicy, 'kind' | 
   if (policy.kind === 'agent_proxy' && (!policy.proxy_mode || policy.proxy_mode === 'none')) {
     issues.push({ field: 'proxy_mode', message: 'Agent proxy policies require an HTTP CONNECT, SOCKS5, or mTLS tunnel mode.', severity: 'error' });
   }
+  if (policy.kind === 'agent_proxy' && (policy.agents ?? []).length === 0) {
+    issues.push({ field: 'agents', message: 'Agent proxy policies require at least one connector agent.', severity: 'error' });
+  }
+  if (policy.kind === 'same_region_bucket') {
+    if (policy.address.kind !== 'host' || policy.address.value.trim().startsWith('*.')) {
+      issues.push({ field: 'address', message: 'Same-region bucket policies require a concrete DNS host endpoint.', severity: 'error' });
+    }
+    if (policy.port.kind !== 'single' || policy.port.value.trim() !== '443') {
+      issues.push({ field: 'port', message: 'Same-region bucket policies must use port 443.', severity: 'error' });
+    }
+    if (!policy.bucket_name?.trim()) {
+      issues.push({ field: 'bucket_name', message: 'Bucket name is required for same-region bucket policies.', severity: 'error' });
+    }
+    if (!policy.bucket_access_level || !['read', 'write', 'read_write'].includes(policy.bucket_access_level)) {
+      issues.push({ field: 'bucket_access_level', message: 'Bucket access level must be read, write, or read/write.', severity: 'error' });
+    }
+  }
+  if (policy.address.kind === 'host' && policy.port.kind === 'range') {
+    issues.push({ field: 'port', message: 'DNS host egress policies must use a single port.', severity: 'error' });
+  }
   if (policy.protocol && !['tcp', 'tls', 'http', 'https'].includes(policy.protocol)) {
     issues.push({ field: 'protocol', message: 'Protocol must be tcp, tls, http, or https.', severity: 'error' });
   }
-  if (policy.status && !['draft', 'pending_review', 'active', 'revoked', 'failed'].includes(policy.status)) {
+  if (policy.sni_behavior && !['verify', 'disabled', 'passthrough'].includes(policy.sni_behavior)) {
+    issues.push({ field: 'sni_behavior', message: 'SNI behavior must be verify, disabled, or passthrough.', severity: 'error' });
+  }
+  const status = policy.state ?? policy.status;
+  if (status && !['pending_approval', 'active', 'paused', 'revoked'].includes(status)) {
     issues.push({ field: 'status', message: 'Policy status is not recognized.', severity: 'error' });
   }
   for (const organization of policy.allowed_organizations ?? []) {
@@ -1048,16 +1177,17 @@ export function validateEgressPoliciesForConnectionTest(
   const issues: EgressPolicyValidationIssue[] = [];
   const matching = policies.filter((policy) => policy.kind === expectedKind);
   if (matching.length === 0) {
+    const expectedLabel = expectedKind === 'direct' ? 'active direct egress' : expectedKind === 'agent_proxy' ? 'active agent proxy' : 'active same-region bucket egress';
     issues.push({
       field: 'kind',
-      message: `Attach an ${expectedKind === 'direct' ? 'active direct egress' : 'active agent proxy'} policy before testing this source.`,
+      message: `Attach an ${expectedLabel} policy before testing this source.`,
       severity: 'error',
     });
   }
 
   for (const policy of matching) {
     const policyIssues = validateEgressPolicy(policy);
-    const status = policy.status ?? 'active';
+    const status = policy.state ?? policy.status ?? 'active';
     if (status !== 'active') {
       policyIssues.push({ field: 'status', message: `Policy "${policy.name}" must be active before connection tests can run. Current status: ${status}.`, severity: 'error' });
     }
@@ -1067,7 +1197,7 @@ export function validateEgressPoliciesForConnectionTest(
     issues.push(...policyIssues.map((issue) => ({ ...issue, field: `${policy.name}.${issue.field}` })));
   }
 
-  if (matching.length > 0 && matching.every((policy) => (policy.status ?? 'active') !== 'active')) {
+  if (matching.length > 0 && matching.every((policy) => (policy.state ?? policy.status ?? 'active') !== 'active')) {
     issues.push({ field: 'status', message: 'At least one matching egress policy must be active before testing.', severity: 'error' });
   }
 
@@ -3461,11 +3591,23 @@ export const dataConnection = {
   listEgressPolicies(): Promise<NetworkEgressPolicy[]> {
     return api.get(`${BASE}/egress-policies`);
   },
+  listEgressApprovals(status = 'pending'): Promise<EgressApprovalTask[]> {
+    return api.get(`${BASE}/egress-policies/approvals?status=${encodeURIComponent(status)}`);
+  },
   createEgressPolicy(body: CreateEgressPolicyRequest): Promise<NetworkEgressPolicy> {
     return api.post(`${BASE}/egress-policies`, body);
   },
-  deleteEgressPolicy(id: string): Promise<void> {
-    return api.delete(`${BASE}/egress-policies/${id}`);
+  decideEgressApproval(taskId: string, body: DecideEgressApprovalRequest): Promise<DecideEgressApprovalResponse> {
+    return api.post(`${BASE}/egress-policies/approvals/${taskId}/decision`, body);
+  },
+  updateEgressPolicyState(id: string, body: UpdateEgressPolicyStateRequest): Promise<NetworkEgressPolicy> {
+    return api.patch(`${BASE}/egress-policies/${id}/state`, body);
+  },
+  updateEgressPolicySharing(id: string, body: UpdateEgressPolicySharingRequest): Promise<NetworkEgressPolicy> {
+    return api.patch(`${BASE}/egress-policies/${id}/sharing`, body);
+  },
+  revokeEgressPolicy(id: string, reason = 'Revoked from Data Connection egress policy page'): Promise<NetworkEgressPolicy> {
+    return api.patch(`${BASE}/egress-policies/${id}/state`, { state: 'revoked', reason });
   },
 
   // Batch syncs ------------------------------------------------------------

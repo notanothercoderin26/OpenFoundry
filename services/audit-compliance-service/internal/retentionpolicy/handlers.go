@@ -55,12 +55,7 @@ func (h *Handlers) CreatePolicyHandler(w http.ResponseWriter, r *http.Request) {
 	orgID := resolveWriteOrgID(scope)
 	policy, err := CreatePolicy(r.Context(), h.Pool, &body, orgID)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, errors.New("name is required")) ||
-			strings.Contains(err.Error(), "is required") {
-			status = http.StatusBadRequest
-		}
-		writeJSONErr(w, status, err.Error())
+		writeRetentionPolicyErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, policy)
@@ -84,7 +79,7 @@ func (h *Handlers) UpdatePolicyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	policy, err := UpdatePolicy(r.Context(), h.Pool, id, &body, scope)
 	if err != nil {
-		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		writeRetentionPolicyErr(w, err)
 		return
 	}
 	if policy == nil {
@@ -422,6 +417,11 @@ func parseListQuery(r *http.Request) models.ListRetentionPoliciesQuery {
 			q.MarkingID = &id
 		}
 	}
+	if v := r.URL.Query().Get("space_id"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			q.SpaceID = &id
+		}
+	}
 	if v := r.URL.Query().Get("active"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			q.Active = &b
@@ -498,4 +498,20 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func writeJSONErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func writeRetentionPolicyErr(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrPolicyManagedByPlatform):
+		writeJSONErr(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrMaxCustomPoliciesPerSpace):
+		writeJSONErr(w, http.StatusConflict, err.Error())
+	case strings.Contains(err.Error(), "required"),
+		strings.Contains(err.Error(), "must be"),
+		strings.Contains(err.Error(), "not supported"),
+		strings.Contains(err.Error(), "at most"):
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+	default:
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+	}
 }

@@ -18,6 +18,7 @@ target-llvmcov
 **/coverage
 **/dist
 **/build
+bin/
 
 # --- Node / pnpm / Vite -----------------------------------------------------
 node_modules

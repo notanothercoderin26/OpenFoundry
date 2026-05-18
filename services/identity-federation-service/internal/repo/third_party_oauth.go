@@ -49,6 +49,33 @@ func (r *Repo) CreateThirdPartyOAuthAuthorizationCode(ctx context.Context, code 
 	return err
 }
 
+// FindThirdPartyOAuthAuthorizationCode returns the live (unconsumed,
+// unrevoked, unexpired) authorization code matching codeHash, or
+// (nil, nil) if none exists. It does NOT consume the code; callers
+// must validate the binding (client_id, redirect_uri, PKCE) before
+// calling ConsumeThirdPartyOAuthAuthorizationCode to mark it spent.
+func (r *Repo) FindThirdPartyOAuthAuthorizationCode(ctx context.Context, codeHash string, now time.Time) (*models.ThirdPartyOAuthAuthorizationCode, error) {
+	row := r.Pool.QueryRow(ctx,
+		`SELECT id, code_hash, application_id, client_id, user_id, organization_id,
+		        redirect_uri, state, code_challenge, code_challenge_method,
+		        requested_scopes, granted_scopes, created_at, expires_at, consumed_at, revoked_at
+		 FROM third_party_oauth_authorization_codes
+		 WHERE code_hash = $1
+		   AND consumed_at IS NULL
+		   AND revoked_at IS NULL
+		   AND expires_at > $2`,
+		codeHash, now,
+	)
+	code := &models.ThirdPartyOAuthAuthorizationCode{}
+	if err := scanThirdPartyOAuthAuthorizationCode(code, row); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return code, nil
+}
+
 func (r *Repo) ConsumeThirdPartyOAuthAuthorizationCode(ctx context.Context, codeHash string, now time.Time) (*models.ThirdPartyOAuthAuthorizationCode, error) {
 	row := r.Pool.QueryRow(ctx,
 		`UPDATE third_party_oauth_authorization_codes

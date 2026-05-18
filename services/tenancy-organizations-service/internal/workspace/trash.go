@@ -144,7 +144,7 @@ func (h *Handlers) RestoreResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.Repo.RestoreTrashed(r.Context(), kind, resourceID)
+	result, err := h.Repo.RestoreTrashed(r.Context(), kind, resourceID, AuditContextFromRequest(claims, r))
 	if err != nil {
 		slog.Error("restore resource", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "failed to restore resource")
@@ -314,7 +314,7 @@ func (r *Repo) ListTrash(ctx context.Context, userID uuid.UUID, isAdmin bool, ki
 // RestoreTrashed clears the soft-delete columns and reports whether the
 // resource could be restored to its original path. Folders whose original
 // parent was purged or is still in Trash are restored to the project root.
-func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID uuid.UUID) (RestoreResult, error) {
+func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID uuid.UUID, auditCtx audittrail.AuditContext) (RestoreResult, error) {
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return RestoreResult{}, err
@@ -391,6 +391,15 @@ func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID
 		result.RowsAffected = ct.RowsAffected()
 	default:
 		return RestoreResult{}, fmt.Errorf("restore is not implemented for resource_kind '%s'", kind)
+	}
+	if result.RowsAffected > 0 {
+		restoreTargetStatus := "original_path"
+		if !result.RestoredToOriginalPath {
+			restoreTargetStatus = "project_root"
+		}
+		if err := r.EmitResourceRestoredTx(ctx, tx, kind, resourceID, auditCtx.ActorID, result.RestoredToOriginalPath, restoreTargetStatus, auditCtx); err != nil {
+			return RestoreResult{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return RestoreResult{}, err

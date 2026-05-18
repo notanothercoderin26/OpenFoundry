@@ -353,6 +353,7 @@ function makeDraftPolicyForValidation({
   port,
   protocol,
   proxyMode,
+  agents,
   allowedOrganizations,
 }: {
   kind: EgressPolicyKind;
@@ -360,6 +361,7 @@ function makeDraftPolicyForValidation({
   port: string;
   protocol: EgressProtocol;
   proxyMode: AgentProxyMode;
+  agents?: string[];
   allowedOrganizations: string[];
 }) {
   return {
@@ -368,7 +370,9 @@ function makeDraftPolicyForValidation({
     port: { kind: 'single' as EgressPortKind, value: port },
     protocol,
     proxy_mode: kind === 'agent_proxy' ? proxyMode : 'none' as AgentProxyMode,
-    status: 'pending_review' as const,
+    agents: agents ?? [],
+    state: 'pending_approval' as const,
+    status: 'pending_approval' as const,
     allowed_organizations: allowedOrganizations,
   };
 }
@@ -1363,6 +1367,11 @@ export function SourceDetailPage() {
 
   async function createAndAttachPolicy() {
     const host = newPolicyHost.trim();
+    const policyAgents = newPolicyKind === 'agent_proxy' ? agents.map((agent) => agent.id) : [];
+    if (newPolicyKind === 'agent_proxy' && policyAgents.length === 0) {
+      setError('Register at least one connector agent before creating an agent-proxy egress policy.');
+      return;
+    }
     const allowedOrganizations = parseCsvLines(newPolicyOrgs);
     const validationErrors = validateEgressPolicy(makeDraftPolicyForValidation({
       kind: newPolicyKind,
@@ -1370,6 +1379,7 @@ export function SourceDetailPage() {
       port: newPolicyPort,
       protocol: newPolicyProtocol,
       proxyMode: newPolicyProxyMode,
+      agents: policyAgents,
       allowedOrganizations,
     })).filter((issue) => issue.severity === 'error');
     if (validationErrors.length > 0) {
@@ -1387,10 +1397,15 @@ export function SourceDetailPage() {
         port: { kind: 'single' as EgressPortKind, value: String(Number(newPolicyPort)) },
         protocol: newPolicyProtocol,
         proxy_mode: newPolicyKind === 'agent_proxy' ? newPolicyProxyMode : 'none',
-        status: 'pending_review',
+        sni_behavior: 'verify',
+        agents: policyAgents,
+        state: 'pending_approval',
+        status: 'pending_approval',
         allowed_organizations: allowedOrganizations,
         is_global: false,
         permissions: [],
+        importer_grants: [],
+        reason: `Created and attached from source ${source?.id ?? id}`,
       });
       await dataConnection.attachPolicy(id, created.id, created.kind);
       setNewPolicyName('');
@@ -2734,7 +2749,16 @@ export function SourceDetailPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
               <LabeledInput label="Policy name" value={newPolicyName} onChange={setNewPolicyName} />
               <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>Kind
-                <select value={newPolicyKind} onChange={(event) => setNewPolicyKind(event.target.value as EgressPolicyKind)} className="of-input">
+                <select
+                  value={newPolicyKind}
+                  onChange={(event) => {
+                    const next = event.target.value as EgressPolicyKind;
+                    setNewPolicyKind(next);
+                    if (next === 'agent_proxy' && newPolicyProxyMode === 'none') setNewPolicyProxyMode('http_connect');
+                    if (next === 'direct') setNewPolicyProxyMode('none');
+                  }}
+                  className="of-input"
+                >
                   <option value="direct">Direct egress</option>
                   <option value="agent_proxy">Agent proxy</option>
                 </select>

@@ -37,6 +37,7 @@ func newRecordingBatcher() (*[]recordedBatch, AuditBatchEmitter) {
 func mintAccessToken(t *testing.T, jwt *authmw.JWTConfig, user *models.User, methods []string, exp time.Time) (string, uuid.UUID) {
 	t.Helper()
 	jti := uuid.New()
+	accessUse := "access"
 	claims := &authmw.Claims{
 		Sub:         user.ID,
 		IAT:         time.Now().Unix(),
@@ -45,6 +46,7 @@ func mintAccessToken(t *testing.T, jwt *authmw.JWTConfig, user *models.User, met
 		Email:       user.Email,
 		Name:        user.Name,
 		AuthMethods: methods,
+		TokenUse:    &accessUse,
 	}
 	tok, err := authmw.EncodeToken(jwt, claims)
 	require.NoError(t, err)

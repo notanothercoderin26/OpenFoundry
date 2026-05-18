@@ -45,8 +45,13 @@ func IssueMFAChallenge(jwt *authmw.JWTConfig, user *models.User, authMethod stri
 
 // ValidateMFAChallenge decodes the token, asserts token_use="mfa_challenge",
 // and returns the inner claims (containing the user's id).
+//
+// We pass WithAllowedTokenUses("mfa_challenge") because the decoder's
+// default filter accepts only "access" tokens — challenge tokens
+// would otherwise be rejected before our explicit token_use check
+// runs below.
 func ValidateMFAChallenge(jwt *authmw.JWTConfig, token string) (*authmw.Claims, error) {
-	c, err := authmw.DecodeToken(jwt, token)
+	c, err := authmw.DecodeToken(jwt, token, authmw.WithAllowedTokenUses("mfa_challenge"))
 	if err != nil {
 		return nil, err
 	}

@@ -7,21 +7,29 @@ import "time"
 type EventKind string
 
 const (
-	KindMediaSetCreated              EventKind = "media_set.created"
-	KindMediaSetDeleted              EventKind = "media_set.deleted"
-	KindMediaSetMarkingsChanged      EventKind = "media_set.markings_changed"
-	KindMediaSetRetentionChanged     EventKind = "media_set.retention_changed"
-	KindMediaSetTransactionOpened    EventKind = "media_set.transaction_opened"
-	KindMediaSetTransactionCommitted EventKind = "media_set.transaction_committed"
-	KindMediaSetTransactionAborted   EventKind = "media_set.transaction_aborted"
-	KindMediaSetAccessPatternInvoked EventKind = "media_set.access_pattern_invoked"
-	KindMediaItemUploaded            EventKind = "media_item.uploaded"
-	KindMediaItemDownloaded          EventKind = "media_item.downloaded"
-	KindMediaItemDeleted             EventKind = "media_item.deleted"
-	KindMediaItemMarkingOverridden   EventKind = "media_item.marking_overridden"
-	KindVirtualMediaItemRegistered   EventKind = "virtual_media_item.registered"
-	KindCompassResourcePurged        EventKind = "compass.resource.purged"
-	KindCompassViewReqPropagated     EventKind = "compass.view_requirements.propagated"
+	KindMediaSetCreated                EventKind = "media_set.created"
+	KindMediaSetDeleted                EventKind = "media_set.deleted"
+	KindMediaSetMarkingsChanged        EventKind = "media_set.markings_changed"
+	KindMediaSetRetentionChanged       EventKind = "media_set.retention_changed"
+	KindMediaSetTransactionOpened      EventKind = "media_set.transaction_opened"
+	KindMediaSetTransactionCommitted   EventKind = "media_set.transaction_committed"
+	KindMediaSetTransactionAborted     EventKind = "media_set.transaction_aborted"
+	KindMediaSetAccessPatternInvoked   EventKind = "media_set.access_pattern_invoked"
+	KindMediaItemUploaded              EventKind = "media_item.uploaded"
+	KindMediaItemDownloaded            EventKind = "media_item.downloaded"
+	KindMediaItemDeleted               EventKind = "media_item.deleted"
+	KindMediaItemMarkingOverridden     EventKind = "media_item.marking_overridden"
+	KindVirtualMediaItemRegistered     EventKind = "virtual_media_item.registered"
+	KindCompassResourceCreated         EventKind = "compass.resource.created"
+	KindCompassResourceMoved           EventKind = "compass.resource.moved"
+	KindCompassResourceRenamed         EventKind = "compass.resource.renamed"
+	KindCompassResourceTrashed         EventKind = "compass.resource.trashed"
+	KindCompassResourceRestored        EventKind = "compass.resource.restored"
+	KindCompassResourcePurged          EventKind = "compass.resource.purged"
+	KindCompassResourceShareChanged    EventKind = "compass.resource.share_changed"
+	KindCompassResourceMarkingsChanged EventKind = "compass.resource.markings_changed"
+	KindCompassResourceBulkOperation   EventKind = "compass.resource.bulk_operation"
+	KindCompassViewReqPropagated       EventKind = "compass.view_requirements.propagated"
 
 	// Identity-federation variants (T8 compliance closure).
 	KindAuthLogin      EventKind = "auth.login"
@@ -36,14 +44,22 @@ func CategoriesFor(kind EventKind) []AuditCategory {
 	switch kind {
 	case KindMediaSetCreated:
 		return []AuditCategory{CategoryDataCreate}
-	case KindMediaSetDeleted, KindMediaItemDeleted, KindCompassResourcePurged:
+	case KindCompassResourceCreated:
+		return []AuditCategory{CategoryDataCreate}
+	case KindMediaSetDeleted, KindMediaItemDeleted, KindCompassResourceTrashed, KindCompassResourcePurged:
 		return []AuditCategory{CategoryDataDelete}
-	case KindMediaSetMarkingsChanged, KindMediaItemMarkingOverridden, KindCompassViewReqPropagated:
+	case KindMediaSetMarkingsChanged, KindMediaItemMarkingOverridden, KindCompassResourceMarkingsChanged, KindCompassViewReqPropagated:
 		return []AuditCategory{CategoryManagementMarkings}
+	case KindCompassResourceBulkOperation:
+		return []AuditCategory{CategoryDataUpdate, CategoryDataDelete}
 	case KindMediaSetRetentionChanged,
 		KindMediaSetTransactionOpened,
 		KindMediaSetTransactionCommitted,
-		KindMediaSetTransactionAborted:
+		KindMediaSetTransactionAborted,
+		KindCompassResourceMoved,
+		KindCompassResourceRenamed,
+		KindCompassResourceRestored,
+		KindCompassResourceShareChanged:
 		return []AuditCategory{CategoryDataUpdate}
 	case KindMediaSetAccessPatternInvoked:
 		return []AuditCategory{CategoryDataLoad}
@@ -109,17 +125,38 @@ type AuditEvent struct {
 	PhysicalPath string `json:"physical_path,omitempty"`
 	ItemPath     string `json:"item_path,omitempty"`
 
-	// Compass resource purge.
-	ResourceType           string              `json:"resource_type,omitempty"`
-	DisplayName            string              `json:"display_name,omitempty"`
-	DeletedAt              string              `json:"deleted_at,omitempty"`
-	DeletedBy              string              `json:"deleted_by,omitempty"`
-	PurgedBy               string              `json:"purged_by,omitempty"`
-	RetentionDays          *int                `json:"retention_days,omitempty"`
-	PurgeAfter             string              `json:"purge_after,omitempty"`
-	PurgeMode              string              `json:"purge_mode,omitempty"`
-	AffectedDependents     []AffectedDependent `json:"affected_dependents,omitempty"`
-	DependentListTruncated *bool               `json:"dependent_list_truncated,omitempty"`
+	// Compass resource lifecycle.
+	ResourceType           string               `json:"resource_type,omitempty"`
+	DisplayName            string               `json:"display_name,omitempty"`
+	PreviousDisplayName    string               `json:"previous_display_name,omitempty"`
+	NewDisplayName         string               `json:"new_display_name,omitempty"`
+	PreviousProjectRID     string               `json:"previous_project_rid,omitempty"`
+	NewProjectRID          string               `json:"new_project_rid,omitempty"`
+	PreviousParentRID      string               `json:"previous_parent_rid,omitempty"`
+	NewParentRID           string               `json:"new_parent_rid,omitempty"`
+	DeletedAt              string               `json:"deleted_at,omitempty"`
+	DeletedBy              string               `json:"deleted_by,omitempty"`
+	RestoredBy             string               `json:"restored_by,omitempty"`
+	RestoredToOriginalPath *bool                `json:"restored_to_original_path,omitempty"`
+	RestoreTargetStatus    string               `json:"restore_target_status,omitempty"`
+	PurgedBy               string               `json:"purged_by,omitempty"`
+	RetentionDays          *int                 `json:"retention_days,omitempty"`
+	PurgeAfter             string               `json:"purge_after,omitempty"`
+	PurgeMode              string               `json:"purge_mode,omitempty"`
+	AffectedDependents     []AffectedDependent  `json:"affected_dependents,omitempty"`
+	DependentListTruncated *bool                `json:"dependent_list_truncated,omitempty"`
+	ShareID                string               `json:"share_id,omitempty"`
+	ShareChangeType        string               `json:"share_change_type,omitempty"`
+	SharePrincipalKind     string               `json:"share_principal_kind,omitempty"`
+	SharePrincipalID       string               `json:"share_principal_id,omitempty"`
+	ShareAccessLevel       string               `json:"share_access_level,omitempty"`
+	BatchID                string               `json:"batch_id,omitempty"`
+	BatchOperation         string               `json:"batch_operation,omitempty"`
+	BatchTotal             *int                 `json:"batch_total,omitempty"`
+	BatchSucceeded         *int                 `json:"batch_succeeded,omitempty"`
+	BatchFailed            *int                 `json:"batch_failed,omitempty"`
+	BatchPreflightFailed   *bool                `json:"batch_preflight_failed,omitempty"`
+	BatchActions           []BulkResourceAction `json:"batch_actions,omitempty"`
 
 	// Compass view-requirement propagation.
 	PropagationJobID   string `json:"propagation_job_id,omitempty"`
@@ -156,6 +193,25 @@ func i64Ptr(v int64) *int64   { return &v }
 func intPtr(v int) *int       { return &v }
 func u64Ptr(v uint64) *uint64 { return &v }
 
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
 // AffectedDependent identifies a row/resource whose state changes because
 // another Compass resource is permanently purged.
 type AffectedDependent struct {
@@ -164,6 +220,27 @@ type AffectedDependent struct {
 	ID           string `json:"id,omitempty"`
 	Relationship string `json:"relationship,omitempty"`
 	Action       string `json:"action,omitempty"`
+}
+
+// BulkResourceAction captures one row inside a Compass bulk operation
+// audit event. The enclosing event is the single auditable batch record.
+type BulkResourceAction struct {
+	Op                 string   `json:"op"`
+	ResourceKind       string   `json:"resource_kind"`
+	ResourceID         string   `json:"resource_id"`
+	ResourceRID        string   `json:"resource_rid,omitempty"`
+	ProjectRID         string   `json:"project_rid,omitempty"`
+	MarkingsAtEvent    []string `json:"markings_at_event,omitempty"`
+	Status             string   `json:"status"`
+	Error              string   `json:"error,omitempty"`
+	TargetProjectRID   string   `json:"target_project_rid,omitempty"`
+	TargetFolderRID    string   `json:"target_folder_rid,omitempty"`
+	RetentionDays      *int     `json:"retention_days,omitempty"`
+	ShareID            string   `json:"share_id,omitempty"`
+	ShareChangeType    string   `json:"share_change_type,omitempty"`
+	SharePrincipalKind string   `json:"share_principal_kind,omitempty"`
+	SharePrincipalID   string   `json:"share_principal_id,omitempty"`
+	ShareAccessLevel   string   `json:"share_access_level,omitempty"`
 }
 
 // NewMediaSetCreated builds an event for a freshly created media set.
@@ -308,6 +385,81 @@ func NewVirtualMediaItemRegistered(itemRID, mediaSetRID, projectRID string, mark
 	}
 }
 
+// NewCompassResourceCreated records a Compass resource creation.
+func NewCompassResourceCreated(rid, projectRID string, markings []string, resourceType, displayName string) AuditEvent {
+	return AuditEvent{
+		Kind:            KindCompassResourceCreated,
+		ResourceRID:     rid,
+		ProjectRID:      projectRID,
+		MarkingsAtEvent: markings,
+		ResourceType:    resourceType,
+		DisplayName:     displayName,
+	}
+}
+
+// NewCompassResourceMoved records a Compass resource re-parent or
+// cross-project move. RIDs remain stable; previous/new project and
+// parent RIDs describe the breadcrumb change.
+func NewCompassResourceMoved(rid, projectRID string, markings []string, resourceType, displayName, previousProjectRID, newProjectRID, previousParentRID, newParentRID string) AuditEvent {
+	return AuditEvent{
+		Kind:               KindCompassResourceMoved,
+		ResourceRID:        rid,
+		ProjectRID:         projectRID,
+		MarkingsAtEvent:    markings,
+		ResourceType:       resourceType,
+		DisplayName:        displayName,
+		PreviousProjectRID: previousProjectRID,
+		NewProjectRID:      newProjectRID,
+		PreviousParentRID:  previousParentRID,
+		NewParentRID:       newParentRID,
+	}
+}
+
+// NewCompassResourceRenamed records a Compass display-name change.
+func NewCompassResourceRenamed(rid, projectRID string, markings []string, resourceType, previousName, newName string) AuditEvent {
+	return AuditEvent{
+		Kind:                KindCompassResourceRenamed,
+		ResourceRID:         rid,
+		ProjectRID:          projectRID,
+		MarkingsAtEvent:     markings,
+		ResourceType:        resourceType,
+		DisplayName:         newName,
+		PreviousDisplayName: previousName,
+		NewDisplayName:      newName,
+	}
+}
+
+// NewCompassResourceTrashed records a soft delete into Trash.
+func NewCompassResourceTrashed(rid, projectRID string, markings []string, resourceType, displayName, deletedAt, deletedBy string, retentionDays int, purgeAfter string) AuditEvent {
+	return AuditEvent{
+		Kind:            KindCompassResourceTrashed,
+		ResourceRID:     rid,
+		ProjectRID:      projectRID,
+		MarkingsAtEvent: markings,
+		ResourceType:    resourceType,
+		DisplayName:     displayName,
+		DeletedAt:       deletedAt,
+		DeletedBy:       deletedBy,
+		RetentionDays:   intPtr(retentionDays),
+		PurgeAfter:      purgeAfter,
+	}
+}
+
+// NewCompassResourceRestored records a restore from Trash.
+func NewCompassResourceRestored(rid, projectRID string, markings []string, resourceType, displayName, restoredBy, restoreTargetStatus string, restoredToOriginalPath bool) AuditEvent {
+	return AuditEvent{
+		Kind:                   KindCompassResourceRestored,
+		ResourceRID:            rid,
+		ProjectRID:             projectRID,
+		MarkingsAtEvent:        markings,
+		ResourceType:           resourceType,
+		DisplayName:            displayName,
+		RestoredBy:             restoredBy,
+		RestoreTargetStatus:    restoreTargetStatus,
+		RestoredToOriginalPath: boolPtr(restoredToOriginalPath),
+	}
+}
+
 // NewCompassResourcePurged records a permanent Compass resource delete.
 func NewCompassResourcePurged(rid, projectRID string, markings []string, resourceType, displayName, deletedAt, deletedBy, purgedBy string, retentionDays int, purgeAfter, purgeMode string, dependents []AffectedDependent, truncated bool) AuditEvent {
 	return AuditEvent{
@@ -325,6 +477,98 @@ func NewCompassResourcePurged(rid, projectRID string, markings []string, resourc
 		PurgeMode:              purgeMode,
 		AffectedDependents:     dependents,
 		DependentListTruncated: boolPtr(truncated),
+	}
+}
+
+// NewCompassResourceShareChanged records create/update/revoke of a
+// direct resource share grant.
+func NewCompassResourceShareChanged(rid, projectRID string, markings []string, resourceType, displayName, shareID, changeType, principalKind, principalID, accessLevel string) AuditEvent {
+	return AuditEvent{
+		Kind:               KindCompassResourceShareChanged,
+		ResourceRID:        rid,
+		ProjectRID:         projectRID,
+		MarkingsAtEvent:    markings,
+		ResourceType:       resourceType,
+		DisplayName:        displayName,
+		ShareID:            shareID,
+		ShareChangeType:    changeType,
+		SharePrincipalKind: principalKind,
+		SharePrincipalID:   principalID,
+		ShareAccessLevel:   accessLevel,
+	}
+}
+
+// NewCompassResourceBulkOperation records one Compass batch operation. The
+// event carries per-row outcomes so move/trash/share batches can remain
+// searchable in the central audit surface without emitting one audit event per
+// selected resource.
+func NewCompassResourceBulkOperation(batchID string, actions []BulkResourceAction, preflightFailed bool) AuditEvent {
+	total := len(actions)
+	succeeded := 0
+	failed := 0
+	op := ""
+	mixed := false
+	projectRID := ""
+	commonProject := true
+	markings := make([]string, 0)
+	for _, action := range actions {
+		switch action.Status {
+		case "succeeded":
+			succeeded++
+		default:
+			failed++
+		}
+		if op == "" {
+			op = action.Op
+		} else if op != action.Op {
+			mixed = true
+		}
+		if action.ProjectRID != "" {
+			if projectRID == "" {
+				projectRID = action.ProjectRID
+			} else if projectRID != action.ProjectRID {
+				commonProject = false
+			}
+		}
+		markings = append(markings, action.MarkingsAtEvent...)
+	}
+	if mixed || op == "" {
+		op = "mixed"
+	}
+	if !commonProject {
+		projectRID = ""
+	}
+	if batchID == "" {
+		batchID = "unknown"
+	}
+	return AuditEvent{
+		Kind:                 KindCompassResourceBulkOperation,
+		ResourceRID:          "ri.compass.main.bulk-operation." + batchID,
+		ProjectRID:           projectRID,
+		MarkingsAtEvent:      uniqueStrings(markings),
+		ResourceType:         "bulk-operation",
+		DisplayName:          "Bulk resource operation",
+		BatchID:              batchID,
+		BatchOperation:       op,
+		BatchTotal:           intPtr(total),
+		BatchSucceeded:       intPtr(succeeded),
+		BatchFailed:          intPtr(failed),
+		BatchPreflightFailed: boolPtr(preflightFailed),
+		BatchActions:         actions,
+	}
+}
+
+// NewCompassResourceMarkingsChanged records a direct marking update on
+// a Compass resource.
+func NewCompassResourceMarkingsChanged(rid, projectRID string, markings, previous []string, resourceType, displayName string) AuditEvent {
+	return AuditEvent{
+		Kind:             KindCompassResourceMarkingsChanged,
+		ResourceRID:      rid,
+		ProjectRID:       projectRID,
+		MarkingsAtEvent:  markings,
+		PreviousMarkings: previous,
+		ResourceType:     resourceType,
+		DisplayName:      displayName,
 	}
 }
 

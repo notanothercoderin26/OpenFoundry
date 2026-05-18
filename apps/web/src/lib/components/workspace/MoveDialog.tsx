@@ -121,9 +121,16 @@ export function MoveDialog({
           op: 'move',
           resource_kind: t.kind,
           resource_id: t.id,
+          target_project_id: targetProjectId,
           target_folder_id: targetFolderId || null,
         }));
-        await batchApply(actions);
+        const response = await batchApply(actions);
+        const failed = response.results.find((entry) => !entry.ok);
+        if (failed) {
+          setError(failed.error ?? 'Move failed during preflight.');
+          setSubmitting(false);
+          return;
+        }
       } else {
         if (!resourceKind || !resourceId) { setError('Pick a destination project.'); setSubmitting(false); return; }
         await moveResource(resourceKind, resourceId, {

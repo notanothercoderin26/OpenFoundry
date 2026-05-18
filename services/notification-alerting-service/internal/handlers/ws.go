@@ -79,7 +79,7 @@ func (h *WS) Upgrade(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing ticket", http.StatusUnauthorized)
 		return
 	}
-	claims, err := authmw.DecodeToken(h.JWT, ticket)
+	claims, err := authmw.DecodeToken(h.JWT, ticket, authmw.WithAllowedTokenUses("ws_ticket"))
 	if err != nil || claims.TokenUse == nil || *claims.TokenUse != "ws_ticket" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return

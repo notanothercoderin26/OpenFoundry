@@ -20,6 +20,7 @@ Endpoints (all under `/api/v1`, JWT-protected):
 - `PATCH /projects/{id-or-rid}/folders/{folder_id-or-rid}/propagate-view-requirements` — manage the legacy folder-level view-requirement propagation toggle
 - `GET /projects/{id-or-rid}/propagate-view-requirements/jobs` — list background re-propagation jobs and progress
 - `POST /workspace/resources/{kind}/{id}/move|rename` — RID-preserving resource operations
+- `POST /workspace/resources/batch` — preflighted Compass move/trash/share batches with one aggregate audit event
 - `GET|PUT /workspace/resources/{kind}/{id}/references` — Compass reverse-reference graph (`depends_on` / `used_by`)
 - `GET /workspace/trash`, `POST /workspace/resources/{kind}/{id}/restore`, `DELETE /workspace/resources/{kind}/{id}/purge` — Compass Trash list, restore, and permanent-delete surface
 - `GET|POST /workspace/favorites`, `PUT /workspace/favorites/order`, `GET|POST /workspace/favorites/groups`, `PUT /workspace/favorites/groups/order` — synced per-user Compass favorites, groups, and display order
@@ -85,21 +86,34 @@ must be explicitly confirmed.
 Project and folder lifecycle writes maintain `compass_resource_search_index`
 inside the same database transaction. Each entry is keyed by immutable RID and
 carries type, display name, owning project, organization RIDs, marking RIDs,
-last modified time, owner, tags, summary, open URL, and trash state. The same
-transaction emits `compass.resource.search.updated.v1` via `outbox.events`, so
-future Vespa/OpenSearch indexers can subscribe to resource changes without
-polling project or folder tables.
+last modified time, owner, tags, summary, long-text catalog body, long-text
+source metadata, open URL, and trash state. Long-text sources cover resource
+descriptions, README content, ontology object/property descriptions, code
+repository READMEs, and dashboard descriptions. Owning services can compose
+source bodies with `BuildResourceSearchLongText` and refresh an existing RID's
+catalog text with `UpdateResourceSearchLongTextTx`. The same transaction emits
+`compass.resource.search.updated.v1` via `outbox.events`, so future
+Vespa/OpenSearch indexers can subscribe to resource changes without polling
+project or folder tables.
 
 `GET /api/v1/compass/search` reads that projection with permission-aware
 filters. Supported query parameters are `q`, `type`, `project` (UUID or
-Compass project RID), `owner`, repeated `marking`, `limit` (capped at 200),
-and opaque `cursor`. Results are ordered by text score, `last_modified_at`
-descending, and RID ascending.
+Compass project RID), `owner`, repeated `marking`, `modified`
+(`24h`, `7d`, `30d`, or `older`), `limit` (capped at 200), and opaque
+`cursor`. Results are ordered by text score, `last_modified_at` descending,
+and RID ascending, include a bounded snippet for the best long-text match while
+omitting the full long-text body from the HTTP response, and return facets for
+type, project, owner, marking, and last-modified buckets.
 
 The web Quicksearch shell consumes this endpoint alongside ontology search:
 resource rows surface the immutable RID, type, owning project, marking badges,
-and `open_url`, while the frontend resource type registry controls display
-labels, icons, and "Open with" targets.
+snippet highlights, and `open_url`, while the frontend resource type registry
+controls display labels, icons, and "Open with" targets.
+
+`compass_saved_searches` stores per-user named Quicksearch/Data Catalog queries
+with tab, type, project, owner, marking, and last-modified filters. The
+workspace API exposes `GET|POST|DELETE /api/v1/workspace/saved-searches`, and
+the web search sidebar renders those saved searches alongside the facet list.
 
 `open_url` is a stable RID-based deep link, not a path slug. Project entries use
 `/projects/{projectRid}`, folder entries use
@@ -163,6 +177,25 @@ retention window. The purge transaction removes directly affected favorites,
 recents, shares, folder-scope grants, and search-index rows, then emits a
 marking-aware `compass.resource.purged` event to `audit.events.v1` with the
 deleted resource RID, purge mode, and affected dependents.
+
+Resource lifecycle mutations also emit standard Compass audit events in the
+same transaction as the resource change. Project/folder/resource-binding create,
+move, rename, trash, restore, purge, direct share grant/update/revoke, and
+project marking updates produce `compass.resource.*` envelopes with the resource
+RID, project RID, markings at event time, path/name deltas, share principal
+details, and retention/restore metadata. `audit-sink` consumes `audit.events.v1`
+and makes those rows available from `GET /api/v1/audit/events` and export.
+
+`POST /api/v1/workspace/resources/batch` accepts selections from search results
+or folder listings and applies `move`, `delete`/`trash`, and `share` only after
+every row passes preflight. Folder moves reuse cross-project access-policy and
+marking confirmation checks, resource-binding moves require a target project,
+trash validates retention bounds and owner/admin policy, and share validates a
+single user/group principal plus access level. Any failed preflight marks the
+whole response `preflight_failed=true` and leaves resources unchanged. Applied
+batches suppress per-resource audit emission and write one
+`compass.resource.bulk_operation` event with the `batch_id`, counts, and per-row
+targets/errors/share metadata.
 
 ## Follow-up slices (deferred)
 

@@ -1,9 +1,9 @@
-// Command network-boundary-service is the stub binary that backs the
+// Command network-boundary-service backs the
 // `/api/v1/network-boundaries`, `/api/v1/network-boundary` and
 // `/api/v1/data-connection/egress-policies` routes fanned out by
-// `edge-gateway-service`. Real implementation is pending the S8.6 / B14
-// consolidation into `authorization-policy-service` (see ADR-0030); the
-// stub exists so the gateway returns 501 to clients instead of 502.
+// `edge-gateway-service`. Boundary-management routes remain S8.6 / B14
+// placeholders; the SG.34 data-connection egress policy surface is
+// implemented here until consolidation into `authorization-policy-service`.
 package main
 
 import (

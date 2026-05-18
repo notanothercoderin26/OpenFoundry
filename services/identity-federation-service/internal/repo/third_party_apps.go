@@ -131,6 +131,20 @@ func (r *Repo) CreateThirdPartyApplication(ctx context.Context, app *models.Thir
 			return nil, fmt.Errorf("insert third-party application enablement: %w", err)
 		}
 	}
+	if serviceUser != nil {
+		if err := insertThirdPartyServiceUserAuditEvent(ctx, tx, app.ID, app.ServiceUserID, app.CreatedBy, models.ThirdPartyServiceUserAuditCreated, map[string]any{
+			"client_id": app.ClientID,
+			"username":  serviceUser.Username,
+		}); err != nil {
+			return nil, err
+		}
+		if err := insertThirdPartyServiceUserAuditEvent(ctx, tx, app.ID, app.ServiceUserID, app.CreatedBy, models.ThirdPartyServiceUserAuditClientGrantEnabled, map[string]any{
+			"client_id":           app.ClientID,
+			"enabled_grant_types": app.EnabledGrantTypes,
+		}); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -143,8 +157,9 @@ func (r *Repo) UpdateThirdPartyApplication(ctx context.Context, app *models.Thir
 		return nil, fmt.Errorf("begin third-party application update: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	var serviceUserCreated bool
 	if serviceUser != nil {
-		if _, err := tx.Exec(ctx,
+		tag, err := tx.Exec(ctx,
 			`INSERT INTO users
 			   (id, email, username, name, password_hash, is_active, auth_source, realm,
 			    organization_id, attributes, preregistered, invited_by)
@@ -153,9 +168,11 @@ func (r *Repo) UpdateThirdPartyApplication(ctx context.Context, app *models.Thir
 			 ON CONFLICT (id) DO NOTHING`,
 			serviceUser.ID, serviceUser.Email, serviceUser.Username, serviceUser.Name,
 			serviceUser.OrganizationID, serviceUser.Attributes, serviceUser.CreatedBy,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("insert third-party application service user: %w", err)
 		}
+		serviceUserCreated = tag.RowsAffected() > 0
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE third_party_applications SET
@@ -180,6 +197,22 @@ func (r *Repo) UpdateThirdPartyApplication(ctx context.Context, app *models.Thir
 	); err != nil {
 		return nil, fmt.Errorf("update third-party application: %w", err)
 	}
+	if serviceUser != nil {
+		if serviceUserCreated {
+			if err := insertThirdPartyServiceUserAuditEvent(ctx, tx, app.ID, app.ServiceUserID, app.UpdatedBy, models.ThirdPartyServiceUserAuditCreated, map[string]any{
+				"client_id": app.ClientID,
+				"username":  serviceUser.Username,
+			}); err != nil {
+				return nil, err
+			}
+		}
+		if err := insertThirdPartyServiceUserAuditEvent(ctx, tx, app.ID, app.ServiceUserID, app.UpdatedBy, models.ThirdPartyServiceUserAuditClientGrantEnabled, map[string]any{
+			"client_id":           app.ClientID,
+			"enabled_grant_types": app.EnabledGrantTypes,
+		}); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -200,7 +233,13 @@ func (r *Repo) RevokeThirdPartyApplication(ctx context.Context, id, actor uuid.U
 }
 
 func (r *Repo) RotateThirdPartyApplicationSecret(ctx context.Context, id uuid.UUID, secretHash, prefix string, actor uuid.UUID, at time.Time) (*models.ThirdPartyApplication, error) {
-	_, err := r.Pool.Exec(ctx,
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin third-party application secret rotation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var serviceUserID *uuid.UUID
+	if err := tx.QueryRow(ctx,
 		`UPDATE third_party_applications
 		 SET client_secret_hash = $2,
 		     client_secret_prefix = $3,
@@ -209,10 +248,21 @@ func (r *Repo) RotateThirdPartyApplicationSecret(ctx context.Context, id uuid.UU
 		     updated_at = $4
 		 WHERE id = $1
 		   AND revoked_at IS NULL
-		   AND client_type = 'confidential'`,
+		   AND client_type = 'confidential'
+		 RETURNING service_user_id`,
 		id, secretHash, prefix, at, actor,
-	)
-	if err != nil {
+	).Scan(&serviceUserID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if err := insertThirdPartyServiceUserAuditEvent(ctx, tx, id, serviceUserID, &actor, models.ThirdPartyServiceUserAuditSecretRotated, map[string]any{
+		"client_secret_prefix": prefix,
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return r.GetThirdPartyApplication(ctx, id)

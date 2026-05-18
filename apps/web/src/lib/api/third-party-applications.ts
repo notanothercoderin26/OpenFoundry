@@ -84,6 +84,63 @@ export interface UpsertThirdPartyApplicationEnablementRequest {
   organization_consent?: boolean;
 }
 
+export interface ThirdPartyServiceUser {
+  id: string;
+  email: string;
+  username?: string | null;
+  name: string;
+  is_active: boolean;
+  organization_id?: string | null;
+  auth_source: string;
+  realm: string;
+}
+
+export interface ThirdPartyServiceUserRole {
+  id: string;
+  name: string;
+  description?: string | null;
+  created_at: string;
+}
+
+export interface ThirdPartyServiceUserGrant {
+  id: string;
+  application_id: string;
+  service_user_id: string;
+  scope_type: 'project' | 'resource';
+  scope_id: string;
+  role_key: string;
+  granted_by?: string | null;
+  created_at: string;
+  revoked_at?: string | null;
+}
+
+export interface ThirdPartyServiceUserAuditEvent {
+  id: string;
+  application_id: string;
+  service_user_id?: string | null;
+  actor_id?: string | null;
+  action: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ThirdPartyServiceUserInspection {
+  application: ThirdPartyApplication;
+  service_user?: ThirdPartyServiceUser | null;
+  client_credentials_enabled: boolean;
+  platform_roles: ThirdPartyServiceUserRole[];
+  permissions: string[];
+  resource_grants: ThirdPartyServiceUserGrant[];
+  audit_events: ThirdPartyServiceUserAuditEvent[];
+  warning: string;
+}
+
+export interface CreateThirdPartyServiceUserGrantRequest {
+  scope_type: 'project' | 'resource';
+  scope_id: string;
+  role_key: string;
+}
+
 export function listThirdPartyApplications() {
   return api.get<ThirdPartyApplicationListResponse>('/third-party-applications');
 }
@@ -121,5 +178,44 @@ export function upsertThirdPartyApplicationEnablement(
 export function disableThirdPartyApplicationEnablement(id: string, organizationId: string) {
   return api.delete<ThirdPartyApplication>(
     `/third-party-applications/${encodeURIComponent(id)}/organizations/${encodeURIComponent(organizationId)}/enablement`,
+  );
+}
+
+export function getThirdPartyApplicationServiceUser(id: string) {
+  return api.get<ThirdPartyServiceUserInspection>(
+    `/third-party-applications/${encodeURIComponent(id)}/service-user`,
+  );
+}
+
+export function ensureThirdPartyApplicationServiceUser(id: string) {
+  return api.post<ThirdPartyServiceUserInspection>(
+    `/third-party-applications/${encodeURIComponent(id)}/service-user`,
+    {},
+  );
+}
+
+export function assignThirdPartyServiceUserRole(id: string, roleId: string) {
+  return api.put<ThirdPartyServiceUserInspection>(
+    `/third-party-applications/${encodeURIComponent(id)}/service-user/roles/${encodeURIComponent(roleId)}`,
+    {},
+  );
+}
+
+export function revokeThirdPartyServiceUserRole(id: string, roleId: string) {
+  return api.delete<ThirdPartyServiceUserInspection>(
+    `/third-party-applications/${encodeURIComponent(id)}/service-user/roles/${encodeURIComponent(roleId)}`,
+  );
+}
+
+export function createThirdPartyServiceUserGrant(id: string, body: CreateThirdPartyServiceUserGrantRequest) {
+  return api.post<ThirdPartyServiceUserGrant>(
+    `/third-party-applications/${encodeURIComponent(id)}/service-user/grants`,
+    body,
+  );
+}
+
+export function revokeThirdPartyServiceUserGrant(id: string, grantId: string) {
+  return api.delete<ThirdPartyServiceUserGrant>(
+    `/third-party-applications/${encodeURIComponent(id)}/service-user/grants/${encodeURIComponent(grantId)}`,
   );
 }

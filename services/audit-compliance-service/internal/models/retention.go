@@ -1,5 +1,4 @@
 // Retention-policy + retention-runner types.
-//
 package models
 
 import (
@@ -26,6 +25,37 @@ type RetentionCriteria struct {
 	TransactionState      *string `json:"transaction_state,omitempty"`
 	ViewAgeSeconds        *int64  `json:"view_age_seconds,omitempty"`
 	LastAccessedSeconds   *int64  `json:"last_accessed_seconds,omitempty"`
+}
+
+// RetentionDatasetSelector mirrors Foundry's Retention application
+// dataset-selector model while preserving the older selector JSON for
+// compatibility. Selectors are cumulative: at least one Select-mode
+// selector is normally needed before any dataset can match, and Exclude
+// selectors subtract from that set.
+type RetentionDatasetSelector struct {
+	Mode        string   `json:"mode"` // select | exclude
+	Kind        string   `json:"kind"` // all | dataset_rids | folder_rids | derived | trash
+	DatasetRIDs []string `json:"dataset_rids,omitempty"`
+	FolderRIDs  []string `json:"folder_rids,omitempty"`
+	WorkerTypes []string `json:"worker_types,omitempty"`
+}
+
+// RetentionTransactionSelector captures transaction narrowing rules.
+// These selectors narrow the already-selected dataset transactions.
+type RetentionTransactionSelector struct {
+	Kind             string   `json:"kind"` // only_branch | not_branch | transaction_count | view_count | older_than | ...
+	Branch           string   `json:"branch,omitempty"`
+	Count            int32    `json:"count,omitempty"`
+	DurationSeconds  int64    `json:"duration_seconds,omitempty"`
+	TransactionTypes []string `json:"transaction_types,omitempty"`
+}
+
+// RetentionPolicyWarning is returned with policy rows to make dangerous
+// or deprecated retention semantics impossible to miss in admin UIs.
+type RetentionPolicyWarning struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
 }
 
 // SelectorFromRaw decodes a JSONB column into the typed selector.
@@ -76,6 +106,7 @@ type ListRetentionPoliciesQuery struct {
 	DatasetRid *string
 	ProjectID  *uuid.UUID
 	MarkingID  *uuid.UUID
+	SpaceID    *uuid.UUID
 	Active     *bool
 	SystemOnly *bool
 }
@@ -105,12 +136,12 @@ type PolicyConflict struct {
 
 // ApplicablePoliciesResponse mirrors the Rust struct.
 type ApplicablePoliciesResponse struct {
-	DatasetRid string             `json:"dataset_rid"`
-	Context    ResolutionContext  `json:"context"`
-	Inherited  InheritedPolicies  `json:"inherited"`
-	Explicit   []RetentionPolicy  `json:"explicit"`
-	Effective  *RetentionPolicy   `json:"effective"`
-	Conflicts  []PolicyConflict   `json:"conflicts"`
+	DatasetRid string            `json:"dataset_rid"`
+	Context    ResolutionContext `json:"context"`
+	Inherited  InheritedPolicies `json:"inherited"`
+	Explicit   []RetentionPolicy `json:"explicit"`
+	Effective  *RetentionPolicy  `json:"effective"`
+	Conflicts  []PolicyConflict  `json:"conflicts"`
 }
 
 // RetentionPreviewQuery mirrors the Rust struct.
@@ -157,25 +188,25 @@ type RetentionPreviewSummary struct {
 
 // RetentionPreviewResponse mirrors the Rust struct.
 type RetentionPreviewResponse struct {
-	DatasetRid       string                       `json:"dataset_rid"`
-	AsOfDays         int64                        `json:"as_of_days"`
-	AsOf             time.Time                    `json:"as_of"`
-	EffectivePolicy  *RetentionPolicy             `json:"effective_policy"`
-	Transactions     []RetentionPreviewTransaction `json:"transactions"`
-	Files            []RetentionPreviewFile        `json:"files"`
-	Summary          RetentionPreviewSummary       `json:"summary"`
-	Warnings         []string                      `json:"warnings"`
+	DatasetRid      string                        `json:"dataset_rid"`
+	AsOfDays        int64                         `json:"as_of_days"`
+	AsOf            time.Time                     `json:"as_of"`
+	EffectivePolicy *RetentionPolicy              `json:"effective_policy"`
+	Transactions    []RetentionPreviewTransaction `json:"transactions"`
+	Files           []RetentionPreviewFile        `json:"files"`
+	Summary         RetentionPreviewSummary       `json:"summary"`
+	Warnings        []string                      `json:"warnings"`
 }
 
 // RetentionPolicySnapshot mirrors the Rust struct used by the
 // retention runner. Slim projection of the catalog row.
 type RetentionPolicySnapshot struct {
-	ID                  uuid.UUID `json:"id"`
-	Name                string    `json:"name"`
-	IsSystem            bool      `json:"is_system"`
-	GracePeriodMinutes  int32     `json:"grace_period_minutes"`
-	DatasetRid          *string   `json:"dataset_rid"`
-	TransactionState    *string   `json:"transaction_state"`
+	ID                 uuid.UUID `json:"id"`
+	Name               string    `json:"name"`
+	IsSystem           bool      `json:"is_system"`
+	GracePeriodMinutes int32     `json:"grace_period_minutes"`
+	DatasetRid         *string   `json:"dataset_rid"`
+	TransactionState   *string   `json:"transaction_state"`
 }
 
 // RetentionTarget mirrors the Rust struct.
@@ -188,23 +219,23 @@ type RetentionTarget struct {
 
 // RetentionApplied mirrors the Rust struct returned by `apply_policy`.
 type RetentionApplied struct {
-	PolicyID                    uuid.UUID `json:"policy_id"`
-	TargetsProcessed            int       `json:"targets_processed"`
-	FilesMarked                 int       `json:"files_marked"`
-	BytesFreed                  uint64    `json:"bytes_freed"`
-	PhysicalDeletes             int       `json:"physical_deletes"`
-	PhysicalDeleteSkippedGrace  int       `json:"physical_delete_skipped_grace"`
+	PolicyID                   uuid.UUID `json:"policy_id"`
+	TargetsProcessed           int       `json:"targets_processed"`
+	FilesMarked                int       `json:"files_marked"`
+	BytesFreed                 uint64    `json:"bytes_freed"`
+	PhysicalDeletes            int       `json:"physical_deletes"`
+	PhysicalDeleteSkippedGrace int       `json:"physical_delete_skipped_grace"`
 }
 
 // RetentionAppliedEvent mirrors the Rust struct published to
 // `dataset.retention.applied`.
 type RetentionAppliedEvent struct {
-	PolicyID           uuid.UUID `json:"policy_id"`
-	PolicyName         string    `json:"policy_name"`
-	DatasetRid         string    `json:"dataset_rid"`
-	TransactionID      uuid.UUID `json:"transaction_id"`
-	FilesCount         int       `json:"files_count"`
-	BytesFreed         uint64    `json:"bytes_freed"`
-	PhysicallyDeleted  bool      `json:"physically_deleted"`
-	OccurredAt         time.Time `json:"occurred_at"`
+	PolicyID          uuid.UUID `json:"policy_id"`
+	PolicyName        string    `json:"policy_name"`
+	DatasetRid        string    `json:"dataset_rid"`
+	TransactionID     uuid.UUID `json:"transaction_id"`
+	FilesCount        int       `json:"files_count"`
+	BytesFreed        uint64    `json:"bytes_freed"`
+	PhysicallyDeleted bool      `json:"physically_deleted"`
+	OccurredAt        time.Time `json:"occurred_at"`
 }

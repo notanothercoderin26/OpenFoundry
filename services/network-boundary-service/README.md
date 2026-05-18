@@ -1,4 +1,4 @@
-# network-boundary-service (stub)
+# network-boundary-service
 
 Backs the `/api/v1/network-boundaries`, `/api/v1/network-boundary` and
 `/api/v1/data-connection/egress-policies` route prefixes that the edge
@@ -6,8 +6,9 @@ gateway fans out to `u.NetworkBoundary`. Without this binary those
 paths return 502 to the frontend because no upstream is listening.
 
 Per [ADR-0030](../../docs/architecture/adr/ADR-0030-service-consolidation-30-targets.md)
-the surface is slated to merge into `authorization-policy-service`
-during milestone S8.6 / B14. Until then every handler responds:
+the boundary surface is slated to merge into `authorization-policy-service`
+during milestone S8.6 / B14. Until then `/api/v1/network-boundaries` and
+`/api/v1/network-boundary` remain 501 placeholders:
 
 ```http
 HTTP/1.1 501 Not Implemented
@@ -18,6 +19,12 @@ Content-Type: application/json; charset=utf-8
 
 `/healthz`, `/metrics` and `/_meta/*` work normally so the pod passes
 k8s probes and is visible to platform tooling.
+
+The `/api/v1/data-connection/egress-policies` surface is implemented for
+SG.34. It supports direct, agent-proxy, and same-region bucket policy
+creation; pending/active/paused/revoked lifecycle state; immutable
+destination semantics; high-risk importer grants; and workload runtime
+evaluation through `POST /api/v1/data-connection/egress-policies:evaluate-workload`.
 
 ## Build
 

@@ -174,25 +174,35 @@ type ComplianceReport struct {
 // ─── Retention policies + jobs ─────────────────────────────────────
 
 type RetentionPolicy struct {
-	ID                 uuid.UUID       `json:"id"`
-	OrgID              *uuid.UUID      `json:"org_id,omitempty"`
-	Name               string          `json:"name"`
-	Scope              string          `json:"scope"`
-	TargetKind         string          `json:"target_kind"`
-	RetentionDays      int32           `json:"retention_days"`
-	LegalHold          bool            `json:"legal_hold"`
-	PurgeMode          string          `json:"purge_mode"`
-	Rules              json.RawMessage `json:"rules"`
-	UpdatedBy          string          `json:"updated_by"`
-	Active             bool            `json:"active"`
-	IsSystem           bool            `json:"is_system"`
-	Selector           json.RawMessage `json:"selector"`
-	Criteria           json.RawMessage `json:"criteria"`
-	GracePeriodMinutes int32           `json:"grace_period_minutes"`
-	LastAppliedAt      *time.Time      `json:"last_applied_at"`
-	NextRunAt          *time.Time      `json:"next_run_at"`
-	CreatedAt          time.Time       `json:"created_at"`
-	UpdatedAt          time.Time       `json:"updated_at"`
+	ID                      uuid.UUID                      `json:"id"`
+	OrgID                   *uuid.UUID                     `json:"org_id,omitempty"`
+	Name                    string                         `json:"name"`
+	Scope                   string                         `json:"scope"`
+	TargetKind              string                         `json:"target_kind"`
+	RetentionDays           int32                          `json:"retention_days"`
+	LegalHold               bool                           `json:"legal_hold"`
+	PurgeMode               string                         `json:"purge_mode"`
+	Rules                   json.RawMessage                `json:"rules"`
+	UpdatedBy               string                         `json:"updated_by"`
+	Active                  bool                           `json:"active"`
+	IsSystem                bool                           `json:"is_system"`
+	Selector                json.RawMessage                `json:"selector"`
+	Criteria                json.RawMessage                `json:"criteria"`
+	GracePeriodMinutes      int32                          `json:"grace_period_minutes"`
+	PolicyType              string                         `json:"policy_type"`
+	SpaceID                 *uuid.UUID                     `json:"space_id,omitempty"`
+	LegacyDeprecationStatus string                         `json:"legacy_deprecation_status,omitempty"`
+	LegacyConfigYAML        string                         `json:"legacy_config_yaml,omitempty"`
+	DatasetSelectors        []RetentionDatasetSelector     `json:"dataset_selectors,omitempty"`
+	TransactionSelectors    []RetentionTransactionSelector `json:"transaction_selectors,omitempty"`
+	AllowLatestViewDeletion bool                           `json:"allow_latest_view_deletion"`
+	AbortOpenTransactions   bool                           `json:"abort_open_transactions"`
+	DangerAcknowledgement   string                         `json:"danger_acknowledgement,omitempty"`
+	Warnings                []RetentionPolicyWarning       `json:"warnings,omitempty"`
+	LastAppliedAt           *time.Time                     `json:"last_applied_at"`
+	NextRunAt               *time.Time                     `json:"next_run_at"`
+	CreatedAt               time.Time                      `json:"created_at"`
+	UpdatedAt               time.Time                      `json:"updated_at"`
 }
 
 type CreateRetentionPolicyRequest struct {

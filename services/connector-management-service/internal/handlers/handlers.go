@@ -629,8 +629,8 @@ func (h *Handlers) AttachPolicy(w http.ResponseWriter, r *http.Request) {
 	if kind == "" {
 		kind = "direct"
 	}
-	if kind != "direct" && kind != "agent_proxy" {
-		writeJSONErr(w, http.StatusBadRequest, "kind must be 'direct' or 'agent_proxy'")
+	if kind != "direct" && kind != "agent_proxy" && kind != "same_region_bucket" {
+		writeJSONErr(w, http.StatusBadRequest, "kind must be 'direct', 'agent_proxy', or 'same_region_bucket'")
 		return
 	}
 	if !h.requireSourceRole(w, r, sourceID, claims.Sub, models.SourceRoleEdit) {
@@ -645,6 +645,12 @@ func (h *Handlers) AttachPolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusInternalServerError, "failed to attach policy")
 		return
 	}
+	h.recordSourceUseAudit(r.Context(), sourceID, claims.Sub, "egress_policy_attached", "network_egress", body.PolicyID.String(), models.SourceRIDForConnection(sourceID), "Attached egress policy to source", map[string]any{
+		"policy_id":             body.PolicyID.String(),
+		"kind":                  kind,
+		"potential_data_export": true,
+		"audit_categories":      []string{"networkEgress", "dataExport", "managementPermissions"},
+	})
 	writeJSON(w, http.StatusOK, v)
 }
 
@@ -675,6 +681,11 @@ func (h *Handlers) DetachPolicy(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	h.recordSourceUseAudit(r.Context(), sourceID, claims.Sub, "egress_policy_detached", "network_egress", policyID.String(), models.SourceRIDForConnection(sourceID), "Detached egress policy from source", map[string]any{
+		"policy_id":             policyID.String(),
+		"potential_data_export": true,
+		"audit_categories":      []string{"networkEgress", "dataExport", "managementPermissions"},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -3068,4 +3079,3 @@ func (h *Handlers) GetSourceRetryRecovery(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, http.StatusOK, summary)
 }
-

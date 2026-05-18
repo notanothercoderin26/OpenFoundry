@@ -25,25 +25,53 @@ const (
 	ResourceSearchEventPurged   = "compass.resource.purged.v1"
 	ResourceSearchTypeProject   = "project"
 	ResourceSearchTypeFolder    = "folder"
+
+	ResourceSearchTextSourceDescription                 = "resource_description"
+	ResourceSearchTextSourceReadme                      = "readme"
+	ResourceSearchTextSourceOntologyObjectDescription   = "ontology_object_description"
+	ResourceSearchTextSourceOntologyPropertyDescription = "ontology_property_description"
+	ResourceSearchTextSourceCodeRepositoryReadme        = "code_repository_readme"
+	ResourceSearchTextSourceDashboardDescription        = "dashboard_description"
+
+	maxResourceSearchLongTextRunes = 200_000
+	maxResourceSearchTextSources   = 32
 )
+
+// ResourceSearchTextDocument is one long-text contribution from an owning
+// resource service, such as a README, ontology property description, or
+// dashboard description.
+type ResourceSearchTextDocument struct {
+	Kind  string
+	Label string
+	Text  string
+}
+
+// ResourceSearchTextSource records where the indexed long text came from
+// without forcing search clients to download the full text payload.
+type ResourceSearchTextSource struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label,omitempty"`
+}
 
 // ResourceSearchEntry is the Compass catalog document projected for search.
 // It intentionally carries only cross-resource metadata; per-type details stay
 // in the owning resource service and are opened through OpenURL/RID.
 type ResourceSearchEntry struct {
-	ResourceRID      string     `json:"rid"`
-	ResourceType     string     `json:"type"`
-	DisplayName      string     `json:"display_name"`
-	OwningProjectID  *uuid.UUID `json:"owning_project_id,omitempty"`
-	OwningProjectRID *string    `json:"owning_project_rid,omitempty"`
-	OrganizationRIDs []string   `json:"organization_rids"`
-	MarkingRIDs      []string   `json:"marking_rids"`
-	LastModifiedAt   time.Time  `json:"last_modified_at"`
-	OwnerID          *uuid.UUID `json:"owner_id,omitempty"`
-	Tags             []string   `json:"tags"`
-	Summary          string     `json:"summary"`
-	OpenURL          string     `json:"open_url"`
-	IsDeleted        bool       `json:"is_deleted"`
+	ResourceRID      string                     `json:"rid"`
+	ResourceType     string                     `json:"type"`
+	DisplayName      string                     `json:"display_name"`
+	OwningProjectID  *uuid.UUID                 `json:"owning_project_id,omitempty"`
+	OwningProjectRID *string                    `json:"owning_project_rid,omitempty"`
+	OrganizationRIDs []string                   `json:"organization_rids"`
+	MarkingRIDs      []string                   `json:"marking_rids"`
+	LastModifiedAt   time.Time                  `json:"last_modified_at"`
+	OwnerID          *uuid.UUID                 `json:"owner_id,omitempty"`
+	Tags             []string                   `json:"tags"`
+	Summary          string                     `json:"summary"`
+	LongText         string                     `json:"long_text,omitempty"`
+	LongTextSources  []ResourceSearchTextSource `json:"long_text_sources,omitempty"`
+	OpenURL          string                     `json:"open_url"`
+	IsDeleted        bool                       `json:"is_deleted"`
 }
 
 type resourceSearchEvent struct {
@@ -78,7 +106,8 @@ func DeleteProjectSearchIndexTx(ctx context.Context, tx pgx.Tx, projectID uuid.U
 	rows, err := tx.Query(ctx,
 		`SELECT resource_rid, resource_type, display_name, owning_project_id,
 		        owning_project_rid, organization_rids, marking_rids,
-		        last_modified_at, owner_id, tags, summary, open_url, is_deleted
+		        last_modified_at, owner_id, tags, summary, long_text,
+		        long_text_sources, open_url, is_deleted
 		   FROM compass_resource_search_index
 		  WHERE owning_project_id = $1
 		  ORDER BY resource_type DESC`,
@@ -141,6 +170,34 @@ func DeleteFolderSearchIndexTx(ctx context.Context, tx pgx.Tx, folderID uuid.UUI
 	return enqueueResourceSearchEventTx(ctx, tx, *entry, eventType)
 }
 
+func UpdateResourceSearchLongTextTx(ctx context.Context, tx pgx.Tx, resourceRID string, docs []ResourceSearchTextDocument, eventType string) error {
+	longText, sources := BuildResourceSearchLongText(docs...)
+	sourcesJSON, err := json.Marshal(sources)
+	if err != nil {
+		return fmt.Errorf("encode resource search long-text sources: %w", err)
+	}
+	row := tx.QueryRow(ctx,
+		`UPDATE compass_resource_search_index
+		    SET long_text = $2,
+		        long_text_sources = $3::jsonb,
+		        indexed_at = NOW()
+		  WHERE resource_rid = $1
+		  RETURNING resource_rid, resource_type, display_name, owning_project_id,
+		            owning_project_rid, organization_rids, marking_rids,
+		            last_modified_at, owner_id, tags, summary, long_text,
+		            long_text_sources, open_url, is_deleted`,
+		strings.TrimSpace(resourceRID), longText, string(sourcesJSON),
+	)
+	entry, err := scanResourceSearchEntry(row)
+	if err != nil {
+		return err
+	}
+	if entry == nil {
+		return nil
+	}
+	return enqueueResourceSearchEventTx(ctx, tx, *entry, eventType)
+}
+
 func upsertResourceSearchEntryTx(ctx context.Context, tx pgx.Tx, entry ResourceSearchEntry, eventType string) error {
 	entry.Normalize()
 	organizationJSON, err := json.Marshal(entry.OrganizationRIDs)
@@ -155,13 +212,18 @@ func upsertResourceSearchEntryTx(ctx context.Context, tx pgx.Tx, entry ResourceS
 	if err != nil {
 		return fmt.Errorf("encode resource search tags: %w", err)
 	}
+	longTextSourcesJSON, err := json.Marshal(entry.LongTextSources)
+	if err != nil {
+		return fmt.Errorf("encode resource search long-text sources: %w", err)
+	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO compass_resource_search_index (
 		     resource_rid, resource_type, display_name, owning_project_id,
 		     owning_project_rid, organization_rids, marking_rids,
-		     last_modified_at, owner_id, tags, summary, open_url, is_deleted, indexed_at
+		     last_modified_at, owner_id, tags, summary, long_text, long_text_sources,
+		     open_url, is_deleted, indexed_at
 		 )
-		 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10::jsonb, $11, $12, $13, NOW())
+		 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10::jsonb, $11, $12, $13::jsonb, $14, $15, NOW())
 		 ON CONFLICT (resource_rid) DO UPDATE SET
 		     resource_type = EXCLUDED.resource_type,
 		     display_name = EXCLUDED.display_name,
@@ -173,13 +235,15 @@ func upsertResourceSearchEntryTx(ctx context.Context, tx pgx.Tx, entry ResourceS
 		     owner_id = EXCLUDED.owner_id,
 		     tags = EXCLUDED.tags,
 		     summary = EXCLUDED.summary,
+		     long_text = EXCLUDED.long_text,
+		     long_text_sources = EXCLUDED.long_text_sources,
 		     open_url = EXCLUDED.open_url,
 		     is_deleted = EXCLUDED.is_deleted,
 		     indexed_at = NOW()`,
 		entry.ResourceRID, entry.ResourceType, entry.DisplayName,
 		entry.OwningProjectID, entry.OwningProjectRID, string(organizationJSON),
 		string(markingJSON), entry.LastModifiedAt, entry.OwnerID, string(tagsJSON),
-		entry.Summary, entry.OpenURL, entry.IsDeleted,
+		entry.Summary, entry.LongText, string(longTextSourcesJSON), entry.OpenURL, entry.IsDeleted,
 	); err != nil {
 		return err
 	}
@@ -250,6 +314,11 @@ func loadProjectSearchEntryTx(ctx context.Context, tx pgx.Tx, projectID uuid.UUI
 	entry.OrganizationRIDs = decodeStringArrayJSON(orgJSON)
 	entry.MarkingRIDs = decodeStringArrayJSON(markJSON)
 	entry.Tags = []string{}
+	entry.LongText, entry.LongTextSources = BuildResourceSearchLongText(ResourceSearchTextDocument{
+		Kind:  ResourceSearchTextSourceDescription,
+		Label: "Project description",
+		Text:  entry.Summary,
+	})
 	entry.Normalize()
 	return &entry, nil
 }
@@ -301,6 +370,11 @@ func loadFolderSearchEntryTx(ctx context.Context, tx pgx.Tx, folderID uuid.UUID)
 		decodeStringArrayJSON(viewReqJSON)...,
 	))
 	entry.Tags = []string{}
+	entry.LongText, entry.LongTextSources = BuildResourceSearchLongText(ResourceSearchTextDocument{
+		Kind:  ResourceSearchTextSourceDescription,
+		Label: "Folder description",
+		Text:  entry.Summary,
+	})
 	entry.Normalize()
 	return &entry, nil
 }
@@ -309,7 +383,8 @@ func loadResourceSearchEntryByRIDTx(ctx context.Context, tx pgx.Tx, resourceRID 
 	row := tx.QueryRow(ctx,
 		`SELECT resource_rid, resource_type, display_name, owning_project_id,
 		        owning_project_rid, organization_rids, marking_rids,
-		        last_modified_at, owner_id, tags, summary, open_url, is_deleted
+		        last_modified_at, owner_id, tags, summary, long_text,
+		        long_text_sources, open_url, is_deleted
 		   FROM compass_resource_search_index
 		  WHERE resource_rid = $1`,
 		resourceRID,
@@ -338,16 +413,17 @@ func scanResourceSearchEntries(rows pgx.Rows) ([]ResourceSearchEntry, error) {
 
 func scanResourceSearchEntry(row resourceSearchScannable) (*ResourceSearchEntry, error) {
 	var (
-		entry    ResourceSearchEntry
-		orgJSON  []byte
-		markJSON []byte
-		tagsJSON []byte
+		entry       ResourceSearchEntry
+		orgJSON     []byte
+		markJSON    []byte
+		tagsJSON    []byte
+		sourcesJSON []byte
 	)
 	if err := row.Scan(
 		&entry.ResourceRID, &entry.ResourceType, &entry.DisplayName,
 		&entry.OwningProjectID, &entry.OwningProjectRID, &orgJSON,
 		&markJSON, &entry.LastModifiedAt, &entry.OwnerID, &tagsJSON,
-		&entry.Summary, &entry.OpenURL, &entry.IsDeleted,
+		&entry.Summary, &entry.LongText, &sourcesJSON, &entry.OpenURL, &entry.IsDeleted,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -357,6 +433,7 @@ func scanResourceSearchEntry(row resourceSearchScannable) (*ResourceSearchEntry,
 	entry.OrganizationRIDs = decodeStringArrayJSON(orgJSON)
 	entry.MarkingRIDs = decodeStringArrayJSON(markJSON)
 	entry.Tags = decodeStringArrayJSON(tagsJSON)
+	entry.LongTextSources = decodeSearchTextSourcesJSON(sourcesJSON)
 	entry.Normalize()
 	return &entry, nil
 }
@@ -381,6 +458,8 @@ func (e *ResourceSearchEntry) Normalize() {
 	}
 	e.Tags = normalizeStringSlice(e.Tags)
 	e.Summary = strings.TrimSpace(e.Summary)
+	e.LongText = truncateSearchText(strings.TrimSpace(e.LongText), maxResourceSearchLongTextRunes)
+	e.LongTextSources = normalizeSearchTextSources(e.LongTextSources)
 	e.OpenURL = strings.TrimSpace(e.OpenURL)
 	if e.OpenURL == "" && e.ResourceRID != "" {
 		e.OpenURL = "/resources/" + e.ResourceRID
@@ -388,6 +467,28 @@ func (e *ResourceSearchEntry) Normalize() {
 	if e.LastModifiedAt.IsZero() {
 		e.LastModifiedAt = time.Now().UTC()
 	}
+}
+
+func BuildResourceSearchLongText(docs ...ResourceSearchTextDocument) (string, []ResourceSearchTextSource) {
+	parts := make([]string, 0, len(docs))
+	sources := make([]ResourceSearchTextSource, 0, len(docs))
+	for _, doc := range docs {
+		text := strings.TrimSpace(doc.Text)
+		if text == "" {
+			continue
+		}
+		source := ResourceSearchTextSource{
+			Kind:  normalizeSearchTextSourceKind(doc.Kind),
+			Label: strings.TrimSpace(doc.Label),
+		}
+		if source.Label != "" {
+			parts = append(parts, source.Label+"\n"+text)
+		} else {
+			parts = append(parts, text)
+		}
+		sources = append(sources, source)
+	}
+	return truncateSearchText(strings.Join(parts, "\n\n"), maxResourceSearchLongTextRunes), normalizeSearchTextSources(sources)
 }
 
 func decodeStringArrayJSON(raw []byte) []string {
@@ -399,6 +500,17 @@ func decodeStringArrayJSON(raw []byte) []string {
 		return []string{}
 	}
 	return normalizeStringSlice(values)
+}
+
+func decodeSearchTextSourcesJSON(raw []byte) []ResourceSearchTextSource {
+	if len(raw) == 0 {
+		return []ResourceSearchTextSource{}
+	}
+	var values []ResourceSearchTextSource
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return []ResourceSearchTextSource{}
+	}
+	return normalizeSearchTextSources(values)
 }
 
 func normalizeStringSlice(values []string) []string {
@@ -416,4 +528,61 @@ func normalizeStringSlice(values []string) []string {
 		out = append(out, trimmed)
 	}
 	return out
+}
+
+func normalizeSearchTextSources(values []ResourceSearchTextSource) []ResourceSearchTextSource {
+	out := make([]ResourceSearchTextSource, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		source := ResourceSearchTextSource{
+			Kind:  normalizeSearchTextSourceKind(value.Kind),
+			Label: strings.TrimSpace(value.Label),
+		}
+		if source.Kind == "" {
+			continue
+		}
+		key := source.Kind + "\x00" + source.Label
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, source)
+		if len(out) >= maxResourceSearchTextSources {
+			break
+		}
+	}
+	return out
+}
+
+func normalizeSearchTextSourceKind(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ResourceSearchTextSourceDescription
+	}
+	var b strings.Builder
+	for _, ch := range value {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			b.WriteRune(ch)
+		case ch >= '0' && ch <= '9':
+			b.WriteRune(ch)
+		case ch == '_' || ch == '-':
+			b.WriteRune(ch)
+		}
+	}
+	if b.Len() == 0 {
+		return ResourceSearchTextSourceDescription
+	}
+	return b.String()
+}
+
+func truncateSearchText(value string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes])
 }

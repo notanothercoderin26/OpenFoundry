@@ -47,6 +47,7 @@ func RunPreview(ctx context.Context, db *pgxpool.Pool, rid string, asOfDays int6
 	}
 
 	policies := applicablePoliciesInOrder(resolved)
+	warnings = append(warnings, previewPolicyWarnings(policies)...)
 
 	txns, err := loadTransactions(ctx, db, *datasetID)
 	if err != nil {
@@ -157,6 +158,31 @@ func RunPreview(ctx context.Context, db *pgxpool.Pool, rid string, asOfDays int6
 		Summary:         summary,
 		Warnings:        warnings,
 	}, nil
+}
+
+func previewPolicyWarnings(policies []models.RetentionPolicy) []string {
+	out := []string{}
+	seen := map[string]struct{}{}
+	for i := range policies {
+		for _, warning := range RetentionPolicyWarnings(&policies[i]) {
+			key := warning.Code + ":" + warning.Message
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, warning.Message)
+		}
+		for _, selector := range policies[i].TransactionSelectors {
+			if selector.Kind == "only_branch" || selector.Kind == "not_branch" || selector.Kind == "transaction_count" || selector.Kind == "view_count" {
+				msg := "Branch and count transaction selectors are stored on the policy but this local preview can only approximate age/state deletion without a full historical branch graph."
+				if _, ok := seen[msg]; !ok {
+					seen[msg] = struct{}{}
+					out = append(out, msg)
+				}
+			}
+		}
+	}
+	return out
 }
 
 func applicablePoliciesInOrder(resolved *ResolvedPolicies) []models.RetentionPolicy {
@@ -312,6 +338,9 @@ func loadFilesFromStaging(ctx context.Context, db *pgxpool.Pool, txnIDs []uuid.U
 
 // matchesTransaction mirrors `domain::retention::matches_transaction`.
 func matchesTransaction(policy *models.RetentionPolicy, txn *transactionPreviewRow, asOf time.Time) (string, bool) {
+	if strings.EqualFold(txn.Status, "OPEN") && !policy.AbortOpenTransactions {
+		return "", false
+	}
 	criteria, err := models.CriteriaFromRaw(policy.Criteria)
 	if err != nil {
 		return "", false
@@ -346,6 +375,9 @@ func matchesTransaction(policy *models.RetentionPolicy, txn *transactionPreviewR
 	}
 	if policy.RetentionDays > 0 {
 		parts = append(parts, fmt.Sprintf("retention_days=%d", policy.RetentionDays))
+	}
+	if strings.EqualFold(txn.Status, "OPEN") && policy.AbortOpenTransactions {
+		parts = append(parts, "abort_open_transactions=true")
 	}
 	if len(parts) == 0 {
 		parts = append(parts, fmt.Sprintf("policy=%s", policy.Name))

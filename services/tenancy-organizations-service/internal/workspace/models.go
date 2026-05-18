@@ -99,3 +99,66 @@ type RecordAccessRequest struct {
 type ListRecentsResponse struct {
 	Data []RecentEntry `json:"data"`
 }
+
+// SavedSearch is a per-user named Compass/Quicksearch query.
+type SavedSearch struct {
+	ID             uuid.UUID  `json:"id"`
+	UserID         uuid.UUID  `json:"user_id"`
+	Name           string     `json:"name"`
+	Query          string     `json:"query"`
+	Tab            string     `json:"tab"`
+	ResourceType   *string    `json:"type,omitempty"`
+	ProjectID      *uuid.UUID `json:"project_id,omitempty"`
+	ProjectRID     *string    `json:"project_rid,omitempty"`
+	OwnerID        *uuid.UUID `json:"owner_id,omitempty"`
+	MarkingRIDs    []string   `json:"marking_rids"`
+	ModifiedBucket *string    `json:"modified_bucket,omitempty"`
+	DisplayOrder   int        `json:"display_order"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type CreateSavedSearchRequest struct {
+	Name           string     `json:"name"`
+	Query          string     `json:"query"`
+	Tab            string     `json:"tab"`
+	Type           *string    `json:"type"`
+	Project        *string    `json:"project"`
+	OwnerID        *uuid.UUID `json:"owner_id"`
+	MarkingRIDs    []string   `json:"marking_rids"`
+	ModifiedBucket *string    `json:"modified_bucket"`
+	DisplayOrder   *int       `json:"display_order"`
+}
+
+type ListSavedSearchesResponse struct {
+	Data []SavedSearch `json:"data"`
+}
+
+type ProjectFollow struct {
+	UserID    uuid.UUID `json:"user_id"`
+	ProjectID uuid.UUID `json:"project_id"`
+	ProjectRID *string   `json:"project_rid,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type FollowProjectRequest struct {
+	ProjectID *uuid.UUID `json:"project_id"`
+	ProjectRID *string   `json:"project_rid"`
+}
+
+type ListProjectFollowsResponse struct {
+	Data []ProjectFollow `json:"data"`
+}
+
+type ResourceRecommendation struct {
+	ResourceSearchEntry
+	Score             float64    `json:"score"`
+	Reason            string     `json:"reason"`
+	Signals           []string   `json:"signals"`
+	CollaboratorCount int        `json:"collaborator_count"`
+	LastActivityAt    *time.Time `json:"last_activity_at,omitempty"`
+}
+
+type ListRecommendationsResponse struct {
+	Data []ResourceRecommendation `json:"data"`
+}

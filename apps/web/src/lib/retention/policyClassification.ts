@@ -57,6 +57,9 @@ function policySearchCorpus(policy: RetentionPolicy) {
 }
 
 export function classifyRetentionPolicy(policy: RetentionPolicy): RetentionPolicyView {
+  if (policy.policy_type === 'recommended' || policy.policy_type === 'custom' || policy.policy_type === 'legacy') {
+    return policy.policy_type;
+  }
   const rules = (policy.rules ?? []).join(' ').toLowerCase();
   const scope = lower(policy.scope);
   if (scope.startsWith('legacy:') || rules.includes('legacy') || rules.includes('yaml') || rules.includes('yml')) {

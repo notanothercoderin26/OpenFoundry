@@ -9,6 +9,8 @@ import {
   type EgressProtocol,
   type EgressPort,
   type EgressPortKind,
+  type EgressSNIBehavior,
+  type EgressBucketAccessLevel,
   type NetworkEgressPolicy,
 } from '@/lib/api/data-connection';
 
@@ -33,6 +35,7 @@ const PORT_KIND_LABEL: Record<EgressPortKind, string> = {
 const POLICY_KIND_LABEL: Record<EgressPolicyKind, string> = {
   direct: 'Direct egress',
   agent_proxy: 'Agent proxy',
+  same_region_bucket: 'Same-region bucket',
 };
 
 const PROTOCOL_LABEL: Record<EgressProtocol, string> = {
@@ -47,6 +50,18 @@ const PROXY_MODE_LABEL: Record<AgentProxyMode, string> = {
   http_connect: 'HTTP CONNECT',
   socks5: 'SOCKS5',
   mtls_tunnel: 'mTLS tunnel',
+};
+
+const SNI_BEHAVIOR_LABEL: Record<EgressSNIBehavior, string> = {
+  verify: 'Verify SNI',
+  disabled: 'Disable SNI',
+  passthrough: 'Pass through SNI',
+};
+
+const BUCKET_ACCESS_LEVEL_LABEL: Record<EgressBucketAccessLevel, string> = {
+  read: 'Read',
+  write: 'Write',
+  read_write: 'Read/write',
 };
 
 function parsePermissions(raw: string): string[] {
@@ -89,13 +104,22 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
   const [portValue, setPortValue] = useState('443');
   const [protocol, setProtocol] = useState<EgressProtocol>('https');
   const [proxyMode, setProxyMode] = useState<AgentProxyMode>('none');
+  const [sniBehavior, setSniBehavior] = useState<EgressSNIBehavior>('verify');
+  const [agentsRaw, setAgentsRaw] = useState('');
+  const [bucketName, setBucketName] = useState('');
+  const [bucketAccessLevel, setBucketAccessLevel] = useState<EgressBucketAccessLevel>('read');
   const [allowedOrganizationsRaw, setAllowedOrganizationsRaw] = useState('');
   const [isGlobal, setIsGlobal] = useState(false);
   const [permissionsRaw, setPermissionsRaw] = useState('');
+  const [viewerGrantsRaw, setViewerGrantsRaw] = useState('');
+  const [adminGrantsRaw, setAdminGrantsRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   const permissions = useMemo(() => parsePermissions(permissionsRaw), [permissionsRaw]);
+  const agents = useMemo(() => parsePermissions(agentsRaw), [agentsRaw]);
+  const viewerGrants = useMemo(() => parsePermissions(viewerGrantsRaw), [viewerGrantsRaw]);
+  const adminGrants = useMemo(() => parsePermissions(adminGrantsRaw), [adminGrantsRaw]);
   const allowedOrganizations = useMemo(() => parsePermissions(allowedOrganizationsRaw), [allowedOrganizationsRaw]);
 
   const reset = useCallback(() => {
@@ -108,9 +132,15 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
     setPortValue('443');
     setProtocol('https');
     setProxyMode('none');
+    setSniBehavior('verify');
+    setAgentsRaw('');
+    setBucketName('');
+    setBucketAccessLevel('read');
     setAllowedOrganizationsRaw('');
     setIsGlobal(false);
     setPermissionsRaw('');
+    setViewerGrantsRaw('');
+    setAdminGrantsRaw('');
     setError('');
   }, []);
 
@@ -128,6 +158,21 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
       setPortValue('8000-9000');
     } else {
       setPortValue('443');
+    }
+  }
+
+  function changeKind(next: EgressPolicyKind) {
+    setKind(next);
+    if (next === 'agent_proxy') {
+      setProxyMode((current) => current === 'none' ? 'http_connect' : current);
+    } else {
+      setProxyMode('none');
+    }
+    if (next === 'same_region_bucket') {
+      setAddressKind('host');
+      setPortKind('single');
+      setPortValue('443');
+      setProtocol('https');
     }
   }
 
@@ -171,12 +216,21 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
       kind,
       protocol,
       proxy_mode: kind === 'agent_proxy' ? proxyMode : 'none',
-      status: 'pending_review' as const,
+      sni_behavior: sniBehavior,
+      agents: kind === 'agent_proxy' ? agents : [],
+      bucket_name: kind === 'same_region_bucket' ? bucketName.trim() : undefined,
+      bucket_access_level: kind === 'same_region_bucket' ? bucketAccessLevel : undefined,
+      state: 'pending_approval' as const,
+      status: 'pending_approval' as const,
       allowed_organizations: allowedOrganizations,
       address: { kind: addressKind, value: trimmedAddress },
       port,
       is_global: isGlobal,
       permissions,
+      importer_grants: permissions,
+      viewer_grants: viewerGrants,
+      admin_grants: adminGrants,
+      reason: 'Created from the Data Connection egress policy page.',
     };
     const validationErrors = validateEgressPolicy(body).filter((issue) => issue.severity === 'error');
     if (validationErrors.length > 0) {
@@ -227,7 +281,7 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
               <input value={name} onChange={(event) => setName(event.target.value)} className="of-input" placeholder="analytics warehouse" autoFocus />
             </Field>
             <Field label="Policy kind">
-              <select value={kind} onChange={(event) => setKind(event.target.value as EgressPolicyKind)} className="of-input">
+              <select value={kind} onChange={(event) => changeKind(event.target.value as EgressPolicyKind)} className="of-input">
                 {Object.entries(POLICY_KIND_LABEL).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
                 ))}
@@ -240,6 +294,13 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
                 ))}
               </select>
             </Field>
+            <Field label="SNI behavior">
+              <select value={sniBehavior} onChange={(event) => setSniBehavior(event.target.value as EgressSNIBehavior)} className="of-input">
+                {Object.entries(SNI_BEHAVIOR_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </Field>
             {kind === 'agent_proxy' && (
               <Field label="Proxy mode">
                 <select value={proxyMode} onChange={(event) => setProxyMode(event.target.value as AgentProxyMode)} className="of-input">
@@ -248,6 +309,32 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
                   ))}
                 </select>
               </Field>
+            )}
+            {kind === 'agent_proxy' && (
+              <Field label="Agent IDs" hint="Comma or newline separated connector agent IDs." full>
+                <textarea
+                  value={agentsRaw}
+                  onChange={(event) => setAgentsRaw(event.target.value)}
+                  rows={2}
+                  className="of-input"
+                  style={textareaStyle}
+                  placeholder={'agent-east-1\nagent-west-2'}
+                />
+              </Field>
+            )}
+            {kind === 'same_region_bucket' && (
+              <>
+                <Field label="Bucket name" required>
+                  <input value={bucketName} onChange={(event) => setBucketName(event.target.value)} className="of-input" placeholder="analytics-staging" />
+                </Field>
+                <Field label="Bucket access">
+                  <select value={bucketAccessLevel} onChange={(event) => setBucketAccessLevel(event.target.value as EgressBucketAccessLevel)} className="of-input">
+                    {Object.entries(BUCKET_ACCESS_LEVEL_LABEL).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </Field>
+              </>
             )}
             <Field label="Description" full>
               <input value={description} onChange={(event) => setDescription(event.target.value)} className="of-input" placeholder="Allowed destination for scheduled syncs" />
@@ -286,14 +373,36 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
             </span>
           </label>
 
-          <Field label="Permissions" hint="Comma or newline separated group / marking identifiers.">
+          <Field label="Importer grants" hint="High-risk grants. Comma or newline separated group, role, or permission identifiers.">
             <textarea
               value={permissionsRaw}
               onChange={(event) => setPermissionsRaw(event.target.value)}
               rows={3}
               className="of-input"
               style={textareaStyle}
-              placeholder={'data_connection.egress.manage\nwarehouse-admins'}
+              placeholder={'group:warehouse-importers\npermission:data_connection.egress.import'}
+            />
+          </Field>
+
+          <Field label="Viewer grants" hint="Optional grants allowed to inspect the policy metadata.">
+            <textarea
+              value={viewerGrantsRaw}
+              onChange={(event) => setViewerGrantsRaw(event.target.value)}
+              rows={2}
+              className="of-input"
+              style={textareaStyle}
+              placeholder={'group:network-reviewers'}
+            />
+          </Field>
+
+          <Field label="Admin grants" hint="Optional grants allowed to manage lifecycle and sharing.">
+            <textarea
+              value={adminGrantsRaw}
+              onChange={(event) => setAdminGrantsRaw(event.target.value)}
+              rows={2}
+              className="of-input"
+              style={textareaStyle}
+              placeholder={'permission:network-egress:manage'}
             />
           </Field>
 
@@ -319,10 +428,18 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
               <dd>{POLICY_KIND_LABEL[kind]}</dd>
               <dt>Protocol</dt>
               <dd>{PROTOCOL_LABEL[protocol]}</dd>
+              <dt>SNI</dt>
+              <dd>{SNI_BEHAVIOR_LABEL[sniBehavior]}</dd>
               <dt>Proxy</dt>
               <dd>{kind === 'agent_proxy' ? PROXY_MODE_LABEL[proxyMode] : 'None'}</dd>
-              <dt>Permissions</dt>
+              <dt>Agents</dt>
+              <dd>{kind === 'agent_proxy' ? agents.join(', ') || 'None' : 'Not required'}</dd>
+              <dt>Bucket</dt>
+              <dd>{kind === 'same_region_bucket' ? `${bucketName.trim() || 'Not set'} (${BUCKET_ACCESS_LEVEL_LABEL[bucketAccessLevel]})` : 'Not required'}</dd>
+              <dt>Importers</dt>
               <dd>{permissions.length > 0 ? permissions.join(', ') : 'None'}</dd>
+              <dt>Viewers</dt>
+              <dd>{viewerGrants.length > 0 ? viewerGrants.join(', ') : 'None'}</dd>
               <dt>Organizations</dt>
               <dd>{allowedOrganizations.length > 0 ? allowedOrganizations.join(', ') : 'Any allowed org'}</dd>
             </dl>

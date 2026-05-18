@@ -19,11 +19,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	audittrail "github.com/openfoundry/openfoundry-go/libs/audit-trail"
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/ids"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/rid"
@@ -84,16 +86,21 @@ type DuplicateRequest struct {
 
 // BatchAction is one entry in a /workspace/resources/batch payload.
 type BatchAction struct {
-	Op                        string     `json:"op"` // "move" | "delete" | "restore" | "purge"
-	ResourceKind              string     `json:"resource_kind"`
-	ResourceID                uuid.UUID  `json:"resource_id"`
-	TargetFolderID            *uuid.UUID `json:"target_folder_id,omitempty"`
-	TargetFolderRID           *string    `json:"target_folder_rid,omitempty"`
-	TargetProjectID           *uuid.UUID `json:"target_project_id,omitempty"`
-	TargetProjectRID          *string    `json:"target_project_rid,omitempty"`
-	ConfirmAccessPolicyChange bool       `json:"confirm_access_policy_change,omitempty"`
-	ConfirmMarkingChange      bool       `json:"confirm_marking_change,omitempty"`
-	RetentionDays             *int       `json:"retention_days,omitempty"`
+	Op                        string      `json:"op"` // "move" | "delete"/"trash" | "share"
+	ResourceKind              string      `json:"resource_kind"`
+	ResourceID                uuid.UUID   `json:"resource_id"`
+	TargetFolderID            *uuid.UUID  `json:"target_folder_id,omitempty"`
+	TargetFolderRID           *string     `json:"target_folder_rid,omitempty"`
+	TargetProjectID           *uuid.UUID  `json:"target_project_id,omitempty"`
+	TargetProjectRID          *string     `json:"target_project_rid,omitempty"`
+	ConfirmAccessPolicyChange bool        `json:"confirm_access_policy_change,omitempty"`
+	ConfirmMarkingChange      bool        `json:"confirm_marking_change,omitempty"`
+	RetentionDays             *int        `json:"retention_days,omitempty"`
+	SharedWithUserID          *uuid.UUID  `json:"shared_with_user_id,omitempty"`
+	SharedWithGroupID         *uuid.UUID  `json:"shared_with_group_id,omitempty"`
+	AccessLevel               AccessLevel `json:"access_level,omitempty"`
+	Note                      *string     `json:"note,omitempty"`
+	ExpiresAt                 *time.Time  `json:"expires_at,omitempty"`
 }
 
 // BatchRequest is the body of POST /workspace/resources/batch.
@@ -103,16 +110,20 @@ type BatchRequest struct {
 
 // BatchResultEntry is the per-action outcome reported back to the UI.
 type BatchResultEntry struct {
-	Op           string    `json:"op"`
-	ResourceKind string    `json:"resource_kind"`
-	ResourceID   uuid.UUID `json:"resource_id"`
-	OK           bool      `json:"ok"`
-	Error        *string   `json:"error"`
+	Op              string     `json:"op"`
+	ResourceKind    string     `json:"resource_kind"`
+	ResourceID      uuid.UUID  `json:"resource_id"`
+	OK              bool       `json:"ok"`
+	Error           *string    `json:"error"`
+	ShareID         *uuid.UUID `json:"share_id,omitempty"`
+	ShareChangeType string     `json:"share_change_type,omitempty"`
 }
 
-// BatchResponse pins the {results: [...]} envelope.
+// BatchResponse pins the batch envelope.
 type BatchResponse struct {
-	Results []BatchResultEntry `json:"results"`
+	BatchID         string             `json:"batch_id,omitempty"`
+	PreflightFailed bool               `json:"preflight_failed,omitempty"`
+	Results         []BatchResultEntry `json:"results"`
 }
 
 // ─── HTTP handlers ──────────────────────────────────────────────────
@@ -153,7 +164,7 @@ func (h *Handlers) MoveResource(w http.ResponseWriter, r *http.Request) {
 	}
 	switch kind {
 	case ResourceOntologyFolder:
-		if err := h.Repo.moveFolder(r.Context(), claims, resourceID, body); err != nil {
+		if err := h.Repo.moveFolder(r.Context(), claims, resourceID, body, AuditContextFromRequest(claims, r), true); err != nil {
 			writeMoveError(w, err)
 			return
 		}
@@ -167,12 +178,11 @@ func (h *Handlers) MoveResource(w http.ResponseWriter, r *http.Request) {
 				"'target_project_id' is required for resource bindings")
 			return
 		}
-		ct, err := h.Repo.Pool.Exec(r.Context(),
-			`UPDATE ontology_project_resources
-			   SET project_id = $2
-			   WHERE resource_id = $1 AND is_deleted = FALSE`,
-			resourceID, *body.TargetProjectID)
-		writeExecOutcome(w, ct, err, "failed to move resource binding")
+		if err := h.Repo.moveResourceBinding(r.Context(), resourceID, *body.TargetProjectID, AuditContextFromRequest(claims, r), true); err != nil {
+			writeMoveError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		writeJSONErr(w, http.StatusBadRequest,
 			fmt.Sprintf("move is not supported for resource_kind '%s'", kind))
@@ -218,6 +228,11 @@ func (h *Handlers) RenameResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer tx.Rollback(context.Background())
+		before, err := h.Repo.loadResourceAuditSnapshotTx(r.Context(), tx, kind, resourceID, false)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to load resource rename audit snapshot: %s", err))
+			return
+		}
 		ct, err := tx.Exec(r.Context(),
 			`UPDATE ontology_projects
 			   SET display_name = $2, updated_at = NOW()
@@ -236,6 +251,17 @@ func (h *Handlers) RenameResource(w http.ResponseWriter, r *http.Request) {
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index renamed project: %s", err))
 			return
 		}
+		after, err := h.Repo.loadResourceAuditSnapshotTx(r.Context(), tx, kind, resourceID, false)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to load renamed project audit snapshot: %s", err))
+			return
+		}
+		if before != nil && after != nil {
+			if err := audittrail.EmitToOutbox(r.Context(), tx, after.renamedEvent(before), AuditContextFromRequest(claims, r)); err != nil {
+				writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to audit renamed project: %s", err))
+				return
+			}
+		}
 		if err := tx.Commit(r.Context()); err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit resource rename transaction: %s", err))
 			return
@@ -253,6 +279,11 @@ func (h *Handlers) RenameResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer tx.Rollback(context.Background())
+		before, err := h.Repo.loadResourceAuditSnapshotTx(r.Context(), tx, kind, resourceID, false)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to load resource rename audit snapshot: %s", err))
+			return
+		}
 		ct, err := tx.Exec(r.Context(),
 			`UPDATE ontology_project_folders
 			   SET name = $2, slug = $3, updated_at = NOW()
@@ -270,6 +301,17 @@ func (h *Handlers) RenameResource(w http.ResponseWriter, r *http.Request) {
 		if err := UpsertFolderSearchIndexTx(r.Context(), tx, resourceID, ResourceSearchEventUpdated); err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index renamed folder: %s", err))
 			return
+		}
+		after, err := h.Repo.loadResourceAuditSnapshotTx(r.Context(), tx, kind, resourceID, false)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to load renamed folder audit snapshot: %s", err))
+			return
+		}
+		if before != nil && after != nil {
+			if err := audittrail.EmitToOutbox(r.Context(), tx, after.renamedEvent(before), AuditContextFromRequest(claims, r)); err != nil {
+				writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to audit renamed folder: %s", err))
+				return
+			}
 		}
 		if err := tx.Commit(r.Context()); err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit resource rename transaction: %s", err))
@@ -354,6 +396,11 @@ func (h *Handlers) DuplicateResource(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("failed to index duplicated folder: %s", err))
 			return
 		}
+		if err := h.Repo.EmitResourceCreatedTx(r.Context(), tx, ResourceOntologyFolder, newID, AuditContextFromRequest(claims, r)); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError,
+				fmt.Sprintf("failed to audit duplicated folder: %s", err))
+			return
+		}
 		if err := tx.Commit(r.Context()); err != nil {
 			writeJSONErr(w, http.StatusInternalServerError,
 				fmt.Sprintf("failed to commit duplicate folder transaction: %s", err))
@@ -403,7 +450,7 @@ func (h *Handlers) SoftDeleteResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer tx.Rollback(context.Background())
-		rowsAffected, err := h.Repo.softDeleteOneTx(r.Context(), tx, claims.Sub, kind, resourceID, retentionDays)
+		rowsAffected, err := h.Repo.softDeleteOneTx(r.Context(), tx, claims.Sub, kind, resourceID, retentionDays, AuditContextFromRequest(claims, r), true)
 		if err != nil {
 			slog.Error("failed to delete resource", slog.String("error", err.Error()))
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete resource: %s", err))
@@ -426,9 +473,10 @@ func (h *Handlers) SoftDeleteResource(w http.ResponseWriter, r *http.Request) {
 
 // BatchApply handles POST /api/v1/workspace/resources/batch.
 //
-// Each action is applied independently: there is no global transaction.
-// One result entry is returned per input action so the UI can surface
-// partial failures (matches the Rust impl byte-exact).
+// The handler performs a full pre-flight pass before mutating anything:
+// policy checks, confirmation gates, and request-shape validation must all
+// pass before the selected resources are changed. Successful batches emit one
+// aggregate Compass audit event instead of per-resource audit rows.
 func (h *Handlers) BatchApply(w http.ResponseWriter, r *http.Request) {
 	claims, ok := authmw.FromContext(r.Context())
 	if !ok {
@@ -441,65 +489,333 @@ func (h *Handlers) BatchApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results := make([]BatchResultEntry, 0, len(body.Actions))
-	for _, action := range body.Actions {
+	batchID := ids.New()
+	results := make([]BatchResultEntry, len(body.Actions))
+	prepared := make([]preparedBatchAction, 0, len(body.Actions))
+	auditCtx := AuditContextFromRequest(claims, r)
+	preflightFailed := false
+	for i, action := range body.Actions {
+		action.Op = strings.TrimSpace(action.Op)
 		entry := BatchResultEntry{
 			Op:           action.Op,
 			ResourceKind: action.ResourceKind,
 			ResourceID:   action.ResourceID,
 		}
-		kind, err := ParseResourceKind(action.ResourceKind)
+		p, err := h.preflightBatchAction(r.Context(), claims, i, action)
 		if err != nil {
 			msg := err.Error()
 			entry.Error = &msg
-			results = append(results, entry)
-			continue
+			preflightFailed = true
+		} else {
+			prepared = append(prepared, p)
 		}
+		results[i] = entry
+	}
 
-		var opErr error
-		switch action.Op {
-		case "delete":
-			if status, _ := h.Repo.ensureOwnerOrAdmin(r.Context(), claims, kind, action.ResourceID); status != 0 {
-				opErr = errors.New("forbidden")
-			} else {
-				retentionDays, err := normalizeTrashRetentionDays(action.RetentionDays)
-				if err != nil {
-					opErr = err
-					break
-				}
-				opErr = h.Repo.softDeleteOne(r.Context(), claims.Sub, kind, action.ResourceID, retentionDays)
+	if preflightFailed {
+		for i := range results {
+			if results[i].Error == nil {
+				msg := "preflight aborted before mutation"
+				results[i].Error = &msg
 			}
-		case "move":
-			if status, _ := h.Repo.ensureOwnerOrAdmin(r.Context(), claims, kind, action.ResourceID); status != 0 {
-				opErr = errors.New("forbidden")
-				break
-			}
-			if kind != ResourceOntologyFolder {
-				opErr = fmt.Errorf("batch move only supported for folders in Phase 1 (got '%s')", kind)
-				break
-			}
-			opErr = h.Repo.moveFolder(r.Context(), claims, action.ResourceID, MoveRequest{
-				TargetFolderID:            action.TargetFolderID,
-				TargetFolderRID:           action.TargetFolderRID,
-				TargetProjectID:           action.TargetProjectID,
-				TargetProjectRID:          action.TargetProjectRID,
-				ConfirmAccessPolicyChange: action.ConfirmAccessPolicyChange,
-				ConfirmMarkingChange:      action.ConfirmMarkingChange,
-			})
-		default:
-			opErr = fmt.Errorf("unsupported batch op '%s'", action.Op)
 		}
+		if err := h.emitBatchOperationAudit(r.Context(), batchID, body.Actions, results, true, auditCtx); err != nil {
+			slog.Error("emit batch resource audit", slog.String("error", err.Error()))
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to audit batch operation: %s", err))
+			return
+		}
+		writeJSON(w, http.StatusOK, BatchResponse{BatchID: batchID.String(), PreflightFailed: true, Results: results})
+		return
+	}
 
+	for _, p := range prepared {
+		entry := &results[p.index]
+		opErr := h.applyPreparedBatchAction(r.Context(), claims, p, auditCtx, entry)
 		if opErr != nil {
 			msg := opErr.Error()
 			entry.Error = &msg
 		} else {
 			entry.OK = true
 		}
-		results = append(results, entry)
+	}
+	if err := h.emitBatchOperationAudit(r.Context(), batchID, body.Actions, results, false, auditCtx); err != nil {
+		slog.Error("emit batch resource audit", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to audit batch operation: %s", err))
+		return
 	}
 
-	writeJSON(w, http.StatusOK, BatchResponse{Results: results})
+	writeJSON(w, http.StatusOK, BatchResponse{BatchID: batchID.String(), Results: results})
+}
+
+type preparedBatchAction struct {
+	index           int
+	action          BatchAction
+	kind            ResourceKind
+	retentionDays   int
+	targetProjectID uuid.UUID
+	shareArgs       upsertShareArgs
+}
+
+func (h *Handlers) preflightBatchAction(ctx context.Context, claims *authmw.Claims, index int, action BatchAction) (preparedBatchAction, error) {
+	prepared := preparedBatchAction{index: index, action: action}
+	if action.ResourceID == uuid.Nil {
+		return prepared, errors.New("resource_id required")
+	}
+	kind, err := ParseResourceKind(action.ResourceKind)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.kind = kind
+	switch action.Op {
+	case "delete", "trash":
+		if err := h.requireBatchRepo(); err != nil {
+			return prepared, err
+		}
+		if kind != ResourceOntologyProject && kind != ResourceOntologyFolder && kind != ResourceOntologyResourceBinding {
+			return prepared, fmt.Errorf("batch trash only supported for ontology workspace resources (got '%s')", kind)
+		}
+		retentionDays, err := normalizeTrashRetentionDays(action.RetentionDays)
+		if err != nil {
+			return prepared, err
+		}
+		if status, msg := h.Repo.ensureOwnerOrAdmin(ctx, claims, kind, action.ResourceID); status != 0 {
+			return prepared, batchPolicyError(status, msg)
+		}
+		prepared.retentionDays = retentionDays
+	case "move":
+		if err := h.requireBatchRepo(); err != nil {
+			return prepared, err
+		}
+		if status, msg := h.Repo.ensureOwnerOrAdmin(ctx, claims, kind, action.ResourceID); status != 0 {
+			return prepared, batchPolicyError(status, msg)
+		}
+		switch kind {
+		case ResourceOntologyFolder:
+			_, err := h.Repo.resolveFolderMovePlan(ctx, claims, action.ResourceID, batchMoveRequest(action))
+			if err != nil {
+				return prepared, err
+			}
+		case ResourceOntologyResourceBinding:
+			targetProjectID, err := resolveBatchTargetProjectID(action)
+			if err != nil {
+				return prepared, err
+			}
+			if status, msg := h.Repo.ensureOwnerOrAdmin(ctx, claims, ResourceOntologyProject, targetProjectID); status != 0 {
+				return prepared, batchPolicyError(status, msg)
+			}
+			prepared.targetProjectID = targetProjectID
+		default:
+			return prepared, fmt.Errorf("batch move only supported for ontology_folder or ontology_resource_binding (got '%s')", kind)
+		}
+	case "share":
+		userSet := action.SharedWithUserID != nil
+		groupSet := action.SharedWithGroupID != nil
+		if userSet == groupSet {
+			return prepared, errors.New("exactly one of 'shared_with_user_id' or 'shared_with_group_id' must be provided")
+		}
+		if !action.AccessLevel.IsValid() {
+			return prepared, errors.New("invalid access_level")
+		}
+		if err := h.requireBatchRepo(); err != nil {
+			return prepared, err
+		}
+		switch kind {
+		case ResourceOntologyProject, ResourceOntologyFolder, ResourceOntologyResourceBinding:
+			if status, msg := h.Repo.ensureOwnerOrAdmin(ctx, claims, kind, action.ResourceID); status != 0 {
+				return prepared, batchPolicyError(status, msg)
+			}
+		default:
+			if !claims.HasRole("admin") {
+				return prepared, errors.New("only an admin may bulk-share externally owned resources")
+			}
+		}
+		note := ""
+		if action.Note != nil {
+			note = *action.Note
+		}
+		prepared.shareArgs = upsertShareArgs{
+			ResourceKind:      kind,
+			ResourceID:        action.ResourceID,
+			SharedWithUserID:  action.SharedWithUserID,
+			SharedWithGroupID: action.SharedWithGroupID,
+			SharerID:          claims.Sub,
+			AccessLevel:       action.AccessLevel,
+			Note:              note,
+			ExpiresAt:         action.ExpiresAt,
+		}
+	default:
+		return prepared, fmt.Errorf("unsupported batch op '%s'", action.Op)
+	}
+	return prepared, nil
+}
+
+func (h *Handlers) applyPreparedBatchAction(ctx context.Context, claims *authmw.Claims, prepared preparedBatchAction, auditCtx audittrail.AuditContext, entry *BatchResultEntry) error {
+	switch prepared.action.Op {
+	case "delete", "trash":
+		return h.Repo.softDeleteOne(ctx, claims.Sub, prepared.kind, prepared.action.ResourceID, prepared.retentionDays, auditCtx, false)
+	case "move":
+		switch prepared.kind {
+		case ResourceOntologyFolder:
+			return h.Repo.moveFolder(ctx, claims, prepared.action.ResourceID, batchMoveRequest(prepared.action), auditCtx, false)
+		case ResourceOntologyResourceBinding:
+			return h.Repo.moveResourceBinding(ctx, prepared.action.ResourceID, prepared.targetProjectID, auditCtx, false)
+		default:
+			return fmt.Errorf("batch move only supported for ontology_folder or ontology_resource_binding (got '%s')", prepared.kind)
+		}
+	case "share":
+		share, status, err := h.Repo.UpsertShare(ctx, prepared.shareArgs, auditCtx, false)
+		if err != nil {
+			return err
+		}
+		if share != nil {
+			entry.ShareID = &share.ID
+		}
+		if status == http.StatusCreated {
+			entry.ShareChangeType = "granted"
+		} else {
+			entry.ShareChangeType = "updated"
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported batch op '%s'", prepared.action.Op)
+	}
+}
+
+func (h *Handlers) requireBatchRepo() error {
+	if h == nil || h.Repo == nil || h.Repo.Pool == nil {
+		return errors.New("batch repository not configured")
+	}
+	return nil
+}
+
+func batchPolicyError(status int, msg string) error {
+	if strings.TrimSpace(msg) != "" {
+		return errors.New(msg)
+	}
+	if status == http.StatusForbidden {
+		return errors.New("forbidden")
+	}
+	if status == http.StatusNotFound {
+		return errors.New("resource not found")
+	}
+	return fmt.Errorf("policy check failed with status %d", status)
+}
+
+func batchMoveRequest(action BatchAction) MoveRequest {
+	return MoveRequest{
+		TargetFolderID:            action.TargetFolderID,
+		TargetFolderRID:           action.TargetFolderRID,
+		TargetProjectID:           action.TargetProjectID,
+		TargetProjectRID:          action.TargetProjectRID,
+		ConfirmAccessPolicyChange: action.ConfirmAccessPolicyChange,
+		ConfirmMarkingChange:      action.ConfirmMarkingChange,
+	}
+}
+
+func resolveBatchTargetProjectID(action BatchAction) (uuid.UUID, error) {
+	targetProjectID := uuid.Nil
+	targetProjectExplicit := false
+	if action.TargetProjectID != nil {
+		targetProjectID = *action.TargetProjectID
+		targetProjectExplicit = true
+	}
+	if action.TargetProjectRID != nil {
+		id, err := parseProjectRIDLocator(*action.TargetProjectRID, "target_project_rid")
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if targetProjectExplicit && targetProjectID != id {
+			return uuid.Nil, errors.New("target_project_id and target_project_rid refer to different projects")
+		}
+		targetProjectID = id
+		targetProjectExplicit = true
+	}
+	if !targetProjectExplicit {
+		return uuid.Nil, errors.New("'target_project_id' or 'target_project_rid' is required for resource bindings")
+	}
+	return targetProjectID, nil
+}
+
+func (h *Handlers) emitBatchOperationAudit(ctx context.Context, batchID uuid.UUID, actions []BatchAction, results []BatchResultEntry, preflightFailed bool, auditCtx audittrail.AuditContext) error {
+	if len(actions) == 0 || h == nil || h.Repo == nil || h.Repo.Pool == nil {
+		return nil
+	}
+	return h.Repo.EmitResourceBulkOperation(ctx, batchID, batchAuditActions(actions, results, preflightFailed), preflightFailed, auditCtx)
+}
+
+func batchAuditActions(actions []BatchAction, results []BatchResultEntry, preflightFailed bool) []audittrail.BulkResourceAction {
+	out := make([]audittrail.BulkResourceAction, 0, len(actions))
+	for i, action := range actions {
+		result := BatchResultEntry{Op: strings.TrimSpace(action.Op), ResourceKind: action.ResourceKind, ResourceID: action.ResourceID}
+		if i < len(results) {
+			result = results[i]
+		}
+		status := "failed"
+		if result.OK {
+			status = "succeeded"
+		} else if preflightFailed {
+			status = "preflight_failed"
+			if result.Error != nil && *result.Error == "preflight aborted before mutation" {
+				status = "skipped"
+			}
+		}
+		errorText := ""
+		if result.Error != nil {
+			errorText = *result.Error
+		}
+		kindText := action.ResourceKind
+		resourceRID := ""
+		if kind, err := ParseResourceKind(action.ResourceKind); err == nil {
+			kindText = string(kind)
+			if action.ResourceID != uuid.Nil {
+				resourceRID = resourceRIDForKind(kind, action.ResourceID)
+			}
+		}
+		auditAction := audittrail.BulkResourceAction{
+			Op:           result.Op,
+			ResourceKind: kindText,
+			ResourceID:   action.ResourceID.String(),
+			ResourceRID:  resourceRID,
+			Status:       status,
+			Error:        errorText,
+		}
+		if action.TargetProjectRID != nil && strings.TrimSpace(*action.TargetProjectRID) != "" {
+			auditAction.TargetProjectRID = strings.TrimSpace(*action.TargetProjectRID)
+		} else if action.TargetProjectID != nil {
+			auditAction.TargetProjectRID = models.ProjectRIDFromID(*action.TargetProjectID)
+		}
+		if action.TargetFolderRID != nil && strings.TrimSpace(*action.TargetFolderRID) != "" {
+			auditAction.TargetFolderRID = strings.TrimSpace(*action.TargetFolderRID)
+		} else if action.TargetFolderID != nil {
+			auditAction.TargetFolderRID = models.FolderRIDFromID(*action.TargetFolderID)
+		}
+		if action.RetentionDays != nil {
+			days := *action.RetentionDays
+			auditAction.RetentionDays = &days
+		} else if result.Op == "delete" || result.Op == "trash" {
+			days := DefaultTrashRetentionDays
+			auditAction.RetentionDays = &days
+		}
+		if result.ShareID != nil {
+			auditAction.ShareID = result.ShareID.String()
+		}
+		if result.ShareChangeType != "" {
+			auditAction.ShareChangeType = result.ShareChangeType
+		}
+		if action.SharedWithUserID != nil {
+			auditAction.SharePrincipalKind = "user"
+			auditAction.SharePrincipalID = action.SharedWithUserID.String()
+		}
+		if action.SharedWithGroupID != nil {
+			auditAction.SharePrincipalKind = "group"
+			auditAction.SharePrincipalID = action.SharedWithGroupID.String()
+		}
+		if action.AccessLevel != "" {
+			auditAction.ShareAccessLevel = string(action.AccessLevel)
+		}
+		out = append(out, auditAction)
+	}
+	return out
 }
 
 // ─── Internal helpers ───────────────────────────────────────────────
@@ -583,20 +899,27 @@ func parseFolderRIDLocator(value, field string) (uuid.UUID, error) {
 	return id, nil
 }
 
-func (r *Repo) moveFolder(ctx context.Context, claims *authmw.Claims, folderID uuid.UUID, body MoveRequest) error {
+type folderMovePlan struct {
+	sourceFolder    *folderMoveSnapshot
+	targetProjectID uuid.UUID
+	targetFolderID  *uuid.UUID
+	crossProject    bool
+}
+
+func (r *Repo) resolveFolderMovePlan(ctx context.Context, claims *authmw.Claims, folderID uuid.UUID, body MoveRequest) (*folderMovePlan, error) {
 	sourceFolder, err := r.loadFolderMoveSnapshot(ctx, folderID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if sourceFolder == nil {
-		return newResourceOpError(http.StatusNotFound, "source folder not found")
+		return nil, newResourceOpError(http.StatusNotFound, "source folder not found")
 	}
 	sourceProject, err := r.loadProjectMoveSnapshot(ctx, sourceFolder.ProjectID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if sourceProject == nil {
-		return newResourceOpError(http.StatusNotFound, "source project not found")
+		return nil, newResourceOpError(http.StatusNotFound, "source project not found")
 	}
 
 	targetProjectID := sourceFolder.ProjectID
@@ -608,10 +931,10 @@ func (r *Repo) moveFolder(ctx context.Context, claims *authmw.Claims, folderID u
 	if body.TargetProjectRID != nil {
 		id, err := parseProjectRIDLocator(*body.TargetProjectRID, "target_project_rid")
 		if err != nil {
-			return newResourceOpError(http.StatusBadRequest, err.Error())
+			return nil, newResourceOpError(http.StatusBadRequest, err.Error())
 		}
 		if targetProjectExplicit && targetProjectID != id {
-			return newResourceOpError(http.StatusBadRequest, "target_project_id and target_project_rid refer to different projects")
+			return nil, newResourceOpError(http.StatusBadRequest, "target_project_id and target_project_rid refer to different projects")
 		}
 		targetProjectID = id
 		targetProjectExplicit = true
@@ -625,7 +948,7 @@ func (r *Repo) moveFolder(ctx context.Context, claims *authmw.Claims, folderID u
 	if body.TargetFolderRID != nil {
 		clean := strings.TrimSpace(*body.TargetFolderRID)
 		if clean == "" {
-			return newResourceOpError(http.StatusBadRequest, "target_folder_rid must be a non-empty RID")
+			return nil, newResourceOpError(http.StatusBadRequest, "target_folder_rid must be a non-empty RID")
 		}
 		targetProjectRID := models.ProjectRIDFromID(targetProjectID)
 		if clean == targetProjectRID {
@@ -633,10 +956,10 @@ func (r *Repo) moveFolder(ctx context.Context, claims *authmw.Claims, folderID u
 		} else {
 			id, err := parseFolderRIDLocator(clean, "target_folder_rid")
 			if err != nil {
-				return newResourceOpError(http.StatusBadRequest, err.Error())
+				return nil, newResourceOpError(http.StatusBadRequest, err.Error())
 			}
 			if targetFolderID != nil && *targetFolderID != id {
-				return newResourceOpError(http.StatusBadRequest, "target_folder_id and target_folder_rid refer to different folders")
+				return nil, newResourceOpError(http.StatusBadRequest, "target_folder_id and target_folder_rid refer to different folders")
 			}
 			targetFolderID = &id
 		}
@@ -644,67 +967,87 @@ func (r *Repo) moveFolder(ctx context.Context, claims *authmw.Claims, folderID u
 
 	if targetFolderID != nil {
 		if *targetFolderID == folderID {
-			return newResourceOpError(http.StatusConflict, "cannot move a folder into itself")
+			return nil, newResourceOpError(http.StatusConflict, "cannot move a folder into itself")
 		}
 		parent, err := r.loadFolderMoveSnapshot(ctx, *targetFolderID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if parent == nil {
-			return newResourceOpError(http.StatusNotFound, "target folder not found")
+			return nil, newResourceOpError(http.StatusNotFound, "target folder not found")
 		}
 		if targetProjectExplicit && parent.ProjectID != targetProjectID {
-			return newResourceOpError(http.StatusBadRequest, "target folder does not belong to target project")
+			return nil, newResourceOpError(http.StatusBadRequest, "target folder does not belong to target project")
 		}
 		targetProjectID = parent.ProjectID
 		if parent.ProjectID == sourceFolder.ProjectID {
 			descendant, err := r.isDescendantFolder(ctx, sourceFolder.ProjectID, folderID, *targetFolderID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if descendant {
-				return newResourceOpError(http.StatusConflict, "cannot move a folder into one of its descendants")
+				return nil, newResourceOpError(http.StatusConflict, "cannot move a folder into one of its descendants")
 			}
 		}
 	}
 
 	targetProject, err := r.loadProjectMoveSnapshot(ctx, targetProjectID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if targetProject == nil {
-		return newResourceOpError(http.StatusNotFound, "target project not found")
+		return nil, newResourceOpError(http.StatusNotFound, "target project not found")
 	}
 	crossProject := targetProjectID != sourceFolder.ProjectID
 	if crossProject {
 		if status, msg := r.ensureOwnerOrAdmin(ctx, claims, ResourceOntologyProject, targetProjectID); status != 0 {
-			return newResourceOpError(status, msg)
+			return nil, newResourceOpError(status, msg)
 		}
 		if !body.ConfirmAccessPolicyChange {
-			return newResourceOpError(http.StatusConflict, "moving a folder across projects changes inherited access policies; set confirm_access_policy_change=true")
+			return nil, newResourceOpError(http.StatusConflict, "moving a folder across projects changes inherited access policies; set confirm_access_policy_change=true")
 		}
 		missing := missingStrings(sourceProject.MarkingRIDs, targetProject.MarkingRIDs)
 		if len(missing) > 0 {
-			return newResourceOpError(http.StatusConflict, fmt.Sprintf("target project markings are incompatible; missing: %s", strings.Join(missing, ", ")))
+			return nil, newResourceOpError(http.StatusConflict, fmt.Sprintf("target project markings are incompatible; missing: %s", strings.Join(missing, ", ")))
 		}
 		if !sameStringSet(sourceProject.MarkingRIDs, targetProject.MarkingRIDs) && !body.ConfirmMarkingChange {
-			return newResourceOpError(http.StatusConflict, "moving a folder changes inherited markings; set confirm_marking_change=true")
+			return nil, newResourceOpError(http.StatusConflict, "moving a folder changes inherited markings; set confirm_marking_change=true")
 		}
 	}
 
-	if crossProject {
-		return r.moveFolderAcrossProjects(ctx, folderID, targetProjectID, targetFolderID)
+	return &folderMovePlan{
+		sourceFolder:    sourceFolder,
+		targetProjectID: targetProjectID,
+		targetFolderID:  targetFolderID,
+		crossProject:    crossProject,
+	}, nil
+}
+
+func (r *Repo) moveFolder(ctx context.Context, claims *authmw.Claims, folderID uuid.UUID, body MoveRequest, auditCtx audittrail.AuditContext, emitAudit bool) error {
+	plan, err := r.resolveFolderMovePlan(ctx, claims, folderID, body)
+	if err != nil {
+		return err
+	}
+	if plan.crossProject {
+		return r.moveFolderAcrossProjects(ctx, folderID, plan.targetProjectID, plan.targetFolderID, auditCtx, emitAudit)
 	}
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(context.Background())
+	var before *resourceAuditSnapshot
+	if emitAudit {
+		before, err = r.loadResourceAuditSnapshotTx(ctx, tx, ResourceOntologyFolder, folderID, false)
+		if err != nil {
+			return err
+		}
+	}
 	ct, err := tx.Exec(ctx,
 		`UPDATE ontology_project_folders
 		   SET parent_folder_id = $2, updated_at = NOW()
 		   WHERE id = $1 AND is_deleted = FALSE`,
-		folderID, targetFolderID)
+		folderID, plan.targetFolderID)
 	if err != nil {
 		return err
 	}
@@ -713,6 +1056,55 @@ func (r *Repo) moveFolder(ctx context.Context, claims *authmw.Claims, folderID u
 	}
 	if err := UpsertFolderSearchIndexTx(ctx, tx, folderID, ResourceSearchEventMoved); err != nil {
 		return err
+	}
+	if emitAudit {
+		after, err := r.loadResourceAuditSnapshotTx(ctx, tx, ResourceOntologyFolder, folderID, false)
+		if err != nil {
+			return err
+		}
+		if before != nil && after != nil {
+			if err := audittrail.EmitToOutbox(ctx, tx, after.movedEvent(before), auditCtx); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repo) moveResourceBinding(ctx context.Context, resourceID, targetProjectID uuid.UUID, auditCtx audittrail.AuditContext, emitAudit bool) error {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.Background())
+	var before *resourceAuditSnapshot
+	if emitAudit {
+		before, err = r.loadResourceAuditSnapshotTx(ctx, tx, ResourceOntologyResourceBinding, resourceID, false)
+		if err != nil {
+			return err
+		}
+	}
+	ct, err := tx.Exec(ctx,
+		`UPDATE ontology_project_resources
+		   SET project_id = $2
+		   WHERE resource_id = $1 AND is_deleted = FALSE`,
+		resourceID, targetProjectID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return newResourceOpError(http.StatusNotFound, "no row matched")
+	}
+	if emitAudit {
+		after, err := r.loadResourceAuditSnapshotTx(ctx, tx, ResourceOntologyResourceBinding, resourceID, false)
+		if err != nil {
+			return err
+		}
+		if before != nil && after != nil {
+			if err := audittrail.EmitToOutbox(ctx, tx, after.movedEvent(before), auditCtx); err != nil {
+				return err
+			}
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -788,7 +1180,7 @@ func (r *Repo) isDescendantFolder(ctx context.Context, projectID, ancestorID, ca
 	return exists, nil
 }
 
-func (r *Repo) moveFolderAcrossProjects(ctx context.Context, folderID, targetProjectID uuid.UUID, targetFolderID *uuid.UUID) error {
+func (r *Repo) moveFolderAcrossProjects(ctx context.Context, folderID, targetProjectID uuid.UUID, targetFolderID *uuid.UUID, auditCtx audittrail.AuditContext, emitAudit bool) error {
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -829,6 +1221,16 @@ func (r *Repo) moveFolderAcrossProjects(ctx context.Context, folderID, targetPro
 	if len(movedIDs) == 0 {
 		return newResourceOpError(http.StatusNotFound, "source folder not found")
 	}
+	beforeSnapshots := make(map[uuid.UUID]*resourceAuditSnapshot, len(movedIDs))
+	if emitAudit {
+		for _, movedID := range movedIDs {
+			before, err := r.loadResourceAuditSnapshotTx(ctx, tx, ResourceOntologyFolder, movedID, false)
+			if err != nil {
+				return err
+			}
+			beforeSnapshots[movedID] = before
+		}
+	}
 
 	ct, err := tx.Exec(ctx,
 		`UPDATE ontology_project_folders
@@ -855,6 +1257,17 @@ func (r *Repo) moveFolderAcrossProjects(ctx context.Context, folderID, targetPro
 	for _, movedID := range movedIDs {
 		if err := UpsertFolderSearchIndexTx(ctx, tx, movedID, ResourceSearchEventMoved); err != nil {
 			return err
+		}
+		if emitAudit {
+			after, err := r.loadResourceAuditSnapshotTx(ctx, tx, ResourceOntologyFolder, movedID, false)
+			if err != nil {
+				return err
+			}
+			if before := beforeSnapshots[movedID]; before != nil && after != nil {
+				if err := audittrail.EmitToOutbox(ctx, tx, after.movedEvent(before), auditCtx); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return tx.Commit(ctx)
@@ -898,19 +1311,19 @@ func writeExecOutcome(w http.ResponseWriter, ct rowsAffectedTag, err error, fail
 
 // softDeleteOne runs the same UPDATE as SoftDeleteResource but in the
 // batch path, where no per-row response envelope is emitted.
-func (r *Repo) softDeleteOne(ctx context.Context, actor uuid.UUID, kind ResourceKind, resourceID uuid.UUID, retentionDays int) error {
+func (r *Repo) softDeleteOne(ctx context.Context, actor uuid.UUID, kind ResourceKind, resourceID uuid.UUID, retentionDays int, auditCtx audittrail.AuditContext, emitAudit bool) error {
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(context.Background())
-	if _, err := r.softDeleteOneTx(ctx, tx, actor, kind, resourceID, retentionDays); err != nil {
+	if _, err := r.softDeleteOneTx(ctx, tx, actor, kind, resourceID, retentionDays, auditCtx, emitAudit); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func (r *Repo) softDeleteOneTx(ctx context.Context, tx pgx.Tx, actor uuid.UUID, kind ResourceKind, resourceID uuid.UUID, retentionDays int) (int64, error) {
+func (r *Repo) softDeleteOneTx(ctx context.Context, tx pgx.Tx, actor uuid.UUID, kind ResourceKind, resourceID uuid.UUID, retentionDays int, auditCtx audittrail.AuditContext, emitAudit bool) (int64, error) {
 	switch kind {
 	case ResourceOntologyProject:
 		ct, err := tx.Exec(ctx,
@@ -928,6 +1341,11 @@ func (r *Repo) softDeleteOneTx(ctx context.Context, tx pgx.Tx, actor uuid.UUID, 
 		}
 		if err := UpsertProjectSearchIndexTx(ctx, tx, resourceID, ResourceSearchEventTrashed); err != nil {
 			return 0, err
+		}
+		if emitAudit {
+			if err := r.EmitResourceTrashedTx(ctx, tx, kind, resourceID, actor.String(), retentionDays, auditCtx); err != nil {
+				return 0, err
+			}
 		}
 		return ct.RowsAffected(), nil
 	case ResourceOntologyFolder:
@@ -947,6 +1365,11 @@ func (r *Repo) softDeleteOneTx(ctx context.Context, tx pgx.Tx, actor uuid.UUID, 
 		if err := UpsertFolderSearchIndexTx(ctx, tx, resourceID, ResourceSearchEventTrashed); err != nil {
 			return 0, err
 		}
+		if emitAudit {
+			if err := r.EmitResourceTrashedTx(ctx, tx, kind, resourceID, actor.String(), retentionDays, auditCtx); err != nil {
+				return 0, err
+			}
+		}
 		return ct.RowsAffected(), nil
 	case ResourceOntologyResourceBinding:
 		ct, err := tx.Exec(ctx,
@@ -958,7 +1381,15 @@ func (r *Repo) softDeleteOneTx(ctx context.Context, tx pgx.Tx, actor uuid.UUID, 
 			       original_parent_folder_id = NULL
 			   WHERE resource_id = $1 AND is_deleted = FALSE`,
 			resourceID, actor, retentionDays)
-		return ct.RowsAffected(), err
+		if err != nil || ct.RowsAffected() == 0 {
+			return ct.RowsAffected(), err
+		}
+		if emitAudit {
+			if err := r.EmitResourceTrashedTx(ctx, tx, kind, resourceID, actor.String(), retentionDays, auditCtx); err != nil {
+				return 0, err
+			}
+		}
+		return ct.RowsAffected(), nil
 	}
 	// Unsupported kinds are filtered before reaching here in BatchApply.
 	return 0, nil

@@ -630,9 +630,12 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer tx.Rollback(context.Background())
+	auditCtx := workspace.AuditContextFromRequest(claims, r)
+	auditRepo := workspace.Repo{Pool: h.Pool}
 
 	projectID := ids.New()
 	projectRID := models.ProjectRIDFromID(projectID)
+	createdFolderIDs := make([]uuid.UUID, 0, len(body.Folders))
 	if _, err := tx.Exec(r.Context(),
 		`INSERT INTO ontology_projects
 		   (id, rid, slug, display_name, description, workspace_slug, owner_id,
@@ -666,9 +669,11 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project folder: %s", err))
 			return
 		}
+		createdFolderIDs = append(createdFolderIDs, folder.ID)
 	}
 	if deployment != nil {
-		if err := deployment.insertFolders(r.Context(), tx, projectID, projectRID, claims.Sub); err != nil {
+		folderIDs, err := deployment.insertFolders(r.Context(), tx, projectID, projectRID, claims.Sub)
+		if err != nil {
 			var typed projectTemplateHTTPError
 			if errors.As(err, &typed) {
 				writeJSONErr(w, typed.status, typed.message)
@@ -677,6 +682,7 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 			writeJSONErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		createdFolderIDs = append(createdFolderIDs, folderIDs...)
 		if err := deployment.applyPostCreate(r.Context(), tx, projectID, slug, claims.Sub); err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -690,6 +696,16 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 	}
 	if err := workspace.UpsertProjectSearchIndexTx(r.Context(), tx, projectID, workspace.ResourceSearchEventCreated); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project: %s", err))
+		return
+	}
+	for _, folderID := range createdFolderIDs {
+		if err := auditRepo.EmitResourceCreatedTx(r.Context(), tx, workspace.ResourceOntologyFolder, folderID, auditCtx); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to audit ontology project folder creation: %s", err))
+			return
+		}
+	}
+	if err := auditRepo.EmitResourceCreatedTx(r.Context(), tx, workspace.ResourceOntologyProject, projectID, auditCtx); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to audit ontology project creation: %s", err))
 		return
 	}
 
@@ -1045,6 +1061,26 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode references: %s", err))
 		return
 	}
+	markingRIDs := existing.MarkingRIDs
+	markingsTouched := false
+	if rawMarkings, present := raw["marking_rids"]; present {
+		var parsed []string
+		if err := json.Unmarshal(rawMarkings, &parsed); err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "marking_rids must be an array of strings")
+			return
+		}
+		markingRIDs = normalizeStringValues(parsed)
+		if len(markingRIDs) > 0 && !canApplyProjectCreationMarkings(claims, markingRIDs) {
+			writeJSONErr(w, http.StatusForbidden, "missing permission markings:apply for file access preset markings")
+			return
+		}
+		markingsTouched = true
+	}
+	markingRIDsJSON, err := json.Marshal(markingRIDs)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode marking_rids: %s", err))
+		return
+	}
 	propagateViewRequirements := existing.PropagateViewRequirementsEnabled
 	propagateDisabledAt := existing.PropagateViewRequirementsDisabledAt
 	propagationPolicyTouched := false
@@ -1075,7 +1111,7 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 	}
 	nextPropagationMarkings := []string{}
 	if propagateViewRequirements {
-		nextPropagationMarkings = existing.MarkingRIDs
+		nextPropagationMarkings = markingRIDs
 	}
 
 	tx, err := h.Pool.Begin(r.Context())
@@ -1096,11 +1132,12 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		     "references" = $8::jsonb,
 		     propagate_view_requirements_enabled = $9,
 		     propagate_view_requirements_disabled_at = $10,
+		     marking_rids = $11::jsonb,
 		     updated_at = NOW()
 		 WHERE id = $1`,
 		id, displayName, description, workspaceSlug,
 		string(defaultRole), pocUserID, pocEmail, refsJSON,
-		propagateViewRequirements, propagateDisabledAt,
+		propagateViewRequirements, propagateDisabledAt, markingRIDsJSON,
 	); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to update ontology project: %s", err))
 		return
@@ -1109,8 +1146,16 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project: %s", err))
 		return
 	}
+	auditCtx := workspace.AuditContextFromRequest(claims, r)
+	auditRepo := workspace.Repo{Pool: h.Pool}
+	if markingsTouched && !sameStringSlice(existing.MarkingRIDs, markingRIDs) {
+		if err := auditRepo.EmitResourceMarkingsChangedTx(r.Context(), tx, workspace.ResourceOntologyProject, id, existing.MarkingRIDs, markingRIDs, auditCtx); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to audit ontology project marking change: %s", err))
+			return
+		}
+	}
 	var propagationJob *models.ViewRequirementPropagationJob
-	if propagationPolicyTouched && !sameStringSlice(previousPropagationMarkings, nextPropagationMarkings) {
+	if (propagationPolicyTouched || markingsTouched) && !sameStringSlice(previousPropagationMarkings, nextPropagationMarkings) {
 		propagationJob, err = insertViewRequirementPropagationJobTx(
 			r.Context(),
 			tx,
@@ -1197,6 +1242,10 @@ func (h *ProjectsHandlers) DeleteProject(w http.ResponseWriter, r *http.Request)
 	}
 	if err := workspace.UpsertProjectSearchIndexTx(r.Context(), tx, id, workspace.ResourceSearchEventTrashed); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index trashed ontology project: %s", err))
+		return
+	}
+	if err := (&workspace.Repo{Pool: h.Pool}).EmitResourceTrashedTx(r.Context(), tx, workspace.ResourceOntologyProject, id, claims.Sub.String(), workspace.DefaultTrashRetentionDays, workspace.AuditContextFromRequest(claims, r)); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to audit trashed ontology project: %s", err))
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
@@ -1473,6 +1522,10 @@ func (h *ProjectsHandlers) CreateProjectFolder(w http.ResponseWriter, r *http.Re
 	}
 	if err := workspace.UpsertFolderSearchIndexTx(r.Context(), tx, folder.ID, workspace.ResourceSearchEventCreated); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project folder: %s", err))
+		return
+	}
+	if err := (&workspace.Repo{Pool: h.Pool}).EmitResourceCreatedTx(r.Context(), tx, workspace.ResourceOntologyFolder, folder.ID, workspace.AuditContextFromRequest(claims, r)); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to audit ontology project folder creation: %s", err))
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
@@ -1754,7 +1807,13 @@ func (h *ProjectsHandlers) BindProjectResource(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	row := h.Pool.QueryRow(r.Context(),
+	tx, err := h.Pool.Begin(r.Context())
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to start ontology resource binding transaction: %s", err))
+		return
+	}
+	defer tx.Rollback(context.Background())
+	row := tx.QueryRow(r.Context(),
 		`INSERT INTO ontology_project_resources
 		     (project_id, resource_kind, resource_id, bound_by, view_requirement_marking_rids)
 		 VALUES ($1, $2, $3, $4, $5::jsonb)
@@ -1764,17 +1823,29 @@ func (h *ProjectsHandlers) BindProjectResource(w http.ResponseWriter, r *http.Re
 		               view_requirement_marking_rids = EXCLUDED.view_requirement_marking_rids,
 		               created_at = NOW()
 		 RETURNING project_id, resource_kind, resource_id, bound_by,
-		           COALESCE(view_requirement_marking_rids, '[]'::jsonb), created_at`,
+		           COALESCE(view_requirement_marking_rids, '[]'::jsonb), created_at,
+		           (xmax = 0) AS inserted`,
 		projectID, resourceKind.String(), body.ResourceID, claims.Sub, viewRequirementMarkingsJSON,
 	)
 	binding := &models.OntologyProjectResourceBinding{}
 	var bindingMarkings []byte
+	var inserted bool
 	if err := row.Scan(&binding.ProjectID, &binding.ResourceKind, &binding.ResourceID,
-		&binding.BoundBy, &bindingMarkings, &binding.CreatedAt); err != nil {
+		&binding.BoundBy, &bindingMarkings, &binding.CreatedAt, &inserted); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to bind ontology resource to project: %s", err))
 		return
 	}
 	binding.ViewRequirementMarkingRIDs = decodeStringSliceJSON(bindingMarkings)
+	if inserted {
+		if err := (&workspace.Repo{Pool: h.Pool}).EmitResourceCreatedTx(r.Context(), tx, workspace.ResourceOntologyResourceBinding, body.ResourceID, workspace.AuditContextFromRequest(claims, r)); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to audit ontology resource binding creation: %s", err))
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit ontology resource binding transaction: %s", err))
+		return
+	}
 	writeJSON(w, http.StatusOK, binding)
 }
 

@@ -1305,9 +1305,47 @@ export interface RetentionCriteria {
   last_accessed_seconds?: number | null;
 }
 
+export type RetentionPolicyType = 'recommended' | 'custom' | 'legacy';
+export type RetentionDatasetSelectorMode = 'select' | 'exclude';
+export type RetentionDatasetSelectorKind = 'all' | 'dataset_rids' | 'folder_rids' | 'derived' | 'trash';
+export type RetentionTransactionSelectorKind =
+  | 'only_branch'
+  | 'not_branch'
+  | 'transaction_count'
+  | 'view_count'
+  | 'older_than'
+  | 'only_present_in_views_older_than'
+  | 'has_been_projected'
+  | 'no_files_in_active_view'
+  | 'is_derived'
+  | 'aborted';
+
+export interface RetentionDatasetSelector {
+  mode: RetentionDatasetSelectorMode | string;
+  kind: RetentionDatasetSelectorKind | string;
+  dataset_rids?: string[];
+  folder_rids?: string[];
+  worker_types?: string[];
+}
+
+export interface RetentionTransactionSelector {
+  kind: RetentionTransactionSelectorKind | string;
+  branch?: string;
+  count?: number;
+  duration_seconds?: number;
+  transaction_types?: string[];
+}
+
+export interface RetentionPolicyWarning {
+  code: string;
+  severity: 'info' | 'warning' | 'critical' | string;
+  message: string;
+}
+
 export interface RetentionPolicy {
   id: string;
   name: string;
+  org_id?: string | null;
   scope: string;
   target_kind: 'dataset' | 'transaction' | string;
   retention_days: number;
@@ -1318,6 +1356,16 @@ export interface RetentionPolicy {
   selector: RetentionSelector;
   criteria: RetentionCriteria;
   grace_period_minutes: number;
+  policy_type?: RetentionPolicyType | string;
+  space_id?: string | null;
+  legacy_deprecation_status?: string;
+  legacy_config_yaml?: string;
+  dataset_selectors?: RetentionDatasetSelector[];
+  transaction_selectors?: RetentionTransactionSelector[];
+  allow_latest_view_deletion?: boolean;
+  abort_open_transactions?: boolean;
+  danger_acknowledgement?: string;
+  warnings?: RetentionPolicyWarning[];
   last_applied_at?: string | null;
   next_run_at?: string | null;
   created_at: string;
@@ -1393,6 +1441,7 @@ export interface ListRetentionPoliciesParams {
   dataset_rid?: string;
   project_id?: string;
   marking_id?: string;
+  space_id?: string;
   active?: boolean;
   system_only?: boolean;
 }
@@ -1420,6 +1469,7 @@ function retentionPolicyQuery(params: ListRetentionPoliciesParams = {}) {
   if (params.dataset_rid) query.set('dataset_rid', params.dataset_rid);
   if (params.project_id) query.set('project_id', params.project_id);
   if (params.marking_id) query.set('marking_id', params.marking_id);
+  if (params.space_id) query.set('space_id', params.space_id);
   if (params.active !== undefined) query.set('active', String(params.active));
   if (params.system_only !== undefined) query.set('system_only', String(params.system_only));
   const qs = query.toString();
@@ -1476,6 +1526,15 @@ export interface CreateRetentionPolicyParams {
   scope?: string;
   rules?: string[];
   updated_by: string;
+  policy_type?: RetentionPolicyType;
+  space_id?: string | null;
+  legacy_deprecation_status?: string;
+  legacy_config_yaml?: string;
+  dataset_selectors?: RetentionDatasetSelector[];
+  transaction_selectors?: RetentionTransactionSelector[];
+  allow_latest_view_deletion?: boolean;
+  abort_open_transactions?: boolean;
+  danger_acknowledgement?: string;
 }
 
 export function createRetentionPolicy(params: CreateRetentionPolicyParams) {

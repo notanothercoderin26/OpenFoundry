@@ -331,6 +331,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/control-panel/FileAccessPresetsPage')).FileAccessPresetsPage }),
       },
       {
+        path: 'control-panel/retention-policies',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/RetentionPoliciesPage')).RetentionPoliciesPage }),
+      },
+      {
         path: 'functions',
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionsPage')).FunctionsPage }),
       },

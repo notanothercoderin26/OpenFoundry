@@ -215,11 +215,12 @@ func (h *RBAC) OAuthRevoke(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if app != nil {
-			clientID := body.ClientID
-			if clientID == "" {
-				clientID = row.ClientID
-			}
-			if err := validateOAuthClientAuthentication(app, secretHash, clientID, body.ClientSecret); err != nil {
+			// RFC 7009 §2.1: the revoke endpoint authenticates the
+			// client. We require body.client_id to be supplied (no silent
+			// fallback to row.ClientID — that defeats client binding) and
+			// match the token's owning client; confidential clients must
+			// also present the secret.
+			if err := validateOAuthClientAuthentication(app, secretHash, body.ClientID, body.ClientSecret); err != nil {
 				writeOAuthError(w, err)
 				return
 			}
@@ -292,9 +293,17 @@ func (h *RBAC) oauthAuthorizationCodeToken(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	now := time.Now().UTC()
-	code, err := h.Repo.ConsumeThirdPartyOAuthAuthorizationCode(r.Context(), hashOAuthOpaqueToken(body.Code), now)
+	// Verify the code's binding (client_id, redirect_uri, PKCE)
+	// BEFORE consuming it. If we consumed first, any caller who knew
+	// the code (a public value transiting through the user agent) could
+	// burn it merely by presenting it with a wrong code_verifier or
+	// mismatched client, preventing the legitimate redeemer from
+	// completing the flow. The atomic Consume below still acts as a
+	// CAS to prevent replay between the Find and the Consume.
+	codeHash := hashOAuthOpaqueToken(body.Code)
+	code, err := h.Repo.FindThirdPartyOAuthAuthorizationCode(r.Context(), codeHash, now)
 	if err != nil {
-		slog.Error("consume oauth authorization code", slog.String("error", err.Error()))
+		slog.Error("lookup oauth authorization code", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -306,6 +315,19 @@ func (h *RBAC) oauthAuthorizationCodeToken(w http.ResponseWriter, r *http.Reques
 		writeJSONErr(w, http.StatusUnauthorized, "invalid code_verifier")
 		return
 	}
+	consumed, err := h.Repo.ConsumeThirdPartyOAuthAuthorizationCode(r.Context(), codeHash, now)
+	if err != nil {
+		slog.Error("consume oauth authorization code", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if consumed == nil {
+		// Raced with another redemption between Find and Consume —
+		// treat as replay and reject.
+		writeJSONErr(w, http.StatusUnauthorized, "invalid authorization code")
+		return
+	}
+	code = consumed
 	user, err := h.Repo.FindUserByID(r.Context(), code.UserID)
 	if err != nil {
 		slog.Error("lookup oauth subject user", slog.String("error", err.Error()))
@@ -368,9 +390,15 @@ func (h *RBAC) oauthRefreshToken(w http.ResponseWriter, r *http.Request, body mo
 		writeJSONErr(w, http.StatusUnauthorized, "invalid refresh_token")
 		return
 	}
+	// RFC 6749 §6: client_id is required on the refresh grant for
+	// public clients, and the request must authenticate as the same
+	// client the token was issued to. No silent fallback to
+	// row.ClientID — that would let anyone holding the refresh
+	// plaintext rotate the token without any client identification.
 	clientID := strings.TrimSpace(body.ClientID)
 	if clientID == "" {
-		clientID = row.ClientID
+		writeJSONErr(w, http.StatusBadRequest, "client_id is required")
+		return
 	}
 	app, secretHash, err := h.Repo.GetThirdPartyApplicationByClientID(r.Context(), clientID)
 	if err != nil {
@@ -471,19 +499,6 @@ func (h *RBAC) oauthClientCredentialsToken(w http.ResponseWriter, r *http.Reques
 		writeJSONErr(w, http.StatusBadRequest, "client has no service user")
 		return
 	}
-	orgID := app.ManagingOrganizationID
-	if strings.TrimSpace(body.OrganizationID) != "" {
-		parsed, err := uuid.Parse(strings.TrimSpace(body.OrganizationID))
-		if err != nil {
-			writeJSONErr(w, http.StatusBadRequest, "invalid organization_id")
-			return
-		}
-		orgID = parsed
-	}
-	if _, ok := enabledThirdPartyApplicationForOrganization(app, orgID); !ok {
-		writeJSONErr(w, http.StatusForbidden, "application is not enabled for this organization")
-		return
-	}
 	serviceUser, err := h.Repo.FindUserByID(r.Context(), *app.ServiceUserID)
 	if err != nil {
 		slog.Error("lookup oauth service user", slog.String("error", err.Error()))
@@ -492,6 +507,29 @@ func (h *RBAC) oauthClientCredentialsToken(w http.ResponseWriter, r *http.Reques
 	}
 	if serviceUser == nil || !serviceUser.IsActive || serviceUser.DeletedAt != nil {
 		writeJSONErr(w, http.StatusUnauthorized, "service user inactive")
+		return
+	}
+	// Default the issued token's org to the app's managing org. If the
+	// caller asks for a different organization_id we must verify the
+	// service user has authority for it — otherwise a confidential
+	// client could mint cross-tenant tokens just because the app is
+	// enabled in many orgs.
+	orgID := app.ManagingOrganizationID
+	if strings.TrimSpace(body.OrganizationID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(body.OrganizationID))
+		if err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "invalid organization_id")
+			return
+		}
+		if parsed != app.ManagingOrganizationID &&
+			(serviceUser.OrganizationID == nil || *serviceUser.OrganizationID != parsed) {
+			writeJSONErr(w, http.StatusForbidden, "service user is not authorised for the requested organization_id")
+			return
+		}
+		orgID = parsed
+	}
+	if _, ok := enabledThirdPartyApplicationForOrganization(app, orgID); !ok {
+		writeJSONErr(w, http.StatusForbidden, "application is not enabled for this organization")
 		return
 	}
 	roles, permissions, err := h.Repo.ListUserSecuritySnapshot(r.Context(), serviceUser.ID)

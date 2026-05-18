@@ -1,7 +1,7 @@
 // Package config loads the network-boundary-service configuration via
 // koanf. The schema mirrors `docs/templates/service-skeleton` — only Service / Server
-// / JWT / Telemetry knobs are exposed today since the binary is a stub
-// (see ADR-0030 / S8.6).
+// / JWT / Telemetry knobs are exposed today; persistent backing stores are
+// deferred until the ADR-0030 / S8.6 consolidation.
 package config
 
 import (

@@ -164,14 +164,14 @@ type ThirdPartyServiceUserAuditEvent struct {
 }
 
 type ThirdPartyServiceUserInspection struct {
-	Application              ThirdPartyApplication          `json:"application"`
-	ServiceUser              *User                          `json:"service_user,omitempty"`
-	ClientCredentialsEnabled bool                           `json:"client_credentials_enabled"`
-	PlatformRoles            []Role                         `json:"platform_roles"`
-	Permissions              []string                       `json:"permissions"`
-	ResourceGrants           []ThirdPartyServiceUserGrant   `json:"resource_grants"`
+	Application              ThirdPartyApplication             `json:"application"`
+	ServiceUser              *User                             `json:"service_user,omitempty"`
+	ClientCredentialsEnabled bool                              `json:"client_credentials_enabled"`
+	PlatformRoles            []Role                            `json:"platform_roles"`
+	Permissions              []string                          `json:"permissions"`
+	ResourceGrants           []ThirdPartyServiceUserGrant      `json:"resource_grants"`
 	AuditEvents              []ThirdPartyServiceUserAuditEvent `json:"audit_events"`
-	Warning                  string                         `json:"warning"`
+	Warning                  string                            `json:"warning"`
 }
 
 type ThirdPartyOAuthAuthorizationCode struct {

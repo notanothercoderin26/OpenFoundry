@@ -302,6 +302,263 @@ func (h *Handlers) ListRecents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ListRecentsResponse{Data: out})
 }
 
+// ─── Saved searches ────────────────────────────────────────────────
+
+func (h *Handlers) ListSavedSearches(w http.ResponseWriter, r *http.Request) {
+	c, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	limit := parseLimit(r, 50, 1, 200)
+	searches, err := h.Repo.ListSavedSearchesByUser(r.Context(), c.Sub, limit)
+	if err != nil {
+		slog.Error("list saved searches", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to list saved searches")
+		return
+	}
+	writeJSON(w, http.StatusOK, ListSavedSearchesResponse{Data: searches})
+}
+
+func (h *Handlers) CreateSavedSearch(w http.ResponseWriter, r *http.Request) {
+	c, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	var body CreateSavedSearchRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	body.Name = strings.TrimSpace(body.Name)
+	if body.Name == "" {
+		writeJSONErr(w, http.StatusBadRequest, "name required")
+		return
+	}
+	if len(body.Name) > 120 {
+		writeJSONErr(w, http.StatusBadRequest, "name must be at most 120 characters")
+		return
+	}
+	tab, err := normalizeSavedSearchTab(body.Tab)
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var resourceType *string
+	if body.Type != nil && strings.TrimSpace(*body.Type) != "" {
+		normalized, err := normalizeCompassSearchType(*body.Type)
+		if err != nil {
+			writeJSONErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		resourceType = &normalized
+	}
+	var (
+		projectID  *uuid.UUID
+		projectRID *string
+	)
+	if body.Project != nil && strings.TrimSpace(*body.Project) != "" {
+		parsed, err := parseCompassSearchProject(*body.Project)
+		if err != nil {
+			writeJSONErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		projectID = &parsed
+		project := strings.TrimSpace(*body.Project)
+		if strings.HasPrefix(project, "ri.") {
+			projectRID = &project
+		}
+	}
+	var modified *string
+	if body.ModifiedBucket != nil && strings.TrimSpace(*body.ModifiedBucket) != "" {
+		normalized, err := normalizeCompassModifiedBucket(*body.ModifiedBucket)
+		if err != nil {
+			writeJSONErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		modified = &normalized
+	}
+	search, err := h.Repo.CreateSavedSearch(
+		r.Context(),
+		c.Sub,
+		body.Name,
+		strings.TrimSpace(body.Query),
+		tab,
+		resourceType,
+		projectID,
+		projectRID,
+		body.OwnerID,
+		normalizeStringSlice(body.MarkingRIDs),
+		modified,
+		body.DisplayOrder,
+	)
+	if err != nil {
+		slog.Error("create saved search", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to create saved search")
+		return
+	}
+	writeJSON(w, http.StatusCreated, search)
+}
+
+func (h *Handlers) DeleteSavedSearch(w http.ResponseWriter, r *http.Request) {
+	c, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid saved search id")
+		return
+	}
+	deleted, err := h.Repo.DeleteSavedSearch(r.Context(), c.Sub, id)
+	if err != nil {
+		slog.Error("delete saved search", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to delete saved search")
+		return
+	}
+	if !deleted {
+		writeJSONErr(w, http.StatusNotFound, "saved search not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) ListProjectFollows(w http.ResponseWriter, r *http.Request) {
+	c, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	accessible, err := domain.ListAccessibleProjects(r.Context(), h.Repo.Pool, c)
+	if err != nil {
+		slog.Error("list project follows access", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to evaluate project access")
+		return
+	}
+	projectIDs := make([]uuid.UUID, 0, len(accessible))
+	for id := range accessible {
+		projectIDs = append(projectIDs, id)
+	}
+	follows, err := h.Repo.ListProjectFollowsByUser(r.Context(), c.Sub, projectIDs, parseLimit(r, 50, 1, 200))
+	if err != nil {
+		slog.Error("list project follows", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to list project follows")
+		return
+	}
+	writeJSON(w, http.StatusOK, ListProjectFollowsResponse{Data: follows})
+}
+
+func (h *Handlers) FollowProject(w http.ResponseWriter, r *http.Request) {
+	c, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	var body FollowProjectRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	projectID, err := followRequestProjectID(body)
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !h.projectIsAccessible(r, c, projectID) {
+		writeJSONErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+	follow, err := h.Repo.FollowProject(r.Context(), c.Sub, projectID)
+	if err != nil {
+		slog.Error("follow project", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to follow project")
+		return
+	}
+	writeJSON(w, http.StatusCreated, follow)
+}
+
+func (h *Handlers) UnfollowProject(w http.ResponseWriter, r *http.Request) {
+	c, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	projectID, err := parseCompassSearchProject(chi.URLParam(r, "project"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	deleted, err := h.Repo.UnfollowProject(r.Context(), c.Sub, projectID)
+	if err != nil {
+		slog.Error("unfollow project", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to unfollow project")
+		return
+	}
+	if !deleted {
+		writeJSONErr(w, http.StatusNotFound, "project follow not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) ListRecommendations(w http.ResponseWriter, r *http.Request) {
+	c, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	accessible, err := domain.ListAccessibleProjects(r.Context(), h.Repo.Pool, c)
+	if err != nil {
+		slog.Error("list recommendations access", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to evaluate recommendations access")
+		return
+	}
+	projectIDs := make([]uuid.UUID, 0, len(accessible))
+	for id := range accessible {
+		projectIDs = append(projectIDs, id)
+	}
+	recommendations, err := h.Repo.ListResourceRecommendations(r.Context(), c.Sub, projectIDs, parseLimit(r, 12, 1, 50))
+	if err != nil {
+		slog.Error("list recommendations", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to list recommendations")
+		return
+	}
+	writeJSON(w, http.StatusOK, ListRecommendationsResponse{Data: recommendations})
+}
+
+func normalizeSavedSearchTab(value string) (string, error) {
+	switch strings.TrimSpace(value) {
+	case "", "files":
+		return "files", nil
+	case "top", "apps", "objects", "datasets":
+		return strings.TrimSpace(value), nil
+	default:
+		return "", errors.New("tab must be one of top, apps, objects, datasets, or files")
+	}
+}
+
+func followRequestProjectID(body FollowProjectRequest) (uuid.UUID, error) {
+	if body.ProjectID != nil && *body.ProjectID != uuid.Nil {
+		return *body.ProjectID, nil
+	}
+	if body.ProjectRID != nil && strings.TrimSpace(*body.ProjectRID) != "" {
+		return parseCompassSearchProject(*body.ProjectRID)
+	}
+	return uuid.Nil, errors.New("project_id or project_rid required")
+}
+
+func (h *Handlers) projectIsAccessible(r *http.Request, claims *authmw.Claims, projectID uuid.UUID) bool {
+	accessible, err := domain.ListAccessibleProjects(r.Context(), h.Repo.Pool, claims)
+	if err != nil {
+		slog.Error("follow project access", slog.String("error", err.Error()))
+		return false
+	}
+	_, ok := accessible[projectID]
+	return ok
+}
+
 // ─── helpers ────────────────────────────────────────────────────────
 
 func parseLimit(r *http.Request, fallback, min, max int) int {

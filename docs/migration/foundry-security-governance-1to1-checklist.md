@@ -625,31 +625,61 @@ OpenFoundry canonical IDs.
     - Disabling an application's organization enablement or revoking the application revokes matching third-party OAuth refresh tokens so old authorizations do not become active again after re-enablement.
     - Tests in [`third_party_oauth_test.go`](../../services/identity-federation-service/internal/handlers/third_party_oauth_test.go) cover scope intersection, admin scope bounding, S256 PKCE verification, OAuth client authentication, and organization enablement lookup.
 
-- [ ] `SG.33` Service users and client credentials (`P1`, `todo`)
+- [x] `SG.33` Service users and client credentials (`P1`, `done` 2026-05-18)
   - Create service users for confidential OAuth applications and client-credentials workloads.
   - Manage service user project/resource roles independently of individual employees to support long-running automations and integrations.
   - Rotate client secrets and audit service-user operations as first-class actors.
   - Docs: [Automate third-party application ownership](https://www.palantir.com/docs/foundry/automate/third-party-app-ownership/), [Writing OAuth2 clients for Foundry](https://www.palantir.com/docs/foundry/platform-security-third-party/writing-oauth2-clients).
+  - Implementation notes:
+    - [`0022_sg33_service_users_client_credentials.sql`](../../services/identity-federation-service/internal/repo/migrations/0022_sg33_service_users_client_credentials.sql) adds service-user project/resource grants and service-user audit events for third-party OAuth clients.
+    - Confidential applications that enable `client_credentials` get a durable OpenFoundry service user whose username is the OAuth client ID and whose permissions are separate from human owners.
+    - `POST /api/v1/third-party-applications/{id}/service-user` creates or attaches the service user and enables the `client_credentials` grant for confidential clients; public clients are rejected.
+    - `PUT /api/v1/third-party-applications/{id}/service-user/roles/{role_id}` and `DELETE /api/v1/third-party-applications/{id}/service-user/roles/{role_id}` assign or revoke platform roles directly on the service user, so client-credentials tokens inherit the service user's own permission snapshot rather than any owner's roles.
+    - `POST /api/v1/third-party-applications/{id}/service-user/grants` and `DELETE /api/v1/third-party-applications/{id}/service-user/grants/{grant_id}` manage independent project/resource role grants for downstream resource authorizers.
+    - Service-user creation, client-credentials enablement, platform role changes, project/resource grants, grant revocation, and client-secret rotation are recorded in `third_party_service_user_audit_events`; secret rotation also emits a first-class audit entry with the new prefix only.
+    - [`ThirdPartyApplicationsPage.tsx`](../../apps/web/src/routes/control-panel/ThirdPartyApplicationsPage.tsx) now exposes service-user preparation, platform role assignment, project/resource grant management, effective API permissions, and audit history from the Control Panel fallback.
 
 ### Network, retention, and notification governance
 
-- [ ] `SG.34` Network egress policies (`P1`, `todo`)
+- [x] `SG.34` Network egress policies (`P1`, `done` 2026-05-18)
   - Configure direct, agent-proxy, and same-region bucket egress policies with address, DNS/IP/CIDR, ports, agents, SNI behavior, bucket access level, and policy state.
   - Enforce pending approval, active, paused, and revoked states at workload runtime.
   - Require users to import explicit egress policies into workloads and treat importer grants as high-risk permissions.
   - Docs: [Configure network egress](https://www.palantir.com/docs/foundry/administration/configure-egress/).
+  - Implementation notes:
+    - [`network-boundary-service`](../../services/network-boundary-service/internal/handler/egress.go) now owns `GET/POST /api/v1/data-connection/egress-policies`, `GET /api/v1/data-connection/egress-policies/{id}`, `PATCH /api/v1/data-connection/egress-policies/{id}/state`, `PATCH /api/v1/data-connection/egress-policies/{id}/sharing`, and `POST /api/v1/data-connection/egress-policies:evaluate-workload`.
+    - Policy creation validates direct, `agent_proxy`, and `same_region_bucket` shapes, including DNS/IP/CIDR destinations, single/range/any ports, required agent IDs for proxy routes, SNI behavior, same-region bucket name/access level, and allowed organizations.
+    - New policies default to `pending_approval`; runtime evaluation only allows explicitly imported policies in `active` state and denies `pending_approval`, `paused`, or `revoked` policies with explainable decision reasons.
+    - Importer grants are separated from viewer/admin grants, exposed as high-risk warnings, mirrored through the legacy `permissions` field for Data Connection compatibility, and audited on creation or grant changes.
+    - Deletion is blocked with `405 Method Not Allowed`; lifecycle changes use `paused` or terminal `revoked` state to mirror the documented immutability/deletion behavior.
+    - [`20260518000001_source_policy_same_region_bucket.sql`](../../services/connector-management-service/internal/repo/migrations/20260518000001_source_policy_same_region_bucket.sql) expands Data Connection source policy bindings to include `same_region_bucket` imports for workloads/source code imports.
+    - [`EgressPoliciesPage.tsx`](../../apps/web/src/routes/data-connection/EgressPoliciesPage.tsx) and [`CreateEgressPolicyModal.tsx`](../../apps/web/src/lib/components/data-connection/CreateEgressPolicyModal.tsx) now expose lifecycle state changes, same-region buckets, agent lists, SNI behavior, and high-risk importer grants without presenting destructive deletion.
 
-- [ ] `SG.35` Egress approval and audit (`P1`, `todo`)
+- [x] `SG.35` Egress approval and audit (`P1`, `done` 2026-05-18)
   - Route new egress policies and sensitive state changes through approval workflows for information security officers or equivalent roles.
   - Audit every attach/import/use/revoke/pause event and identify workloads that may export data to external systems.
   - Surface egress IP ranges, agent hosts, overlapping policy warnings, and same-region S3 bucket policy requirements.
   - Docs: [Configure network egress](https://www.palantir.com/docs/foundry/administration/configure-egress/), [Monitor audit logs](https://www.palantir.com/docs/foundry/security/monitor-audit-logs).
+  - Implementation notes:
+    - [`network-boundary-service`](../../services/network-boundary-service/internal/handler/egress.go) now lets authenticated users propose new egress policies while `network-egress:approve` or admin operators decide pending approval tasks for policy creation and sensitive state changes.
+    - `GET /api/v1/data-connection/egress-policies/approvals` and `POST /api/v1/data-connection/egress-policies/approvals/{task_id}/decision` expose approval queues and decisions for information security officer-style roles.
+    - Egress audit events now include action categories, high-risk flags, outcome/reason metadata, workload identity/kind, and potential data-export classification for policy create/share/state/use flows.
+    - Runtime evaluation records workload usage on every explicit policy import/use, so policy inventory identifies workloads that may export data to external destinations.
+    - Data Connection source policy attach/detach now emits source governance audit events with `networkEgress`, `dataExport`, and `managementPermissions` categories.
+    - Policy inventory surfaces IP/CIDR ranges, agent hosts, overlapping policy warnings, and same-region S3 bucket policy requirements in API responses and [`EgressPoliciesPage.tsx`](../../apps/web/src/routes/data-connection/EgressPoliciesPage.tsx).
 
-- [ ] `SG.36` Retention policies (`P1`, `todo`)
+- [x] `SG.36` Retention policies (`P1`, `done` 2026-05-18)
   - Manage recommended, custom, and legacy retention policy types with space scope and explicit deprecation status for legacy YAML-style policies where relevant.
   - Configure dataset selectors, transaction selectors, branch selectors, transaction count/age rules, include/exclude logic, and maximum policy counts.
   - Warn strongly before allowing current/latest-view transaction deletion or aborting open transactions.
   - Docs: [Retention overview](https://www.palantir.com/docs/foundry/retention/overview/), [Managing retention policies](https://www.palantir.com/docs/foundry/retention/manage-retention-policies), [Enrollments and organizations retention policies](https://www.palantir.com/docs/foundry/administration/enrollments-and-organizations-retention).
+  - Implementation notes:
+    - [`0010_sg36_retention_policy_management.sql`](../../services/audit-compliance-service/internal/repo/migrations/0010_sg36_retention_policy_management.sql) adds policy type, `space_id`, legacy deprecation/YAML metadata, structured dataset and transaction selectors, dangerous-operation flags, and acknowledgement fields.
+    - [`retentionpolicy`](../../services/audit-compliance-service/internal/retentionpolicy/retention.go) now validates `recommended`, `custom`, and `legacy` policy types; treats recommended/system policies as platform-managed; defaults legacy policies to `deprecated`; and enforces the documented 50-custom-policies-per-space limit.
+    - Dataset selectors now support `select`/`exclude` semantics for all datasets, dataset RIDs, folder RIDs, derived datasets, and trash; transaction selectors support branch inclusion/exclusion, count/view count, age windows, derived/projected/no-active-view signals, and aborted transactions.
+    - Current/latest-view deletion and open-transaction aborts require the explicit `DELETE_CURRENT_DATA` acknowledgement before persistence and return critical warnings in policy/preview responses.
+    - Structured selectors are wired into applicable-policy resolution so explicit dataset selectors, space-scoped policies, and org-wide selectors appear in the expected inherited/explicit buckets.
+    - [`RetentionPoliciesPage.tsx`](../../apps/web/src/routes/control-panel/RetentionPoliciesPage.tsx) provides the Control Panel management shell for retention policy creation and inventory, while [`RetentionPoliciesTab.tsx`](../../apps/web/src/lib/components/dataset/RetentionPoliciesTab.tsx) exposes the same SG.36 warnings and selectors at dataset scope.
 
 - [ ] `SG.37` Retention execution and recovery windows (`P1`, `todo`)
   - Execute retention policies by marking matching dataset transactions for deletion and periodically removing data according to the retention engine.

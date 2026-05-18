@@ -320,6 +320,8 @@ func TestBatchApplyEmptyReturnsEmptyResults(t *testing.T) {
 	assert.Equal(t, 200, rec.Code)
 	var resp workspace.BatchResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp.BatchID)
+	assert.False(t, resp.PreflightFailed)
 	assert.Empty(t, resp.Results)
 }
 
@@ -336,6 +338,8 @@ func TestBatchApplyReportsBadKindPerAction(t *testing.T) {
 	assert.Equal(t, 200, rec.Code)
 	var resp workspace.BatchResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp.BatchID)
+	assert.True(t, resp.PreflightFailed)
 	require.Len(t, resp.Results, 1)
 	assert.False(t, resp.Results[0].OK)
 	require.NotNil(t, resp.Results[0].Error)
@@ -358,10 +362,34 @@ func TestBatchApplyReportsUnsupportedOpPerAction(t *testing.T) {
 	assert.Equal(t, 200, rec.Code)
 	var resp workspace.BatchResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp.BatchID)
+	assert.True(t, resp.PreflightFailed)
 	require.Len(t, resp.Results, 1)
 	require.NotNil(t, resp.Results[0].Error)
 	assert.Contains(t, *resp.Results[0].Error, "unsupported batch op")
 	assert.Contains(t, *resp.Results[0].Error, "yolo")
+}
+
+func TestBatchApplyReportsBadShareShapeBeforeRepo(t *testing.T) {
+	t.Parallel()
+	h := &workspace.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New()}
+	id := uuid.New()
+	body := `{"actions":[{"op":"share","resource_kind":"ontology_folder","resource_id":"` + id.String() + `","access_level":"viewer"}]}`
+	req := httptest.NewRequest("POST", "/batch", strings.NewReader(body))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.BatchApply(rec, req)
+	assert.Equal(t, 200, rec.Code)
+	var resp workspace.BatchResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp.BatchID)
+	assert.True(t, resp.PreflightFailed)
+	require.Len(t, resp.Results, 1)
+	require.NotNil(t, resp.Results[0].Error)
+	assert.Contains(t, *resp.Results[0].Error, "exactly one")
+	assert.Equal(t, "share", resp.Results[0].Op)
+	assert.Equal(t, id, resp.Results[0].ResourceID)
 }
 
 // silence lint on the placeholder helper above; future integration tests

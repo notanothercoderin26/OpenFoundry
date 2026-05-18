@@ -3307,6 +3307,11 @@ button {
   color: var(--qs-link);
 }
 
+.of-quicksearch__topActionBadge--saved {
+  background: rgba(121, 184, 255, 0.15);
+  color: var(--qs-link);
+}
+
 .of-quicksearch__filterLead {
   color: var(--qs-text-muted);
   font-size: 12px;
@@ -3392,6 +3397,57 @@ button {
 }
 
 .of-quicksearch__filterGroup { margin-bottom: 18px; }
+
+.of-quicksearch__savedRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.of-quicksearch__savedPick,
+.of-quicksearch__savedDelete,
+.of-quicksearch__facetPill {
+  border: 0;
+  background: transparent;
+  color: var(--qs-text);
+}
+
+.of-quicksearch__savedPick {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 13px;
+  text-align: left;
+}
+
+.of-quicksearch__savedPick span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.of-quicksearch__savedPick:hover,
+.of-quicksearch__savedDelete:hover {
+  color: var(--qs-link-strong);
+}
+
+.of-quicksearch__savedDelete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  color: var(--qs-text-muted);
+}
+
+.of-quicksearch__savedDelete:hover {
+  background: rgba(255,255,255,0.06);
+}
 
 .of-quicksearch__filterLabel {
   display: block;
@@ -3486,6 +3542,37 @@ button {
 
 .of-quicksearch__filterFieldRow .of-quicksearch__filterField {
   flex: 1;
+}
+
+.of-quicksearch__facetPill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.of-quicksearch__facetPill:hover,
+.of-quicksearch__facetPill[data-active='true'] {
+  background: var(--qs-panel-hover);
+  color: var(--qs-text-strong);
+}
+
+.of-quicksearch__facetPill span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.of-quicksearch__facetPill span:last-child {
+  color: var(--qs-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .of-quicksearch__sidebarToggle {
@@ -3801,6 +3888,17 @@ button {
 .of-quicksearch__rowMeta {
   color: var(--qs-text-muted);
   font-size: 12px;
+}
+
+.of-quicksearch__rowSnippet {
+  color: var(--qs-text);
+}
+
+.of-quicksearch__snippetMark {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: rgba(244, 201, 74, 0.2);
+  color: var(--qs-text-strong);
 }
 
 .of-quicksearch__rowPath {

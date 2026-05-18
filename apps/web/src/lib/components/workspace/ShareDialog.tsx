@@ -1,25 +1,34 @@
 import { useEffect, useState } from 'react';
 
 import {
+  batchApply,
   createShare,
   listResourceShares,
   revokeShare,
   type AccessLevel,
+  type BatchAction,
   type ResourceKind,
   type ResourceShare,
 } from '@/lib/api/workspace';
 import { PrincipalPicker } from './PrincipalPicker';
+
+interface ShareDialogTarget {
+  kind: ResourceKind;
+  id: string;
+  label?: string;
+}
 
 interface ShareDialogProps {
   open: boolean;
   resourceKind: ResourceKind | null;
   resourceId: string | null;
   resourceLabel?: string;
+  targets?: ShareDialogTarget[];
   onClose?: () => void;
   onShared?: () => void;
 }
 
-export function ShareDialog({ open, resourceKind, resourceId, resourceLabel, onClose, onShared }: ShareDialogProps) {
+export function ShareDialog({ open, resourceKind, resourceId, resourceLabel, targets = [], onClose, onShared }: ShareDialogProps) {
   const [shares, setShares] = useState<ResourceShare[]>([]);
   const [principal, setPrincipal] = useState<'user' | 'group'>('user');
   const [principalId, setPrincipalId] = useState('');
@@ -28,9 +37,10 @@ export function ShareDialog({ open, resourceKind, resourceId, resourceLabel, onC
   const [expiresAt, setExpiresAt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const isBulk = targets.length > 0;
 
   async function refresh() {
-    if (!resourceKind || !resourceId) return;
+    if (isBulk || !resourceKind || !resourceId) return;
     try {
       setShares(await listResourceShares(resourceKind, resourceId));
     } catch (cause) {
@@ -39,7 +49,7 @@ export function ShareDialog({ open, resourceKind, resourceId, resourceLabel, onC
   }
 
   useEffect(() => {
-    if (!open || !resourceKind || !resourceId) {
+    if (!open) {
       setShares([]);
       return;
     }
@@ -48,28 +58,48 @@ export function ShareDialog({ open, resourceKind, resourceId, resourceLabel, onC
     setExpiresAt('');
     setAccessLevel('viewer');
     setError('');
+    if (isBulk || !resourceKind || !resourceId) {
+      setShares([]);
+      return;
+    }
     void refresh();
-  }, [open, resourceKind, resourceId]);
+  }, [open, isBulk, resourceKind, resourceId, targets.length]);
 
   async function submit() {
-    if (!resourceKind || !resourceId) return;
+    if (!isBulk && (!resourceKind || !resourceId)) return;
     const id = principalId.trim();
     if (!id) { setError('Provide a user or group id.'); return; }
     setSubmitting(true);
     setError('');
     try {
-      await createShare(resourceKind, resourceId, {
+      const body = {
         shared_with_user_id: principal === 'user' ? id : undefined,
         shared_with_group_id: principal === 'group' ? id : undefined,
         access_level: accessLevel,
         note: note.trim() || undefined,
         expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
-      });
+      };
+      if (isBulk) {
+        const actions: BatchAction[] = targets.map((target) => ({
+          op: 'share',
+          resource_kind: target.kind,
+          resource_id: target.id,
+          ...body,
+        }));
+        const response = await batchApply(actions);
+        const failed = response.results.filter((entry) => !entry.ok);
+        if (failed.length > 0) {
+          setError(`${failed.length} selected resource(s) could not be shared.${failed[0]?.error ? ` ${failed[0].error}` : ''}`);
+          return;
+        }
+      } else if (resourceKind && resourceId) {
+        await createShare(resourceKind, resourceId, body);
+      }
       setPrincipalId('');
       setNote('');
       setExpiresAt('');
       onShared?.();
-      await refresh();
+      if (!isBulk) await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -91,7 +121,7 @@ export function ShareDialog({ open, resourceKind, resourceId, resourceLabel, onC
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 100 }}>
       <div style={{ width: '100%', maxWidth: 560, background: '#0f172a', color: '#e2e8f0', border: '1px solid #1e293b', borderRadius: 12, boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b', padding: '12px 16px' }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>Share {resourceLabel || 'resource'}</div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{isBulk ? `Share ${targets.length} resources` : `Share ${resourceLabel || 'resource'}`}</div>
           <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 13 }}>✕</button>
         </div>
         <div style={{ display: 'grid', gap: 10, padding: 16 }}>
@@ -127,7 +157,7 @@ export function ShareDialog({ open, resourceKind, resourceId, resourceLabel, onC
             {submitting ? 'Sharing…' : 'Share'}
           </button>
         </div>
-        <div style={{ borderTop: '1px solid #1e293b', padding: '12px 16px' }}>
+        {!isBulk && <div style={{ borderTop: '1px solid #1e293b', padding: '12px 16px' }}>
           <p className="of-eyebrow" style={{ fontSize: 10 }}>Existing shares ({shares.length})</p>
           <ul style={{ paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 4, marginTop: 8, maxHeight: 200, overflow: 'auto' }}>
             {shares.map((s) => (
@@ -138,7 +168,7 @@ export function ShareDialog({ open, resourceKind, resourceId, resourceLabel, onC
             ))}
             {shares.length === 0 && <li className="of-text-muted" style={{ fontSize: 11, fontStyle: 'italic' }}>Not shared.</li>}
           </ul>
-        </div>
+        </div>}
       </div>
     </div>
   );

@@ -96,14 +96,16 @@ func mintAccessToken(t *testing.T, secret string) string {
 	t.Helper()
 	jwt := authmw.NewJWTConfig(secret)
 	now := time.Now()
+	accessUse := "access"
 	claims := &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   now.Unix(),
-		EXP:   now.Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "retrieval-test@example.com",
-		Name:  "Retrieval Test",
-		Roles: []string{"user"},
+		Sub:      uuid.New(),
+		IAT:      now.Unix(),
+		EXP:      now.Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "retrieval-test@example.com",
+		Name:     "Retrieval Test",
+		Roles:    []string{"user"},
+		TokenUse: &accessUse,
 	}
 	tok, err := authmw.EncodeToken(jwt, claims)
 	require.NoError(t, err)

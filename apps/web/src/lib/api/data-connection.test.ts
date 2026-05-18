@@ -163,12 +163,15 @@ describe('data connection egress validation', () => {
     expect(validateEgressPolicy(policy({ kind: 'agent_proxy', proxy_mode: 'none' }))).toEqual(
       expect.arrayContaining([expect.objectContaining({ field: 'proxy_mode', severity: 'error' })]),
     );
+    expect(validateEgressPolicy(policy({ kind: 'same_region_bucket', bucket_name: '', bucket_access_level: 'read_write', port: { kind: 'single', value: '443' } }))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'bucket_name', severity: 'error' })]),
+    );
   });
 
   it('requires an active matching policy and allowed organization before testing', () => {
     expect(
       validateEgressPoliciesForConnectionTest([
-        policy({ kind: 'agent_proxy', proxy_mode: 'http_connect', status: 'pending_review', allowed_organizations: ['org-other'] }),
+        policy({ kind: 'agent_proxy', proxy_mode: 'http_connect', agents: ['agent-east-1'], status: 'pending_approval', allowed_organizations: ['org-other'] }),
       ], { expectedKind: 'agent_proxy', organizationId: 'org-main' }),
     ).toEqual(
       expect.arrayContaining([

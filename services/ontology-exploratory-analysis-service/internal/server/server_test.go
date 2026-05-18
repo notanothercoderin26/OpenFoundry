@@ -34,14 +34,16 @@ func testJWTConfig() *authmw.JWTConfig {
 func issueTestToken(t *testing.T, jwt *authmw.JWTConfig) string {
 	t.Helper()
 	now := time.Now()
+	accessUse := "access"
 	tok, err := authmw.EncodeToken(jwt, &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   now.Unix(),
-		EXP:   now.Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "ontology-eda-test@example.com",
-		Name:  "OEA Test",
-		Roles: []string{"admin"},
+		Sub:      uuid.New(),
+		IAT:      now.Unix(),
+		EXP:      now.Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "ontology-eda-test@example.com",
+		Name:     "OEA Test",
+		Roles:    []string{"admin"},
+		TokenUse: &accessUse,
 	})
 	require.NoError(t, err)
 	return tok

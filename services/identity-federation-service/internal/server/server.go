@@ -56,7 +56,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 	controlPanel := handlers.NewControlPanel()
 	if rbac != nil {
 		rbac.ControlPanel = controlPanel
-		if auth != nil {
+		if auth != nil && auth.Issuer != nil {
 			rbac.OAuthIssuer = auth.Issuer
 		}
 	}
@@ -202,6 +202,13 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Post("/third-party-applications/{id}/rotate-secret", rbac.RotateThirdPartyApplicationSecret)
 		api.Put("/third-party-applications/{id}/organizations/{organization_id}/enablement", rbac.UpsertThirdPartyApplicationEnablement)
 		api.Delete("/third-party-applications/{id}/organizations/{organization_id}/enablement", rbac.DisableThirdPartyApplicationEnablement)
+		api.Get("/third-party-applications/{id}/service-user", rbac.GetThirdPartyApplicationServiceUser)
+		api.Post("/third-party-applications/{id}/service-user", rbac.EnsureThirdPartyApplicationServiceUser)
+		api.Put("/third-party-applications/{id}/service-user/roles/{role_id}", rbac.AssignThirdPartyServiceUserRole)
+		api.Delete("/third-party-applications/{id}/service-user/roles/{role_id}", rbac.RevokeThirdPartyServiceUserRole)
+		api.Post("/third-party-applications/{id}/service-user/grants", rbac.CreateThirdPartyServiceUserGrant)
+		api.Delete("/third-party-applications/{id}/service-user/grants/{grant_id}", rbac.RevokeThirdPartyServiceUserGrant)
+		api.Get("/third-party-applications/{id}/service-user/audit", rbac.ListThirdPartyServiceUserAuditEvents)
 
 		api.Get("/oauth2/authorize", rbac.OAuthAuthorizePrompt)
 		api.Post("/oauth2/authorize/consent", rbac.OAuthConsent)

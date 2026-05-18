@@ -32,12 +32,25 @@ func TestCompassSearchResponseJSONShapeCMP8(t *testing.T) {
 				OwnerID:          &ownerID,
 				Tags:             []string{"ops"},
 				Summary:          "Daily operations project",
-				OpenURL:          "/projects/" + projectRID,
+				LongTextSources: []ResourceSearchTextSource{{
+					Kind:  ResourceSearchTextSourceReadme,
+					Label: "README.md",
+				}},
+				OpenURL: "/projects/" + projectRID,
 			},
-			Score: 0.75,
+			Score:   0.75,
+			Snippet: "Daily operations project",
 		}},
 		NextCursor: stringPtr("cursor-token"),
 		Limit:      50,
+		Facets: CompassSearchFacets{
+			Types: []CompassSearchFacetValue{{Key: "project", Label: "Project", Count: 1}},
+			Modified: []CompassSearchFacetValue{{
+				Key:   compassModifiedBucket7d,
+				Label: "Past 7 days",
+				Count: 1,
+			}},
+		},
 	})
 	require.NoError(t, err)
 
@@ -46,16 +59,30 @@ func TestCompassSearchResponseJSONShapeCMP8(t *testing.T) {
 	assert.Contains(t, view, "data")
 	assert.Contains(t, view, "next_cursor")
 	assert.Contains(t, view, "limit")
+	assert.Contains(t, view, "facets")
 
 	first := view["data"].([]any)[0].(map[string]any)
 	for _, key := range []string{
 		"rid", "type", "display_name", "owning_project_id",
 		"owning_project_rid", "organization_rids", "marking_rids",
 		"last_modified_at", "owner_id", "tags", "summary",
-		"open_url", "is_deleted", "score",
+		"long_text_sources", "open_url", "is_deleted", "score", "snippet",
 	} {
 		assert.Contains(t, first, key)
 	}
+}
+
+func TestCompassSearchSnippetCMP22(t *testing.T) {
+	terms := compassSearchSnippetTerms("fleet dashboard")
+	assert.Equal(t, []string{"fleet", "dashboard"}, terms)
+
+	snippet := buildCompassSearchSnippet(
+		"Operations overview. This README explains dispatch handoffs, fleet readiness signals, and dashboard escalation notes for the morning shift.",
+		terms,
+		72,
+	)
+	assert.Contains(t, snippet, "fleet readiness")
+	assert.Contains(t, snippet, "...")
 }
 
 func TestCompassSearchCursorRoundTripCMP8(t *testing.T) {
@@ -86,13 +113,14 @@ func TestParseCompassSearchParamsCMP8(t *testing.T) {
 	require.NoError(t, err)
 
 	params, status, msg := parseCompassSearchParams(url.Values{
-		"q":       {"operations"},
-		"type":    {"ontology_folder"},
-		"project": {projectRID},
-		"owner":   {ownerID.String()},
-		"marking": {"internal", "internal", " regulated "},
-		"limit":   {"999"},
-		"cursor":  {cursorToken},
+		"q":        {"operations"},
+		"type":     {"ontology_folder"},
+		"project":  {projectRID},
+		"owner":    {ownerID.String()},
+		"marking":  {"internal", "internal", " regulated "},
+		"modified": {"week"},
+		"limit":    {"999"},
+		"cursor":   {cursorToken},
 	})
 
 	require.Zero(t, status, msg)
@@ -104,6 +132,8 @@ func TestParseCompassSearchParamsCMP8(t *testing.T) {
 	require.NotNil(t, params.OwnerID)
 	assert.Equal(t, ownerID, *params.OwnerID)
 	assert.Equal(t, []string{"internal", "regulated"}, params.MarkingRIDs)
+	require.NotNil(t, params.ModifiedBucket)
+	assert.Equal(t, compassModifiedBucket7d, *params.ModifiedBucket)
 	assert.Equal(t, maxCompassSearchLimit, params.Limit)
 	require.NotNil(t, params.Cursor)
 	assert.Equal(t, cursorToken, mustEncodeCursor(t, *params.Cursor))
@@ -125,6 +155,10 @@ func TestParseCompassSearchParamsRejectsInvalidCMP8(t *testing.T) {
 	_, status, msg = parseCompassSearchParams(url.Values{"cursor": {"not-base64"}})
 	assert.Equal(t, 400, status)
 	assert.Contains(t, msg, "cursor")
+
+	_, status, msg = parseCompassSearchParams(url.Values{"modified": {"century"}})
+	assert.Equal(t, 400, status)
+	assert.Contains(t, msg, "modified")
 }
 
 func TestSearchCompassRequiresAuthCMP8(t *testing.T) {
