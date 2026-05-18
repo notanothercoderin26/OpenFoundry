@@ -1,5 +1,29 @@
 # global-branch-service
 
+## LLM quick context (current code)
+
+Coordinates global branches and participants across services.
+
+Agent note: legacy code-repo branch paths are not the source of truth; use /api/v1/global-branches.
+
+Current surface:
+- `/api/v1/global-branches*`
+- `/api/v1/global-branches/{id}/participants*`
+- `/api/v1/global-branches/{id}/merge|abandon`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `1` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `domain`, `handler`, `models`, `repo`, `server`.
+- Local service files present: `config.yaml`, `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `CONFIG_FILE`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Cross-application Global Branching surface (parity target tracked in
 [`docs/migration/foundry-global-branching-1to1-checklist.md`](../../docs/migration/foundry-global-branching-1to1-checklist.md)).
 

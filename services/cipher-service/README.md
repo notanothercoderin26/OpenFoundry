@@ -1,5 +1,28 @@
 # cipher-service
 
+## LLM quick context (current code)
+
+Placeholder backend for Cipher/key-management routes routed by edge-gateway.
+
+Agent note: most /api/v1/auth/cipher requests intentionally return structured 501 until the Cipher milestones land.
+
+Current surface:
+- `GET /_meta/capabilities`
+- `ANY /api/v1/auth/cipher* (501 placeholder)`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `1` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `audit`, `config`, `crypto`, `domain`, `handler`, `kms`, `repo`, `server`.
+- Local service files present: `config.yaml`, `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `CONFIG_FILE`, `DATABASE_URL`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Stub backend for `/api/v1/auth/cipher/*`. The edge gateway already
 routes that prefix to the `Cipher` upstream
 ([`router_table.go`](../edge-gateway-service/internal/proxy/router_table.go)),
