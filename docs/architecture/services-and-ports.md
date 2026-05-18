@@ -124,13 +124,11 @@ from `services/edge-gateway-service/internal/proxy/router_table.go`:
 
 The gateway's `UpstreamURLs` struct in
 [`services/edge-gateway-service/internal/config/config.go`](../../services/edge-gateway-service/internal/config/config.go)
-keeps **legacy alias fields** for every service that existed in the
-Rust gateway's `config.rs`, even when the bounded context has since
-been absorbed by another binary. The package doc-comment is explicit:
-
-> Field set + default ports MUST stay aligned with the Rust gateway's
-> config.rs so a single Helm values.yaml can drive both
-> implementations during the strangler-fig cutover.
+keeps **legacy alias fields** for service names and default ports that
+were exposed during the strangler-fig cutover, even when the bounded
+context has since been absorbed by another Go binary. The package
+doc-comment is explicit that the field set and defaults remain stable so
+one Helm `values.yaml` can continue to drive the gateway.
 
 The practical consequence is that several upstream keys point to a
 service that is **not** a separate binary on disk. The mapping is:

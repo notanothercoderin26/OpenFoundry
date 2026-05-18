@@ -124,8 +124,8 @@ issues = validate_transform(TransformDescriptor(
 The doc § "Limitations" rule — "Transforms that use the
 `use_external_systems` decorator are currently not compatible with
 Virtual Tables" — is enforced uniformly across the Python author
-surface and the Rust validator in
-`services/virtual-table-service/src/domain/code_imports.rs`.
+surface and the Go pipeline-build validator in
+`services/pipeline-build-service/internal/handler/virtual_table_workflow_validation.go`.
 
 ## Tests
 

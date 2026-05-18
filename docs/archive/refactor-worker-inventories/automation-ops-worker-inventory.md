@@ -445,7 +445,7 @@ into a single HTTP call.
 
 ## 12. Acceptance for Tarea 6.1
 
-* This document exists at `docs/architecture/refactor/automation-ops-worker-inventory.md`.
+* This document exists at `docs/archive/refactor-worker-inventories/automation-ops-worker-inventory.md`.
 * §2 documents the single workflow (`AutomationOpsTask`) with its
   full input / output / retry-policy / Temporal-feature footprint.
 * §3 documents the single activity (`ExecuteTask`) with its

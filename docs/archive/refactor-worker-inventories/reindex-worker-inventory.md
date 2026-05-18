@@ -241,7 +241,7 @@ This is the table that drives the Rust port in Tarea 4.2.
 
 ## 8. Acceptance for Tarea 4.1
 
-* This document exists at `docs/architecture/refactor/reindex-worker-inventory.md`.
+* This document exists at `docs/archive/refactor-worker-inventories/reindex-worker-inventory.md`.
 * Section 2.2 documents inputs (`TenantID`, `TypeID?`, `PageSize?`,
   `ResumeToken?`) and outputs (`Scanned`, `Published`, `Status`, `Error?`).
 * Section 5 identifies the cursor's current home (workflow

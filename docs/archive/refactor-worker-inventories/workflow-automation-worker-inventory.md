@@ -515,7 +515,7 @@ What stays:
 
 ## 11. Acceptance for Tarea 5.1
 
-* This document exists at `docs/architecture/refactor/workflow-automation-worker-inventory.md`.
+* This document exists at `docs/archive/refactor-worker-inventories/workflow-automation-worker-inventory.md`.
 * §2 documents the single workflow (`WorkflowAutomationRun`) with its
   full input / output / retry-policy / Temporal-feature footprint.
 * §3 documents the single activity (`ExecuteOntologyAction`) with its
