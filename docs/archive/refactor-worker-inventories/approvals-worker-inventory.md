@@ -465,7 +465,7 @@ What stays:
 
 ## 12. Acceptance for Tarea 7.1
 
-* This document exists at `docs/architecture/refactor/approvals-worker-inventory.md`.
+* This document exists at `docs/archive/refactor-worker-inventories/approvals-worker-inventory.md`.
 * §2 documents the single workflow with its full input / output /
   signal / timer / Temporal-feature footprint (first worker in the
   codebase that uses signals + timers).
