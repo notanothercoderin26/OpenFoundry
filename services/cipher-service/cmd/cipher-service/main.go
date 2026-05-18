@@ -176,13 +176,22 @@ func (e errUnknownBackendT) Error() string { return "unknown KMS backend: " + st
 func errUnknownBackend(b string) error { return errUnknownBackendT(b) }
 
 func buildAuditRecorder(cfg *config.Config, log *slog.Logger) (*audit.Recorder, func(), error) {
+	production := strings.EqualFold(os.Getenv("OPENFOUNDRY_ENV"), "production")
+	requireDelivery := true
+	if cfg.Audit.FailOpen && !production {
+		requireDelivery = false
+	}
+	if cfg.Audit.FailOpen && production {
+		log.Warn("OF_CIPHER_AUDIT_FAIL_OPEN ignored in production — critical cipher audit remains fail-closed")
+	}
+
 	brokers := strings.TrimSpace(os.Getenv("KAFKA_BOOTSTRAP_SERVERS"))
 	if brokers == "" {
-		if strings.EqualFold(os.Getenv("OPENFOUNDRY_ENV"), "production") {
+		if production {
 			return nil, nil, errors.New("KAFKA_BOOTSTRAP_SERVERS is required for cipher audit in production")
 		}
 		log.Warn("KAFKA_BOOTSTRAP_SERVERS unset — cipher audit recorder has no emitter in non-production")
-		return audit.NewRecorder(nil, log), nil, nil
+		return audit.NewRecorderWithPolicy(nil, log, requireDelivery), nil, nil
 	}
 	pub, err := databus.NewKafkaPublisher(databus.Config{BootstrapServers: strings.Split(brokers, ",")})
 	if err != nil {
@@ -193,5 +202,5 @@ func buildAuditRecorder(cfg *config.Config, log *slog.Logger) (*audit.Recorder, 
 		_ = pub.Close()
 		return nil, nil, err
 	}
-	return audit.NewRecorder(emitter, log), func() { _ = pub.Close() }, nil
+	return audit.NewRecorderWithPolicy(emitter, log, requireDelivery), func() { _ = pub.Close() }, nil
 }

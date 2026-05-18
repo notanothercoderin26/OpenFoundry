@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -53,6 +54,13 @@ type Config struct {
 		AnomalyWindow        string `koanf:"anomaly_window"`
 	} `koanf:"governance"`
 
+	// Audit controls whether critical encrypt/decrypt/tokenize/batch audit
+	// delivery errors fail closed. OF_CIPHER_AUDIT_FAIL_OPEN is accepted as an
+	// explicit dev/test override; production wiring ignores fail-open.
+	Audit struct {
+		FailOpen bool `koanf:"fail_open"`
+	} `koanf:"audit"`
+
 	// KMS picks the backend for wrapping DEKs. "local" reads
 	// OF_CIPHER_LOCAL_KEK from the env (dev/test). CIP.20 backend
 	// identifiers reserve Vault Transit, AWS KMS, GCP KMS, Azure Key
@@ -99,6 +107,13 @@ func Load(defaultsPath, envPath string) (*Config, error) {
 	}
 	if cfg.KMS.Backend == "" {
 		cfg.KMS.Backend = "local"
+	}
+	if raw := strings.TrimSpace(os.Getenv("OF_CIPHER_AUDIT_FAIL_OPEN")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse OF_CIPHER_AUDIT_FAIL_OPEN: %w", err)
+		}
+		cfg.Audit.FailOpen = v
 	}
 	return &cfg, nil
 }

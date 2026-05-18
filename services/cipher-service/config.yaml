@@ -27,6 +27,11 @@ governance:
   anomaly_burst_limit: 1000
   anomaly_window: "1h"
 
+audit:
+  # Critical encrypt/decrypt/tokenize/batch audit delivery fails closed by
+  # default. Dev/test can explicitly set OF_CIPHER_AUDIT_FAIL_OPEN=true.
+  fail_open: false
+
 database:
   # Honours DATABASE_URL when this stays empty (set by the
   # cipher-service Helm chart in prod).
