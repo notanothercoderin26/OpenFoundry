@@ -518,7 +518,10 @@ func (s *State) Tokenize(w http.ResponseWriter, r *http.Request) {
 	}
 	token := hashToken(pepper.Algorithm, material, []byte(req.Plaintext))
 	if claims != nil {
-		s.Audit.Operation(r.Context(), claims.Sub, tenant, id, "tokenize", string(pepper.Algorithm), "ri.cipher.main.pepper."+id.String(), true, "not_reversible", chimw.GetReqID(r.Context()), nil)
+		if err := s.Audit.Operation(r.Context(), claims.Sub, tenant, id, "tokenize", string(pepper.Algorithm), "ri.cipher.main.pepper."+id.String(), true, "not_reversible", chimw.GetReqID(r.Context()), nil); err != nil {
+			writeError(w, http.StatusInternalServerError, auditFailedMessage)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, tokenizeResponse{PepperID: id.String(), Algorithm: string(pepper.Algorithm), Token: token})
 }
@@ -1000,7 +1003,10 @@ func (s *State) Encrypt(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if claims, _ := authmw.FromContext(r.Context()); claims != nil {
-			s.Audit.Batch(r.Context(), claims.Sub, tenant, "encrypt", len(items), failures, chimw.GetReqID(r.Context()))
+			if err := s.Audit.Batch(r.Context(), claims.Sub, tenant, "encrypt", len(items), failures, chimw.GetReqID(r.Context())); err != nil {
+				writeError(w, http.StatusInternalServerError, auditFailedMessage)
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, out)
 		return
@@ -1012,7 +1018,11 @@ func (s *State) Encrypt(w http.ResponseWriter, r *http.Request) {
 	}
 	out := s.encryptOne(r, tenant, item)
 	if out.Error != "" {
-		writeError(w, http.StatusBadRequest, out.Error)
+		status := http.StatusBadRequest
+		if out.Error == auditFailedMessage {
+			status = http.StatusInternalServerError
+		}
+		writeError(w, status, out.Error)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -1058,7 +1068,10 @@ func (s *State) Decrypt(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if claims, _ := authmw.FromContext(r.Context()); claims != nil {
-			s.Audit.Batch(r.Context(), claims.Sub, tenant, "decrypt", len(items), failures, chimw.GetReqID(r.Context()))
+			if err := s.Audit.Batch(r.Context(), claims.Sub, tenant, "decrypt", len(items), failures, chimw.GetReqID(r.Context())); err != nil {
+				writeError(w, http.StatusInternalServerError, auditFailedMessage)
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, out)
 		return
@@ -1071,7 +1084,9 @@ func (s *State) Decrypt(w http.ResponseWriter, r *http.Request) {
 	out := s.decryptOne(r, tenant, item)
 	if out.Error != "" {
 		status := http.StatusBadRequest
-		if out.Error == "MarkingDenied" || out.Error == "access denied" {
+		if out.Error == auditFailedMessage {
+			status = http.StatusInternalServerError
+		} else if out.Error == "MarkingDenied" || out.Error == "access denied" {
 			status = http.StatusForbidden
 		}
 		writeError(w, status, out.Error)
@@ -1104,13 +1119,17 @@ func (s *State) encryptOne(r *http.Request, tenant uuid.UUID, in encryptItem) en
 	}
 	if in.Algorithm != "" && domain.Algorithm(in.Algorithm) != k.Algorithm {
 		res.Error = "algorithm mismatch"
-		s.auditOperation(r, tenant, keyID, cipherOpEncrypt, string(k.Algorithm), in.ResourceRID, false, "not_checked", k.Markings)
+		if err := s.auditOperation(r, tenant, keyID, cipherOpEncrypt, string(k.Algorithm), in.ResourceRID, false, "not_checked", k.Markings); err != nil {
+			res.Error = auditFailedMessage
+		}
 		return res
 	}
 	claims, _ := authmw.FromContext(r.Context())
 	if err := authorizeKeyOperation(r.Context(), claims, k, cipherOpEncrypt); err != nil {
 		res.Error = "access denied"
-		s.auditOperation(r, tenant, keyID, cipherOpEncrypt, string(k.Algorithm), in.ResourceRID, false, "not_checked", k.Markings)
+		if err := s.auditOperation(r, tenant, keyID, cipherOpEncrypt, string(k.Algorithm), in.ResourceRID, false, "not_checked", k.Markings); err != nil {
+			res.Error = auditFailedMessage
+		}
 		return res
 	}
 
@@ -1132,7 +1151,9 @@ func (s *State) encryptOne(r *http.Request, tenant uuid.UUID, in encryptItem) en
 		plaintext, err = base64.StdEncoding.DecodeString(in.PlaintextB64)
 		if err != nil {
 			res.Error = "plaintext_b64 is not valid base64"
-			s.auditOperation(r, tenant, keyID, cipherOpEncrypt, string(k.Algorithm), in.ResourceRID, false, "not_checked", k.Markings)
+			if err := s.auditOperation(r, tenant, keyID, cipherOpEncrypt, string(k.Algorithm), in.ResourceRID, false, "not_checked", k.Markings); err != nil {
+				res.Error = auditFailedMessage
+			}
 			return res
 		}
 	} else {
@@ -1141,13 +1162,17 @@ func (s *State) encryptOne(r *http.Request, tenant uuid.UUID, in encryptItem) en
 	envelope, err := cryptopkg.Encrypt(keyID, k.Version, k.Algorithm, dek, plaintext)
 	if err != nil {
 		res.Error = "encrypt failed"
-		s.auditOperation(r, tenant, keyID, cipherOpEncrypt, string(k.Algorithm), in.ResourceRID, false, "not_checked", k.Markings)
+		if err := s.auditOperation(r, tenant, keyID, cipherOpEncrypt, string(k.Algorithm), in.ResourceRID, false, "not_checked", k.Markings); err != nil {
+			res.Error = auditFailedMessage
+		}
 		return res
+	}
+	if err := s.auditOperation(r, tenant, keyID, cipherOpEncrypt, string(k.Algorithm), in.ResourceRID, true, "not_checked", k.Markings); err != nil {
+		return encryptResult{KeyID: keyID.String(), Error: auditFailedMessage}
 	}
 	res.Version = k.Version
 	res.CiphertextB64 = base64.StdEncoding.EncodeToString(envelope)
 	res.Ciphertext = res.CiphertextB64
-	s.auditOperation(r, tenant, keyID, cipherOpEncrypt, string(k.Algorithm), in.ResourceRID, true, "not_checked", k.Markings)
 	return res
 }
 
@@ -1200,16 +1225,22 @@ func (s *State) decryptOne(r *http.Request, tenant uuid.UUID, in decryptItem) de
 	}
 	claims, _ := authmw.FromContext(r.Context())
 	if err := authorizeKeyOperation(r.Context(), claims, k, cipherOpDecrypt); err != nil {
-		s.auditOperation(r, tenant, keyID, cipherOpDecrypt, string(k.Algorithm), in.ResourceRID, false, "not_checked", appendMarkings(k.Markings, in.ResourceMarkings))
+		if err := s.auditOperation(r, tenant, keyID, cipherOpDecrypt, string(k.Algorithm), in.ResourceRID, false, "not_checked", appendMarkings(k.Markings, in.ResourceMarkings)); err != nil {
+			return decryptResult{Error: auditFailedMessage}
+		}
 		return decryptResult{Error: "access denied"}
 	}
-	if claims != nil && !s.Budgets.Allow(claims.Sub, keyID) {
-		s.auditOperation(r, tenant, keyID, cipherOpDecrypt, string(k.Algorithm), in.ResourceRID, false, "budget_exceeded", appendMarkings(k.Markings, in.ResourceMarkings))
+	if claims != nil && s.Budgets != nil && !s.Budgets.Allow(claims.Sub, keyID) {
+		if err := s.auditOperation(r, tenant, keyID, cipherOpDecrypt, string(k.Algorithm), in.ResourceRID, false, "budget_exceeded", appendMarkings(k.Markings, in.ResourceMarkings)); err != nil {
+			return decryptResult{Error: auditFailedMessage}
+		}
 		return decryptResult{Error: "decrypt budget exceeded"}
 	}
 	markings := appendMarkings(k.Markings, in.ResourceMarkings)
 	if denied := firstDeniedMarking(claims, markings); denied != "" {
-		s.auditOperation(r, tenant, keyID, cipherOpDecrypt, string(k.Algorithm), in.ResourceRID, false, "denied:"+denied, markings)
+		if err := s.auditOperation(r, tenant, keyID, cipherOpDecrypt, string(k.Algorithm), in.ResourceRID, false, "denied:"+denied, markings); err != nil {
+			return decryptResult{Error: auditFailedMessage}
+		}
 		return decryptResult{Error: "MarkingDenied"}
 	}
 
@@ -1223,25 +1254,31 @@ func (s *State) decryptOne(r *http.Request, tenant uuid.UUID, in decryptItem) de
 	}
 	plaintext, err := cryptopkg.Decrypt(keyID, version, k.Algorithm, dek, envelope)
 	if err != nil {
-		s.auditOperation(r, tenant, keyID, cipherOpDecrypt, string(k.Algorithm), in.ResourceRID, false, "passed", markings)
+		if err := s.auditOperation(r, tenant, keyID, cipherOpDecrypt, string(k.Algorithm), in.ResourceRID, false, "passed", markings); err != nil {
+			return decryptResult{Error: auditFailedMessage}
+		}
 		return decryptResult{Error: "decrypt failed"}
 	}
-	s.auditOperation(r, tenant, keyID, cipherOpDecrypt, string(k.Algorithm), in.ResourceRID, true, "passed", markings)
+	if err := s.auditOperation(r, tenant, keyID, cipherOpDecrypt, string(k.Algorithm), in.ResourceRID, true, "passed", markings); err != nil {
+		return decryptResult{Error: auditFailedMessage}
+	}
 	return decryptResult{Plaintext: string(plaintext), PlaintextB64: base64.StdEncoding.EncodeToString(plaintext)}
 }
 
 // ─── Common helpers ───────────────────────────────────────────────────
 
-func (s *State) auditOperation(r *http.Request, tenant uuid.UUID, keyID uuid.UUID, operation, algorithm, resourceRID string, success bool, markingResult string, markings []string) {
+const auditFailedMessage = "audit_failed"
+
+func (s *State) auditOperation(r *http.Request, tenant uuid.UUID, keyID uuid.UUID, operation, algorithm, resourceRID string, success bool, markingResult string, markings []string) error {
 	claims, _ := authmw.FromContext(r.Context())
 	if claims == nil {
-		return
+		return nil
 	}
 	requestID := chimw.GetReqID(r.Context())
 	if requestID == "" {
 		requestID = r.Header.Get("X-Request-Id")
 	}
-	s.Audit.Operation(r.Context(), claims.Sub, tenant, keyID, operation, algorithm, resourceRID, success, markingResult, requestID, markings)
+	return s.Audit.Operation(r.Context(), claims.Sub, tenant, keyID, operation, algorithm, resourceRID, success, markingResult, requestID, markings)
 }
 
 func appendMarkings(a, b []string) []string {

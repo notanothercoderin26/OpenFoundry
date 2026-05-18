@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	audittrail "github.com/openfoundry/openfoundry-go/libs/audit-trail"
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/audit"
@@ -22,6 +24,28 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/kms"
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/repo"
 )
+
+type fakeAuditEmitter struct {
+	mu     sync.Mutex
+	err    error
+	events []audittrail.AuditEvent
+}
+
+func (f *fakeAuditEmitter) Emit(_ context.Context, event audittrail.AuditEvent, _ audittrail.AuditContext) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, event)
+	if f.err != nil {
+		return f.err
+	}
+	return nil
+}
+
+func (f *fakeAuditEmitter) snapshot() []audittrail.AuditEvent {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]audittrail.AuditEvent(nil), f.events...)
+}
 
 // memRepo is a tiny in-memory Repository for handler tests. Not
 // exposed outside this file — production wiring uses *repo.Repo.
@@ -301,9 +325,10 @@ func newTestState(t *testing.T) *State {
 		t.Fatalf("NewLocalKMS: %v", err)
 	}
 	return &State{
-		Repo:  newMemRepo(),
-		KMS:   k,
-		Audit: audit.NewRecorder(nil, nil), // emitter omitted; Recorder is nil-safe
+		Repo:    newMemRepo(),
+		KMS:     k,
+		Audit:   audit.NewRecorder(nil, nil), // emitter omitted; Recorder is nil-safe
+		Budgets: NewDecryptBudgetManager(0, time.Hour),
 	}
 }
 
@@ -531,6 +556,152 @@ func TestSingleEncryptDecrypt_SelfDescribingEnvelope(t *testing.T) {
 	dec := decode[decryptResult](t, w)
 	if dec.Plaintext != "hello" {
 		t.Fatalf("plaintext=%q", dec.Plaintext)
+	}
+}
+
+func TestCriticalAuditDelivery_SuccessAllowsEncryptDecrypt(t *testing.T) {
+	t.Parallel()
+	tenant := uuid.New()
+	state := newTestState(t)
+	emitter := &fakeAuditEmitter{}
+	state.Audit = audit.NewRecorderWithPolicy(emitter, nil, true)
+	r := buildRouter(state, tenant)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/keys", bytes.NewBufferString(`{"name":"audit-ok"}`)))
+	created := decode[keyResponse](t, w)
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/encrypt", bytes.NewBufferString(`{"key_id":"`+created.ID+`","plaintext":"secret-value"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("encrypt status=%d body=%s", w.Code, w.Body.String())
+	}
+	enc := decode[encryptResult](t, w)
+	if enc.Ciphertext == "" {
+		t.Fatalf("ciphertext missing: %+v", enc)
+	}
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/decrypt", bytes.NewBufferString(`{"ciphertext":"`+enc.Ciphertext+`"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("decrypt status=%d body=%s", w.Code, w.Body.String())
+	}
+	dec := decode[decryptResult](t, w)
+	if dec.Plaintext != "secret-value" {
+		t.Fatalf("plaintext=%q", dec.Plaintext)
+	}
+}
+
+func TestCriticalAuditDelivery_FailClosedBlocksEncryptDecryptAndTokenize(t *testing.T) {
+	t.Parallel()
+	tenant := uuid.New()
+	state := newTestState(t)
+	emitter := &fakeAuditEmitter{err: errors.New("audit bus down")}
+	state.Audit = audit.NewRecorderWithPolicy(emitter, slog.Default(), true)
+	r := buildRouter(state, tenant)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/keys", bytes.NewBufferString(`{"name":"audit-closed"}`)))
+	created := decode[keyResponse](t, w)
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/encrypt", bytes.NewBufferString(`{"key_id":"`+created.ID+`","plaintext":"do-not-release"}`)))
+	if w.Code != http.StatusInternalServerError || !bytes.Contains(w.Body.Bytes(), []byte(auditFailedMessage)) {
+		t.Fatalf("expected audit_failed 500, status=%d body=%s", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("ciphertext")) || bytes.Contains(w.Body.Bytes(), []byte("do-not-release")) {
+		t.Fatalf("fail-closed response leaked data: %s", w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/peppers", bytes.NewBufferString(`{"name":"pepper-fail","algorithm":"SHA_256"}`)))
+	pepper := decode[pepperResponse](t, w)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/tokenize", bytes.NewBufferString(`{"pepper_id":"`+pepper.ID+`","plaintext":"alice@example.com"}`)))
+	if w.Code != http.StatusInternalServerError || !bytes.Contains(w.Body.Bytes(), []byte(auditFailedMessage)) {
+		t.Fatalf("expected tokenize audit_failed 500, status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	state.Audit = audit.NewRecorderWithPolicy(&fakeAuditEmitter{}, nil, true)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/encrypt", bytes.NewBufferString(`{"key_id":"`+created.ID+`","plaintext":"decrypt-me"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("setup encrypt status=%d body=%s", w.Code, w.Body.String())
+	}
+	enc := decode[encryptResult](t, w)
+	state.Audit = audit.NewRecorderWithPolicy(emitter, slog.Default(), true)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/decrypt", bytes.NewBufferString(`{"ciphertext":"`+enc.Ciphertext+`"}`)))
+	if w.Code != http.StatusInternalServerError || !bytes.Contains(w.Body.Bytes(), []byte(auditFailedMessage)) {
+		t.Fatalf("expected decrypt audit_failed 500, status=%d body=%s", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("decrypt-me")) {
+		t.Fatalf("decrypt fail-closed response leaked plaintext: %s", w.Body.String())
+	}
+}
+
+func TestCriticalAuditDelivery_FailOpenAllowsDevEncrypt(t *testing.T) {
+	t.Parallel()
+	tenant := uuid.New()
+	state := newTestState(t)
+	emitter := &fakeAuditEmitter{err: errors.New("audit bus down")}
+	state.Audit = audit.NewRecorderWithPolicy(emitter, slog.Default(), false)
+	r := buildRouter(state, tenant)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/keys", bytes.NewBufferString(`{"name":"audit-open"}`)))
+	created := decode[keyResponse](t, w)
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/encrypt", bytes.NewBufferString(`{"key_id":"`+created.ID+`","plaintext":"allowed-in-dev"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("encrypt status=%d body=%s", w.Code, w.Body.String())
+	}
+	enc := decode[encryptResult](t, w)
+	if enc.Ciphertext == "" {
+		t.Fatalf("ciphertext missing: %+v", enc)
+	}
+}
+
+func TestCriticalAuditDelivery_FailurePathAndBatchAudit(t *testing.T) {
+	t.Parallel()
+	tenant := uuid.New()
+	state := newTestState(t)
+	emitter := &fakeAuditEmitter{}
+	state.Audit = audit.NewRecorderWithPolicy(emitter, nil, true)
+	r := buildRouter(state, tenant)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/keys", bytes.NewBufferString(`{"name":"audit-failure"}`)))
+	created := decode[keyResponse](t, w)
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/encrypt", bytes.NewBufferString(`{"key_id":"`+created.ID+`","algorithm":"AES_256_SIV","plaintext":"secret"}`)))
+	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("algorithm mismatch")) {
+		t.Fatalf("expected algorithm mismatch, status=%d body=%s", w.Code, w.Body.String())
+	}
+	seenFailure := false
+	for _, event := range emitter.snapshot() {
+		if event.Kind == audit.EventCipherEncrypt && event.AccessPattern == "failure" {
+			seenFailure = true
+			if bytes.Contains([]byte(event.Name+event.Path+event.ResourceRID), []byte("secret")) {
+				t.Fatalf("audit event leaked plaintext: %+v", event)
+			}
+		}
+	}
+	if !seenFailure {
+		t.Fatalf("failure audit event not emitted: %+v", emitter.snapshot())
+	}
+
+	emitter.err = errors.New("batch audit down")
+	w = httptest.NewRecorder()
+	batch := `[{"key_id":"` + created.ID + `","plaintext":"batch-secret"}]`
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/encrypt", bytes.NewBufferString(batch)))
+	if w.Code != http.StatusInternalServerError || !bytes.Contains(w.Body.Bytes(), []byte(auditFailedMessage)) {
+		t.Fatalf("expected batch audit_failed 500, status=%d body=%s", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("batch-secret")) || bytes.Contains(w.Body.Bytes(), []byte("ciphertext")) {
+		t.Fatalf("batch fail-closed response leaked data: %s", w.Body.String())
 	}
 }
 
