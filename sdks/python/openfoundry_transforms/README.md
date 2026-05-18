@@ -100,8 +100,9 @@ target's capability slot does not advertise `append_only_supported`
 
 ## Build-time validation
 
-The SDK exposes the same rules `services/virtual-table-service`
-enforces server-side, so `code-repository-review-service` (or any CI
+The SDK exposes the same rules the current virtual-table owner,
+`services/connector-management-service` (via the `virtual_table_service_url`
+gateway legacy alias), enforces server-side, so `code-repository-review-service` (or any CI
 that loads the transform module) can refuse builds before they hit
 the runtime:
 

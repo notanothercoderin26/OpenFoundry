@@ -77,7 +77,7 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 - [x] `CIP.1` Algorithm registry (`P0`, `done`)
   - Built-in modes: `AES_256_GCM_SIV` (authenticated, recommended default), `AES_256_GCM` (authenticated, non-deterministic), `SHA_256` and `SHA_512` (with pepper, P1).
   - Each algorithm records key length, nonce policy, output encoding (base64 default), and a stable identifier used in ciphertext envelopes.
-  - Implemented in `services/cipher-service/internal/domain` as an immutable built-in registry and exposed at `GET /api/v1/auth/cipher/algorithms` for authenticated callers with `cipher.keys.read`.
+  - Implemented in `services/cipher-service/internal/domain` as an immutable built-in registry and exposed through the gateway `Cipher` alias at `GET /api/v1/auth/cipher/algorithms` for authenticated callers with `cipher.keys.read`.
   - Docs: [Algorithms and modes](https://www.palantir.com/docs/foundry/cipher/algorithms).
 
 - [x] `CIP.2` Cipher key resource (`P0`, `done`)
