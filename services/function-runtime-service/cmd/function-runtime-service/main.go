@@ -71,8 +71,8 @@ func main() {
 		MemoryLimitMiB: cfg.Executor.MemoryLimitMiB,
 	}
 	registry := executor.NewRegistry()
-	registry.Register("ts", executor.NewTSStubExecutor(cfg.Executor.NodeBinary, limits))
-	registry.Register("python", executor.NewPythonStubExecutor(cfg.Executor.PythonBinary, limits))
+	registry.Register("ts", executor.NewTSProcessExecutor(cfg.Executor.NodeBinary, limits))
+	registry.Register("python", executor.NewPythonProcessExecutor(cfg.Executor.PythonBinary, limits))
 
 	h := &handlers.Handlers{
 		Store:          store,

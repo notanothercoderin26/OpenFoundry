@@ -12,10 +12,8 @@
 //     fail fast so the service never silently falls back to a weaker
 //     primitive.
 //
-//   - AWSKMSStub — placeholder honouring the KMS interface but
-//     returning ErrAWSNotImplemented from every call. Wired so the
-//     server config can declare the backend today; the real client
-//     ships with Milestone C (CIP.20).
+//   - AWSKMSClient — fail-closed AWS backend wiring point. This build refuses
+//     to start for aws/aws_kms unless a real client implementation is linked.
 //
 // External KMS providers (Vault Transit, GCP KMS, Azure Key Vault)
 // plug into the same interface — each adds a new file in this
@@ -70,9 +68,7 @@ var (
 	// bytes that fail AEAD authentication or are too short.
 	ErrWrappedMaterialInvalid = errors.New("cipher kms: wrapped key material is invalid")
 
-	// ErrAWSNotImplemented is the stub-only sentinel returned by
-	// AWSKMSStub until Milestone C wires a real client.
-	ErrAWSNotImplemented = errors.New("cipher kms: aws backend not implemented")
+	ErrAWSKeyMissing = errors.New("cipher kms: aws key ARN is required")
 )
 
 // LocalKMS wraps DEKs with a single 32-byte KEK held in process
@@ -151,27 +147,6 @@ func (l *LocalKMS) Unwrap(wrapped []byte) ([]byte, error) {
 // "local:env:<var>" so audit logs can distinguish a dev KEK from a
 // future production KMS reference.
 func (l *LocalKMS) Ref() string { return l.ref }
-
-// AWSKMSStub honours the KMS interface but is not wired to AWS yet.
-// Construction succeeds; calls return ErrAWSNotImplemented so the
-// server can declare the intent (config-driven backend selection)
-// without shipping the runtime path.
-type AWSKMSStub struct {
-	keyARN string
-}
-
-// NewAWSKMSStub records the target ARN so Ref() emits something
-// useful while the real client is still pending (CIP.20).
-func NewAWSKMSStub(keyARN string) *AWSKMSStub {
-	if keyARN == "" {
-		keyARN = "stub"
-	}
-	return &AWSKMSStub{keyARN: keyARN}
-}
-
-func (s *AWSKMSStub) Wrap(_ []byte) ([]byte, error)   { return nil, ErrAWSNotImplemented }
-func (s *AWSKMSStub) Unwrap(_ []byte) ([]byte, error) { return nil, ErrAWSNotImplemented }
-func (s *AWSKMSStub) Ref() string                     { return "aws:kms:" + s.keyARN }
 
 // Backend identifies a configured KMS/HSM provider.
 type Backend string

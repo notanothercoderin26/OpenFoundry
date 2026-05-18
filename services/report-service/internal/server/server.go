@@ -1,5 +1,5 @@
 // Package server wires the HTTP router, middleware and graceful
-// shutdown for the report-service stub.
+// shutdown for report-service.
 package server
 
 import (
@@ -39,14 +39,9 @@ func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger) (
 	r.Get("/healthz", handlers.Health(cfg.Service.Name, cfg.Service.Version))
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
-	placeholder := handlers.NotImplemented(cfg.Service.Name, cfg.Milestone)
+	reports := handlers.NewReportsHandler(handlers.NewMemoryReportStore())
 	api := r.With(authmw.Middleware(jwtCfg))
-	// Single gateway-mapped surface today: every method/path under
-	// /api/v1/reports (router_table.go `u.Report` branch). The frontend
-	// hits /reports/{overview,catalog,definitions,schedules,executions/*}
-	// — all covered by this prefix.
-	api.Handle("/api/v1/reports", placeholder)
-	api.Handle("/api/v1/reports/*", placeholder)
+	api.Route("/api/v1/reports", reports.Mount)
 
 	s := &Server{
 		cfg: cfg,

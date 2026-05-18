@@ -3,7 +3,6 @@ package mysql
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -102,14 +101,23 @@ func TestDiscoverSourcesFetchesRemoteCatalog(t *testing.T) {
 	require.Equal(t, "Orders", sources[0].DisplayName)
 }
 
-func TestStreamArrowReturnsNotImplemented(t *testing.T) {
-	_, err := New().StreamArrow(context.Background(), &models.Connection{}, &adapters.Query{}, "")
-	require.True(t, errors.Is(err, adapters.ErrNotImplemented))
+func TestStreamArrowReturnsFrame(t *testing.T) {
+	c := &models.Connection{Config: json.RawMessage(`{"host":"mysql.internal","tables":[{"table":"analytics.orders","sample_rows":[{"id":1}]}]}`)}
+	limit := 1
+	stream, err := New().StreamArrow(context.Background(), c, &adapters.Query{Selector: "analytics.orders", Limit: &limit}, "")
+	require.NoError(t, err)
+	frame, err := stream.Next(context.Background())
+	require.NoError(t, err)
+	require.Contains(t, string(frame), "openfoundry.arrow.ipc.json.v1")
 }
 
-func TestBuildIngestSpecReturnsNotImplemented(t *testing.T) {
-	_, err := New().BuildIngestSpec(context.Background(), &models.Connection{}, &adapters.Source{})
-	require.True(t, errors.Is(err, adapters.ErrNotImplemented))
+func TestBuildIngestSpecRedactsSecrets(t *testing.T) {
+	c := &models.Connection{Name: "orders", Config: json.RawMessage(`{"host":"mysql.internal","database":"analytics","password":"secret","tables":[{"table":"analytics.orders"}]}`)}
+	spec, err := New().BuildIngestSpec(context.Background(), c, &adapters.Source{Selector: "analytics.orders"})
+	require.NoError(t, err)
+	require.Equal(t, "mysql", spec.Source)
+	require.NotContains(t, string(spec.Config), "secret")
+	require.Contains(t, string(spec.Config), "analytics.orders")
 }
 
 func TestFactoryProducesFreshAdapter(t *testing.T) {

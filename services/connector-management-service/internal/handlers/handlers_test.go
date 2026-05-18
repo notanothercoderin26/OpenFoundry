@@ -3294,7 +3294,7 @@ func TestVirtualTableQueryUsesAdapterAndReportsPushdown(t *testing.T) {
 	assert.NotEmpty(t, response.Limitations)
 }
 
-func TestVirtualTableQueryFallbackExposesUnsupportedLimitations(t *testing.T) {
+func TestVirtualTableQueryAdapterUnavailableReturnsExplicitError(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
 	sourceRID := store.connections[0].ID.String()
@@ -3304,13 +3304,7 @@ func TestVirtualTableQueryFallbackExposesUnsupportedLimitations(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.EnableVirtualTableSource(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
-	body := `{
-		"project_rid":"ri.project.query",
-		"locator":{"kind":"file","bucket":"warehouse","prefix":"orders","format":"parquet"},
-		"table_type":"PARQUET_FILES",
-		"schema_inferred":[{"name":"path","source_type":"STRING","inferred_type":"string","nullable":false}],
-		"capabilities":{"read":true,"write":true,"incremental":false,"versioning":false,"compute_pushdown":null,"snapshot_supported":false,"append_only_supported":false,"foundry_compute":{"python_single_node":false,"python_spark":false,"pipeline_builder_single_node":false,"pipeline_builder_spark":false}}
-	}`
+	body := `{"project_rid":"ri.project.query","locator":{"kind":"file","bucket":"warehouse","prefix":"orders","format":"parquet"},"table_type":"PARQUET_FILES","schema_inferred":[{"name":"path","source_type":"STRING","inferred_type":"string","nullable":false}],"capabilities":{"read":true,"write":true,"incremental":false,"versioning":false,"compute_pushdown":null,"snapshot_supported":false,"append_only_supported":false,"foundry_compute":{"python_single_node":false,"python_spark":false,"pipeline_builder_single_node":false,"pipeline_builder_spark":false}}}`
 	req = withRouteParam(authedReq("POST", "/sources/virtual-tables", body, owner), "source_rid", sourceRID)
 	rec = httptest.NewRecorder()
 	h.CreateVirtualTable(rec, req)
@@ -3321,17 +3315,8 @@ func TestVirtualTableQueryFallbackExposesUnsupportedLimitations(t *testing.T) {
 	req = withRouteParam(authedReq("POST", "/virtual-tables/"+created.RID+"/query", `{"requires_foundry_compute":true,"limit":2}`, owner), "rid", created.RID)
 	rec = httptest.NewRecorder()
 	h.QueryVirtualTable(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-	var response models.VirtualTableQueryResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
-	assert.Equal(t, "openfoundry", response.ComputeLocation)
-	require.NotNil(t, response.Pushdown)
-	assert.False(t, response.Pushdown.UsesCopiedDataset)
-	require.Len(t, response.Rows, 2)
-	bodyText := rec.Body.String()
-	assert.Contains(t, bodyText, "openfoundry_compute_usage")
-	assert.Contains(t, bodyText, "virtual_table_adapter_unavailable")
-	assert.Contains(t, bodyText, `"direct_query":true`)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Contains(t, rec.Body.String(), "virtual table adapter unavailable for real preview")
 }
 
 func TestVirtualTableUpdateDetectionSkipsUnchangedDownstreamBuildsAndShowsLineage(t *testing.T) {
