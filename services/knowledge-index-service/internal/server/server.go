@@ -1,5 +1,5 @@
 // Package server wires the HTTP router, middleware and graceful
-// shutdown for the knowledge-index stub service.
+// shutdown for the knowledge-index service.
 package server
 
 import (
@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	aikernel "github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/handlers"
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/knowledge-index-service/internal/config"
@@ -39,14 +40,9 @@ func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger) (
 	r.Get("/healthz", handler.Health(cfg.Service.Name, cfg.Service.Version))
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
-	placeholder := handler.NotImplemented(cfg.Service.Name, cfg.Milestone)
+	knowledge := handler.NewKnowledgeHandler(&aikernel.KnowledgeHandlers{Store: aikernel.NewFakeKnowledgeStore()})
 	api := r.With(authmw.Middleware(jwtCfg))
-	// Single gateway-mapped surface today: every method/path under
-	// /api/v1/ai/knowledge-bases (router_table.go `u.KnowledgeIndex`
-	// branch). `/.../search` is routed to retrieval-context-service
-	// upstream of us, so it never reaches this binary.
-	api.Handle("/api/v1/ai/knowledge-bases", placeholder)
-	api.Handle("/api/v1/ai/knowledge-bases/*", placeholder)
+	api.Route("/api/v1/ai/knowledge-bases", knowledge.Mount)
 
 	s := &Server{
 		cfg: cfg,

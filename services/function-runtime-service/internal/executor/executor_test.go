@@ -55,27 +55,27 @@ func TestRegistry_DispatchesByRuntime(t *testing.T) {
 	}
 }
 
-func TestTSStubExecutor_MissingBinary(t *testing.T) {
+func TestTSProcessExecutor_MissingBinary(t *testing.T) {
 	t.Parallel()
-	ex := executor.NewTSStubExecutor("/non/existent/node-binary-for-test", executor.Limits{Timeout: time.Second})
+	ex := executor.NewTSProcessExecutor("/non/existent/node-binary-for-test", executor.Limits{Timeout: time.Second})
 	_, err := ex.Execute(context.Background(),
 		models.FunctionDefinition{Runtime: models.RuntimeTypeScript},
 		models.FunctionVersion{SourceURI: "inline:console.log('{}')"},
 		nil)
-	if !errors.Is(err, executor.ErrNotImplemented) {
-		t.Fatalf("expected ErrNotImplemented, got %v", err)
+	if !errors.Is(err, executor.ErrRuntimeUnavailable) {
+		t.Fatalf("expected ErrRuntimeUnavailable, got %v", err)
 	}
 }
 
-// TestTSStubExecutor_RoundTrip is skipped when `node` is not on $PATH
+// TestTSProcessExecutor_RoundTrip is skipped when `node` is not on $PATH
 // so the test suite stays green on minimal CI images.
-func TestTSStubExecutor_RoundTrip(t *testing.T) {
+func TestTSProcessExecutor_RoundTrip(t *testing.T) {
 	t.Parallel()
 	if !hasBinary("node") {
 		t.Skip("node binary unavailable; skipping live runtime test")
 	}
 	body := `let data=''; process.stdin.on('data', c=>data+=c); process.stdin.on('end', ()=>{process.stdout.write(JSON.stringify({echo: JSON.parse(data)}))})`
-	ex := executor.NewTSStubExecutor("", executor.Limits{Timeout: 5 * time.Second})
+	ex := executor.NewTSProcessExecutor("", executor.Limits{Timeout: 5 * time.Second})
 	res, err := ex.Execute(context.Background(),
 		models.FunctionDefinition{Runtime: models.RuntimeTypeScript},
 		models.FunctionVersion{SourceURI: "inline:" + body},
@@ -88,7 +88,7 @@ func TestTSStubExecutor_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestTSStubExecutor_Timeout(t *testing.T) {
+func TestTSProcessExecutor_Timeout(t *testing.T) {
 	t.Parallel()
 	if !hasBinary("node") {
 		t.Skip("node binary unavailable; skipping live runtime test")
@@ -96,7 +96,7 @@ func TestTSStubExecutor_Timeout(t *testing.T) {
 	// `while(true);` busy loop. Wrap in a 150ms timeout — runScript
 	// must return ErrExecutionTimeout, NOT ErrExecutionFailed.
 	body := `while (true) {}`
-	ex := executor.NewTSStubExecutor("", executor.Limits{Timeout: 150 * time.Millisecond})
+	ex := executor.NewTSProcessExecutor("", executor.Limits{Timeout: 150 * time.Millisecond})
 	_, err := ex.Execute(context.Background(),
 		models.FunctionDefinition{Runtime: models.RuntimeTypeScript},
 		models.FunctionVersion{SourceURI: "inline:" + body},
@@ -106,13 +106,13 @@ func TestTSStubExecutor_Timeout(t *testing.T) {
 	}
 }
 
-func TestTSStubExecutor_CapturesStderrAndExitCode(t *testing.T) {
+func TestTSProcessExecutor_CapturesStderrAndExitCode(t *testing.T) {
 	t.Parallel()
 	if !hasBinary("node") {
 		t.Skip("node binary unavailable; skipping live runtime test")
 	}
 	body := `process.stderr.write('boom'); process.exit(3)`
-	ex := executor.NewTSStubExecutor("", executor.Limits{Timeout: 5 * time.Second})
+	ex := executor.NewTSProcessExecutor("", executor.Limits{Timeout: 5 * time.Second})
 	res, err := ex.Execute(context.Background(),
 		models.FunctionDefinition{Runtime: models.RuntimeTypeScript},
 		models.FunctionVersion{SourceURI: "inline:" + body},
@@ -131,13 +131,13 @@ func TestTSStubExecutor_CapturesStderrAndExitCode(t *testing.T) {
 func TestMaterialise_RejectsUnknownScheme(t *testing.T) {
 	t.Parallel()
 	// Drive the failure path through TS executor (any executor works).
-	ex := executor.NewTSStubExecutor("/bin/echo", executor.Limits{Timeout: time.Second}) // /bin/echo always present
+	ex := executor.NewTSProcessExecutor("/bin/echo", executor.Limits{Timeout: time.Second}) // /bin/echo always present
 	_, err := ex.Execute(context.Background(),
 		models.FunctionDefinition{Runtime: models.RuntimeTypeScript},
 		models.FunctionVersion{SourceURI: "http://example.com/script.js"},
 		nil)
-	if !errors.Is(err, executor.ErrNotImplemented) {
-		t.Fatalf("expected ErrNotImplemented for http source, got %v", err)
+	if !errors.Is(err, executor.ErrRuntimeUnavailable) {
+		t.Fatalf("expected ErrRuntimeUnavailable for http source, got %v", err)
 	}
 }
 

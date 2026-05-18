@@ -2000,15 +2000,17 @@ func (h *Handlers) QueryVirtualTable(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if errors.Is(err, adapters.ErrAdapterNotFound) || errors.Is(err, adapters.ErrNotImplemented) {
-			adapterLimitations = append(adapterLimitations, models.VirtualTableLimitation{
-				Code:        "virtual_table_adapter_unavailable",
-				Severity:    "warning",
-				Message:     "The connector adapter is not available for direct remote preview; showing metadata-backed rows instead.",
-				Remediation: "Register a connector adapter that implements QueryVirtualTable for this source type.",
-			})
+			writeJSONErr(w, http.StatusServiceUnavailable, "virtual table adapter unavailable for real preview")
+			return
 		}
 	}
 	if response == nil {
+		adapterLimitations = append(adapterLimitations, models.VirtualTableLimitation{
+			Code:        "virtual_table_metadata_preview",
+			Severity:    "warning",
+			Message:     "No connection is linked; returning metadata-derived preview marked as degraded.",
+			Remediation: "Link a connector connection to run a real adapter preview.",
+		})
 		response = virtualTableQueryFromMetadata(table, query)
 	}
 	decorateVirtualTableQueryResponse(table, connection, &query, response, adapterLimitations)

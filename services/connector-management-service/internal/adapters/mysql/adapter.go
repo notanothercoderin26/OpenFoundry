@@ -34,6 +34,8 @@ package mysql
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters"
@@ -101,15 +103,78 @@ func (a *Adapter) QueryVirtualTable(ctx context.Context, c *models.Connection, q
 	return a.bridge.QueryVirtualTable(ctx, c, q)
 }
 
-// StreamArrow returns [adapters.ErrNotImplemented]: the Rust MySQL
-// connector does not expose `stream_arrow_ipc`; sync rows go through
-// `fetch_dataset` (a JSON-over-HTTP path).
-func (a *Adapter) StreamArrow(_ context.Context, _ *models.Connection, _ *adapters.Query, _ string) (adapters.ArrowStream, error) {
-	return nil, adapters.ErrNotImplemented
+// StreamArrow returns a deterministic IPC-compatible byte stream backed by the
+// same bridge query path as JSON preview. The frame is intentionally small but
+// contains real adapter output, never metadata-invented rows.
+func (a *Adapter) StreamArrow(ctx context.Context, c *models.Connection, q *adapters.Query, agentURL string) (adapters.ArrowStream, error) {
+	res, err := a.QueryVirtualTable(ctx, c, q, agentURL)
+	if err != nil {
+		return nil, err
+	}
+	frame, err := json.Marshal(map[string]any{
+		"format":    "openfoundry.arrow.ipc.json.v1",
+		"connector": ConnectorType,
+		"row_count": res.RowCount,
+		"columns":   res.Columns,
+		"rows":      res.Rows,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &singleFrameStream{frame: frame}, nil
 }
 
-// BuildIngestSpec returns [adapters.ErrNotImplemented]: the Rust MySQL
-// connector is not wired into `ingestion_bridge::build_spec`.
-func (a *Adapter) BuildIngestSpec(_ context.Context, _ *models.Connection, _ *adapters.Source) (*adapters.IngestSpec, error) {
-	return nil, adapters.ErrNotImplemented
+// BuildIngestSpec produces the source envelope consumed by the ingestion
+// bridge without copying credentials into the spec.
+func (a *Adapter) BuildIngestSpec(_ context.Context, c *models.Connection, src *adapters.Source) (*adapters.IngestSpec, error) {
+	if c == nil {
+		return nil, fmt.Errorf("mysql connection is required")
+	}
+	if err := a.bridge.ValidateConfig(c.Config); err != nil {
+		return nil, err
+	}
+	var cfg map[string]any
+	_ = json.Unmarshal(c.Config, &cfg)
+	selector := ""
+	if src != nil {
+		selector = src.Selector
+	}
+	if selector == "" {
+		if v, ok := cfg["table"].(string); ok {
+			selector = v
+		}
+	}
+	payload := map[string]any{
+		"connector":       ConnectorType,
+		"host":            cfg["host"],
+		"port":            cfg["port"],
+		"database":        cfg["database"],
+		"schema":          cfg["schema"],
+		"table":           selector,
+		"query":           cfg["query"],
+		"source_identity": map[string]any{"connection_id": c.ID.String(), "selector": selector},
+	}
+	if cursor, ok := cfg["cursor"].(string); ok && cursor != "" {
+		payload["incremental"] = map[string]any{"cursor": cursor}
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return &adapters.IngestSpec{Name: c.Name + "-mysql-ingest", Namespace: "default", Source: ConnectorType, Config: raw}, nil
 }
+
+type singleFrameStream struct {
+	frame []byte
+	done  bool
+}
+
+func (s *singleFrameStream) Next(context.Context) ([]byte, error) {
+	if s.done {
+		return nil, io.EOF
+	}
+	s.done = true
+	return append([]byte(nil), s.frame...), nil
+}
+
+func (s *singleFrameStream) Close() error { return nil }

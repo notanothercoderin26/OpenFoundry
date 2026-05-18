@@ -1,14 +1,14 @@
 // Package executor runs user-authored function code under a timeout
 // and (where the kernel supports it) a memory limit.
 //
-// v0 ships shell-based stubs:
+// v0 ships shell-based process executors:
 //
 //   - TS: invokes `node <tempfile>` reading the function body from the
 //     SourceURI when it points at a local file (file:// or relative
 //     path). Stdout is treated as the JSON result.
 //   - Python: invokes `python3 <tempfile>` with the same contract.
 //
-// Both stubs are deliberately small. v1 will replace them with a
+// Both process executors are deliberately small. v1 will replace them with a
 // real isolated runtime (deno or v8go for TS; subinterpreter or wasm
 // for Python). See README.md in this package for the trade-off log.
 //
@@ -33,9 +33,9 @@ import (
 )
 
 // Sentinel signalling the runtime binary (node / python3) is not
-// installed. Surfaced separately so the HTTP layer can return 501
+// installed. Surfaced separately so the HTTP layer can return 503
 // instead of conflating it with a user-side execution failure.
-var ErrNotImplemented = errors.New("executor: runtime not implemented in this environment")
+var ErrRuntimeUnavailable = errors.New("executor: runtime unavailable in this environment")
 
 // Result is everything an executor returns when a run finishes.
 //
@@ -104,10 +104,10 @@ func (r *Registry) Execute(ctx context.Context, fn models.FunctionDefinition, ve
 // authored code does not inherit host secrets.
 func runScript(ctx context.Context, bin string, sourceURI string, input []byte, lim Limits) (*Result, error) {
 	if bin == "" {
-		return nil, fmt.Errorf("%w: empty binary path", ErrNotImplemented)
+		return nil, fmt.Errorf("%w: empty binary path", ErrRuntimeUnavailable)
 	}
 	if _, err := exec.LookPath(bin); err != nil {
-		return nil, fmt.Errorf("%w: %s not in $PATH (%v) — replace this stub with deno/isolated-vm/v8go for v1", ErrNotImplemented, bin, err)
+		return nil, fmt.Errorf("%w: %s not in $PATH (%v) — replace this runtime binary before enabling this runtime", ErrRuntimeUnavailable, bin, err)
 	}
 
 	scriptPath, cleanup, err := materialise(sourceURI)
@@ -181,7 +181,7 @@ func runScript(ctx context.Context, bin string, sourceURI string, input []byte, 
 //   - `/abs/path` or `./relative` — used as-is.
 //   - `inline:<body>` — written to a temp file (cleanup deletes it).
 //
-// Any other scheme returns ErrNotImplemented; v1 will wire fetches
+// Any other scheme returns ErrRuntimeUnavailable; v1 will wire fetches
 // against code-repository-service blobs.
 func materialise(sourceURI string) (string, func(), error) {
 	if sourceURI == "" {
@@ -213,7 +213,7 @@ func materialise(sourceURI string) (string, func(), error) {
 	}
 	u, err := url.Parse(sourceURI)
 	if err == nil && (u.Scheme == "http" || u.Scheme == "https" || u.Scheme == "code-repo") {
-		return "", nil, fmt.Errorf("%w: remote source_uri (%s) — wire code-repository-service fetch in v1", ErrNotImplemented, u.Scheme)
+		return "", nil, fmt.Errorf("%w: remote source_uri (%s) — wire code-repository-service fetch in v1", ErrRuntimeUnavailable, u.Scheme)
 	}
 	// Treat as a local path.
 	if _, err := os.Stat(sourceURI); err != nil {

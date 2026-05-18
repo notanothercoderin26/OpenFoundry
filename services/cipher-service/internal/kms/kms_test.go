@@ -2,6 +2,7 @@ package kms
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -139,16 +140,12 @@ func TestNewLocalKMSFromEnv_OK(t *testing.T) {
 	}
 }
 
-func TestAWSKMSStub_ReturnsNotImplemented(t *testing.T) {
+func TestAWSKMSClientFailsClosedInThisBuild(t *testing.T) {
 	t.Parallel()
-	stub := NewAWSKMSStub("arn:aws:kms:us-east-1:123456789012:key/abc")
-	if _, err := stub.Wrap([]byte{0x00}); !errors.Is(err, ErrAWSNotImplemented) {
-		t.Fatalf("Wrap error = %v, want ErrAWSNotImplemented", err)
+	if _, err := NewAWSKMSClient(context.Background(), "us-east-1", "", ""); !errors.Is(err, ErrAWSKeyMissing) {
+		t.Fatalf("missing ARN error = %v, want ErrAWSKeyMissing", err)
 	}
-	if _, err := stub.Unwrap([]byte{0x00}); !errors.Is(err, ErrAWSNotImplemented) {
-		t.Fatalf("Unwrap error = %v, want ErrAWSNotImplemented", err)
-	}
-	if !strings.HasPrefix(stub.Ref(), "aws:kms:") {
-		t.Fatalf("Ref must start with aws:kms:")
+	if _, err := NewAWSKMSClient(context.Background(), "us-east-1", "arn:aws:kms:us-east-1:123456789012:key/abc", ""); err == nil {
+		t.Fatalf("AWS KMS backend must fail closed when no real AWS client is linked")
 	}
 }
