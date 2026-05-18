@@ -20,25 +20,25 @@ of services are dual-anchored (e.g. write-path services that govern
 | --- | --- | --- | --- |
 | `edge-gateway-service` | `8080` | control | Public HTTP edge, route selection, request IDs, rate limiting, tenant/auth headers, audit fan-out |
 | `identity-federation-service` | `50112` | control | Login, refresh, MFA, SAML/OIDC/OAuth flows, service account tokens, scoped/guest sessions |
-| `authorization-policy-service` | `50115` | control | Roles, permissions, groups, policies, restricted views, and merged security-governance/cipher/network-boundary surfaces |
+| `authorization-policy-service` | `50093` | control | Roles, permissions, groups, policies, restricted views, and merged security-governance/checkpoints alias surfaces |
 | `tenancy-organizations-service` | `50113` | control | Tenant resolution, organizations, enrollments, spaces, projects, and sharing boundaries |
-| `connector-management-service` | `50088` | ingestion | Connector catalog, source/connection definitions, credentials metadata, connection testing, and discovery orchestration |
-| `ingestion-replication-service` | `50120` | ingestion | Ingest-job materialization, replication control plane, and CDC metadata endpoints |
-| `dataset-versioning-service` | `50117` | state | Dataset metadata, branches, transactions, versions, files, and Iceberg-backed snapshot state |
-| `media-sets-service` | `50121` / `50122` | state | Media set metadata, media item references, and media storage APIs |
-| `iceberg-catalog-service` | `8197` | storage | Iceberg REST catalog compatibility surface |
+| `connector-management-service` | `50088` | ingestion | Connector catalog, source/connection definitions, credentials metadata, connection testing, discovery orchestration, and virtual-table style routes |
+| `ingestion-replication-service` | `50090` | ingestion | Ingest-job materialization, replication control plane, and CDC metadata endpoints |
+| `dataset-versioning-service` | `50078` | state | Dataset metadata, branches, transactions, versions, files, and Iceberg-backed snapshot state |
+| `media-sets-service` | `50156` / `50157` | state | Media set metadata, media item references, and media storage APIs |
+| `iceberg-catalog-service` | `50118` (service default); `8197` in gateway config YAML | storage | Iceberg REST catalog compatibility surface |
 | `sql-bi-gateway-service` | `50133` / `50134` | compute | Flight SQL / BI edge plus HTTP `/healthz` and saved-query style surfaces |
 | `pipeline-build-service` | `50081` | compute | Pipeline definitions, validation, preview/build execution, run history, and scheduled/cron trigger ownership after consolidation |
 | `lineage-service` | `50083` | compute | Dataset and column lineage APIs |
-| `ontology-definition-service` | `50122` | control | Ontology schema/control plane: object types, properties, interfaces, link types, action definitions, and project governance |
+| `ontology-definition-service` | `50103` | control | Ontology schema/control plane: object types, properties, interfaces, link types, action definitions, and project governance |
 | `object-database-service` | `50104` | state | Object instances, link instances, revision history, and transactional outbox |
 | `ontology-query-service` | `50105` | compute | Search, graph traversal, object-set queries, KNN, read models, and projections |
 | `ontology-actions-service` | `50106` | control | Controlled mutations, action validation/execution, funnel/functions/rules, and policy-aware filters |
 | `workflow-automation-service` | `50137` | control | Workflow orchestration and execution runtime |
 | `notebook-runtime-service` | `50134` | compute | Notebook kernels, cells, sessions, notepad/reporting-style surfaces after consolidation |
-| `application-composition-service` | `50118` | control | Application composition, templates, publishing, and related widget/app surfaces |
+| `application-composition-service` | `50140` | control | Application composition, templates, publishing, and related widget/app surfaces |
 | `code-repository-review-service` | `50155` | state | Code repository review and developer-platform repository flows |
-| `federation-product-exchange-service` | `50126` | control | Federation, marketplace, product exchange, and Nexus-style collaboration surfaces |
+| `federation-product-exchange-service` | `50120` | control | Federation, marketplace, product exchange, and Nexus-style collaboration surfaces |
 | `notification-alerting-service` | `50114` | control | Notification transport, inbox APIs, delivery channels, alerting, and websocket fanout |
 | `audit-compliance-service` | `50115` | control | Audit collection, retention, lineage deletion, SDS, GDPR, and compliance posture surfaces |
 | `model-catalog-service` | `50085` | compute | ML experiments, runs, models, and model versions |
@@ -50,6 +50,12 @@ of services are dual-anchored (e.g. write-path services that govern
 | `entity-resolution-service` | `50058` | compute | Entity resolution and fusion-style APIs |
 | `ontology-exploratory-analysis-service` | `50131` | compute | Exploratory ontology analysis and geospatial-style APIs after consolidation |
 | `telemetry-governance-service` | `50153` | control | Monitoring views, monitor rules, and telemetry governance |
+| `cipher-service` | `:8080` from `config.yaml` | control | Current `/api/v1/auth/cipher/*` placeholder and future key/encryption lifecycle surface |
+| `network-boundary-service` | `:8080` from `config.yaml` | control | Egress-policy APIs plus network-boundary placeholder routes |
+| `global-branch-service` | `:8080` from `config.yaml` | state | Branch CRUD service skeleton; gateway defaults still route branch paths through `code-repository-review-service` |
+| `report-service` | `:8080` from `config.yaml` | compute | `/api/v1/reports*` placeholder owner |
+| `knowledge-index-service` | `:8080` from `config.yaml` | compute | `/api/v1/ai/knowledge-bases*` placeholder owner except `*/search` |
+| `function-runtime-service` | `50190` | compute | User-authored TypeScript/Python function registry and execution runtime |
 
 ### Internal / data-plane binaries (no gateway routes)
 
@@ -59,8 +65,10 @@ data-plane consumers, CLI tools, or runtime workers.
 
 | Service | Plano objetivo | Primary Role |
 | --- | --- | --- |
+| `action-log-sink` | storage | Kafka consumer that lands ontology action events into Iceberg action logs |
 | `ai-sink` | storage | Kafka consumer that lands AI runtime events into Iceberg sinks |
 | `audit-sink` | storage | Kafka consumer that lands audit events into the Iceberg audit archive |
+| `iceberg-object-indexer` | compute | Iceberg scan worker that writes object rows into `object-database-service` |
 | `ontology-indexer` | compute | Cassandra → Vespa indexer for ontology read models |
 | `pipeline-runner` | compute | Generic pipeline-step runner used by `pipeline-build-service` |
 | `pipeline-runner-spark` | compute | Spark variant of the pipeline runner (Iceberg writes, heavy transforms) |
@@ -105,20 +113,24 @@ from `services/edge-gateway-service/internal/proxy/router_table.go`:
 - `/api/v1/lineage` -> `lineage-service`
 - `/api/v1/ontology/projects` -> `tenancy-organizations-service`
 - `/api/v1/ontology/actions`, `/api/v1/ontology/funnel`, `/api/v1/ontology/storage/insights`, `/api/v1/ontology/functions`, `/api/v1/ontology/rules`, `/api/v1/ontology/types/{id}/objects/{id}/inline-edit`, `/api/v1/ontology/types/{id}/rules`, `/api/v1/ontology/objects/{id}/rule-runs` -> `ontology-actions-service` (S8.1: sole runtime owner after absorbing funnel/functions/security)
-- `/api/v1/ontology/search`, `/api/v1/ontology/graph`, `/api/v1/ontology/quiver`, `/api/v1/ontology/object-sets`, `/api/v1/ontology/types/{id}/objects/query`, `/api/v1/ontology/types/{id}/objects/knn` -> `ontology-query-service`
-- `/api/v1/ontology/links/{id}/instances`, `/api/v1/ontology/types/{id}/objects` -> `object-database-service`
+- `/api/v1/ontology/search`, `/api/v1/ontology/graph`, `/api/v1/ontology/quiver`, `/api/v1/ontology/object-sets`, `/api/v1/ontology/types/{id}/objects/knn` -> `ontology-query-service`
+- `/api/v1/ontology/links/{id}/instances`, `/api/v1/ontology/types/{id}/objects`, `/api/v1/ontology/types/{id}/objects/query` -> `object-database-service`
 - `/api/v1/ontology/interfaces`, `/api/v1/ontology/shared-property-types`, `/api/v1/ontology/links`, `/api/v1/ontology/types` -> `ontology-definition-service`
 - `/api/v1/ml/experiments`, `/api/v1/ml/models` -> `model-catalog-service`
 - `/api/v1/ml/deployments`, `/api/v1/ml/batch-predictions` -> `model-deployment-service`
 - `/api/v1/ai/evaluations` -> `ai-evaluation-service`
 - `/api/v1/ai/providers` -> `llm-catalog-service`
 - `/api/v1/ai/knowledge-bases/*/search` -> `retrieval-context-service`
+- `/api/v1/ai/knowledge-bases` -> `knowledge-index-service`
 - `/api/v1/entity-resolution`, `/api/v1/fusion` -> `entity-resolution-service`
-- `/api/v1/code-repos` -> `code-repository-review-service` / global branch routes per router table
+- `/api/v1/code-repos` -> `code-repository-review-service`; `/api/v1/code-repos/repositories/{id}/branches` uses the `GlobalBranch` upstream alias
 - `/api/v1/marketplace`, `/api/v1/federation-product-exchange`, `/api/v1/nexus` -> `federation-product-exchange-service`
 - `/api/v1/nexus/spaces` -> `tenancy-organizations-service`
 - `/api/v1/notifications` -> `notification-alerting-service`
 - `/api/v1/audit` -> `audit-compliance-service`
+- `/api/v1/auth/cipher` -> the `Cipher` upstream alias
+- `/api/v1/network-boundaries`, `/api/v1/network-boundary`, `/api/v1/data-connection/egress-policies` -> the `NetworkBoundary` upstream alias
+- `/api/v1/reports` -> the `Report` upstream alias
 
 ### Gateway upstream aliases (Helm parity)
 
@@ -136,47 +148,52 @@ service that is **not** a separate binary on disk. The mapping is:
 | Gateway upstream key | Resolves to |
 | --- | --- |
 | `data_connector_service_url` (`:50088`) | `connector-management-service` |
+| `connector_management_service_url` (`:50088`) | `connector-management-service` |
+| `virtual_table_service_url` (`:50088`) | `connector-management-service` |
 | `ontology_service_url` (`:50103`) | `ontology-definition-service` |
 | `audit_service_url` (`:50115`) | `audit-compliance-service` |
 | `ml_service_url` (`:50085`) | `model-catalog-service` |
 | `ai_service_url` (`:50127`) | `agent-runtime-service` |
-| `security_governance_service_url` (`:50114`) | `authorization-policy-service` (absorbed surface) |
-| `cipher_service_url` (`:50073`) | `authorization-policy-service` (absorbed surface) |
-| `oauth_integration_service_url` (`:50094`) | `identity-federation-service` (absorbed surface) |
-| `session_governance_service_url` (`:50074`) | `identity-federation-service` (absorbed surface) |
-| `network_boundary_service_url` (`:50119`) | `authorization-policy-service` (absorbed surface) |
-| `checkpoints_purpose_service_url` (`:50116`) | `tenancy-organizations-service` (absorbed surface) |
-| `retention_policy_service_url` (`:50117`) | `dataset-versioning-service` (absorbed surface) |
-| `lineage_deletion_service_url` (`:50118`) | `audit-compliance-service` (absorbed surface) |
-| `sds_service_url` (`:50076`) | `audit-compliance-service` (absorbed surface) |
-| `virtual_table_service_url` (`:50089`) | reserved (see [ADR-0040](./adr/ADR-0040-virtual-tables-service.md); not yet deployed) |
-| `pipeline_authoring_service_url` (`:50080`) | `pipeline-build-service` (absorbed surface) |
-| `pipeline_schedule_service_url` (`:50082`) | `pipeline-build-service` (absorbed surface) |
-| `data_asset_catalog_service_url` (`:50079`) | `connector-management-service` (absorbed surface) |
-| `dataset_quality_service_url` (`:50072`) | `pipeline-build-service` (absorbed surface) |
-| `approvals_service_url` (`:50071`) | `workflow-automation-service` (approvals package) |
-| `app_builder_service_url` (`:50063`) | `application-composition-service` (absorbed surface) |
-| `application_curation_service_url` (`:50101`) | `application-composition-service` (absorbed surface) |
-| `model_evaluation_service_url` (`:50091`) | `model-catalog-service` (absorbed surface) |
-| `model_serving_service_url` (`:50087`) | `model-deployment-service` (absorbed surface) |
-| `model_inference_history_service_url` (`:50092`) | `model-deployment-service` (absorbed surface) |
-| `prompt_workflow_service_url` (`:50096`) | `agent-runtime-service` (absorbed surface) |
-| `knowledge_index_service_url` (`:50097`) | `retrieval-context-service` (absorbed surface) |
-| `conversation_state_service_url` (`:50099`) | `agent-runtime-service` (absorbed surface) |
-| `document_reporting_service_url` (`:50102`) | `notebook-runtime-service` (absorbed surface) |
-| `streaming_service_url` (`:50121`) | `media-sets-service` (shares port; reserved alias) |
-| `report_service_url` (`:50064`) | `notebook-runtime-service` (absorbed surface) |
+| `security_governance_service_url` (`:50093`) | `authorization-policy-service` (absorbed surface) |
+| `cipher_service_url` (`:50093`) | `authorization-policy-service` in code defaults; `cipher-service` exists separately and must be targeted explicitly when deployed |
+| `oauth_integration_service_url` (`:50112`) | `identity-federation-service` (absorbed surface) |
+| `session_governance_service_url` (`:50112`) | `identity-federation-service` (absorbed surface) |
+| `network_boundary_service_url` (`:50093`) | `authorization-policy-service` in code defaults; `network-boundary-service` exists separately and must be targeted explicitly when deployed |
+| `checkpoints_purpose_service_url` (`:50093`) | `authorization-policy-service` |
+| `retention_policy_service_url` (`:50115`) | `audit-compliance-service` |
+| `lineage_deletion_service_url` (`:50115`) | `audit-compliance-service` |
+| `sds_service_url` (`:50115`) | `audit-compliance-service` |
+| `pipeline_authoring_service_url` (`:50081`) | `pipeline-build-service` (absorbed surface) |
+| `pipeline_schedule_service_url` (`:50081`) | `pipeline-build-service` (absorbed surface) |
+| `data_asset_catalog_service_url` (`:50078`) | `dataset-versioning-service` (absorbed surface) |
+| `dataset_quality_service_url` (`:50078`) | `dataset-versioning-service` (absorbed surface) |
+| `approvals_service_url` (no `UpstreamURLs` field) | `workflow-automation-service` routes own approvals directly |
+| `app_builder_service_url` (no `UpstreamURLs` field) | `application-composition-service` routes app-builder paths directly |
+| `application_curation_service_url` (`:50140`) | `application-composition-service` (absorbed surface) |
+| `model_evaluation_service_url` (`:50086`) | `model-deployment-service` alias in code defaults |
+| `model_serving_service_url` (`:50086`) | `model-deployment-service` (absorbed surface) |
+| `model_inference_history_service_url` (`:50086`) | `model-deployment-service` (absorbed surface) |
+| `prompt_workflow_service_url` (no `UpstreamURLs` field) | `agent-runtime-service` routes own prompt paths directly |
+| `knowledge_index_service_url` (`:50097`) | `knowledge-index-service` upstream alias; `/search` routes to `retrieval-context-service` |
+| `conversation_state_service_url` (no `UpstreamURLs` field) | `agent-runtime-service` routes conversation paths directly |
+| `document_reporting_service_url` (`:50134`) | `notebook-runtime-service` (absorbed surface) |
+| `streaming_service_url` (no `UpstreamURLs` field) | retired; no surviving gateway branch |
+| `report_service_url` (`:50134`) | `notebook-runtime-service` in code defaults; `report-service` exists separately and must be targeted explicitly when deployed |
 | `geospatial_intelligence_service_url` (`:50131`) | `ontology-exploratory-analysis-service` |
-| `code_repo_service_url` (`:50065`) | `code-repository-review-service` |
-| `global_branch_service_url` (`:50110`) | `code-repository-review-service` (absorbed surface) |
-| `marketplace_catalog_service_url` (`:50066`) | `federation-product-exchange-service` (absorbed surface) |
-| `product_distribution_service_url` (`:50111`) | `federation-product-exchange-service` (absorbed surface) |
-| `nexus_service_url` (`:50067`) | `tenancy-organizations-service` (Nexus spaces route) |
+| `code_repo_service_url` (`:50155`) | `code-repository-review-service` |
+| `global_branch_service_url` (`:50155`) | `code-repository-review-service` in code defaults; `global-branch-service` exists separately and must be targeted explicitly when deployed |
+| `marketplace_catalog_service_url` (`:50120`) | `federation-product-exchange-service` (absorbed surface) |
+| `product_distribution_service_url` (`:50120`) | `federation-product-exchange-service` (absorbed surface) |
+| `nexus_service_url` (`:50113`) | `tenancy-organizations-service` (Nexus spaces route) |
 
 > **Do not point a real Helm deployment at these legacy URLs.** Point
 > the alias to the same host:port as its resolved owner, or delete the
 > override from `values.yaml`. The default-port values exist purely so
-> a development shell with no overrides still boots cleanly.
+> a development shell with no overrides still boots cleanly. When a placeholder
+> service has since been added (`cipher-service`, `network-boundary-service`,
+> `knowledge-index-service`, `report-service`, `global-branch-service`), Helm
+> or compose must override the alias if traffic should reach that binary rather
+> than the consolidated owner.
 
 ## Cross-Service Dependencies
 
@@ -192,7 +209,7 @@ Configuration files show explicit service-to-service defaults for several domain
 - `object-database-service` depends on audit and notification services; all writes go through `object-database-service`
 - `ontology-query-service` depends on `object-database-service` (fallback point lookups), `ontology-actions-service` (policy filters, S8.1), and AI services
 - `ontology-actions-service` depends on `object-database-service` (mutations) and `ontology-definition-service` (action / function package definitions); owns the actions, funnel, function-runtime and rule (policy / marking) HTTP surfaces and the `actions_log` Cassandra column family (S8.1)
-- reporting/notepad-style routes are consolidated into `notebook-runtime-service`
+- reporting routes currently use the gateway `Report` alias; the repository now contains a `report-service` placeholder, while code defaults still point that alias at `notebook-runtime-service`
 - `notebook-runtime-service` depends on query and AI services
 - marketplace/product-exchange routes are consolidated into `federation-product-exchange-service`
 - app-builder/application-curation/developer-console style routes are consolidated into `application-composition-service`
