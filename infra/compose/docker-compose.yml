@@ -36,7 +36,7 @@ services:
       # `pg_policy` is included by default because the transactional outbox
       # (ADR-0022) lives in `pg_policy.outbox.events` and is mirrored to Kafka
       # by the Debezium Connect service below.
-      POSTGRES_MULTIPLE_DATABASES: ${OPENFOUNDRY_POSTGRES_EXTRA_DATABASES:-pg_policy}
+      POSTGRES_MULTIPLE_DATABASES: ${OPENFOUNDRY_POSTGRES_EXTRA_DATABASES:-pg_policy,openfoundry_agent_runtime_service,openfoundry_ai_service,openfoundry_application_composition,openfoundry_audit_service,openfoundry_auth_service,openfoundry_cdc_metadata,openfoundry_cipher_service,openfoundry_code_repository_review_service,openfoundry_compute_module_service,openfoundry_data_connector,openfoundry_dataset_service,openfoundry_function_runtime_service,openfoundry_fusion_service,openfoundry_global_branch_service,openfoundry_iceberg_catalog_service,openfoundry_knowledge_index_service,openfoundry_marketplace_service,openfoundry_media_set_service,openfoundry_ml_service,openfoundry_nexus_service,openfoundry_notebook_service,openfoundry_notification_service,openfoundry_ontology_exploratory_analysis_service,openfoundry_ontology_service,openfoundry_pipeline_service,openfoundry_query_service,openfoundry_reindex_coordinator_service,openfoundry_report_service,openfoundry_sdk_generation,openfoundry_solution_design,openfoundry_telemetry_governance,openfoundry_workflow_service}
     # WAL logical decoding is required by the Debezium Postgres connector
     # (ADR-0022). `max_replication_slots`/`max_wal_senders` are sized for
     # one Debezium task per logical DB plus headroom; bump if you add more.
@@ -693,9 +693,18 @@ services:
   # OAUTH_INTEGRATION_SERVICE_URL callers route to
   # identity-federation-service:50112. ──
 
-  # ── S8 / ADR-0030 (B14) — network-boundary-service merged →
-  # authorization-policy-service. NETWORK_BOUNDARY_SERVICE_URL
-  # callers route to authorization-policy-service:50093. ──
+  network-boundary-service:
+    <<: *app-common
+    profiles: *profiles-foundation
+    build:
+      context: ../..
+      dockerfile: services/network-boundary-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      OF_SERVER__ADDR: ":8080"
+      OF_JWT__SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    ports:
+      - "${OPENFOUNDRY_NETWORK_BOUNDARY_HOST_PORT:-50146}:8080"
 
   connector-management-service:
     <<: *app-common
@@ -714,8 +723,8 @@ services:
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
       ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       INGESTION_REPLICATION_SERVICE_URL: http://ingestion-replication-service:50090
-      # S8 / ADR-0030 (B14): network-boundary-service merged → authorization-policy-service.
-      NETWORK_BOUNDARY_SERVICE_URL: http://authorization-policy-service:50093
+      # Network-boundary routes are served by the Go network-boundary-service.
+      NETWORK_BOUNDARY_SERVICE_URL: http://network-boundary-service:8080
       ALLOW_PRIVATE_NETWORK_EGRESS: "true"
     depends_on:
       postgres:
@@ -724,7 +733,8 @@ services:
         condition: service_started
       ingestion-replication-service:
         condition: service_started
-      # S8 / ADR-0030 (B14): network-boundary-service merged → authorization-policy-service.
+      network-boundary-service:
+        condition: service_started
     ports:
       - "${OPENFOUNDRY_CONNECTOR_MANAGEMENT_HOST_PORT:-50088}:50088"
 
@@ -743,8 +753,6 @@ services:
       PORT: 50090
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_data_connector
       CDC_METADATA_DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_cdc_metadata
-      CDC_METADATA_HOST: 0.0.0.0
-      CDC_METADATA_PORT: 50122
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
       DATASET_SERVICE_URL: http://dataset-versioning-service:50078
@@ -760,7 +768,30 @@ services:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_INGESTION_REPLICATION_HOST_PORT:-50090}:50090"
-      - "${OPENFOUNDRY_CDC_METADATA_HOST_PORT:-50122}:50122"
+      - "${OPENFOUNDRY_CDC_METADATA_HOST_PORT:-50122}:50090"
+
+  iceberg-catalog-service:
+    <<: *app-common
+    profiles: *profiles-data
+    build:
+      context: ../..
+      dockerfile: services/iceberg-catalog-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50118
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_iceberg_catalog_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      ICEBERG_CATALOG_WAREHOUSE_URI: s3://openfoundry-warehouse
+      OAUTH_INTEGRATION_URL: http://identity-federation-service:50112
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      identity-federation-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_ICEBERG_CATALOG_HOST_PORT:-50118}:50118"
 
   dataset-versioning-service:
     <<: *app-common
@@ -1090,6 +1121,41 @@ services:
         condition: service_healthy
     ports:
       - "${OPENFOUNDRY_SDK_GENERATION_HOST_PORT:-50144}:50144"
+
+  compute-module-service:
+    <<: *app-common
+    profiles: *profiles-intelligence
+    build:
+      context: ../..
+      dockerfile: services/compute-module-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      OF_SERVER__ADDR: ":8080"
+      OF_JWT__SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      OF_DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_compute_module_service
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_COMPUTE_MODULE_HOST_PORT:-50170}:8080"
+
+  function-runtime-service:
+    <<: *app-common
+    profiles: *profiles-intelligence
+    build:
+      context: ../..
+      dockerfile: services/function-runtime-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      OF_SERVER__ADDR: ":50190"
+      OF_JWT__SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      OF_DATABASE__URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_function_runtime_service
+      OF_DATABASE__ALLOW_MEMORY_STORE: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_FUNCTION_RUNTIME_HOST_PORT:-50190}:50190"
 
   # ── S8 / ADR-0030 (B19) — managed-workspace-service and
   # custom-endpoints-service merged → application-composition-service. ──
@@ -1508,6 +1574,27 @@ services:
   # ── S8 / ADR-0030 (B19) — application-curation-service merged →
   # application-composition-service. ──
 
+  ontology-indexer:
+    <<: *app-common
+    profiles: *profiles-knowledge
+    build:
+      context: ../..
+      dockerfile: services/ontology-indexer/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50124
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SEARCH_BACKEND: vespa
+      SEARCH_ENDPOINT: http://vespa:8080
+    depends_on:
+      kafka:
+        condition: service_healthy
+      vespa:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_ONTOLOGY_INDEXER_HOST_PORT:-50124}:50124"
+
   report-service:
     <<: *app-common
     profiles: *profiles-experience
@@ -1611,6 +1698,159 @@ services:
   # LINEAGE_DELETION_SERVICE_URL and SDS_SERVICE_URL callers route
   # to audit-compliance-service:50115. ──
 
+  ai-sink:
+    <<: *app-common
+    profiles: *profiles-intelligence
+    build:
+      context: ../..
+      dockerfile: services/ai-sink/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ICEBERG_CATALOG_URL: http://iceberg-catalog-service:50118
+      ICEBERG_WAREHOUSE: s3://openfoundry-warehouse
+      METRICS_ADDR: 0.0.0.0:9090
+    depends_on:
+      kafka:
+        condition: service_healthy
+      iceberg-catalog-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_AI_SINK_METRICS_HOST_PORT:-50181}:9090"
+
+  audit-sink:
+    <<: *app-common
+    profiles: *profiles-foundation
+    build:
+      context: ../..
+      dockerfile: services/audit-sink/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ICEBERG_CATALOG_URL: http://iceberg-catalog-service:50118
+      ICEBERG_WAREHOUSE: s3://openfoundry-warehouse
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_audit_service
+      METRICS_ADDR: 0.0.0.0:9090
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      iceberg-catalog-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_AUDIT_SINK_METRICS_HOST_PORT:-50182}:9090"
+
+  action-log-sink:
+    <<: *app-common
+    profiles: *profiles-data
+    build:
+      context: ../..
+      dockerfile: services/action-log-sink/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ICEBERG_CATALOG_URL: http://iceberg-catalog-service:50118
+      ICEBERG_WAREHOUSE: s3://openfoundry-warehouse
+      METRICS_ADDR: 0.0.0.0:9090
+    depends_on:
+      kafka:
+        condition: service_healthy
+      iceberg-catalog-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_ACTION_LOG_SINK_METRICS_HOST_PORT:-50183}:9090"
+
+  reindex-coordinator-service:
+    <<: *app-common
+    profiles: *profiles-knowledge
+    build:
+      context: ../..
+      dockerfile: services/reindex-coordinator-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50125
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_reindex_coordinator_service
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CASSANDRA_CONTACT_POINTS: cassandra
+      CASSANDRA_KEYSPACE: ontology_objects
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+      cassandra-init:
+        condition: service_completed_successfully
+    ports:
+      - "${OPENFOUNDRY_REINDEX_COORDINATOR_HOST_PORT:-50125}:50125"
+
+  # One-shot/job binaries are available in the opt-in jobs profile so
+  # `--profile app` remains a healthy long-running stack.
+  iceberg-object-indexer:
+    <<: *common
+    profiles: ["jobs"]
+    build:
+      context: ../..
+      dockerfile: services/iceberg-object-indexer/Dockerfile
+    command:
+      - --smoke
+      - --source-table
+      - default.smoke
+      - --target-type-id
+      - smoke
+      - --id-column
+      - id
+      - --object-database-url
+      - http://object-database-service:50104
+      - --catalog-uri
+      - http://iceberg-catalog-service:50118
+    environment:
+      OPENFOUNDRY_ENV: development
+    depends_on:
+      iceberg-catalog-service:
+        condition: service_started
+      object-database-service:
+        condition: service_started
+
+  pipeline-runner:
+    <<: *common
+    profiles: ["jobs"]
+    build:
+      context: ../..
+      dockerfile: services/pipeline-runner/Dockerfile
+    command:
+      - --smoke
+      - --catalog-uri
+      - http://iceberg-catalog-service:50118
+      - --pipeline-id
+      - smoke
+      - --run-id
+      - smoke
+      - --input-dataset
+      - default.input
+      - --output-dataset
+      - default.output
+    environment:
+      OPENFOUNDRY_ENV: development
+      ICEBERG_CATALOG_URL: http://iceberg-catalog-service:50118
+      PIPELINE_PLAN_B64: ${OPENFOUNDRY_PIPELINE_RUNNER_SMOKE_PLAN_B64:-eyJwaXBlbGluZV9pZCI6InNtb2tlIiwicnVuX2lkIjoic21va2UiLCJvcHMiOlt7ImlkIjoicyIsImtpbmQiOiJyZWFkX3RhYmxlIiwicmVhZF90YWJsZSI6eyJjYXRhbG9nIjoiYyIsIm5hbWVzcGFjZSI6Im4iLCJ0YWJsZSI6ImlucHV0In19LHsiaWQiOiJ3Iiwia2luZCI6IndyaXRlX3RhYmxlIiwiaW5wdXRzIjpbInMiXSwid3JpdGVfdGFibGUiOnsiY2F0YWxvZyI6ImMiLCJuYW1lc3BhY2UiOiJuIiwidGFibGUiOiJvdXRwdXQiLCJtb2RlIjoiYXBwZW5kIn19XX0=}
+    depends_on:
+      iceberg-catalog-service:
+        condition: service_started
+
+
+  pipeline-runner-spark:
+    <<: *common
+    profiles: ["artifacts"]
+    build:
+      context: ../..
+      dockerfile: services/pipeline-runner-spark/Dockerfile
+      target: sbt-build
+    command: ["/bin/sh", "-c", "test -f /workspace/pipeline-runner-spark.jar && sleep infinity"]
+
   gateway:
     <<: *app-common
     profiles: *profiles-edge
@@ -1644,10 +1884,11 @@ services:
       DATA_ASSET_CATALOG_SERVICE_URL: http://dataset-versioning-service:50078
       # S8 / ADR-0030: dataset-quality-service merged → dataset-versioning-service.
       DATASET_QUALITY_SERVICE_URL: http://dataset-versioning-service:50078
+      ICEBERG_CATALOG_SERVICE_URL: http://iceberg-catalog-service:50118
       # S8 / ADR-0030: event-streaming-service merged → ingestion-replication-service.
       # Repointed at the consolidated runtime owner; streaming runtime wiring is a follow-up.
-      EVENT_STREAMING_SERVICE_URL: http://ingestion-replication-service:50121
-      CDC_METADATA_SERVICE_URL: http://ingestion-replication-service:50122
+      EVENT_STREAMING_SERVICE_URL: http://ingestion-replication-service:50090
+      CDC_METADATA_SERVICE_URL: http://ingestion-replication-service:50090
       # S8 / ADR-0030: SQL_WAREHOUSING_SERVICE_URL retired —
       # warehousing CRUD is served by sql-bi-gateway-service (50133).
       SQL_WAREHOUSING_SERVICE_URL: http://sql-bi-gateway-service:50133
@@ -1676,8 +1917,8 @@ services:
       AI_SERVICE_URL: http://agent-runtime-service:50127
       # S8 / ADR-0030 (B14): checkpoints-purpose-service merged → authorization-policy-service.
       CHECKPOINTS_PURPOSE_SERVICE_URL: http://authorization-policy-service:50093
-      # S8 / ADR-0030 (B14): network-boundary-service merged → authorization-policy-service.
-      NETWORK_BOUNDARY_SERVICE_URL: http://authorization-policy-service:50093
+      # Network-boundary routes are served by the Go network-boundary-service.
+      NETWORK_BOUNDARY_SERVICE_URL: http://network-boundary-service:8080
       # S8 / ADR-0030 (B15): retention-policy-service merged → audit-compliance-service.
       RETENTION_POLICY_SERVICE_URL: http://audit-compliance-service:50115
       # S8 / ADR-0030 (B15): lineage-deletion-service merged → audit-compliance-service.
@@ -1764,7 +2005,6 @@ services:
       valkey:
         condition: service_healthy
       # S8 / ADR-0030 (B14): checkpoints-purpose-service merged → authorization-policy-service.
-      # S8 / ADR-0030 (B14): network-boundary-service merged → authorization-policy-service.
       # S8 / ADR-0030 (B15): retention-policy-service merged → audit-compliance-service.
       # S8 / ADR-0030 (B15): lineage-deletion-service merged → audit-compliance-service.
       identity-federation-service:
@@ -1773,6 +2013,8 @@ services:
         condition: service_started
       # S8 / ADR-0030 (B16): session-governance-service merged → identity-federation-service.
       authorization-policy-service:
+        condition: service_started
+      network-boundary-service:
         condition: service_started
       # S8 / ADR-0030 (B14): security-governance-service merged → authorization-policy-service.
       tenancy-organizations-service:
@@ -1784,6 +2026,8 @@ services:
       ingestion-replication-service:
         condition: service_started
       dataset-versioning-service:
+        condition: service_started
+      iceberg-catalog-service:
         condition: service_started
       # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
       # S8 / ADR-0030: dataset-quality-service merged → dataset-versioning-service.
