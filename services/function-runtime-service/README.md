@@ -1,5 +1,29 @@
 # function-runtime-service
 
+## LLM quick context (current code)
+
+Registers, versions, activates, invokes, and tracks runs for ontology functions.
+
+Agent note: uses config.yaml; execution code lives under internal/executor.
+
+Current surface:
+- `/api/v1/functions`
+- `/api/v1/functions/{id}/versions|activate|deprecate|invoke|invoke-async`
+- `/api/v1/functions/runs*`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `1` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `domain`, `executor`, `handlers`, `models`, `repo`, `server`.
+- Local service files present: `config.yaml`, `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `CONFIG_FILE`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 User-authored function runtime (v0). Hosts the registry, versioning,
 and execution path for OpenFoundry Functions. v0 ships TypeScript +
 Python *stubs* that shell out to `node` / `python3`; the v1 design
