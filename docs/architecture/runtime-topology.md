@@ -138,7 +138,7 @@ anchors. For default ports and gateway-route ownership, see
 | Control plane | `identity-federation-service`, `authorization-policy-service`, `tenancy-organizations-service`, `ontology-definition-service`, `ontology-actions-service`, `workflow-automation-service`, `application-composition-service`, `notification-alerting-service`, `audit-compliance-service`, `telemetry-governance-service`, `federation-product-exchange-service`, `sdk-generation-service` |
 | Ingestion plane | `connector-management-service`, `ingestion-replication-service` |
 | Storage plane | `iceberg-catalog-service`, `ai-sink`, `audit-sink` |
-| Compute plane | `sql-bi-gateway-service`, `pipeline-build-service`, `pipeline-runner`, `pipeline-runner-spark`, `lineage-service`, `ontology-query-service`, `ontology-exploratory-analysis-service`, `ontology-indexer`, `notebook-runtime-service`, `model-catalog-service`, `model-deployment-service`, `ai-evaluation-service`, `llm-catalog-service`, `retrieval-context-service`, `agent-runtime-service`, `entity-resolution-service`, `compute-module-service`, `media-transform-runtime-service`, `reindex-coordinator-service`, `solution-design-service` |
+| Compute plane | `sql-bi-gateway-service`, `pipeline-build-service`, `pipeline-runner`, `lineage-service`, `ontology-query-service`, `ontology-exploratory-analysis-service`, `ontology-indexer`, `notebook-runtime-service`, `model-catalog-service`, `model-deployment-service`, `ai-evaluation-service`, `llm-catalog-service`, `retrieval-context-service`, `agent-runtime-service`, `entity-resolution-service`, `compute-module-service`, `media-transform-runtime-service`, `reindex-coordinator-service`, `solution-design-service` |
 | Relational state plane | `dataset-versioning-service`, `media-sets-service`, `object-database-service`, `code-repository-review-service` |
 
 ## Shared Runtime Dependencies
@@ -162,7 +162,7 @@ Each platform substrate is anchored to one of the planes above:
   Iceberg layer on top runs **two catalogs by design**:
   - **Lakekeeper** owns the *external warehouse* used by internal sinks
     (`audit-sink`, `ai-sink`, `lineage-service`,
-    `dataset-versioning-service`, the Spark `pipeline-runner-spark`) —
+    `dataset-versioning-service`, the Go `pipeline-runner` post-ADR-0045) —
     see [ADR-0008](./adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md).
   - **`iceberg-catalog-service`** owns the *Foundry-internal* catalog
     (multi-table all-or-nothing commit, markings + Cedar, strict schema

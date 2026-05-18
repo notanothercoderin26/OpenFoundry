@@ -78,19 +78,9 @@ spec:
             valueFiles: [values.yaml]
             extraValueRefs: []
 
-          - name: spark-operator
-            namespace: spark-operator
-            wave: "10"
-            chartPath: infra/helm/infra/spark-operator
-            valueFiles: [values.yaml]
-            extraValueRefs: []
-
-          - name: spark-jobs
-            namespace: spark-operator
-            wave: "15"
-            chartPath: infra/helm/infra/spark-jobs
-            valueFiles: [values.yaml]
-            extraValueRefs: []
+          # ADR-0045 Phase D — spark-operator + spark-jobs releases
+          # were dropped. Pipeline runs now go through the
+          # pipeline-runner Job dispatched by pipeline-build-service.
 
           - name: mimir
             namespace: observability

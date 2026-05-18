@@ -19,7 +19,7 @@ follow.
 | [`ADR-0014-retire-trino-flight-sql-only.md`](./ADR-0014-retire-trino-flight-sql-only.md)                                                  | Accepted | 2026-04-30 | Retire Trino, single Flight SQL edge gateway                                           |
 | [`ADR-0038-event-contract-and-idempotency.md`](./ADR-0038-event-contract-and-idempotency.md)                                              | Accepted | 2026-05-04 | Event contract and idempotency for Foundry-pattern orchestration                       |
 | [`ADR-0041-iceberg-catalog-service.md`](./ADR-0041-iceberg-catalog-service.md)                                                            | Accepted (Beta) | 2026-05-05 | `iceberg-catalog-service` — Foundry-internal Iceberg REST Catalog (supersedes ADR-0008 for the internal surface) |
-| [`ADR-0045-eliminate-pipeline-runner-spark-pure-go-runtime.md`](./ADR-0045-eliminate-pipeline-runner-spark-pure-go-runtime.md)            | Proposed | 2026-05-17 | Eliminate `pipeline-runner-spark` (Scala/Spark) and port the pipeline runtime to pure Go on `apache/iceberg-go` |
+| [`ADR-0045-eliminate-pipeline-runner-spark-pure-go-runtime.md`](./ADR-0045-eliminate-pipeline-runner-spark-pure-go-runtime.md)            | Accepted | 2026-05-18 | Eliminate `pipeline-runner-spark` (Scala/Spark) and port the pipeline runtime to pure Go on `apache/iceberg-go` |
 
 ADR-0001 through ADR-0006 are historical placeholders and are intentionally
 not present in this repository: the data-plane consolidation effort that

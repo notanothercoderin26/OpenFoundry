@@ -80,7 +80,6 @@ environments:
 {{- $isDev := eq $profile "dev" -}}
 {{- $vespaInstalled            := not $isDev -}}
 {{- $trinoInstalled            := eq $profile "prod" -}}
-{{- $sparkInstalled            := eq $profile "prod" -}}
 {{- $mimirInstalled            := eq $profile "prod" -}}
 {{- $rookInstalled             := eq $profile "prod" -}}
 {{- $flinkInstalled            := eq $profile "prod" -}}
@@ -359,21 +358,10 @@ releases:
     values:
       - ./infra/trino/values.yaml
 
-  - name: spark-operator
-    namespace: spark-operator
-    installed: {{ $sparkInstalled }}
-    chart: ./infra/spark-operator
-    values:
-      - ./infra/spark-operator/values.yaml
-
-  - name: spark-jobs
-    namespace: spark-operator
-    installed: {{ $sparkInstalled }}
-    chart: ./infra/spark-jobs
-    needs:
-      - spark-operator/spark-operator
-    values:
-      - ./infra/spark-jobs/values.yaml
+  # ADR-0045 Phase D — Spark Operator and the spark-jobs chart were
+  # removed. The pipeline runtime now uses `services/pipeline-runner`
+  # (Go, distroless) dispatched as batch/v1 Jobs from
+  # `services/pipeline-build-service/internal/dispatch`.
 
   - name: mimir
     namespace: observability

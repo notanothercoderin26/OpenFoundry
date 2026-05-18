@@ -22,7 +22,7 @@ The current repository suggests the indexing path is distributed across:
 
 - `services/connector-management-service`
 - `services/dataset-versioning-service`
-- `services/pipeline-build-service` + `services/pipeline-runner` + `services/pipeline-runner-spark`
+- `services/pipeline-build-service` + `services/pipeline-runner` (ADR-0045 retired `pipeline-runner-spark`)
 - `services/ingestion-replication-service`
 - `services/ontology-actions-service/internal/handlers/funnels.go` (funnel runtime, currently hosted inside `ontology-actions-service`)
 - `services/ontology-indexer` (Kafka worker that projects ontology changes into the search backend)

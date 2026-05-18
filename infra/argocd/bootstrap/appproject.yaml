@@ -52,8 +52,6 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: trino
     - server: https://kubernetes.default.svc
-      namespace: spark-operator
-    - server: https://kubernetes.default.svc
       namespace: observability
     - server: https://kubernetes.default.svc
       namespace: registry
