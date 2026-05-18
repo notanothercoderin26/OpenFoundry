@@ -1,15 +1,18 @@
 # Ignore only local and generated artifacts.
 # Keep source, docs, lockfiles, static assets, and versioned generated specs.
 
-# OS / editors
+# === OS / editors ============================================================
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+.zed/
+.fleet/
+.history/
 *.swp
 *.swo
 
-# Local environment / secrets
+# === Local environment / secrets ============================================
 .env
 .env.*
 !.env.example
@@ -20,39 +23,55 @@ Thumbs.db
 !.env.*.template
 .direnv/
 
-# Rust
-target/
-target-*/
-**/*.rs.bk
-*.profraw
-*.profdata
-*.profraw.zst
-llvm-cov-target/
-lcov.info
-cobertura.xml
+# === Go ======================================================================
+# `make tools` installs buf / golangci-lint / sqlc / gofumpt here; `make
+# build-services` writes one binary per service into ./bin/.
+/bin/
+# Go workspace files used for local multi-module dev / worktree runs.
+go.work
+go.work.sum
+# Go test outputs.
+coverage.out
+coverage.html
+*.coverprofile
+*.test
+*.prof
+# Optional vendor directory; not used today but standard to ignore.
+/vendor/
 
-# Python (tooling under /tools)
-__pycache__/
-*.py[cod]
-
-# Node / SvelteKit
+# === Node / pnpm / Vite =====================================================
+# pnpm-only workspace — npm/yarn artefacts intentionally not listed.
 node_modules/
 .pnpm-store/
-.npm/
-.svelte-kit/
 .vite/
-apps/web/build/
+apps/web/dist/
 coverage/
 playwright-report/
 test-results/
 *.tsbuildinfo
 .eslintcache
-npm-debug.log*
 pnpm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
-# Terraform local state
+# === Python (tools, runtime, SDK) ===========================================
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.tox/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+pip-wheel-metadata/
+
+# === SDK build outputs ======================================================
+sdks/python/**/dist/
+sdks/python/**/build/
+sdks/java/**/build/
+sdks/java/**/.gradle/
+sdks/typescript/**/dist/
+
+# === Terraform local state ==================================================
 .terraform/
 *.tfstate
 *.tfstate.*
@@ -63,9 +82,7 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
-# Benchmarks and local runtime output
-benchmarks/results/*
-!benchmarks/results/.gitkeep
+# === Local runtime output ===================================================
 .openfoundry/
 tmp/
 temp/
@@ -76,40 +93,58 @@ temp/
 *.tmp
 *.temp
 
-# Intentionally kept in Git:
-# - apps/web/static/generated/openapi/openfoundry.json
-# - apps/web/static/generated/terraform/openfoundry-provider.json
-# - infra/terraform/providers/openfoundry/provider.schema.json
+# === Locally-built Go binaries — services ===================================
+# `cd services/<x> && go build ./cmd/<x>` writes the binary to
+# services/<x>/<x>. Use a negation pattern so we don't have to enumerate
+# all 50 services. Only known source/config file types under
+# services/<x>/ are kept tracked.
+/services/*/*
+!/services/*/*/
+!/services/*/*.md
+!/services/*/*.yaml
+!/services/*/*.yml
+!/services/*/*.json
+!/services/*/*.sbt
+!/services/*/Dockerfile
+!/services/*/.dockerignore
+!/services/*/.gitignore
 
-# Local imported docs snapshot
-docs_original_palantir_foundry/
+# === Locally-built Go binaries — tools ======================================
+# Same idea for `cd tools/<x> && go build .` writing tools/<x>/<x>.
+/tools/*/*
+!/tools/*/*/
+!/tools/*/*.go
+!/tools/*/*.md
+!/tools/*/*.sh
+!/tools/*/*.py
+!/tools/*/*.json
+!/tools/*/*.yaml
+!/tools/*/*.yml
+!/tools/*/Dockerfile
+!/tools/*/.gitignore
 
-# ArgoCD: real Slack creds (only the .example.yaml is checked in)
-infra/argocd/notifications/slack-secret.yaml
-/capabilities-snapshot
-
-# Local-built tool binaries at repo root (built by `go build ./tools/<name>`)
+# === Locally-built binaries at repo root ====================================
+# `go build ./tools/<x>` or `go build ./services/<x>/cmd/<x>` from the repo
+# root writes the binary as ./<x>. Keep this list in sync with the tools
+# that ship a main.go and with services that devs build from the root.
 /route-audit
-/identity-federation-service
 /sql-lint
 /bus-allowlist
 /data-residency
+/capabilities-snapshot
+/of-cli
+/of-sdk-gen
+/identity-federation-service
 
-# `make tools` installs buf / golangci-lint / sqlc / gofumpt here
-/bin/
+# === Intentionally kept in Git ==============================================
+# - apps/web/public/generated/openapi/openfoundry.json
+# - apps/web/public/generated/terraform/openfoundry-provider.json
+# - infra/terraform/providers/openfoundry/provider.schema.json
 
-# Local-built service binaries at the service root (same name as the dir).
-# Built by `go build ./services/<svc>/cmd/<svc>` without -o.
-/services/agent-runtime-service/agent-runtime-service
-/services/ai-evaluation-service/ai-evaluation-service
-/services/ai-sink/ai-sink
-/services/application-composition-service/application-composition-service
-/services/audit-compliance-service/audit-compliance-service
-/services/audit-sink/audit-sink
-/services/authorization-policy-service/authorization-policy-service
-/services/cipher-service/cipher-service
-/services/code-repository-review-service/code-repository-review-service
-/services/compute-module-service/compute-module-service
-
-# Claude Code local config / worktrees
+# === Misc local-only =========================================================
+# Local imported docs snapshot (kept out of git).
+docs_original_palantir_foundry/
+# ArgoCD: real Slack creds (only the .example.yaml is checked in).
+infra/argocd/notifications/slack-secret.yaml
+# Claude Code local config / worktrees.
 .claude/

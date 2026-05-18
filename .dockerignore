@@ -1,4 +1,8 @@
-# --- VCS / IDE / OS metadata -------------------------------------------------
+# Keep the build context tight. Multi-stage Dockerfiles only need Go
+# source, proto, sql, configs, and frontend source. Everything else stays
+# out so we don't ship docs/tests/caches into the daemon.
+
+# === VCS / IDE / OS metadata =================================================
 .git
 .github
 .gitignore
@@ -6,81 +10,86 @@
 .editorconfig
 .vscode
 .idea
+.zed
+.fleet
+.history
 .claude
 **/.DS_Store
 **/Thumbs.db
 
-# --- Build artefacts (Rust legacy + Go cache directories) --------------------
-target
-target-llvmcov
-.cargo/registry
-.cargo/git
-**/coverage
+# === Build artefacts =========================================================
+bin/
 **/dist
 **/build
-bin/
+**/coverage
+**/__snapshots__
+**/coverage.out
+**/*.test
+**/*.prof
+*.tsbuildinfo
+go.work
+go.work.sum
+/vendor
 
-# --- Node / pnpm / Vite -----------------------------------------------------
-node_modules
-.pnpm-store
+# === Node / pnpm / Vite ======================================================
 **/node_modules
-apps/web/.svelte-kit
-apps/web/build
+.pnpm-store
 apps/web/.vite
 apps/web/playwright-report
 apps/web/test-results
 docs/node_modules
-docs/.svelte-kit
-docs/build
-docs/.vite
+docs/.vitepress/dist
+docs/.vitepress/cache
+docs/.vitepress/.temp
 
-# --- SDKs (built outside the container build) -------------------------------
-sdks/typescript/node_modules
-sdks/python/.venv
-sdks/java/build
+# === Python ==================================================================
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.venv
+**/venv
+**/.tox
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+
+# === SDKs (per-package extras not caught above) ==============================
 sdks/java/.gradle
-sdks/python/dist
-sdks/python/build
 
-# --- Documentation / planning material (not needed at build time) -----------
+# === Documentation / planning material (not needed at build time) ===========
+docs/
 docs_original_palantir_foundry
+Good-practices-architecture
 benchmarks
 smoke
 images
 PoC
 ARCHITECTURE.md
 CHANGELOG.md
+CLAUDE.md
 CONTRIBUTING.md
-HTTP-ROUTE-AUDIT.md
-INVENTORY-*.md
-MIGRATION-LOOP-STATUS.md
-NIGHTLY-SUMMARY.md
-ONTOLOGY-KERNEL-MIGRATION.md
 README.md
 ROADMAP.md
 SECURITY.md
-STUB-AUDIT.md
-checklist.md
-guia-migracion-services-a-microservicios.md
-microservicios-derivados-desde-foundry-docs.md
-prompts-migracion-hasta-85-microservicios.md
-docs/
+TASKS_*.md
 
-# --- Secrets / runtime overlays (never copied into images) -----------------
+# === Secrets / runtime overlays (never copied into images) ==================
 **/.env
 **/.env.*
+!**/.env.example
 .openfoundry
+.direnv
 
-# --- Logs / caches ----------------------------------------------------------
+# === Terraform local state ==================================================
+**/.terraform
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+
+# === Logs / caches ===========================================================
 **/*.log
 **/.cache
 **/.turbo
 
-# --- Test outputs -----------------------------------------------------------
-**/__snapshots__
-**/coverage.out
-**/*.test
-**/*.prof
-
-# --- Allow the pieces the image build actually needs ------------------------
+# === Always include this file itself ========================================
 !.dockerignore

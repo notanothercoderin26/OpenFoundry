@@ -6,13 +6,13 @@ import { auth, useAuth } from '@stores/auth';
 const NO_SCOPED_SESSION = '__no_scoped_session__';
 
 export function ScopedSessionBanner() {
-  const { token, user } = useAuth();
+  const { user } = useAuth();
   const [options, setOptions] = useState<ScopedSessionOptionsResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!token && !user) {
+    if (!user) {
       setOptions(null);
       return;
     }
@@ -32,7 +32,7 @@ export function ScopedSessionBanner() {
     return () => {
       cancelled = true;
     };
-  }, [token, user?.id, user?.session_scope]);
+  }, [user?.id, user?.session_scope]);
 
   const selectablePresets = useMemo(
     () => options?.presets.filter((preset) => preset.selectable) ?? [],

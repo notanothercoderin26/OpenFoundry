@@ -13,8 +13,8 @@ import { CommandPalette } from './ui/CommandPalette';
 
 export function AppShell() {
   const bootstrapStatus = useBootstrapGate();
-  const { token, user, loading } = useAuth();
-  const authenticated = Boolean(token) || Boolean(user);
+  const { user, loading } = useAuth();
+  const authenticated = Boolean(user);
   const navigate = useNavigate();
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);

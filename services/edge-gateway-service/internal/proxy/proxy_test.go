@@ -467,5 +467,96 @@ func TestHeaderRewriteOnValidJWT(t *testing.T) {
 	assert.NotEqual(t, "TS_SCI", captured.Get(proxy.HdrAllowedMarkings))
 }
 
+// TestProxyStripsClientForwardedHeadersByDefault verifies that with
+// trust_forwarded_headers=false (the secure default) a client cannot
+// forge X-Forwarded-For / X-Real-IP / Forwarded — the gateway must drop
+// every client-supplied value and stamp a fresh chain from RemoteAddr.
+func TestProxyStripsClientForwardedHeadersByDefault(t *testing.T) {
+	t.Parallel()
+	var captured http.Header
+	upstream := captureHeadersUpstream(t, &captured)
+	gw, _ := newGateway(t, upstream.URL, upstream.URL)
+	defer gw.Close()
+
+	req, _ := http.NewRequest("GET", gw.URL+"/api/v1/datasets/abc/files", nil)
+	req.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8")
+	req.Header.Set("X-Real-IP", "1.2.3.4")
+	req.Header.Set("X-Forwarded-Host", "evil.example.com")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Port", "443")
+	req.Header.Set("CF-Connecting-IP", "1.2.3.4")
+	req.Header.Set("True-Client-IP", "1.2.3.4")
+	req.Header.Set("Forwarded", "for=1.2.3.4;host=evil.example.com")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NotNil(t, captured)
+
+	// Client-supplied values must NOT survive — the chain is rewritten
+	// from the gateway's peer (127.0.0.1 in httptest).
+	xff := captured.Get("X-Forwarded-For")
+	assert.NotContains(t, xff, "1.2.3.4",
+		"client X-Forwarded-For leaked to upstream: %q", xff)
+	assert.NotContains(t, xff, "5.6.7.8",
+		"client X-Forwarded-For leaked to upstream: %q", xff)
+	assert.Equal(t, "127.0.0.1", captured.Get("X-Real-IP"))
+	assert.NotEqual(t, "evil.example.com", captured.Get("X-Forwarded-Host"))
+	assert.Equal(t, "http", captured.Get("X-Forwarded-Proto"),
+		"client cannot promote scheme to https when TLS is not terminated here")
+	assert.Empty(t, captured.Get("CF-Connecting-IP"))
+	assert.Empty(t, captured.Get("True-Client-IP"))
+	assert.Empty(t, captured.Get("Forwarded"))
+	assert.Empty(t, captured.Get("X-Forwarded-Port"))
+}
+
+// TestProxyTrustsForwardedHeadersWhenConfigured verifies that with
+// trust_forwarded_headers=true (canonical k8s-behind-ingress deploy)
+// the inbound chain is preserved and the gateway's peer is appended,
+// while still scrubbing the non-chain-style headers (CF-Connecting-IP,
+// True-Client-IP, Forwarded) which are not part of the trusted hop.
+func TestProxyTrustsForwardedHeadersWhenConfigured(t *testing.T) {
+	t.Parallel()
+	var captured http.Header
+	upstream := captureHeadersUpstream(t, &captured)
+
+	cfg := &config.Config{}
+	cfg.Service.Name = "edge-gateway-service"
+	cfg.JWT.Secret = "test-secret-32bytes-test-secret-3"
+	cfg.Server.TrustForwardedHeaders = true
+	cfg.Upstream = config.UpstreamURLs{DatasetVersioning: upstream.URL}
+	jwt := authmw.NewJWTConfig(cfg.JWT.Secret)
+	gw := httptest.NewServer(proxy.NewHandler(cfg, jwt))
+	defer gw.Close()
+
+	req, _ := http.NewRequest("GET", gw.URL+"/api/v1/datasets/abc/files", nil)
+	// Simulates an ingress that has already stamped the real client chain.
+	req.Header.Set("X-Forwarded-For", "203.0.113.5, 10.0.0.1")
+	req.Header.Set("X-Forwarded-Host", "api.openfoundry.io")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	// These are NOT part of the trusted hop — they must be scrubbed.
+	req.Header.Set("CF-Connecting-IP", "1.2.3.4")
+	req.Header.Set("True-Client-IP", "1.2.3.4")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	xff := captured.Get("X-Forwarded-For")
+	assert.True(t, strings.HasPrefix(xff, "203.0.113.5, 10.0.0.1, "),
+		"trusted inbound chain must be preserved, got %q", xff)
+	assert.True(t, strings.HasSuffix(xff, ", 127.0.0.1"),
+		"gateway peer must be appended, got %q", xff)
+	// X-Real-IP is the *original* client — leftmost of the trusted chain.
+	assert.Equal(t, "203.0.113.5", captured.Get("X-Real-IP"))
+	assert.Equal(t, "api.openfoundry.io", captured.Get("X-Forwarded-Host"))
+	assert.Equal(t, "https", captured.Get("X-Forwarded-Proto"))
+	// Non-chain headers must still be scrubbed even when trusting inbound.
+	assert.Empty(t, captured.Get("CF-Connecting-IP"))
+	assert.Empty(t, captured.Get("True-Client-IP"))
+}
+
 // noopRoundTripper exists so we don't accidentally talk to the real network in test setup helpers.
 var _ = url.Parse

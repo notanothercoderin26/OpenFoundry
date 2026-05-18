@@ -52,6 +52,7 @@ func New(ctx context.Context, cfg *config.Config, metrics *observability.Metrics
 		BurstSize:                  cfg.RateLimit.BurstSize,
 		BucketTTL:                  time.Duration(cfg.RateLimit.BucketTTLSecs) * time.Second,
 		JWT:                        jwtCfg,
+		TrustForwardedHeaders:      cfg.Server.TrustForwardedHeaders,
 	}
 
 	auditPub, natsCloser := buildAuditPublisher(ctx, cfg, log)

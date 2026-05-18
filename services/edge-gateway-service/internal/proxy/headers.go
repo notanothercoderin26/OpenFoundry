@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -80,6 +81,117 @@ func StripClientAuthHeaders(req *http.Request) {
 	for _, h := range gatewayAssertedHeaders {
 		req.Header.Del(h)
 	}
+}
+
+// clientProxyHeaders is the set of standard reverse-proxy headers that
+// downstream services trust to identify the original caller (client IP,
+// scheme, host). A client-supplied value here lets the caller spoof
+// their IP for logs, geo, IP-based ACLs, and rate-limit buckets — so
+// the gateway must always own these. StampForwardedHeaders strips all
+// of them and stamps the canonical values from the inbound request.
+var clientProxyHeaders = []string{
+	"X-Forwarded-For",
+	"X-Forwarded-Host",
+	"X-Forwarded-Proto",
+	"X-Forwarded-Port",
+	"X-Forwarded-Server",
+	"X-Real-IP",
+	"CF-Connecting-IP",
+	"True-Client-IP",
+	"Forwarded", // RFC 7239
+}
+
+// StampForwardedHeaders sanitizes reverse-proxy identity headers on the
+// outbound request and re-stamps them with gateway-asserted values.
+//
+// Behavior depends on trustInbound:
+//
+//   - trustInbound=false (default, secure-by-default for direct exposure):
+//     every header in clientProxyHeaders is dropped and a fresh chain is
+//     stamped from in.RemoteAddr / in.Host / in.TLS. The caller cannot
+//     forge their IP regardless of what they send.
+//
+//   - trustInbound=true (gateway sits behind a trusted reverse proxy
+//     such as a k8s ingress controller): the existing X-Forwarded-For
+//     chain is preserved and the gateway's peer is appended to it.
+//     X-Real-IP is derived from the leftmost entry of the trusted chain
+//     so downstream services see the *original* client, not the ingress.
+//
+// In both modes Forwarded (RFC 7239), CF-Connecting-IP, True-Client-IP
+// and X-Forwarded-Server are unconditionally dropped — we never want to
+// pass these through unchanged.
+func StampForwardedHeaders(out *http.Request, in *http.Request, trustInbound bool) {
+	if out == nil || in == nil {
+		return
+	}
+
+	// Snapshot trusted values before we delete client-supplied ones.
+	var inboundFor, inboundHost, inboundProto string
+	if trustInbound {
+		inboundFor = in.Header.Get("X-Forwarded-For")
+		inboundHost = in.Header.Get("X-Forwarded-Host")
+		inboundProto = in.Header.Get("X-Forwarded-Proto")
+	}
+	for _, h := range clientProxyHeaders {
+		out.Header.Del(h)
+	}
+
+	peer := peerIP(in.RemoteAddr)
+
+	// X-Forwarded-For chain: trusted inbound + our peer; or peer alone.
+	switch {
+	case inboundFor != "" && peer != "":
+		out.Header.Set("X-Forwarded-For", inboundFor+", "+peer)
+	case inboundFor != "":
+		out.Header.Set("X-Forwarded-For", inboundFor)
+	case peer != "":
+		out.Header.Set("X-Forwarded-For", peer)
+	}
+
+	// X-Real-IP: the *original* client. When we trust the inbound chain,
+	// take its leftmost entry; otherwise fall back to the direct peer.
+	realIP := peer
+	if trustInbound && inboundFor != "" {
+		if i := strings.IndexByte(inboundFor, ','); i > 0 {
+			realIP = strings.TrimSpace(inboundFor[:i])
+		} else {
+			realIP = strings.TrimSpace(inboundFor)
+		}
+	}
+	if realIP != "" {
+		out.Header.Set("X-Real-IP", realIP)
+	}
+
+	// X-Forwarded-Proto: trust inbound when allowed; else derive from TLS.
+	proto := inboundProto
+	if proto == "" {
+		proto = "http"
+		if in.TLS != nil {
+			proto = "https"
+		}
+	}
+	out.Header.Set("X-Forwarded-Proto", proto)
+
+	// X-Forwarded-Host: trust inbound when allowed; else inbound Host.
+	host := inboundHost
+	if host == "" {
+		host = in.Host
+	}
+	if host != "" {
+		out.Header.Set("X-Forwarded-Host", host)
+	}
+}
+
+// peerIP returns the host part of a net.Addr-style "ip:port" string.
+// Falls back to the raw value when no port is present.
+func peerIP(remoteAddr string) string {
+	if remoteAddr == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return host
+	}
+	return remoteAddr
 }
 
 // ApplyTenantHeaders sets the per-tenant headers on the upstream request.

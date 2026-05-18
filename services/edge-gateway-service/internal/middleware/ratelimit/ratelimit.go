@@ -52,6 +52,13 @@ type Config struct {
 	BurstSize                  uint32
 	BucketTTL                  time.Duration
 	JWT                        *authmw.JWTConfig // optional — anonymous-only when nil
+	// TrustForwardedHeaders mirrors config.Config.Server.TrustForwardedHeaders.
+	// When false (the secure default), per-IP buckets are keyed off the
+	// direct peer (r.RemoteAddr) and client-supplied X-Forwarded-For /
+	// X-Real-IP / CF-Connecting-IP are ignored — otherwise a caller can
+	// rotate spoofed IP headers to dodge the anonymous bucket. When true,
+	// the inbound chain is trusted (canonical k8s-behind-ingress deploy).
+	TrustForwardedHeaders bool
 }
 
 // Middleware returns the rate-limit middleware.
@@ -97,7 +104,7 @@ func classify(r *http.Request, cfg Config) (string, uint32) {
 			return "tenant:" + tenant.ScopeID, tenant.Quotas.RequestsPerMinute
 		}
 	}
-	return "anonymous:" + remoteIP(r), cfg.AnonymousRequestsPerMinute
+	return "anonymous:" + remoteIP(r, cfg.TrustForwardedHeaders), cfg.AnonymousRequestsPerMinute
 }
 
 func tryDecode(r *http.Request, cfg *authmw.JWTConfig) *authmw.Claims {
@@ -120,21 +127,31 @@ func tryDecode(r *http.Request, cfg *authmw.JWTConfig) *authmw.Claims {
 	return claims
 }
 
-// remoteIP extracts the caller IP, mirroring the Rust precedence:
+// remoteIP extracts the caller IP for per-IP bucket keying.
+//
+// When trustInbound is true (gateway deployed behind a trusted reverse
+// proxy that has stamped the canonical chain), the precedence is
 // X-Forwarded-For → X-Real-IP → CF-Connecting-IP → RemoteAddr → "global".
-func remoteIP(r *http.Request) string {
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		// Take the first hop.
-		if idx := strings.Index(v, ","); idx > 0 {
-			return strings.TrimSpace(v[:idx])
+//
+// When trustInbound is false (default, direct exposure), client-supplied
+// proxy headers are ignored entirely — using them would let a caller
+// rotate spoofed IPs to dodge the anonymous bucket. Only the direct
+// peer (r.RemoteAddr) is used.
+func remoteIP(r *http.Request, trustInbound bool) string {
+	if trustInbound {
+		if v := r.Header.Get("X-Forwarded-For"); v != "" {
+			// Take the first hop (the original client).
+			if idx := strings.Index(v, ","); idx > 0 {
+				return strings.TrimSpace(v[:idx])
+			}
+			return strings.TrimSpace(v)
 		}
-		return strings.TrimSpace(v)
-	}
-	if v := r.Header.Get("X-Real-IP"); v != "" {
-		return v
-	}
-	if v := r.Header.Get("CF-Connecting-IP"); v != "" {
-		return v
+		if v := r.Header.Get("X-Real-IP"); v != "" {
+			return v
+		}
+		if v := r.Header.Get("CF-Connecting-IP"); v != "" {
+			return v
+		}
 	}
 	if r.RemoteAddr != "" {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)

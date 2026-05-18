@@ -4,7 +4,15 @@
 -- collaboration, and repository types for transforms/functions/models.
 -- OpenFoundry stores the Compass resource facet here; later CRW tasks own
 -- Git storage, editor surfaces, builds, PRs and lineage.
+--
+-- This migration is phased via `-- TX-BREAK` markers (see migrations.go).
+-- Each phase commits independently so a failure in the long-running
+-- backfill UPDATE on a large `repositories` table does NOT also roll
+-- back the schema additions and the safety-net trigger that protects
+-- concurrent inserts. Operators can retry the migration and pick up
+-- from whichever phase failed without losing prior progress.
 
+-- ─── Phase 1 — Schema additions (fast, metadata-only in PG 11+). ─────────
 ALTER TABLE repositories ADD COLUMN IF NOT EXISTS rid TEXT;
 ALTER TABLE repositories ADD COLUMN IF NOT EXISTS slug TEXT;
 ALTER TABLE repositories ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
@@ -24,28 +32,13 @@ ALTER TABLE repositories ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAU
 ALTER TABLE repositories ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ NULL;
 ALTER TABLE repositories ADD COLUMN IF NOT EXISTS trashed_by TEXT NULL;
 
-UPDATE repositories
-   SET rid = COALESCE(rid, 'ri.foundry.main.coderepository.' || id::text),
-       slug = COALESCE(slug, lower(regexp_replace(trim(name), '[^a-zA-Z0-9]+', '-', 'g'))),
-       owner = COALESCE(NULLIF(owner, ''), created_by, 'system'),
-       language_template = COALESCE(NULLIF(language_template, ''), 'python-transform'),
-       storage_backend_rid = COALESCE(NULLIF(storage_backend_rid, ''), 'ri.openfoundry.main.storage-backend.' || object_store_backend),
-       object_store_backend = COALESCE(NULLIF(object_store_backend, ''), 'local'),
-       package_kind = COALESCE(NULLIF(package_kind, ''), 'transform'),
-       settings = COALESCE(settings, '{}'::JSONB),
-       acl = COALESCE(acl, '{"owners":[],"editors":[],"viewers":[]}'::JSONB);
+-- TX-BREAK
 
-ALTER TABLE repositories ALTER COLUMN rid SET NOT NULL;
-ALTER TABLE repositories ALTER COLUMN slug SET NOT NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_repositories_rid ON repositories(rid);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_repositories_slug ON repositories(slug);
-CREATE INDEX IF NOT EXISTS idx_repositories_owner ON repositories(owner);
-CREATE INDEX IF NOT EXISTS idx_repositories_organizations ON repositories USING GIN(organizations);
-CREATE INDEX IF NOT EXISTS idx_repositories_markings ON repositories USING GIN(markings);
-CREATE INDEX IF NOT EXISTS idx_repositories_compass_location ON repositories(compass_project_rid, compass_folder_rid);
-CREATE INDEX IF NOT EXISTS idx_repositories_active_updated ON repositories(updated_at DESC) WHERE trashed_at IS NULL;
-
+-- ─── Phase 2 — Safety-net trigger. Installed BEFORE the backfill so
+-- any concurrent INSERT lands with valid `rid`/`slug`/`storage_backend_rid`
+-- /`acl`. Without this, an insert racing between the backfill UPDATE and
+-- the SET NOT NULL in phase 4 would leave a NULL row, making the
+-- migration permanently un-retriable. ────────────────────────────────────
 CREATE OR REPLACE FUNCTION set_repository_resource_defaults()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -69,3 +62,44 @@ DROP TRIGGER IF EXISTS trg_repository_resource_defaults ON repositories;
 CREATE TRIGGER trg_repository_resource_defaults
 BEFORE INSERT OR UPDATE ON repositories
 FOR EACH ROW EXECUTE FUNCTION set_repository_resource_defaults();
+
+-- TX-BREAK
+
+-- ─── Phase 3 — Backfill existing rows. Idempotent via COALESCE/NULLIF;
+-- the WHERE clause restricts work to rows that still need filling, so a
+-- retry after a timeout only touches the un-migrated tail. ──────────────
+UPDATE repositories
+   SET rid = COALESCE(rid, 'ri.foundry.main.coderepository.' || id::text),
+       slug = COALESCE(slug, lower(regexp_replace(trim(name), '[^a-zA-Z0-9]+', '-', 'g'))),
+       owner = COALESCE(NULLIF(owner, ''), created_by, 'system'),
+       language_template = COALESCE(NULLIF(language_template, ''), 'python-transform'),
+       storage_backend_rid = COALESCE(NULLIF(storage_backend_rid, ''), 'ri.openfoundry.main.storage-backend.' || object_store_backend),
+       object_store_backend = COALESCE(NULLIF(object_store_backend, ''), 'local'),
+       package_kind = COALESCE(NULLIF(package_kind, ''), 'transform'),
+       settings = COALESCE(settings, '{}'::JSONB),
+       acl = COALESCE(acl, '{"owners":[],"editors":[],"viewers":[]}'::JSONB)
+ WHERE rid IS NULL
+    OR slug IS NULL
+    OR owner = ''
+    OR language_template = ''
+    OR storage_backend_rid = ''
+    OR object_store_backend = ''
+    OR package_kind = ''
+    OR settings IS NULL
+    OR acl IS NULL;
+
+-- TX-BREAK
+
+-- ─── Phase 4 — Tighten constraints and add resource-facet indexes.
+-- SET NOT NULL requires a full table scan; the trigger from phase 2
+-- guarantees no NULL rows can sneak in between phase 3 and here. ────────
+ALTER TABLE repositories ALTER COLUMN rid SET NOT NULL;
+ALTER TABLE repositories ALTER COLUMN slug SET NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_repositories_rid ON repositories(rid);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_repositories_slug ON repositories(slug);
+CREATE INDEX IF NOT EXISTS idx_repositories_owner ON repositories(owner);
+CREATE INDEX IF NOT EXISTS idx_repositories_organizations ON repositories USING GIN(organizations);
+CREATE INDEX IF NOT EXISTS idx_repositories_markings ON repositories USING GIN(markings);
+CREATE INDEX IF NOT EXISTS idx_repositories_compass_location ON repositories(compass_project_rid, compass_folder_rid);
+CREATE INDEX IF NOT EXISTS idx_repositories_active_updated ON repositories(updated_at DESC) WHERE trashed_at IS NULL;

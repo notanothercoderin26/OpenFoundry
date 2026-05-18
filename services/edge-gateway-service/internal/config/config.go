@@ -27,6 +27,14 @@ type Config struct {
 		Host            string `koanf:"host"`
 		Port            uint16 `koanf:"port"`
 		ShutdownTimeout string `koanf:"shutdown_timeout"`
+		// TrustForwardedHeaders controls how the proxy handles inbound
+		// X-Forwarded-* / Forwarded headers. Default (false) is safe for
+		// direct internet exposure: every reverse-proxy identity header
+		// the client sends is dropped and re-stamped from RemoteAddr.
+		// Set to true ONLY when this gateway sits behind a trusted
+		// reverse proxy (k8s ingress, ALB, Cloudflare) that has already
+		// stamped the canonical X-Forwarded-For chain.
+		TrustForwardedHeaders bool `koanf:"trust_forwarded_headers"`
 	} `koanf:"server"`
 
 	JWT struct {

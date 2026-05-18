@@ -122,6 +122,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// gateway-asserted facts; a client that injects them must not be able
 	// to forge subject / tenant / markings.
 	StripClientAuthHeaders(out)
+	// Same trust boundary for standard reverse-proxy headers: sanitize
+	// X-Forwarded-* / X-Real-IP / Forwarded so a caller cannot spoof
+	// their IP for downstream logs, geo, IP-based ACLs or rate limiting.
+	StampForwardedHeaders(out, r, h.Cfg.Server.TrustForwardedHeaders)
 	ApplyTenantHeaders(out, &tenant)
 	if claims != nil {
 		ApplyAuthContextHeaders(out, claims)

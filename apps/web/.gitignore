@@ -1,12 +1,33 @@
-node_modules
-dist
-build
-.vite
-.cache
-test-results
-playwright-report
-*.log
-.DS_Store
+# Vite / TypeScript build output
+dist/
+dist-ssr/
+build/
+
+# Caches
+.vite/
+.cache/
+.eslintcache
+*.tsbuildinfo
+
+# Tests
+coverage/
+test-results/
+playwright-report/
+
+# Vite local-env convention
+*.local
+
+# Vite temp config files (`vite.config.ts.timestamp-*.mjs`)
+vite.config.*.timestamp-*
+
+# Local env (root .gitignore also covers .env*; kept here for clarity)
 .env
 .env.*
 !.env.example
+
+# OS / logs
+.DS_Store
+*.log
+
+# Node
+node_modules/
