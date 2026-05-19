@@ -1513,18 +1513,73 @@ button {
   background: var(--app-surface, #ffffff);
 }
 
-/* Blueprint-flavoured colour shortcuts (parity with Foundry's BP palette). */
+/* Blueprint-flavoured colour shortcuts (parity with Foundry's BP palette).
+ * Shade 1 = light (dark text), 3 = medium (light text), 5 = dark (light text). */
 
+.of-app-section--bg-red-1 { background: #fbb4bb; color: #1c2127; }
 .of-app-section--bg-red-3 { background: #db3737; color: #ffffff; }
+.of-app-section--bg-red-5 { background: #5c0f11; color: #ffffff; }
+.of-app-section--bg-orange-1 { background: #fcb68a; color: #1c2127; }
 .of-app-section--bg-orange-3 { background: #d9822b; color: #ffffff; }
+.of-app-section--bg-orange-5 { background: #5c2c03; color: #ffffff; }
+.of-app-section--bg-yellow-1 { background: #ffe0a8; color: #1c2127; }
 .of-app-section--bg-yellow-3 { background: #d99e0b; color: #1c2127; }
+.of-app-section--bg-yellow-5 { background: #5c3f00; color: #ffffff; }
+.of-app-section--bg-green-1 { background: #62d96b; color: #1c2127; }
 .of-app-section--bg-green-3 { background: #0f9960; color: #ffffff; }
+.of-app-section--bg-green-5 { background: #0a6640; color: #ffffff; }
+.of-app-section--bg-turquoise-1 { background: #6bd9e9; color: #1c2127; }
 .of-app-section--bg-turquoise-3 { background: #00b3a4; color: #ffffff; }
+.of-app-section--bg-turquoise-5 { background: #004d45; color: #ffffff; }
+.of-app-section--bg-cerulean-1 { background: #6cb8e5; color: #1c2127; }
 .of-app-section--bg-cerulean-3 { background: #2965cc; color: #ffffff; }
+.of-app-section--bg-cerulean-5 { background: #142e5c; color: #ffffff; }
+.of-app-section--bg-blue-1 { background: #8abbff; color: #1c2127; }
 .of-app-section--bg-blue-3 { background: #137cbd; color: #ffffff; }
+.of-app-section--bg-blue-5 { background: #0e5a8a; color: #ffffff; }
+.of-app-section--bg-indigo-1 { background: #8f8fff; color: #1c2127; }
 .of-app-section--bg-indigo-3 { background: #5642a6; color: #ffffff; }
+.of-app-section--bg-indigo-5 { background: #19177a; color: #ffffff; }
+.of-app-section--bg-violet-1 { background: #bd66bd; color: #ffffff; }
 .of-app-section--bg-violet-3 { background: #7157d9; color: #ffffff; }
+.of-app-section--bg-violet-5 { background: #36368c; color: #ffffff; }
+.of-app-section--bg-magenta-1 { background: #db66c4; color: #ffffff; }
 .of-app-section--bg-magenta-3 { background: #c1145e; color: #ffffff; }
+.of-app-section--bg-magenta-5 { background: #5c0d3d; color: #ffffff; }
+
+/* Inner section style presets — applied to a PARENT section, they style all
+ * direct child sections inside the parent's __body container. Only effective
+ * for grid/columns/rows/flow/toolbar parents; tabs/loop have their own body
+ * containers and ignore these. */
+
+.of-app-section--inner-card > .of-app-section__body > .of-app-section {
+  border: 1px solid color-mix(in srgb, var(--app-text, #0f172a) 14%, transparent);
+  border-radius: min(var(--app-radius, 8px), 12px);
+  padding: 16px;
+  background: var(--app-surface, #ffffff);
+}
+
+.of-app-section--inner-flat > .of-app-section__body > .of-app-section {
+  border: 0;
+  box-shadow: none;
+  padding: 8px 0;
+  background: transparent;
+}
+
+.of-app-section--inner-subtle > .of-app-section__body > .of-app-section {
+  border: 0;
+  border-radius: min(var(--app-radius, 6px), 8px);
+  padding: 12px;
+  background: color-mix(in srgb, var(--app-surface, #ffffff) 92%, var(--app-text, #0f172a));
+}
+
+.of-app-section--inner-elevated > .of-app-section__body > .of-app-section {
+  border: 0;
+  border-radius: min(var(--app-radius, 8px), 12px);
+  padding: 16px;
+  background: var(--app-surface, #ffffff);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--app-text, #0f172a) 14%, transparent);
+}
 
 /* === Section drop zones ============================================== */
 

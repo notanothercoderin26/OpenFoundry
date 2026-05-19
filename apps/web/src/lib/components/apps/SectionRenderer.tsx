@@ -73,6 +73,9 @@ export type SectionPaddingPreset = 'none' | 'compact' | 'regular' | 'large' | 'c
 // Section background presets cover the Foundry-parity gray scale, a
 // transparent sentinel, and a curated Blueprint-flavoured palette so builders
 // can colour-tag sections without dropping into hex.
+//
+// The chromatic hues each carry three shade variants (1=light, 3=medium,
+// 5=dark) so builders get subtle/standard/intense without resorting to hex.
 export type SectionBackgroundPreset =
   | 'gray-1'
   | 'gray-2'
@@ -81,36 +84,44 @@ export type SectionBackgroundPreset =
   | 'gray-5'
   | 'transparent'
   | 'surface'
-  | 'red-3'
-  | 'orange-3'
-  | 'yellow-3'
-  | 'green-3'
-  | 'turquoise-3'
-  | 'cerulean-3'
-  | 'blue-3'
-  | 'indigo-3'
-  | 'violet-3'
-  | 'magenta-3';
+  | 'red-1' | 'red-3' | 'red-5'
+  | 'orange-1' | 'orange-3' | 'orange-5'
+  | 'yellow-1' | 'yellow-3' | 'yellow-5'
+  | 'green-1' | 'green-3' | 'green-5'
+  | 'turquoise-1' | 'turquoise-3' | 'turquoise-5'
+  | 'cerulean-1' | 'cerulean-3' | 'cerulean-5'
+  | 'blue-1' | 'blue-3' | 'blue-5'
+  | 'indigo-1' | 'indigo-3' | 'indigo-5'
+  | 'violet-1' | 'violet-3' | 'violet-5'
+  | 'magenta-1' | 'magenta-3' | 'magenta-5';
 
 const SECTION_BACKGROUND_PRESETS: SectionBackgroundPreset[] = [
-  'gray-1',
-  'gray-2',
-  'gray-3',
-  'gray-4',
-  'gray-5',
+  'gray-1', 'gray-2', 'gray-3', 'gray-4', 'gray-5',
   'transparent',
   'surface',
-  'red-3',
-  'orange-3',
-  'yellow-3',
-  'green-3',
-  'turquoise-3',
-  'cerulean-3',
-  'blue-3',
-  'indigo-3',
-  'violet-3',
-  'magenta-3',
+  'red-1', 'red-3', 'red-5',
+  'orange-1', 'orange-3', 'orange-5',
+  'yellow-1', 'yellow-3', 'yellow-5',
+  'green-1', 'green-3', 'green-5',
+  'turquoise-1', 'turquoise-3', 'turquoise-5',
+  'cerulean-1', 'cerulean-3', 'cerulean-5',
+  'blue-1', 'blue-3', 'blue-5',
+  'indigo-1', 'indigo-3', 'indigo-5',
+  'violet-1', 'violet-3', 'violet-5',
+  'magenta-1', 'magenta-3', 'magenta-5',
 ];
+
+export type SectionInnerStyle = 'card' | 'flat' | 'subtle' | 'elevated';
+
+const SECTION_INNER_STYLES: SectionInnerStyle[] = ['card', 'flat', 'subtle', 'elevated'];
+
+function readInnerStyle(props: Record<string, unknown> | undefined): SectionInnerStyle | undefined {
+  const value = props?.inner_section_style;
+  if (typeof value !== 'string') return undefined;
+  return (SECTION_INNER_STYLES as readonly string[]).includes(value)
+    ? (value as SectionInnerStyle)
+    : undefined;
+}
 
 export interface SectionPaddingCustom {
   top?: number;
@@ -123,6 +134,7 @@ export interface SectionStyling {
   classNames: string[];
   style: CSSProperties;
   headerFormat: SectionHeaderFormat;
+  innerStyle: SectionInnerStyle | undefined;
 }
 
 function readHeaderFormat(props: Record<string, unknown> | undefined): SectionHeaderFormat | undefined {
@@ -215,11 +227,15 @@ export function resolveSectionStyling(
   const padding = readPaddingPreset(props);
   const paddingCustom = readPaddingCustom(props);
   const bg = readBackgroundColor(props);
+  const innerStyle = readInnerStyle(props);
 
   const classNames: string[] = [`of-app-section--header-${headerFormat}`];
   if (borderStyle) classNames.push(`of-app-section--border-${borderStyle}`);
   if (padding && padding !== 'custom') {
     classNames.push(`of-app-section--padding-${padding}`);
+  }
+  if (innerStyle) {
+    classNames.push(`of-app-section--inner-${innerStyle}`);
   }
 
   const style: CSSProperties = {};
@@ -235,7 +251,7 @@ export function resolveSectionStyling(
     style.padding = `${top}px ${right}px ${bottom}px ${left}px`;
   }
 
-  return { classNames, style, headerFormat };
+  return { classNames, style, headerFormat, innerStyle };
 }
 
 // ----------------------------------------------------------------------

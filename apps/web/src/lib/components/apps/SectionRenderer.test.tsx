@@ -515,6 +515,27 @@ describe('resolveSectionStyling', () => {
     // Negative `top` is dropped, only `right` kept and others default to 0.
     expect(out.style.padding).toBe('0px 20px 0px 0px');
   });
+
+  it.each(['card', 'flat', 'subtle', 'elevated'] as const)(
+    'emits of-app-section--inner-%s class for inner_section_style=%s',
+    (preset) => {
+      const out = resolveSectionStyling({ inner_section_style: preset });
+      expect(out.classNames).toContain(`of-app-section--inner-${preset}`);
+      expect(out.innerStyle).toBe(preset);
+    },
+  );
+
+  it('ignores unknown inner_section_style values', () => {
+    const out = resolveSectionStyling({ inner_section_style: 'fancy' });
+    expect(out.innerStyle).toBeUndefined();
+    expect(out.classNames.some((c) => c.startsWith('of-app-section--inner-'))).toBe(false);
+  });
+
+  it('emits no inner-style class when inner_section_style is omitted', () => {
+    const out = resolveSectionStyling({});
+    expect(out.innerStyle).toBeUndefined();
+    expect(out.classNames.some((c) => c.startsWith('of-app-section--inner-'))).toBe(false);
+  });
 });
 
 describe('SectionRenderer styling', () => {
@@ -616,21 +637,27 @@ describe('SectionRenderer styling', () => {
 });
 
 describe('Blueprint background presets', () => {
-  it.each([
-    'red-3',
-    'orange-3',
-    'yellow-3',
-    'green-3',
-    'turquoise-3',
-    'cerulean-3',
-    'blue-3',
-    'indigo-3',
-    'violet-3',
-    'magenta-3',
-  ] as const)('treats %s as a preset class, not an inline hex', (preset) => {
-    const out = resolveSectionStyling({ background_color: preset });
-    expect(out.classNames).toContain(`of-app-section--bg-${preset}`);
-    expect(out.style.background).toBeUndefined();
+  const hues = [
+    'red', 'orange', 'yellow', 'green', 'turquoise',
+    'cerulean', 'blue', 'indigo', 'violet', 'magenta',
+  ] as const;
+  const shades = [1, 3, 5] as const;
+
+  for (const hue of hues) {
+    for (const shade of shades) {
+      const preset = `${hue}-${shade}`;
+      it(`treats ${preset} as a preset class, not an inline hex`, () => {
+        const out = resolveSectionStyling({ background_color: preset });
+        expect(out.classNames).toContain(`of-app-section--bg-${preset}`);
+        expect(out.style.background).toBeUndefined();
+      });
+    }
+  }
+
+  it('rejects unsupported BP shades (e.g., shade 2 or 4) and emits inline style as raw value', () => {
+    const out = resolveSectionStyling({ background_color: 'red-2' });
+    expect(out.classNames).not.toContain('of-app-section--bg-red-2');
+    expect(out.style.background).toBe('red-2');
   });
 });
 
