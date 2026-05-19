@@ -17,6 +17,7 @@ import {
   publishApp,
   updateApp,
   type AppDefinition,
+  type AppOverlay,
   type AppPage,
   type AppPreviewResponse,
   type AppSummary,
@@ -30,16 +31,26 @@ import {
 import { AppRenderer } from '@/lib/components/apps/AppRenderer';
 import { WorkshopRuntimeProvider } from '@/lib/components/apps/widgets';
 import {
+  OverlayInspector,
   PageCanvas,
   PageInspector,
   PagesOutline,
   WidgetInspector,
+  addOverlayToPage,
   commitPages,
+  defaultOverlay,
   defaultPage,
   defaultWidget,
+  duplicateOverlayInPage,
   groupWidgetsBySection,
   makeId,
   parsePages,
+  patchOverlayInPage,
+  preparePastedOverlay,
+  preparePastedWidget,
+  removeOverlayFromPage,
+  type ClipboardEntry,
+  type VariableLike,
 } from '@/lib/components/apps/AppPagesEditor';
 import { CreateAppModal } from '@/lib/components/apps/CreateAppModal';
 import { ImportSlateModal } from '@/lib/components/apps/ImportSlateModal';
@@ -252,6 +263,9 @@ export function AppsPage() {
 
   const [selectedPageId, setSelectedPageId] = useState('');
   const [selectedWidgetId, setSelectedWidgetId] = useState('');
+  const [selectedOverlayId, setSelectedOverlayId] = useState('');
+  const [selectedHeaderWidgetId, setSelectedHeaderWidgetId] = useState('');
+  const [clipboard, setClipboard] = useState<ClipboardEntry | null>(null);
 
   const isBuilder = Boolean(selectedParam);
 
@@ -503,6 +517,7 @@ export function AppsPage() {
   const catalog = useMemo(() => getWidgetCatalogItems(widgetCatalog), [widgetCatalog]);
   const selectedPage = pages.find((page) => page.id === selectedPageId) ?? pages[0] ?? null;
   const selectedWidget = selectedPage?.widgets.find((widget) => widget.id === selectedWidgetId) ?? null;
+  const selectedOverlay = selectedPage?.overlays?.find((overlay) => overlay.id === selectedOverlayId) ?? null;
 
   useEffect(() => {
     if (pages.length === 0) {
@@ -522,6 +537,13 @@ export function AppsPage() {
       setSelectedWidgetId('');
     }
   }, [selectedPage, selectedWidgetId]);
+
+  useEffect(() => {
+    if (!selectedPage || !selectedOverlayId) return;
+    if (!(selectedPage.overlays ?? []).some((overlay) => overlay.id === selectedOverlayId)) {
+      setSelectedOverlayId('');
+    }
+  }, [selectedPage, selectedOverlayId]);
 
   function patchPagesJson(updater: (pages: AppPage[]) => AppPage[]) {
     const next = updater(pages);
@@ -612,6 +634,182 @@ export function AppsPage() {
   function applyLayoutTemplate(pageId: string, widgets: AppWidget[]) {
     patchPagesJson((current) => current.map((page) => (page.id === pageId ? { ...page, widgets } : page)));
     setSelectedWidgetId('');
+  }
+
+  // ---------- overlay mutations ----------------------------------------------
+
+  function addOverlay(pageId: string) {
+    const overlay = defaultOverlay();
+    patchPagesJson((current) => addOverlayToPage(current, pageId, overlay));
+    setSelectedOverlayId(overlay.id);
+    setSelectedWidgetId('');
+  }
+
+  function deleteOverlayInPage(pageId: string, overlayId: string) {
+    patchPagesJson((current) => removeOverlayFromPage(current, pageId, overlayId));
+    if (selectedOverlayId === overlayId) setSelectedOverlayId('');
+  }
+
+  function duplicateOverlay(pageId: string, overlayId: string) {
+    const result = duplicateOverlayInPage(pages, pageId, overlayId);
+    if (!result.newId) return;
+    patchPagesJson(() => result.pages);
+    setSelectedOverlayId(result.newId);
+  }
+
+  function patchOverlay(pageId: string, overlayId: string, patch: Partial<AppOverlay>) {
+    patchPagesJson((current) => patchOverlayInPage(current, pageId, overlayId, patch));
+  }
+
+  // ---------- header widgets -------------------------------------------------
+  // Header widgets live in settings_json under workshop_header.widgets. They
+  // render in AppHeader (right of the brand block) and respond to the
+  // collapsed header state via AppHeaderCollapseContext.
+
+  const headerWidgets = useMemo<AppWidget[]>(() => {
+    try {
+      const parsed = JSON.parse(draft.settings_json) as { workshop_header?: { widgets?: AppWidget[] } };
+      return Array.isArray(parsed?.workshop_header?.widgets) ? parsed.workshop_header.widgets : [];
+    } catch {
+      return [];
+    }
+  }, [draft.settings_json]);
+
+  function patchHeaderWidgets(updater: (current: AppWidget[]) => AppWidget[]) {
+    setDraft((current) => {
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(current.settings_json) as Record<string, unknown>;
+      } catch {
+        parsed = {};
+      }
+      const header = (parsed.workshop_header && typeof parsed.workshop_header === 'object'
+        ? parsed.workshop_header
+        : {}) as Record<string, unknown>;
+      const existing = Array.isArray(header.widgets) ? (header.widgets as AppWidget[]) : [];
+      const next = updater(existing);
+      const nextSettings = {
+        ...parsed,
+        workshop_header: { ...header, widgets: next },
+      };
+      return { ...current, settings_json: JSON.stringify(nextSettings, null, 2) };
+    });
+  }
+
+  function defaultHeaderButtonGroup(): AppWidget {
+    return {
+      id: makeId('widget'),
+      widget_type: 'button_group',
+      title: 'Header buttons',
+      description: '',
+      position: { x: 0, y: 0, width: 12, height: 1 },
+      props: {
+        orientation: 'horizontal',
+        buttons: [
+          {
+            id: makeId('btn'),
+            label: 'Action',
+            on_click_kind: 'none',
+            action_type_id: '',
+            parameter_defaults: {},
+            default_layout: 'form',
+            switch_layout: false,
+            conditional_visibility: false,
+            icon: '★',
+          },
+        ],
+      },
+      binding: null,
+      events: [],
+      children: [],
+    };
+  }
+
+  function addHeaderWidget() {
+    const widget = defaultHeaderButtonGroup();
+    patchHeaderWidgets((current) => [...current, widget]);
+    setSelectedHeaderWidgetId(widget.id);
+    setSelectedWidgetId('');
+    setSelectedOverlayId('');
+  }
+
+  function deleteHeaderWidget(widgetId: string) {
+    patchHeaderWidgets((current) => current.filter((widget) => widget.id !== widgetId));
+    if (selectedHeaderWidgetId === widgetId) setSelectedHeaderWidgetId('');
+  }
+
+  function patchHeaderWidget(widgetId: string, patch: Partial<AppWidget>) {
+    patchHeaderWidgets((current) => current.map((widget) => (
+      widget.id === widgetId ? { ...widget, ...patch } : widget
+    )));
+  }
+
+  const selectedHeaderWidget = headerWidgets.find((widget) => widget.id === selectedHeaderWidgetId) ?? null;
+
+  // Resync if the header widget disappears (e.g. another tab edited the JSON).
+  useEffect(() => {
+    if (!selectedHeaderWidgetId) return;
+    if (!headerWidgets.some((widget) => widget.id === selectedHeaderWidgetId)) {
+      setSelectedHeaderWidgetId('');
+    }
+  }, [headerWidgets, selectedHeaderWidgetId]);
+
+  // ---------- settings helpers (for paste-with-duplicate-vars) ---------------
+
+  // Read the current workshop_variables from settings_json so paste-duplicate
+  // mode can detect referenced variables and duplicate them. Returning a
+  // typed array keeps the helpers in AppPagesEditor free of any settings
+  // import path coupling.
+  const workshopVariables = useMemo<VariableLike[]>(() => {
+    try {
+      const parsed = JSON.parse(draft.settings_json) as { workshop_variables?: VariableLike[] };
+      return Array.isArray(parsed?.workshop_variables) ? parsed.workshop_variables : [];
+    } catch {
+      return [];
+    }
+  }, [draft.settings_json]);
+
+  function appendWorkshopVariables(extras: VariableLike[]) {
+    if (extras.length === 0) return;
+    setDraft((current) => {
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(current.settings_json) as Record<string, unknown>;
+      } catch {
+        parsed = {};
+      }
+      const existing = Array.isArray(parsed.workshop_variables) ? parsed.workshop_variables : [];
+      const next = { ...parsed, workshop_variables: [...existing, ...extras] };
+      return { ...current, settings_json: JSON.stringify(next, null, 2) };
+    });
+  }
+
+  // ---------- clipboard ------------------------------------------------------
+
+  function copyWidgetToClipboard(widget: AppWidget) {
+    setClipboard({ kind: 'widget', payload: widget });
+  }
+
+  function copyOverlayToClipboard(overlay: AppOverlay) {
+    setClipboard({ kind: 'overlay', payload: overlay });
+  }
+
+  function pasteWidgetFromClipboard(pageId: string, mode: 'same' | 'duplicate') {
+    if (clipboard?.kind !== 'widget') return;
+    const result = preparePastedWidget(clipboard.payload, mode, workshopVariables);
+    patchPagesJson((current) => current.map((page) =>
+      page.id === pageId ? { ...page, widgets: [...page.widgets, result.widget] } : page
+    ));
+    appendWorkshopVariables(result.newVariables);
+    setSelectedWidgetId(result.widget.id);
+  }
+
+  function pasteOverlayFromClipboard(pageId: string, mode: 'same' | 'duplicate') {
+    if (clipboard?.kind !== 'overlay') return;
+    const result = preparePastedOverlay(clipboard.payload, mode, workshopVariables);
+    patchPagesJson((current) => addOverlayToPage(current, pageId, result.overlay));
+    appendWorkshopVariables(result.newVariables);
+    setSelectedOverlayId(result.overlay.id);
   }
 
   // ---------- derived ---------------------------------------------------------
@@ -755,11 +953,30 @@ export function AppsPage() {
           pages={pages}
           selectedPageId={selectedPage?.id ?? ''}
           selectedWidgetId={selectedWidgetId}
-          onSelectPage={(id) => { setSelectedPageId(id); setSelectedWidgetId(''); }}
-          onSelectWidget={(_, widgetId) => setSelectedWidgetId(widgetId)}
+          selectedOverlayId={selectedOverlayId}
+          onSelectPage={(id) => { setSelectedPageId(id); setSelectedWidgetId(''); setSelectedOverlayId(''); setSelectedHeaderWidgetId(''); }}
+          onSelectWidget={(_, widgetId) => { setSelectedWidgetId(widgetId); setSelectedOverlayId(''); setSelectedHeaderWidgetId(''); }}
           onAddPage={addPage}
           onDuplicatePage={duplicatePage}
           onDeletePage={deletePage}
+          onAddOverlay={addOverlay}
+          onSelectOverlay={(pageId, overlayId) => {
+            if (pageId !== selectedPageId) setSelectedPageId(pageId);
+            setSelectedOverlayId(overlayId);
+            setSelectedWidgetId('');
+            setSelectedHeaderWidgetId('');
+          }}
+          onDuplicateOverlay={duplicateOverlay}
+          onDeleteOverlay={deleteOverlayInPage}
+          headerWidgets={headerWidgets}
+          selectedHeaderWidgetId={selectedHeaderWidgetId}
+          onAddHeaderWidget={addHeaderWidget}
+          onSelectHeaderWidget={(widgetId) => {
+            setSelectedHeaderWidgetId(widgetId);
+            setSelectedWidgetId('');
+            setSelectedOverlayId('');
+          }}
+          onDeleteHeaderWidget={deleteHeaderWidget}
         />
 
         <main style={{ background: 'var(--bg-canvas, #f1f4f9)', overflow: 'auto', minWidth: 0 }}>
@@ -784,13 +1001,52 @@ export function AppsPage() {
             alignContent: 'start',
           }}
         >
-          {selectedWidget && selectedPage ? (
+          {selectedHeaderWidget ? (
+            <WidgetInspector
+              widget={selectedHeaderWidget}
+              catalog={catalog}
+              onPatch={(patch) => patchHeaderWidget(selectedHeaderWidget.id, patch)}
+              onDuplicate={() => {
+                const copy: AppWidget = {
+                  ...selectedHeaderWidget,
+                  id: makeId('widget'),
+                  title: `${selectedHeaderWidget.title || selectedHeaderWidget.widget_type} copy`,
+                };
+                patchHeaderWidgets((current) => [...current, copy]);
+                setSelectedHeaderWidgetId(copy.id);
+              }}
+              onDelete={() => deleteHeaderWidget(selectedHeaderWidget.id)}
+            />
+          ) : selectedOverlay && selectedPage ? (
+            <OverlayInspector
+              overlay={selectedOverlay}
+              onPatch={(patch) => patchOverlay(selectedPage.id, selectedOverlay.id, patch)}
+              onDuplicate={() => duplicateOverlay(selectedPage.id, selectedOverlay.id)}
+              onDelete={() => deleteOverlayInPage(selectedPage.id, selectedOverlay.id)}
+              clipboard={clipboard}
+              onCopy={() => copyOverlayToClipboard(selectedOverlay)}
+              onCut={() => {
+                copyOverlayToClipboard(selectedOverlay);
+                deleteOverlayInPage(selectedPage.id, selectedOverlay.id);
+              }}
+              onPasteSame={() => pasteOverlayFromClipboard(selectedPage.id, 'same')}
+              onPasteDuplicate={() => pasteOverlayFromClipboard(selectedPage.id, 'duplicate')}
+            />
+          ) : selectedWidget && selectedPage ? (
             <WidgetInspector
               widget={selectedWidget}
               catalog={catalog}
               onPatch={(patch) => patchWidget(selectedPage.id, selectedWidget.id, patch)}
               onDuplicate={() => duplicateWidget(selectedPage.id, selectedWidget)}
               onDelete={() => deleteWidget(selectedPage.id, selectedWidget.id)}
+              clipboard={clipboard}
+              onCopy={() => copyWidgetToClipboard(selectedWidget)}
+              onCut={() => {
+                copyWidgetToClipboard(selectedWidget);
+                deleteWidget(selectedPage.id, selectedWidget.id);
+              }}
+              onPasteSame={() => pasteWidgetFromClipboard(selectedPage.id, 'same')}
+              onPasteDuplicate={() => pasteWidgetFromClipboard(selectedPage.id, 'duplicate')}
             />
           ) : selectedPage ? (
             <PageInspector
@@ -1177,11 +1433,21 @@ interface BuilderLeftPaneProps {
   pages: AppPage[];
   selectedPageId: string;
   selectedWidgetId: string;
+  selectedOverlayId: string;
   onSelectPage: (id: string) => void;
   onSelectWidget: (pageId: string, widgetId: string) => void;
   onAddPage: () => void;
   onDuplicatePage: (page: AppPage) => void;
   onDeletePage: (id: string) => void;
+  onAddOverlay: (pageId: string) => void;
+  onSelectOverlay: (pageId: string, overlayId: string) => void;
+  onDuplicateOverlay: (pageId: string, overlayId: string) => void;
+  onDeleteOverlay: (pageId: string, overlayId: string) => void;
+  headerWidgets: AppWidget[];
+  selectedHeaderWidgetId: string;
+  onAddHeaderWidget: () => void;
+  onSelectHeaderWidget: (widgetId: string) => void;
+  onDeleteHeaderWidget: (widgetId: string) => void;
 }
 
 function BuilderLeftPane({
@@ -1194,11 +1460,21 @@ function BuilderLeftPane({
   pages,
   selectedPageId,
   selectedWidgetId,
+  selectedOverlayId,
   onSelectPage,
   onSelectWidget,
   onAddPage,
   onDuplicatePage,
   onDeletePage,
+  onAddOverlay,
+  onSelectOverlay,
+  onDuplicateOverlay,
+  onDeleteOverlay,
+  headerWidgets,
+  selectedHeaderWidgetId,
+  onAddHeaderWidget,
+  onSelectHeaderWidget,
+  onDeleteHeaderWidget,
 }: BuilderLeftPaneProps) {
   return (
     <aside
@@ -1233,11 +1509,21 @@ function BuilderLeftPane({
         pages={pages}
         selectedPageId={selectedPageId}
         selectedWidgetId={selectedWidgetId}
+        selectedOverlayId={selectedOverlayId}
         onSelectPage={onSelectPage}
         onSelectWidget={onSelectWidget}
         onAddPage={onAddPage}
         onDuplicatePage={onDuplicatePage}
         onDeletePage={onDeletePage}
+        onAddOverlay={onAddOverlay}
+        onSelectOverlay={onSelectOverlay}
+        onDuplicateOverlay={onDuplicateOverlay}
+        onDeleteOverlay={onDeleteOverlay}
+        headerWidgets={headerWidgets}
+        selectedHeaderWidgetId={selectedHeaderWidgetId}
+        onAddHeaderWidget={onAddHeaderWidget}
+        onSelectHeaderWidget={onSelectHeaderWidget}
+        onDeleteHeaderWidget={onDeleteHeaderWidget}
       />
 
       <section style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>

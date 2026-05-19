@@ -1167,6 +1167,24 @@ button {
   object-fit: cover;
 }
 
+.of-app-runtime__logo-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  font-size: 22px;
+  line-height: 1;
+  border-radius: min(var(--app-radius, 6px), 8px);
+  background: color-mix(in srgb, var(--app-primary, #2563eb) 12%, transparent);
+  color: var(--app-primary, #2563eb);
+}
+
+.of-app-runtime__brand-text {
+  min-width: 0;
+}
+
 .of-app-runtime__actions,
 .of-app-runtime__suggestions {
   display: flex;
@@ -1268,6 +1286,473 @@ button {
   color: color-mix(in srgb, var(--app-text, #0f172a) 68%, transparent);
   font-size: 13px;
   text-align: center;
+}
+
+.of-app-runtime__sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.of-app-runtime__sections:first-child,
+.of-app-runtime__grid + .of-app-runtime__sections {
+  margin-top: 0;
+}
+
+.of-app-section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.of-app-section--columns > .of-app-section__body > .of-app-runtime__widget,
+.of-app-section--columns > .of-app-section__body > .of-app-section {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.of-app-section--rows > .of-app-section__body > .of-app-runtime__widget,
+.of-app-section--rows > .of-app-section__body > .of-app-section {
+  flex: 0 0 auto;
+}
+
+.of-app-section__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.of-app-section__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--app-text, #0f172a);
+}
+
+.of-app-section__description {
+  margin: 0;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--app-text, #0f172a) 70%, transparent);
+}
+
+.of-app-section__body {
+  min-width: 0;
+}
+
+.of-app-section__tabs {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.of-app-section__tablist {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--app-text, #0f172a) 14%, transparent);
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.of-app-section__tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--app-text, #0f172a) 65%, transparent);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.of-app-section__tab:hover {
+  color: var(--app-text, #0f172a);
+}
+
+.of-app-section__tab.is-active {
+  color: var(--app-primary, #2563eb);
+  border-bottom-color: var(--app-primary, #2563eb);
+}
+
+.of-app-section__tab:focus-visible {
+  outline: 2px solid var(--app-primary, #2563eb);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.of-app-section__tabpanel {
+  min-width: 0;
+  min-height: 0;
+}
+
+.of-app-section--flow > .of-app-section__body > .of-app-runtime__widget,
+.of-app-section--flow > .of-app-section__body > .of-app-section {
+  flex: 0 0 auto;
+}
+
+.of-app-section--toolbar {
+  padding: 8px 12px;
+  border-radius: min(var(--app-radius, 8px), 12px);
+  background: color-mix(in srgb, var(--app-surface, #ffffff) 92%, var(--app-text, #0f172a));
+}
+
+.of-app-section--toolbar > .of-app-section__body > .of-app-runtime__widget,
+.of-app-section--toolbar > .of-app-section__body > .of-app-section {
+  flex: 0 0 auto;
+}
+
+.of-app-section--toolbar > .of-app-section__body > .of-app-runtime__widget {
+  /* Toolbar widgets render at their natural size; the section JS already
+     skips minHeight in toolbar mode, but we belt-and-brace it here too. */
+  min-height: 0;
+}
+
+.of-app-section__loop {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.of-app-section__loop-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--app-text, #0f172a) 12%, transparent);
+  border-radius: min(var(--app-radius, 8px), 12px);
+  background: var(--app-surface, #ffffff);
+  min-width: 0;
+}
+
+/* === Section style formatting (header format / borders / padding / bg) === */
+
+.of-app-section--header-block > .of-app-section__header {
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--app-text, #0f172a) 14%, transparent);
+  margin-bottom: 8px;
+}
+
+.of-app-section--header-floating > .of-app-section__header {
+  border-bottom: 0;
+  margin-bottom: 4px;
+  padding-bottom: 0;
+}
+
+/* contained mode: the header is rendered inside the body container by JSX,
+   so it inherits whatever bg/border the body has — no CSS needed. */
+
+.of-app-section--border-bordered {
+  border: 1px solid color-mix(in srgb, var(--app-text, #0f172a) 18%, transparent);
+  border-radius: min(var(--app-radius, 8px), 12px);
+}
+
+.of-app-section--border-outer-shadow {
+  border-radius: min(var(--app-radius, 8px), 12px);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--app-text, #0f172a) 12%, transparent);
+}
+
+.of-app-section--border-inner-shadow {
+  border-radius: min(var(--app-radius, 8px), 12px);
+  box-shadow: inset 0 2px 8px color-mix(in srgb, var(--app-text, #0f172a) 14%, transparent);
+}
+
+.of-app-section--border-borderless {
+  border: 0;
+  box-shadow: none;
+}
+
+.of-app-section--padding-none {
+  padding: 0;
+}
+
+.of-app-section--padding-compact {
+  padding: 16px;
+}
+
+.of-app-section--padding-regular {
+  padding: 24px 48px;
+}
+
+.of-app-section--padding-large {
+  padding: 40px 62px;
+}
+
+.of-app-section--bg-gray-1 {
+  background: color-mix(in srgb, var(--app-surface, #ffffff) 96%, var(--app-text, #0f172a));
+}
+
+.of-app-section--bg-gray-2 {
+  background: color-mix(in srgb, var(--app-surface, #ffffff) 90%, var(--app-text, #0f172a));
+}
+
+.of-app-section--bg-gray-3 {
+  background: color-mix(in srgb, var(--app-surface, #ffffff) 82%, var(--app-text, #0f172a));
+}
+
+.of-app-section--bg-gray-4 {
+  background: color-mix(in srgb, var(--app-surface, #ffffff) 70%, var(--app-text, #0f172a));
+}
+
+.of-app-section--bg-gray-5 {
+  background: color-mix(in srgb, var(--app-surface, #ffffff) 50%, var(--app-text, #0f172a));
+}
+
+.of-app-section--bg-transparent {
+  background: transparent;
+}
+
+.of-app-section--bg-surface {
+  background: var(--app-surface, #ffffff);
+}
+
+/* Blueprint-flavoured colour shortcuts (parity with Foundry's BP palette). */
+
+.of-app-section--bg-red-3 { background: #db3737; color: #ffffff; }
+.of-app-section--bg-orange-3 { background: #d9822b; color: #ffffff; }
+.of-app-section--bg-yellow-3 { background: #d99e0b; color: #1c2127; }
+.of-app-section--bg-green-3 { background: #0f9960; color: #ffffff; }
+.of-app-section--bg-turquoise-3 { background: #00b3a4; color: #ffffff; }
+.of-app-section--bg-cerulean-3 { background: #2965cc; color: #ffffff; }
+.of-app-section--bg-blue-3 { background: #137cbd; color: #ffffff; }
+.of-app-section--bg-indigo-3 { background: #5642a6; color: #ffffff; }
+.of-app-section--bg-violet-3 { background: #7157d9; color: #ffffff; }
+.of-app-section--bg-magenta-3 { background: #c1145e; color: #ffffff; }
+
+/* === Section drop zones ============================================== */
+
+.of-app-section--drop-zone {
+  position: relative;
+}
+
+.of-app-section--drop-zone::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 2px dashed transparent;
+  border-radius: inherit;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.of-app-section--drop-zone.is-drop-target::after {
+  border-color: var(--app-primary, #2563eb);
+  background: color-mix(in srgb, var(--app-primary, #2563eb) 8%, transparent);
+}
+
+/* === Overlays (drawers and modals) =================================== */
+
+.of-app-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.of-app-overlay-backdrop.is-transparent {
+  pointer-events: none;
+}
+
+.of-app-overlay-backdrop.is-transparent .of-app-overlay {
+  pointer-events: auto;
+}
+
+.of-app-overlay {
+  position: fixed;
+  background: var(--app-surface, #ffffff);
+  color: var(--app-text, #0f172a);
+  border-radius: min(var(--app-radius, 8px), 12px);
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.of-app-overlay--drawer {
+  top: 0;
+  bottom: 0;
+  border-radius: 0;
+  max-width: 90vw;
+}
+
+.of-app-overlay--drawer.of-app-overlay--left {
+  left: 0;
+  box-shadow: 12px 0 40px rgba(15, 23, 42, 0.25);
+}
+
+.of-app-overlay--drawer.of-app-overlay--right {
+  right: 0;
+  box-shadow: -12px 0 40px rgba(15, 23, 42, 0.25);
+}
+
+.of-app-overlay--modal {
+  position: relative;
+  max-width: 90vw;
+  max-height: 80vh;
+}
+
+.of-app-overlay__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--app-text, #0f172a) 12%, transparent);
+  flex: 0 0 auto;
+}
+
+.of-app-overlay__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: min(var(--app-radius, 6px), 8px);
+  background: color-mix(in srgb, var(--app-primary, #2563eb) 12%, transparent);
+  color: var(--app-primary, #2563eb);
+}
+
+.of-app-overlay__title {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--app-text, #0f172a);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.of-app-overlay__close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--app-text, #0f172a) 60%, transparent);
+}
+
+.of-app-overlay__close:hover {
+  background: color-mix(in srgb, var(--app-text, #0f172a) 10%, transparent);
+  color: var(--app-text, #0f172a);
+}
+
+.of-app-overlay__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* === Header orientations & collapsibility ============================ */
+
+.of-app-runtime--header-vertical {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.of-app-runtime--header-vertical > .of-app-runtime__main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.of-app-runtime__header--vertical {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 12px;
+  flex: 0 0 auto;
+  transition: width 160ms ease;
+}
+
+.of-app-runtime__header--vertical .of-app-runtime__brand {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.of-app-runtime__header--vertical .of-app-runtime__actions {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.of-app-runtime__header--logo-center .of-app-runtime__brand {
+  justify-content: center;
+  text-align: center;
+}
+
+.of-app-runtime__header--logo-right .of-app-runtime__brand {
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+
+.of-app-runtime__header--logo-top.of-app-runtime__header--vertical .of-app-runtime__brand {
+  flex-direction: column;
+}
+
+.of-app-runtime__header--logo-bottom.of-app-runtime__header--vertical .of-app-runtime__brand {
+  flex-direction: column-reverse;
+}
+
+.of-app-runtime__header.is-collapsed .of-app-runtime__brand-text {
+  display: none;
+}
+
+.of-app-runtime__header.is-collapsed .of-app-runtime__actions {
+  align-items: center;
+  gap: 4px;
+}
+
+.of-app-runtime__header.is-collapsed .of-chip {
+  display: none;
+}
+
+.of-app-runtime__header-toggle {
+  margin-top: auto;
+}
+
+.of-app-runtime__header-widgets {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.of-app-runtime__header--vertical .of-app-runtime__header-widgets {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.of-app-runtime__header.is-collapsed .of-app-runtime__header-widgets {
+  align-items: center;
+}
+
+.of-app-runtime__header-widget {
+  min-width: 0;
 }
 
 .of-app-launcher {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import type { AppPage, AppWidget, WidgetBinding, WidgetCatalogItem, WidgetEvent } from '@/lib/api/apps';
+import type { AppOverlay, AppPage, AppWidget, WidgetBinding, WidgetCatalogItem, WidgetEvent } from '@/lib/api/apps';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { JsonEditor } from '@/lib/components/JsonEditor';
 import { Tabs } from '@/lib/components/Tabs';
@@ -89,6 +89,278 @@ export function defaultPage(): AppPage {
   };
 }
 
+export function defaultOverlay(): AppOverlay {
+  return {
+    id: makeId('overlay'),
+    name: 'New overlay',
+    overlay_type: 'drawer',
+    visible_variable_id: '',
+    layout: { kind: 'grid', columns: 12, gap: '1rem', max_width: '' },
+    widgets: [
+      {
+        id: makeId('widget'),
+        widget_type: 'text',
+        title: '',
+        description: '',
+        position: { x: 0, y: 0, width: 12, height: 1 },
+        props: { content: '### Overlay body\nUse the JSON tab or future canvas to add more widgets.' },
+        binding: null,
+        events: [],
+        children: [],
+      },
+    ],
+    sections: [],
+    props: {
+      position: 'right',
+      size: 360,
+      header_enabled: true,
+      header_title: '',
+      header_icon: '',
+      close_on_backdrop_click: true,
+      show_backdrop: true,
+      backdrop_opacity: 0.5,
+    },
+    events: [],
+  };
+}
+
+// Pure mutators — keep these reducer-shaped so they're trivially unit-testable
+// and reusable from other call sites that operate on the pages array.
+
+export function addOverlayToPage(pages: AppPage[], pageId: string, overlay: AppOverlay): AppPage[] {
+  return pages.map((page) => (
+    page.id === pageId ? { ...page, overlays: [...(page.overlays ?? []), overlay] } : page
+  ));
+}
+
+export function removeOverlayFromPage(pages: AppPage[], pageId: string, overlayId: string): AppPage[] {
+  return pages.map((page) => (
+    page.id === pageId
+      ? { ...page, overlays: (page.overlays ?? []).filter((overlay) => overlay.id !== overlayId) }
+      : page
+  ));
+}
+
+export function patchOverlayInPage(
+  pages: AppPage[],
+  pageId: string,
+  overlayId: string,
+  patch: Partial<AppOverlay>,
+): AppPage[] {
+  return pages.map((page) => (
+    page.id === pageId
+      ? {
+          ...page,
+          overlays: (page.overlays ?? []).map((overlay) =>
+            overlay.id === overlayId ? { ...overlay, ...patch } : overlay,
+          ),
+        }
+      : page
+  ));
+}
+
+// --- Editor clipboard / paste helpers --------------------------------------
+
+export type ClipboardEntry =
+  | { kind: 'widget'; payload: AppWidget }
+  | { kind: 'overlay'; payload: AppOverlay };
+
+export interface VariableLike {
+  id: string;
+  kind: string;
+  name?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Scans a widget's `props` for variable references and returns the set of
+ * referenced variable IDs. Heuristic: any prop key ending in `_variable_id`
+ * (single ref) or `_variable_ids` (array of refs). Only string values that
+ * appear in the supplied variable catalog are treated as real refs to avoid
+ * accidental matches on UUID-shaped strings used for other purposes.
+ */
+export function findVariableRefsInWidget(
+  widget: AppWidget,
+  variables: VariableLike[],
+): Set<string> {
+  const known = new Set(variables.map((variable) => variable.id));
+  const refs = new Set<string>();
+  for (const [key, value] of Object.entries(widget.props ?? {})) {
+    if (key.endsWith('_variable_id') && typeof value === 'string' && known.has(value)) {
+      refs.add(value);
+    }
+    if (key.endsWith('_variable_ids') && Array.isArray(value)) {
+      for (const entry of value) {
+        if (typeof entry === 'string' && known.has(entry)) refs.add(entry);
+      }
+    }
+  }
+  for (const child of widget.children ?? []) {
+    for (const ref of findVariableRefsInWidget(child, variables)) refs.add(ref);
+  }
+  return refs;
+}
+
+export function findVariableRefsInOverlay(
+  overlay: AppOverlay,
+  variables: VariableLike[],
+): Set<string> {
+  const refs = new Set<string>();
+  if (overlay.visible_variable_id && variables.some((variable) => variable.id === overlay.visible_variable_id)) {
+    refs.add(overlay.visible_variable_id);
+  }
+  for (const widget of overlay.widgets ?? []) {
+    for (const ref of findVariableRefsInWidget(widget, variables)) refs.add(ref);
+  }
+  for (const section of overlay.sections ?? []) {
+    for (const widget of section.widgets ?? []) {
+      for (const ref of findVariableRefsInWidget(widget, variables)) refs.add(ref);
+    }
+  }
+  return refs;
+}
+
+/**
+ * Builds duplicate variable entries for the given refs and a mapping
+ * old-id → new-id. New entries inherit everything from the source variable
+ * except id and (optional) name suffix " copy". Refs not found in `variables`
+ * are dropped silently.
+ */
+export function duplicateVariablesForPaste(
+  refs: Iterable<string>,
+  variables: VariableLike[],
+): { newVariables: VariableLike[]; mapping: Record<string, string> } {
+  const mapping: Record<string, string> = {};
+  const newVariables: VariableLike[] = [];
+  for (const oldId of refs) {
+    const source = variables.find((variable) => variable.id === oldId);
+    if (!source) continue;
+    const newId = makeId('variable');
+    mapping[oldId] = newId;
+    newVariables.push({
+      ...source,
+      id: newId,
+      name: source.name ? `${source.name} copy` : `${oldId} copy`,
+    });
+  }
+  return { newVariables, mapping };
+}
+
+function remapValue(value: unknown, mapping: Record<string, string>): unknown {
+  if (typeof value === 'string' && mapping[value]) return mapping[value];
+  if (Array.isArray(value)) {
+    return value.map((entry) => (typeof entry === 'string' && mapping[entry] ? mapping[entry] : entry));
+  }
+  return value;
+}
+
+export function remapVariableRefsInWidget(
+  widget: AppWidget,
+  mapping: Record<string, string>,
+): AppWidget {
+  if (Object.keys(mapping).length === 0) return widget;
+  const props: Record<string, unknown> = { ...(widget.props ?? {}) };
+  for (const [key, value] of Object.entries(props)) {
+    if (key.endsWith('_variable_id') || key.endsWith('_variable_ids')) {
+      props[key] = remapValue(value, mapping);
+    }
+  }
+  return {
+    ...widget,
+    props,
+    children: (widget.children ?? []).map((child) => remapVariableRefsInWidget(child, mapping)),
+  };
+}
+
+export function remapVariableRefsInOverlay(
+  overlay: AppOverlay,
+  mapping: Record<string, string>,
+): AppOverlay {
+  if (Object.keys(mapping).length === 0) return overlay;
+  return {
+    ...overlay,
+    visible_variable_id: overlay.visible_variable_id && mapping[overlay.visible_variable_id]
+      ? mapping[overlay.visible_variable_id]
+      : overlay.visible_variable_id,
+    widgets: (overlay.widgets ?? []).map((widget) => remapVariableRefsInWidget(widget, mapping)),
+    sections: (overlay.sections ?? []).map((section) => ({
+      ...section,
+      widgets: (section.widgets ?? []).map((widget) => remapVariableRefsInWidget(widget, mapping)),
+    })),
+  };
+}
+
+/**
+ * Prepares a freshly-pasted widget by regenerating its id, suffixing the
+ * title with " copy", and (when mode === 'duplicate' and variables are
+ * provided) duplicating variable refs into new variable entries.
+ *
+ * Returns the new widget plus any new workshop_variables entries the caller
+ * must add to `settings.workshop_variables`.
+ */
+export function preparePastedWidget(
+  source: AppWidget,
+  mode: 'same' | 'duplicate',
+  variables: VariableLike[] = [],
+): { widget: AppWidget; newVariables: VariableLike[] } {
+  const base: AppWidget = {
+    ...source,
+    id: makeId('widget'),
+    title: source.title ? `${source.title} copy` : source.title,
+    children: (source.children ?? []).map((child) => ({ ...child, id: makeId('widget') })),
+  };
+  if (mode === 'same') return { widget: base, newVariables: [] };
+  const refs = findVariableRefsInWidget(source, variables);
+  const { newVariables, mapping } = duplicateVariablesForPaste(refs, variables);
+  return { widget: remapVariableRefsInWidget(base, mapping), newVariables };
+}
+
+export function preparePastedOverlay(
+  source: AppOverlay,
+  mode: 'same' | 'duplicate',
+  variables: VariableLike[] = [],
+): { overlay: AppOverlay; newVariables: VariableLike[] } {
+  const base: AppOverlay = {
+    ...source,
+    id: makeId('overlay'),
+    name: source.name ? `${source.name} copy` : source.name,
+    widgets: (source.widgets ?? []).map((widget) => ({
+      ...widget,
+      id: makeId('widget'),
+      children: (widget.children ?? []).map((child) => ({ ...child, id: makeId('widget') })),
+    })),
+    sections: (source.sections ?? []).map((section) => ({
+      ...section,
+      id: makeId('section'),
+      widgets: (section.widgets ?? []).map((widget) => ({ ...widget, id: makeId('widget') })),
+    })),
+  };
+  if (mode === 'same') return { overlay: base, newVariables: [] };
+  const refs = findVariableRefsInOverlay(source, variables);
+  const { newVariables, mapping } = duplicateVariablesForPaste(refs, variables);
+  return { overlay: remapVariableRefsInOverlay(base, mapping), newVariables };
+}
+
+// --- back to overlay reducers ----------------------------------------------
+
+export function duplicateOverlayInPage(
+  pages: AppPage[],
+  pageId: string,
+  overlayId: string,
+): { pages: AppPage[]; newId: string } {
+  const page = pages.find((entry) => entry.id === pageId);
+  const source = page?.overlays?.find((overlay) => overlay.id === overlayId);
+  if (!source) return { pages, newId: '' };
+  const copy: AppOverlay = {
+    ...source,
+    id: makeId('overlay'),
+    name: `${source.name} copy`,
+    widgets: (source.widgets ?? []).map((widget) => ({ ...widget, id: makeId('widget') })),
+    sections: (source.sections ?? []).map((section) => ({ ...section, id: makeId('section') })),
+  };
+  return { pages: addOverlayToPage(pages, pageId, copy), newId: copy.id };
+}
+
 export function commitPages(onChange: (next: string) => void, pages: AppPage[]) {
   onChange(JSON.stringify(pages, null, 2));
 }
@@ -143,22 +415,44 @@ interface PagesOutlineProps {
   pages: AppPage[];
   selectedPageId: string;
   selectedWidgetId: string;
+  selectedOverlayId?: string;
   onSelectPage: (id: string) => void;
   onSelectWidget: (pageId: string, widgetId: string) => void;
   onAddPage: () => void;
   onDuplicatePage: (page: AppPage) => void;
   onDeletePage: (id: string) => void;
+  onAddOverlay?: (pageId: string) => void;
+  onSelectOverlay?: (pageId: string, overlayId: string) => void;
+  onDuplicateOverlay?: (pageId: string, overlayId: string) => void;
+  onDeleteOverlay?: (pageId: string, overlayId: string) => void;
+  // Header widgets — opt-in via callbacks; when omitted the Header group
+  // is not rendered (backward compatible with existing call sites).
+  headerWidgets?: AppWidget[];
+  selectedHeaderWidgetId?: string;
+  onAddHeaderWidget?: () => void;
+  onSelectHeaderWidget?: (widgetId: string) => void;
+  onDeleteHeaderWidget?: (widgetId: string) => void;
 }
 
 export function PagesOutline({
   pages,
   selectedPageId,
   selectedWidgetId,
+  selectedOverlayId = '',
   onSelectPage,
   onSelectWidget,
   onAddPage,
   onDuplicatePage,
   onDeletePage,
+  onAddOverlay,
+  onSelectOverlay,
+  onDuplicateOverlay,
+  onDeleteOverlay,
+  headerWidgets,
+  selectedHeaderWidgetId = '',
+  onAddHeaderWidget,
+  onSelectHeaderWidget,
+  onDeleteHeaderWidget,
 }: PagesOutlineProps) {
   return (
     <section style={{ display: 'grid', alignContent: 'start', gap: 8 }}>
@@ -178,6 +472,66 @@ export function PagesOutline({
           <Glyph name="plus" size={12} />
         </button>
       </div>
+
+      {onAddHeaderWidget ? (
+        <div style={{ display: 'grid', gap: 2, padding: '0 0 6px', borderBottom: '1px solid var(--border-subtle)' }} data-testid="header-widgets-outline">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 8px' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Header
+            </span>
+            <button
+              type="button"
+              onClick={onAddHeaderWidget}
+              aria-label="Add header widget"
+              title="Add header widget"
+              className="of-button of-button--ghost"
+              style={{ minHeight: 20, padding: '0 4px' }}
+              data-testid="header-widget-add"
+            >
+              <Glyph name="plus" size={11} />
+            </button>
+          </div>
+          {(headerWidgets ?? []).length === 0 ? (
+            <div className="of-text-muted" style={{ fontSize: 11, padding: '2px 8px 2px 20px' }}>
+              No header widgets
+            </div>
+          ) : (
+            (headerWidgets ?? []).map((widget) => {
+              const isSelected = widget.id === selectedHeaderWidgetId;
+              const glyph = WIDGET_GLYPH_BY_TYPE[widget.widget_type] ?? 'cube';
+              return (
+                <button
+                  key={widget.id}
+                  type="button"
+                  onClick={() => onSelectHeaderWidget?.(widget.id)}
+                  style={outlineRowStyle(isSelected, 20)}
+                  data-testid={`header-widget-row-${widget.id}`}
+                  data-widget-id={widget.id}
+                >
+                  <Glyph name={glyph} size={11} />
+                  <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {widget.title || widget.widget_type}
+                  </span>
+                </button>
+              );
+            })
+          )}
+          {selectedHeaderWidgetId && onDeleteHeaderWidget ? (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '2px 6px' }}>
+              <button
+                type="button"
+                className="of-button of-btn-danger"
+                style={{ minHeight: 22, fontSize: 11, padding: '0 6px' }}
+                onClick={() => onDeleteHeaderWidget(selectedHeaderWidgetId)}
+                data-testid="header-widget-delete"
+              >
+                <Glyph name="trash" size={11} />
+                <span style={{ marginLeft: 4 }}>Delete</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 2 }}>
         {pages.map((page) => {
@@ -233,6 +587,82 @@ export function PagesOutline({
                     </li>
                   ))}
                 </ul>
+              ) : null}
+
+              {isPageSelected && onAddOverlay ? (
+                <div style={{ display: 'grid', gap: 2, marginTop: 4 }} data-testid={`overlays-outline-${page.id}`}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 8px 2px 20px' }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Overlays
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onAddOverlay(page.id)}
+                      aria-label="Add overlay"
+                      title="Add overlay"
+                      className="of-button of-button--ghost"
+                      style={{ minHeight: 20, padding: '0 4px' }}
+                      data-testid={`overlay-add-${page.id}`}
+                    >
+                      <Glyph name="plus" size={11} />
+                    </button>
+                  </div>
+                  {(page.overlays ?? []).length === 0 ? (
+                    <div className="of-text-muted" style={{ fontSize: 11, padding: '2px 8px 2px 24px' }}>
+                      No overlays
+                    </div>
+                  ) : (
+                    (page.overlays ?? []).map((overlay) => {
+                      const isOverlaySelected = overlay.id === selectedOverlayId;
+                      return (
+                        <button
+                          key={overlay.id}
+                          type="button"
+                          onClick={() => onSelectOverlay?.(page.id, overlay.id)}
+                          style={outlineRowStyle(isOverlaySelected, 24)}
+                          data-testid={`overlay-row-${overlay.id}`}
+                          data-overlay-id={overlay.id}
+                        >
+                          <Glyph name={overlay.overlay_type === 'modal' ? 'document' : 'cube'} size={11} />
+                          <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {overlay.name || 'Untitled overlay'}
+                          </span>
+                          <span className="of-text-muted" style={{ fontSize: 10 }}>
+                            {overlay.overlay_type === 'modal' ? 'modal' : 'drawer'}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                  {selectedOverlayId ? (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, padding: '2px 6px' }}>
+                      {onDuplicateOverlay ? (
+                        <button
+                          type="button"
+                          className="of-button of-button--ghost"
+                          style={{ minHeight: 22, fontSize: 11, padding: '0 6px' }}
+                          onClick={() => onDuplicateOverlay(page.id, selectedOverlayId)}
+                          data-testid="overlay-duplicate"
+                        >
+                          <Glyph name="duplicate" size={11} />
+                          <span style={{ marginLeft: 4 }}>Duplicate</span>
+                        </button>
+                      ) : null}
+                      {onDeleteOverlay ? (
+                        <button
+                          type="button"
+                          className="of-button of-btn-danger"
+                          style={{ minHeight: 22, fontSize: 11, padding: '0 6px' }}
+                          onClick={() => onDeleteOverlay(page.id, selectedOverlayId)}
+                          data-testid="overlay-delete"
+                        >
+                          <Glyph name="trash" size={11} />
+                          <span style={{ marginLeft: 4 }}>Delete</span>
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
             </li>
           );
@@ -693,9 +1123,27 @@ interface WidgetInspectorProps {
   onPatch: (patch: Partial<AppWidget>) => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  // Optional clipboard hooks — when provided, the inspector exposes
+  // Copy / Cut / Paste (same vars) / Paste (new vars) buttons.
+  clipboard?: ClipboardEntry | null;
+  onCopy?: () => void;
+  onCut?: () => void;
+  onPasteSame?: () => void;
+  onPasteDuplicate?: () => void;
 }
 
-export function WidgetInspector({ widget, catalog, onPatch, onDuplicate, onDelete }: WidgetInspectorProps) {
+export function WidgetInspector({
+  widget,
+  catalog,
+  onPatch,
+  onDuplicate,
+  onDelete,
+  clipboard,
+  onCopy,
+  onCut,
+  onPasteSame,
+  onPasteDuplicate,
+}: WidgetInspectorProps) {
   const [tab, setTab] = useState<WidgetInspectorTab>('setup');
   const catalogItem = catalog.find((item) => item.widget_type === widget.widget_type) ?? null;
   const bindingSource = (widget.binding?.source_type ?? 'none') as BindingSource;
@@ -721,6 +1169,54 @@ export function WidgetInspector({ widget, catalog, onPatch, onDuplicate, onDelet
           <h3 className="of-heading-sm" style={{ margin: '4px 0 0' }}>{widget.title || widget.widget_type}</h3>
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
+          {onCopy ? (
+            <button
+              type="button"
+              className="of-button of-button--ghost"
+              title="Copy widget"
+              onClick={onCopy}
+              style={{ minHeight: 24, padding: '0 6px', fontSize: 11 }}
+              data-testid="widget-copy"
+            >
+              Copy
+            </button>
+          ) : null}
+          {onCut ? (
+            <button
+              type="button"
+              className="of-button of-button--ghost"
+              title="Cut widget"
+              onClick={onCut}
+              style={{ minHeight: 24, padding: '0 6px', fontSize: 11 }}
+              data-testid="widget-cut"
+            >
+              Cut
+            </button>
+          ) : null}
+          {onPasteSame && clipboard?.kind === 'widget' ? (
+            <button
+              type="button"
+              className="of-button of-button--ghost"
+              title="Paste — keeps the same input variable references"
+              onClick={onPasteSame}
+              style={{ minHeight: 24, padding: '0 6px', fontSize: 11 }}
+              data-testid="widget-paste-same"
+            >
+              Paste
+            </button>
+          ) : null}
+          {onPasteDuplicate && clipboard?.kind === 'widget' ? (
+            <button
+              type="button"
+              className="of-button of-button--ghost"
+              title="Paste with duplicated variable references"
+              onClick={onPasteDuplicate}
+              style={{ minHeight: 24, padding: '0 6px', fontSize: 11 }}
+              data-testid="widget-paste-duplicate"
+            >
+              Paste+vars
+            </button>
+          ) : null}
           <button type="button" className="of-button of-button--ghost" title="Duplicate widget" onClick={onDuplicate} style={{ minHeight: 24, padding: '0 6px' }}>
             <Glyph name="duplicate" size={12} />
           </button>
@@ -917,6 +1413,261 @@ export function WidgetInspector({ widget, catalog, onPatch, onDuplicate, onDelet
 }
 
 // ---------------------------------------------------------------------------
+// Sub-component: OverlayInspector (right pane when an overlay is selected)
+// ---------------------------------------------------------------------------
+
+interface OverlayInspectorProps {
+  overlay: AppOverlay;
+  onPatch: (patch: Partial<AppOverlay>) => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  clipboard?: ClipboardEntry | null;
+  onCopy?: () => void;
+  onCut?: () => void;
+  onPasteSame?: () => void;
+  onPasteDuplicate?: () => void;
+}
+
+function readOverlayPropString(props: AppOverlay['props'], key: string): string {
+  const value = props?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function readOverlayPropNumber(props: AppOverlay['props'], key: string): string {
+  const value = props?.[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value === 'string' && value.trim()) return value;
+  return '';
+}
+
+function readOverlayPropBoolean(props: AppOverlay['props'], key: string, fallback: boolean): boolean {
+  const value = props?.[key];
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+export function OverlayInspector({
+  overlay,
+  onPatch,
+  onDuplicate,
+  onDelete,
+  clipboard,
+  onCopy,
+  onCut,
+  onPasteSame,
+  onPasteDuplicate,
+}: OverlayInspectorProps) {
+  const props = (overlay.props ?? {}) as Record<string, unknown>;
+  const overlayType = overlay.overlay_type === 'modal' ? 'modal' : 'drawer';
+  const position = readOverlayPropString(props, 'position') === 'left' ? 'left' : 'right';
+  const sizeValue = readOverlayPropNumber(props, 'size');
+  const headerEnabled = readOverlayPropBoolean(props, 'header_enabled', true);
+  const showBackdrop = readOverlayPropBoolean(props, 'show_backdrop', true);
+  const closeOnBackdrop = readOverlayPropBoolean(props, 'close_on_backdrop_click', true);
+  const backdropOpacity = readOverlayPropNumber(props, 'backdrop_opacity');
+
+  function patchProps(patch: Record<string, unknown>) {
+    const next = { ...(overlay.props ?? {}) };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) delete (next as Record<string, unknown>)[key];
+      else (next as Record<string, unknown>)[key] = value;
+    }
+    onPatch({ props: next });
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 12, padding: 12, alignContent: 'start' }} data-testid="overlay-inspector">
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+        <div>
+          <p className="of-eyebrow" style={{ margin: 0 }}>Overlay · {overlayType}</p>
+          <h3 className="of-heading-sm" style={{ margin: '4px 0 0' }}>{overlay.name || 'Untitled overlay'}</h3>
+        </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {onCopy ? (
+            <button type="button" className="of-button of-button--ghost" title="Copy overlay" onClick={onCopy} style={{ minHeight: 24, padding: '0 6px', fontSize: 11 }} data-testid="overlay-copy">
+              Copy
+            </button>
+          ) : null}
+          {onCut ? (
+            <button type="button" className="of-button of-button--ghost" title="Cut overlay" onClick={onCut} style={{ minHeight: 24, padding: '0 6px', fontSize: 11 }} data-testid="overlay-cut">
+              Cut
+            </button>
+          ) : null}
+          {onPasteSame && clipboard?.kind === 'overlay' ? (
+            <button type="button" className="of-button of-button--ghost" title="Paste — keeps the same input variable references" onClick={onPasteSame} style={{ minHeight: 24, padding: '0 6px', fontSize: 11 }} data-testid="overlay-paste-same">
+              Paste
+            </button>
+          ) : null}
+          {onPasteDuplicate && clipboard?.kind === 'overlay' ? (
+            <button type="button" className="of-button of-button--ghost" title="Paste with duplicated variable references" onClick={onPasteDuplicate} style={{ minHeight: 24, padding: '0 6px', fontSize: 11 }} data-testid="overlay-paste-duplicate">
+              Paste+vars
+            </button>
+          ) : null}
+          <button type="button" className="of-button of-button--ghost" title="Duplicate overlay" onClick={onDuplicate} style={{ minHeight: 24, padding: '0 6px' }}>
+            <Glyph name="duplicate" size={12} />
+          </button>
+          <button type="button" className="of-button of-btn-danger" title="Delete overlay" onClick={onDelete} style={{ minHeight: 24, padding: '0 6px' }}>
+            <Glyph name="trash" size={12} />
+          </button>
+        </div>
+      </div>
+
+      <SectionHeader>Basics</SectionHeader>
+      <FieldGroup label="Name">
+        <input
+          value={overlay.name}
+          onChange={(event) => onPatch({ name: event.target.value })}
+          className="of-input"
+          data-testid="overlay-name-input"
+        />
+      </FieldGroup>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8 }}>
+        <FieldGroup label="Type">
+          <select
+            value={overlayType}
+            onChange={(event) => onPatch({ overlay_type: event.target.value })}
+            className="of-input"
+            data-testid="overlay-type-select"
+          >
+            <option value="drawer">Drawer</option>
+            <option value="modal">Modal</option>
+          </select>
+        </FieldGroup>
+        <FieldGroup label="Visible when variable is true">
+          <input
+            value={overlay.visible_variable_id ?? ''}
+            onChange={(event) => onPatch({ visible_variable_id: event.target.value })}
+            className="of-input"
+            placeholder="show_drawer"
+            data-testid="overlay-visible-var-input"
+          />
+        </FieldGroup>
+      </div>
+
+      <SectionHeader>Position &amp; size</SectionHeader>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8 }}>
+        {overlayType === 'drawer' ? (
+          <FieldGroup label="Drawer position">
+            <select
+              value={position}
+              onChange={(event) => patchProps({ position: event.target.value })}
+              className="of-input"
+              data-testid="overlay-position-select"
+            >
+              <option value="right">Right</option>
+              <option value="left">Left</option>
+            </select>
+          </FieldGroup>
+        ) : (
+          <FieldGroup label="Modal position">
+            <input className="of-input" value="centered" readOnly />
+          </FieldGroup>
+        )}
+        <FieldGroup label={overlayType === 'drawer' ? 'Width (px)' : 'Width (px)'}>
+          <input
+            value={sizeValue}
+            onChange={(event) => {
+              const raw = event.target.value;
+              if (!raw) {
+                patchProps({ size: undefined });
+                return;
+              }
+              const n = Number(raw);
+              if (Number.isFinite(n)) patchProps({ size: n });
+            }}
+            className="of-input"
+            inputMode="numeric"
+            placeholder={overlayType === 'drawer' ? '360' : '480'}
+            data-testid="overlay-size-input"
+          />
+        </FieldGroup>
+      </div>
+
+      <SectionHeader>Header</SectionHeader>
+      <FieldGroup label="Show header">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          <input
+            type="checkbox"
+            checked={headerEnabled}
+            onChange={(event) => patchProps({ header_enabled: event.target.checked })}
+            data-testid="overlay-header-enabled"
+          />
+          <span>Render a header bar with title + close button</span>
+        </label>
+      </FieldGroup>
+      {headerEnabled ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8 }}>
+          <FieldGroup label="Title (overrides name)">
+            <input
+              value={readOverlayPropString(props, 'header_title')}
+              onChange={(event) => patchProps({ header_title: event.target.value })}
+              className="of-input"
+              placeholder="Falls back to overlay name"
+              data-testid="overlay-header-title-input"
+            />
+          </FieldGroup>
+          <FieldGroup label="Icon">
+            <input
+              value={readOverlayPropString(props, 'header_icon')}
+              onChange={(event) => patchProps({ header_icon: event.target.value })}
+              className="of-input"
+              placeholder="★ or emoji"
+              data-testid="overlay-header-icon-input"
+            />
+          </FieldGroup>
+        </div>
+      ) : null}
+
+      <SectionHeader>Backdrop</SectionHeader>
+      <FieldGroup label="Show backdrop">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          <input
+            type="checkbox"
+            checked={showBackdrop}
+            onChange={(event) => patchProps({ show_backdrop: event.target.checked })}
+            data-testid="overlay-show-backdrop"
+          />
+          <span>Render an opaque backdrop behind the overlay</span>
+        </label>
+      </FieldGroup>
+      <FieldGroup label="Close on backdrop click">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          <input
+            type="checkbox"
+            checked={closeOnBackdrop}
+            onChange={(event) => patchProps({ close_on_backdrop_click: event.target.checked })}
+            data-testid="overlay-close-on-backdrop"
+          />
+          <span>Clicking outside the overlay closes it</span>
+        </label>
+      </FieldGroup>
+      <FieldGroup label="Backdrop opacity (0-1)">
+        <input
+          value={backdropOpacity}
+          onChange={(event) => {
+            const raw = event.target.value;
+            if (!raw) {
+              patchProps({ backdrop_opacity: undefined });
+              return;
+            }
+            const n = Number(raw);
+            if (Number.isFinite(n) && n >= 0 && n <= 1) patchProps({ backdrop_opacity: n });
+          }}
+          className="of-input"
+          inputMode="decimal"
+          placeholder="0.5"
+          data-testid="overlay-backdrop-opacity-input"
+        />
+      </FieldGroup>
+
+      <p className="of-text-muted" style={{ fontSize: 11, margin: 0 }}>
+        Body widgets are managed via the JSON tab for now. A future slice will wire the canvas
+        to overlay bodies.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Default composed editor (kept for backward compatibility / fallback usage)
 // ---------------------------------------------------------------------------
 
@@ -925,19 +1676,24 @@ export function AppPagesEditor({ pagesJson, widgetCatalog, onChange }: AppPagesE
   const catalog = useMemo(() => getWidgetCatalogItems(widgetCatalog), [widgetCatalog]);
   const [selectedPageId, setSelectedPageId] = useState('');
   const [selectedWidgetId, setSelectedWidgetId] = useState('');
+  const [selectedOverlayId, setSelectedOverlayId] = useState('');
+  const [clipboard, setClipboard] = useState<ClipboardEntry | null>(null);
 
   const selectedPage = pages.find((page) => page.id === selectedPageId) ?? pages[0] ?? null;
   const selectedWidget = selectedPage?.widgets.find((widget) => widget.id === selectedWidgetId) ?? null;
+  const selectedOverlay = selectedPage?.overlays?.find((overlay) => overlay.id === selectedOverlayId) ?? null;
 
   useEffect(() => {
     if (pages.length === 0) {
       setSelectedPageId('');
       setSelectedWidgetId('');
+      setSelectedOverlayId('');
       return;
     }
     if (!pages.some((page) => page.id === selectedPageId)) {
       setSelectedPageId(pages[0].id);
       setSelectedWidgetId('');
+      setSelectedOverlayId('');
     }
   }, [pages, selectedPageId]);
 
@@ -947,6 +1703,13 @@ export function AppPagesEditor({ pagesJson, widgetCatalog, onChange }: AppPagesE
       setSelectedWidgetId('');
     }
   }, [selectedPage, selectedWidgetId]);
+
+  useEffect(() => {
+    if (!selectedPage || !selectedOverlayId) return;
+    if (!(selectedPage.overlays ?? []).some((overlay) => overlay.id === selectedOverlayId)) {
+      setSelectedOverlayId('');
+    }
+  }, [selectedPage, selectedOverlayId]);
 
   function commit(nextPages: AppPage[]) {
     commitPages(onChange, nextPages);
@@ -1014,6 +1777,57 @@ export function AppPagesEditor({ pagesJson, widgetCatalog, onChange }: AppPagesE
     setSelectedWidgetId('');
   }
 
+  function addOverlay(pageId: string) {
+    const overlay = defaultOverlay();
+    commit(addOverlayToPage(pages, pageId, overlay));
+    setSelectedOverlayId(overlay.id);
+    setSelectedWidgetId('');
+  }
+
+  function deleteOverlay(pageId: string, overlayId: string) {
+    commit(removeOverlayFromPage(pages, pageId, overlayId));
+    if (selectedOverlayId === overlayId) setSelectedOverlayId('');
+  }
+
+  function duplicateOverlay(pageId: string, overlayId: string) {
+    const result = duplicateOverlayInPage(pages, pageId, overlayId);
+    if (!result.newId) return;
+    commit(result.pages);
+    setSelectedOverlayId(result.newId);
+  }
+
+  function patchOverlay(pageId: string, overlayId: string, patch: Partial<AppOverlay>) {
+    commit(patchOverlayInPage(pages, pageId, overlayId, patch));
+  }
+
+  function copyWidgetToClipboard(widget: AppWidget) {
+    setClipboard({ kind: 'widget', payload: widget });
+  }
+
+  function copyOverlayToClipboard(overlay: AppOverlay) {
+    setClipboard({ kind: 'overlay', payload: overlay });
+  }
+
+  function pasteWidgetFromClipboard(pageId: string, mode: 'same' | 'duplicate') {
+    if (clipboard?.kind !== 'widget') return;
+    // The composed editor has no settings.workshop_variables wired in, so the
+    // "duplicate" mode degrades gracefully to a same-variable paste. Hosts
+    // that do have settings (AppsPage) should call preparePastedWidget
+    // directly and wire newVariables back into settings.
+    const result = preparePastedWidget(clipboard.payload, mode, []);
+    commit(pages.map((page) =>
+      page.id === pageId ? { ...page, widgets: [...page.widgets, result.widget] } : page
+    ));
+    setSelectedWidgetId(result.widget.id);
+  }
+
+  function pasteOverlayFromClipboard(pageId: string, mode: 'same' | 'duplicate') {
+    if (clipboard?.kind !== 'overlay') return;
+    const result = preparePastedOverlay(clipboard.payload, mode, []);
+    commit(addOverlayToPage(pages, pageId, result.overlay));
+    setSelectedOverlayId(result.overlay.id);
+  }
+
   function addSection(pageId: string) {
     const page = pages.find((entry) => entry.id === pageId);
     if (!page) return;
@@ -1051,14 +1865,27 @@ export function AppPagesEditor({ pagesJson, widgetCatalog, onChange }: AppPagesE
           pages={pages}
           selectedPageId={selectedPage?.id ?? ''}
           selectedWidgetId={selectedWidgetId}
+          selectedOverlayId={selectedOverlayId}
           onSelectPage={(id) => {
             setSelectedPageId(id);
             setSelectedWidgetId('');
+            setSelectedOverlayId('');
           }}
-          onSelectWidget={(_, widgetId) => setSelectedWidgetId(widgetId)}
+          onSelectWidget={(_, widgetId) => {
+            setSelectedWidgetId(widgetId);
+            setSelectedOverlayId('');
+          }}
           onAddPage={addPage}
           onDuplicatePage={duplicatePage}
           onDeletePage={deletePage}
+          onAddOverlay={addOverlay}
+          onSelectOverlay={(pageId, overlayId) => {
+            if (pageId !== selectedPageId) setSelectedPageId(pageId);
+            setSelectedOverlayId(overlayId);
+            setSelectedWidgetId('');
+          }}
+          onDuplicateOverlay={duplicateOverlay}
+          onDeleteOverlay={deleteOverlay}
         />
       </section>
       <section className="of-panel" style={{ minWidth: 0, padding: 0 }}>
@@ -1075,13 +1902,36 @@ export function AppPagesEditor({ pagesJson, widgetCatalog, onChange }: AppPagesE
         />
       </section>
       <aside className="of-panel" style={{ alignContent: 'start', padding: 0 }}>
-        {selectedWidget && selectedPage ? (
+        {selectedOverlay && selectedPage ? (
+          <OverlayInspector
+            overlay={selectedOverlay}
+            onPatch={(patch) => patchOverlay(selectedPage.id, selectedOverlay.id, patch)}
+            onDuplicate={() => duplicateOverlay(selectedPage.id, selectedOverlay.id)}
+            onDelete={() => deleteOverlay(selectedPage.id, selectedOverlay.id)}
+            clipboard={clipboard}
+            onCopy={() => copyOverlayToClipboard(selectedOverlay)}
+            onCut={() => {
+              copyOverlayToClipboard(selectedOverlay);
+              deleteOverlay(selectedPage.id, selectedOverlay.id);
+            }}
+            onPasteSame={() => pasteOverlayFromClipboard(selectedPage.id, 'same')}
+            onPasteDuplicate={() => pasteOverlayFromClipboard(selectedPage.id, 'duplicate')}
+          />
+        ) : selectedWidget && selectedPage ? (
           <WidgetInspector
             widget={selectedWidget}
             catalog={catalog}
             onPatch={(patch) => patchWidget(selectedPage.id, selectedWidget.id, patch)}
             onDuplicate={() => duplicateWidget(selectedPage.id, selectedWidget)}
             onDelete={() => deleteWidget(selectedPage.id, selectedWidget.id)}
+            clipboard={clipboard}
+            onCopy={() => copyWidgetToClipboard(selectedWidget)}
+            onCut={() => {
+              copyWidgetToClipboard(selectedWidget);
+              deleteWidget(selectedPage.id, selectedWidget.id);
+            }}
+            onPasteSame={() => pasteWidgetFromClipboard(selectedPage.id, 'same')}
+            onPasteDuplicate={() => pasteWidgetFromClipboard(selectedPage.id, 'duplicate')}
           />
         ) : selectedPage ? (
           <PageInspector

@@ -1,7 +1,10 @@
 import { useContext, useEffect, useMemo, useState, type CSSProperties } from 'react';
 
 import type { AppDefinition, AppEmbedInfo, AppPage, AppWidget, WidgetEvent } from '@/lib/api/apps';
+import { AppHeader, readHeaderConfig } from '@/lib/components/apps/AppHeader';
+import { AppOverlayRenderer } from '@/lib/components/apps/AppOverlayRenderer';
 import { AppWidgetRenderer } from '@/lib/components/apps/AppWidgetRenderer';
+import { SectionRenderer } from '@/lib/components/apps/SectionRenderer';
 import { downloadWorkshopEventPayload, runWorkshopEvents, type WorkshopEventHandlers } from '@/lib/components/apps/widgets/workshopEvents';
 import { WorkshopRuntimeContext } from '@/lib/components/apps/widgets/workshop-runtime-context';
 import { scenarioPayloadToActionDefaults } from '@/lib/components/apps/widgets/workshopScenarios';
@@ -212,38 +215,42 @@ export function AppRenderer({
   } as CSSProperties;
 
   const isImmersive = chrome === 'immersive';
+  const headerConfig = useMemo(() => readHeaderConfig(settings.workshop_header), [settings.workshop_header]);
+  const headerOrientation = headerConfig.enabled === false || isImmersive
+    ? 'horizontal'
+    : (headerConfig.orientation === 'vertical' ? 'vertical' : 'horizontal');
+  const isVerticalHeader = headerOrientation === 'vertical';
 
-  return (
-    <div className={isImmersive ? 'of-app-runtime of-app-runtime--immersive' : 'of-app-runtime'} style={runtimeStyle}>
-      {settings.custom_css && <style>{settings.custom_css}</style>}
+  const rootClass = (() => {
+    const classes = ['of-app-runtime'];
+    if (isImmersive) classes.push('of-app-runtime--immersive');
+    if (!isImmersive) classes.push(`of-app-runtime--header-${headerOrientation}`);
+    return classes.join(' ');
+  })();
 
-      {!isImmersive && (
-        <header className="of-app-runtime__header">
-          <div className="of-app-runtime__brand">
-            {theme.logo_url && <img src={theme.logo_url} alt="" className="of-app-runtime__logo" />}
-            <div>
-              <h2>{title}</h2>
-              {subtitle && <p>{subtitle}</p>}
-            </div>
-          </div>
+  const headerElement = !isImmersive ? (
+    <AppHeader
+      config={headerConfig}
+      fallbackTitle={title}
+      fallbackSubtitle={subtitle}
+      fallbackLogoUrl={theme.logo_url ?? null}
+      appId={app.id}
+      publishedVersionNumber={publishedVersionNumber}
+      publishedAt={publishedAt}
+      embed={embed}
+      primaryCtaUrl={primaryCtaUrl}
+      primaryCtaLabel={primaryCtaLabel}
+      formatDate={formatDate}
+      globalFilter={globalFilter}
+      runtimeParameters={runtimeParameters}
+      interactivePromptSeed={interactivePromptSeed}
+      primaryInteractiveAgentWidgetId={primaryAgentWidgetId}
+      onAction={handleAction}
+    />
+  ) : null;
 
-          <div className="of-app-runtime__actions">
-            {publishedVersionNumber !== null && <span className="of-chip">v{publishedVersionNumber}</span>}
-            {publishedAt && <span className="of-chip">{formatDate(publishedAt)}</span>}
-            {embed?.url && (
-              <a className="of-button" href={embed.url} target="_blank" rel="noreferrer">
-                Embed URL
-              </a>
-            )}
-            {primaryCtaUrl && primaryCtaLabel && (
-              <a className="of-button of-button--primary" href={primaryCtaUrl}>
-                {primaryCtaLabel}
-              </a>
-            )}
-          </div>
-        </header>
-      )}
-
+  const bodyChildren = (
+    <>
       {interactiveWorkshop?.enabled && (
         <section className="of-app-runtime__interactive">
           <div>
@@ -342,6 +349,30 @@ export function AppRenderer({
       ) : (
         <div className="of-app-runtime__empty">No visible pages.</div>
       )}
+
+      {activePage?.overlays?.map((overlay) => (
+        <AppOverlayRenderer
+          key={overlay.id}
+          overlay={overlay}
+          globalFilter={globalFilter}
+          runtimeParameters={runtimeParameters}
+          interactivePromptSeed={interactivePromptSeed}
+          primaryInteractiveAgentWidgetId={primaryAgentWidgetId}
+          onAction={handleAction}
+        />
+      ))}
+    </>
+  );
+
+  return (
+    <div className={rootClass} style={runtimeStyle}>
+      {settings.custom_css && <style>{settings.custom_css}</style>}
+      {headerElement}
+      {isVerticalHeader ? (
+        <div className="of-app-runtime__main">{bodyChildren}</div>
+      ) : (
+        bodyChildren
+      )}
     </div>
   );
 }
@@ -365,46 +396,65 @@ function PageRenderer({
 }) {
   const columns = Math.max(1, Math.min(24, Number(page.layout?.columns ?? 12) || 12));
   const widgets = (Array.isArray(page.widgets) ? [...page.widgets] : []).sort(pageSort);
+  const sections = Array.isArray(page.sections) ? page.sections : [];
+  const rendererContext = {
+    globalFilter,
+    runtimeParameters,
+    interactivePromptSeed,
+    primaryInteractiveAgentWidgetId,
+    onAction,
+  };
+
+  const hasContent = widgets.length > 0 || sections.length > 0;
 
   return (
     <main className="of-app-runtime__page" style={{ maxWidth }}>
       {page.description && <p className="of-app-runtime__page-description">{page.description}</p>}
-      <div
-        className="of-app-runtime__grid"
-        style={
-          {
-            '--app-runtime-columns': columns,
-            gap: page.layout?.gap ?? '1rem',
-          } as CSSProperties
-        }
-      >
-        {widgets.map((widget) => {
-          const span = Math.max(1, Math.min(widget.position?.width ?? columns, columns));
-          const rows = Math.max(1, widget.position?.height ?? 2);
-          return (
-            <div
-              key={widget.id}
-              className="of-app-runtime__widget"
-              style={
-                {
-                  '--app-widget-span': span,
-                  minHeight: Math.max(160, rows * 96),
-                } as CSSProperties
-              }
-            >
-              <AppWidgetRenderer
-                widget={widget}
-                globalFilter={globalFilter}
-                runtimeParameters={runtimeParameters}
-                interactivePromptSeed={interactivePromptSeed}
-                primaryInteractiveAgentWidgetId={primaryInteractiveAgentWidgetId}
-                onAction={onAction}
-              />
-            </div>
-          );
-        })}
-        {widgets.length === 0 && <div className="of-app-runtime__empty">No widgets on this page.</div>}
-      </div>
+      {widgets.length > 0 && (
+        <div
+          className="of-app-runtime__grid"
+          style={
+            {
+              '--app-runtime-columns': columns,
+              gap: page.layout?.gap ?? '1rem',
+            } as CSSProperties
+          }
+        >
+          {widgets.map((widget) => {
+            const span = Math.max(1, Math.min(widget.position?.width ?? columns, columns));
+            const rows = Math.max(1, widget.position?.height ?? 2);
+            return (
+              <div
+                key={widget.id}
+                className="of-app-runtime__widget"
+                style={
+                  {
+                    '--app-widget-span': span,
+                    minHeight: Math.max(160, rows * 96),
+                  } as CSSProperties
+                }
+              >
+                <AppWidgetRenderer
+                  widget={widget}
+                  globalFilter={globalFilter}
+                  runtimeParameters={runtimeParameters}
+                  interactivePromptSeed={interactivePromptSeed}
+                  primaryInteractiveAgentWidgetId={primaryInteractiveAgentWidgetId}
+                  onAction={onAction}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {sections.length > 0 && (
+        <div className="of-app-runtime__sections">
+          {sections.map((section) => (
+            <SectionRenderer key={section.id} section={section} {...rendererContext} />
+          ))}
+        </div>
+      )}
+      {!hasContent && <div className="of-app-runtime__empty">No widgets on this page.</div>}
     </main>
   );
 }

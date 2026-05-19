@@ -31,6 +31,10 @@ export interface ButtonGroupButton {
   default_layout: 'form' | 'table';
   switch_layout: boolean;
   conditional_visibility: boolean;
+  /** Optional icon string (emoji or single character) rendered when the
+   * containing header is collapsed and labels are hidden. Falls back to the
+   * first character of `label` if not set. */
+  icon?: string;
 }
 
 export interface WorkshopFilterRuntimeValue {
