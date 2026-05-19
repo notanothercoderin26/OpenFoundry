@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Core,
   ElementDefinition,
@@ -10,11 +10,14 @@ import { CytoscapeCanvas } from '@components/CytoscapeCanvas';
 import { EChartView } from '@/lib/components/analytics/EChartView';
 import {
   getOntologyGraph,
-  listNeighbors,
+  expandNeighbors,
   listObjects,
   listObjectTypes,
   listQuiverVisualFunctions,
   searchOntology,
+  runGraphReasoningBlock,
+  shortestPath,
+  approximateCentrality,
   simulateObjectScenarios,
   type GraphEdge,
   type GraphNode,
@@ -27,6 +30,8 @@ import {
   type ScenarioSimulationCandidate,
   type SearchResult,
 } from '@/lib/api/ontology';
+import { listVertexScenarios, promoteScenarioToActions, saveVertexScenario, scenarioDiffSummary, type VertexScenario } from '@/lib/api/vertexScenarios';
+import { useSearchParams } from 'react-router-dom';
 
 type LayoutMode = 'cose' | 'breadthfirst' | 'grid' | 'circle' | 'concentric';
 type NodeDisplayMode = 'compact' | 'card';
@@ -72,12 +77,25 @@ interface ScenarioDraft {
   propertyValue: string;
 }
 
+interface SystemGraphTemplate {
+  id: string;
+  key: string;
+  version: string;
+  name: string;
+  description: string;
+  orgsEnabled: string[];
+  rootTypeHint: string;
+  depth: number;
+  traversalPattern: string;
+}
+
 const LAYOUT_OPTIONS: Array<{ id: LayoutMode; label: string }> = [
   { id: 'cose', label: 'Auto' },
   { id: 'breadthfirst', label: 'Hierarchy' },
   { id: 'grid', label: 'Grid' },
   { id: 'circle', label: 'Circular' },
   { id: 'concentric', label: 'Cluster' },
+  { id: 'breadthfirst', label: 'Hierarchical' },
 ];
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string }> = [
@@ -92,6 +110,7 @@ const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string }> = [
 const STORAGE_KEYS = {
   templates: 'of.vertex.templates',
   annotations: 'of.vertex.annotations',
+  systemGraphs: 'of.vertex.system-graphs.v1',
 };
 
 function createId() {
@@ -260,7 +279,25 @@ function loadAnnotationsFromStorage(): Record<string, VertexAnnotation[]> {
   }
 }
 
+function defaultSystemGraphTemplates(): SystemGraphTemplate[] {
+  return [
+    { id: 'sg1', key: 'supply_chain', version: '1.0.0', name: 'Supply chain', description: 'Vendor to facilities traversal.', orgsEnabled: ['global', 'ops'], rootTypeHint: 'Vendor', depth: 2, traversalPattern: 'Vendor -[supplies]-> Facility -[ships_to]-> DistributionCenter' },
+    { id: 'sg2', key: 'fraud_ring', version: '1.0.0', name: 'Fraud rings', description: 'Account ring detection traversal.', orgsEnabled: ['global', 'risk'], rootTypeHint: 'Account', depth: 3, traversalPattern: 'Account -[transacted]-> Account -[linked_to]-> Identity' },
+    { id: 'sg3', key: 'infrastructure_dependencies', version: '1.0.0', name: 'Infrastructure dependencies', description: 'Service dependency traversal.', orgsEnabled: ['global', 'platform'], rootTypeHint: 'Service', depth: 2, traversalPattern: 'Service -[depends_on]-> Service -[hosted_on]-> Cluster' },
+  ];
+}
+
+function loadSystemGraphs(): SystemGraphTemplate[] {
+  if (typeof localStorage === 'undefined') return defaultSystemGraphTemplates();
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.systemGraphs) ?? '[]') as unknown;
+    if (Array.isArray(parsed) && parsed.length) return parsed as SystemGraphTemplate[];
+  } catch {}
+  return defaultSystemGraphTemplates();
+}
+
 export function VertexPage() {
+  const [searchParams] = useSearchParams();
   const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
   const [visualFunctions, setVisualFunctions] = useState<QuiverVisualFunction[]>([]);
   const [graph, setGraph] = useState<GraphResponse | null>(null);
@@ -280,6 +317,10 @@ export function VertexPage() {
   const [activeTab, setActiveTab] = useState<SidebarTab>('selection');
 
   const [selectedNodeId, setSelectedNodeId] = useState('');
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [selectedEdgeId, setSelectedEdgeId] = useState('');
+  const cyRef = useRef<Core | null>(null);
+  const [pinnedPositions, setPinnedPositions] = useState<Record<string, { x: number; y: number }>>({});
 
   const [subtitleField, setSubtitleField] = useState('');
   const [extendedLabelField, setExtendedLabelField] = useState('');
@@ -297,12 +338,50 @@ export function VertexPage() {
   const [templateDescription, setTemplateDescription] = useState('');
 
   const [neighborResults, setNeighborResults] = useState<NeighborLink[]>([]);
+  const [neighborPage, setNeighborPage] = useState(1);
+  const [neighborTotal, setNeighborTotal] = useState(0);
+  const [neighborHasMore, setNeighborHasMore] = useState(false);
+  const [neighborHiddenCount, setNeighborHiddenCount] = useState(0);
+  const [neighborRestrictedCount, setNeighborRestrictedCount] = useState(0);
+  const [explainOnDemand, setExplainOnDemand] = useState(false);
+  const [lastExplainPlan, setLastExplainPlan] = useState<string>('');
+  const [lastExpansionCost, setLastExpansionCost] = useState<{ estimated: number; actual: number; rows: number; indices: number } | null>(null);
+  const [analysisBudgetCpuSeconds, setAnalysisBudgetCpuSeconds] = useState(0.05);
+  const [allowOverBudgetExpansion, setAllowOverBudgetExpansion] = useState(false);
+  const [neighborLinkTypeFilter, setNeighborLinkTypeFilter] = useState('');
+  const [neighborTargetTypeFilter, setNeighborTargetTypeFilter] = useState('');
+  const [neighborHopDepth, setNeighborHopDepth] = useState<1 | 2 | 3>(1);
   const [searchAroundFilter, setSearchAroundFilter] = useState('');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState<SearchResult[]>([]);
+  const [seedSource, setSeedSource] = useState<'single_object' | 'object_set' | 'object_explorer' | 'workshop_variable'>('single_object');
+  const [seedObjectSetRid, setSeedObjectSetRid] = useState('');
+  const [seedAppliedFilters, setSeedAppliedFilters] = useState('');
+  const [traversalPattern, setTraversalPattern] = useState('Person -[owns]-> Account -[transacted]-> Person');
+  const [traversalFilter, setTraversalFilter] = useState('');
+  const [traversalPlan, setTraversalPlan] = useState<string[]>([]);
+  const [traversalWarning, setTraversalWarning] = useState('');
+  const [nodeTypeFilter, setNodeTypeFilter] = useState('');
+  const [nodePropertyFilter, setNodePropertyFilter] = useState('');
+  const [minDegreeFilter, setMinDegreeFilter] = useState(0);
+  const [edgeTypeFilter, setEdgeTypeFilter] = useState('');
+  const [groupByMode, setGroupByMode] = useState<'none' | 'type' | 'property'>('none');
+  const [groupByProperty, setGroupByProperty] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [inlineSearchQuery, setInlineSearchQuery] = useState('');
+  const inlineSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const [nodeLabelProperty, setNodeLabelProperty] = useState('');
+  const [nodeSizeProperty, setNodeSizeProperty] = useState('');
+  const [nodeIconMode, setNodeIconMode] = useState<'dot' | 'diamond' | 'hexagon'>('dot');
+  const [edgeLabelProperty, setEdgeLabelProperty] = useState('');
+  const [edgeDashEnabled, setEdgeDashEnabled] = useState(false);
 
   const [cachedTypeRows, setCachedTypeRows] = useState<Record<string, ObjectInstance[]>>({});
   const [currentTimeIndex, setCurrentTimeIndex] = useState(0);
+  const [timelineEventTypes, setTimelineEventTypes] = useState<string[]>([]);
+  const [timelinePlaying, setTimelinePlaying] = useState(false);
+  const [timelineSpeedMs, setTimelineSpeedMs] = useState(900);
+  const [timelineRange, setTimelineRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
 
   const [customAnnotations, setCustomAnnotations] = useState<Record<string, VertexAnnotation[]>>(() =>
     loadAnnotationsFromStorage(),
@@ -314,6 +393,13 @@ export function VertexPage() {
   const [annotationY, setAnnotationY] = useState(18);
   const [annotationWidth, setAnnotationWidth] = useState(24);
   const [annotationHeight, setAnnotationHeight] = useState(16);
+  const [mediaPermissionMode, setMediaPermissionMode] = useState<'allowed' | 'denied'>('allowed');
+  const [mediaMarkings, setMediaMarkings] = useState('public');
+  const [mediaUrlInput, setMediaUrlInput] = useState('');
+  const [mediaAttachmentByNode, setMediaAttachmentByNode] = useState<Record<string, { type: 'image' | 'video' | 'pdf'; url: string; markings: string }>>({});
+  const [systemGraphTemplates] = useState<SystemGraphTemplate[]>(() => loadSystemGraphs());
+  const [selectedSystemGraphId, setSelectedSystemGraphId] = useState('');
+  const [currentOrg, setCurrentOrg] = useState('global');
 
   const [scenarioDrafts, setScenarioDrafts] = useState<ScenarioDraft[]>([
     {
@@ -330,6 +416,20 @@ export function VertexPage() {
     },
   ]);
   const [scenarioResponse, setScenarioResponse] = useState<ObjectScenarioSimulationResponse | null>(null);
+  const [analysisRid] = useState('ri.foundry.main.vertex-analysis.local-default');
+  const [activeBranchRid, setActiveBranchRid] = useState('');
+  const [activeBranchName, setActiveBranchName] = useState('');
+  const [proposalApproved, setProposalApproved] = useState(false);
+  const [workshopReadOnly, setWorkshopReadOnly] = useState(false);
+  const [workshopObjectSetVariable, setWorkshopObjectSetVariable] = useState('');
+  const [hoveredElementId, setHoveredElementId] = useState('');
+  const [objectViewHopBudget, setObjectViewHopBudget] = useState(2);
+  const [centralityCache, setCentralityCache] = useState<Record<string, Array<{ nodeId: string; betweenness: number; eigenvector: number }>>>({});
+  const [pathResult, setPathResult] = useState<string[]>([]);
+  const [savedScenarios, setSavedScenarios] = useState<VertexScenario[]>([]);
+  const [showScenarioOverlay, setShowScenarioOverlay] = useState(true);
+  const [showBaselineLayer, setShowBaselineLayer] = useState(true);
+  const [promotedActionsPreview, setPromotedActionsPreview] = useState<Array<{order:number;actionId:string;mode:string;approval:string;payload:unknown}>>([]);
 
   const typeMap = useMemo(() => new Map(objectTypes.map((item) => [item.id, item])), [objectTypes]);
   const selectedNode = useMemo(
@@ -340,8 +440,20 @@ export function VertexPage() {
     () => (selectedNode ? parseRecord(selectedNode.metadata?.properties) : {}),
     [selectedNode],
   );
+  const selectedEdge = useMemo(() => graph?.edges.find((edge) => edge.id === selectedEdgeId) ?? null, [graph, selectedEdgeId]);
 
   // Persist templates / annotations when they change.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        inlineSearchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   useEffect(() => {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(STORAGE_KEYS.templates, JSON.stringify(templates));
@@ -352,6 +464,17 @@ export function VertexPage() {
       localStorage.setItem(STORAGE_KEYS.annotations, JSON.stringify(customAnnotations));
     }
   }, [customAnnotations]);
+  useEffect(() => {
+    setSavedScenarios(listVertexScenarios(analysisRid));
+  }, [analysisRid]);
+  useEffect(() => {
+    setActiveBranchRid(searchParams.get('branchRid') ?? '');
+    setActiveBranchName(searchParams.get('branchName') ?? '');
+    setWorkshopReadOnly((searchParams.get('workshopReadOnly') ?? '') === '1');
+    setWorkshopObjectSetVariable(searchParams.get('workshopObjectSetVariable') ?? '');
+    const hop = Number(searchParams.get('hopBudget') ?? '');
+    if (Number.isFinite(hop) && hop > 0) setObjectViewHopBudget(Math.min(6, hop));
+  }, [searchParams]);
 
   // Initial catalog load.
   useEffect(() => {
@@ -535,6 +658,22 @@ export function VertexPage() {
       .filter((row) => row.start && row.end);
   }, [graph, selectedNode, selectedSeriesRows, currentTimeIndex, eventStartField, eventEndField]);
 
+  const timelineTypeOptions = useMemo(
+    () => Array.from(new Set(eventRows.map((row) => row.typeLabel))).filter(Boolean),
+    [eventRows],
+  );
+
+  const filteredTimelineRows = useMemo(() => {
+    return eventRows.filter((row) => {
+      if (timelineEventTypes.length > 0 && !timelineEventTypes.includes(row.typeLabel)) return false;
+      const idx = selectedSeriesRows.findIndex((series) => series.date === currentTimeLabel());
+      if (idx < timelineRange.start || idx > timelineRange.end) return false;
+      return true;
+    });
+  }, [eventRows, timelineEventTypes, timelineRange, selectedSeriesRows]);
+
+  const timelineVisibleNodeIds = useMemo(() => new Set(filteredTimelineRows.filter((row) => row.active).map((row) => row.nodeId)), [filteredTimelineRows]);
+
   function nodeLabelFor(node: GraphNode) {
     const properties = parseRecord(node.metadata?.properties);
     const parts = [node.label];
@@ -567,35 +706,97 @@ export function VertexPage() {
   }
 
   // Cytoscape elements + stylesheet, derived from graph + styling fields.
+  const filteredGraph = useMemo(() => {
+    if (!graph) return null;
+    const degreeMap = new Map<string, number>();
+    for (const edge of graph.edges) {
+      degreeMap.set(edge.source, (degreeMap.get(edge.source) ?? 0) + 1);
+      degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1);
+    }
+    const visibleNodes = graph.nodes.filter((node) => {
+      if (timelineVisibleNodeIds.size > 0 && !timelineVisibleNodeIds.has(node.id) && node.id !== selectedNodeId) return false;
+      const typeOk = !nodeTypeFilter || selectedTypeIdFromNode(node) === nodeTypeFilter;
+      const degreeOk = (degreeMap.get(node.id) ?? 0) >= minDegreeFilter;
+      const propertyOk =
+        !nodePropertyFilter ||
+        JSON.stringify(parseRecord(node.metadata?.properties)).toLowerCase().includes(nodePropertyFilter.toLowerCase());
+      if (!(typeOk && degreeOk && propertyOk)) return false;
+      const props = parseRecord(node.metadata?.properties);
+      const groupKey =
+        groupByMode === 'type'
+          ? selectedTypeIdFromNode(node) || 'unknown'
+          : groupByMode === 'property'
+          ? String(props[groupByProperty] ?? 'Unknown')
+          : '';
+      if (groupKey && collapsedGroups[groupKey]) return false;
+      return true;
+    });
+    const visibleSet = new Set(visibleNodes.map((n) => n.id));
+    const visibleEdges = graph.edges.filter((edge) => {
+      if (!visibleSet.has(edge.source) || !visibleSet.has(edge.target)) return false;
+      return !edgeTypeFilter || String(edge.metadata?.link_type_id ?? '').includes(edgeTypeFilter);
+    });
+    return { ...graph, nodes: visibleNodes, edges: visibleEdges };
+  }, [graph, nodeTypeFilter, minDegreeFilter, nodePropertyFilter, edgeTypeFilter, groupByMode, groupByProperty, collapsedGroups, timelineVisibleNodeIds, selectedNodeId]);
+
+  const groupCounts = useMemo(() => {
+    if (!graph || groupByMode === 'none') return [] as Array<{ key: string; count: number }>;
+    const buckets: Record<string, number> = {};
+    for (const node of graph.nodes) {
+      const props = parseRecord(node.metadata?.properties);
+      const key =
+        groupByMode === 'type'
+          ? selectedTypeIdFromNode(node) || 'unknown'
+          : String(props[groupByProperty] ?? 'Unknown');
+      buckets[key] = (buckets[key] ?? 0) + 1;
+    }
+    return Object.entries(buckets).map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count);
+  }, [graph, groupByMode, groupByProperty]);
+
   const cyElements = useMemo<ElementDefinition[]>(() => {
-    if (!graph) return [];
+    if (!filteredGraph) return [];
     return [
-      ...graph.nodes.map((node) => ({
+      ...filteredGraph.nodes.map((node) => ({
         data: {
           id: node.id,
-          label: nodeLabelFor(node),
+          label:
+            nodeLabelProperty && parseRecord(node.metadata?.properties)[nodeLabelProperty] != null
+              ? String(parseRecord(node.metadata?.properties)[nodeLabelProperty])
+              : nodeLabelFor(node),
           color: nodeColorFor(node),
+          size:
+            nodeSizeProperty && numericValue(parseRecord(node.metadata?.properties)[nodeSizeProperty]) != null
+              ? Math.max(24, Math.min(86, Number(numericValue(parseRecord(node.metadata?.properties)[nodeSizeProperty]))))
+              : nodeDisplayMode === 'card'
+              ? 60
+              : 26,
         },
+        classes: selectedNodeIds.includes(node.id) ? 'is-multi-selected' : '',
+        ...(pinnedPositions[node.id] ? { position: pinnedPositions[node.id] } : {}),
       })),
-      ...graph.edges.map((edge) => ({
+      ...filteredGraph.edges.map((edge) => ({
         data: {
           id: edge.id,
           source: edge.source,
           target: edge.target,
-          label: edge.label,
-          width: edgeWidthFor(edge),
-          lineStyle: edge.metadata?.simulated === true ? 'dashed' : 'solid',
+          label:
+            edgeLabelProperty && edge.metadata?.[edgeLabelProperty] != null
+              ? String(edge.metadata[edgeLabelProperty])
+              : edge.label,
+          width: edgeWidthFor(edge) + (edge.metadata?.simulated === true ? 0.6 : 0),
+          lineStyle: edgeDashEnabled || edge.metadata?.simulated === true ? 'dashed' : 'solid',
         },
+        classes: selectedEdgeId === edge.id ? 'is-edge-selected' : '',
       })),
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, subtitleField, extendedLabelField, colorByField, eventRows]);
+  }, [filteredGraph, subtitleField, extendedLabelField, colorByField, eventRows, pinnedPositions, nodeLabelProperty, nodeSizeProperty, nodeDisplayMode, selectedNodeIds, edgeLabelProperty, edgeDashEnabled, selectedEdgeId]);
 
   const cyStylesheet = useMemo<StylesheetStyle[]>(() => {
     const fontSize = nodeDisplayMode === 'card' ? 11 : 10;
-    const dim = nodeDisplayMode === 'card' ? 60 : 26;
     const padding = nodeDisplayMode === 'card' ? '18px' : '12px';
     const maxWidth = nodeDisplayMode === 'card' ? '150' : '110';
+    const shape = nodeIconMode === 'diamond' ? 'diamond' : nodeIconMode === 'hexagon' ? 'hexagon' : 'ellipse';
     return [
       {
         selector: 'node',
@@ -609,9 +810,9 @@ export function VertexPage() {
           'text-max-width': maxWidth,
           'text-valign': 'center',
           'text-halign': 'center',
-          width: dim,
-          height: dim,
-          shape: 'round-rectangle',
+          width: 'data(size)',
+          height: 'data(size)',
+          shape,
           padding,
           'border-width': 1.4,
           'border-color': '#d6dfef',
@@ -620,6 +821,14 @@ export function VertexPage() {
       {
         selector: 'node:selected',
         style: { 'border-color': '#0f172a', 'border-width': 4 },
+      },
+      {
+        selector: 'node.is-multi-selected',
+        style: { 'border-color': '#7c3aed', 'border-width': 4 },
+      },
+      {
+        selector: 'node.of-inline-match',
+        style: { 'border-color': '#f59e0b', 'border-width': 5 },
       },
       {
         selector: 'edge',
@@ -636,8 +845,12 @@ export function VertexPage() {
           'text-rotation': 'autorotate',
         },
       },
+      {
+        selector: 'edge.is-edge-selected',
+        style: { 'line-color': '#7c3aed', 'target-arrow-color': '#7c3aed', width: 4 },
+      },
     ];
-  }, [nodeDisplayMode]);
+  }, [nodeDisplayMode, nodeIconMode]);
 
   const cyLayout = useMemo(
     () => ({ name: layoutMode, animate: true, padding: 36 }) as Parameters<typeof CytoscapeCanvas>[0]['layout'],
@@ -645,10 +858,47 @@ export function VertexPage() {
   );
 
   const handleCytoscapeReady = useCallback((cy: Core) => {
+    cyRef.current = cy;
     cy.on('tap', 'node', (event: EventObject) => {
-      setSelectedNodeId(String(event.target.id()));
+      const id = String(event.target.id());
+      setSelectedNodeId(id);
+      const maybeMulti = (event.originalEvent as MouseEvent | undefined)?.shiftKey;
+      setSelectedNodeIds((prev) => (maybeMulti ? Array.from(new Set([...prev, id])) : [id]));
+      setSelectedEdgeId('');
+    });
+    cy.on('tap', 'edge', (event: EventObject) => {
+      setSelectedEdgeId(String(event.target.id()));
+    });
+    cy.on('mouseover', 'node,edge', (event: EventObject) => {
+      setHoveredElementId(String(event.target.id()));
+    });
+    cy.on('dragfree', 'node', (event: EventObject) => {
+      const id = String(event.target.id());
+      const pos = event.target.position();
+      setPinnedPositions((prev) => ({ ...prev, [id]: { x: pos.x, y: pos.y } }));
+      event.target.lock();
     });
   }, []);
+
+  function runInlineSearch() {
+    const query = inlineSearchQuery.trim().toLowerCase();
+    if (!query || !cyRef.current || !filteredGraph) return;
+    const match = filteredGraph.nodes.find((node) => {
+      const props = parseRecord(node.metadata?.properties);
+      return (
+        node.id.toLowerCase().includes(query) ||
+        node.label.toLowerCase().includes(query) ||
+        JSON.stringify(props).toLowerCase().includes(query)
+      );
+    });
+    if (!match) return;
+    setSelectedNodeId(match.id);
+    setSelectedNodeIds([match.id]);
+    const target = cyRef.current.$id(match.id);
+    cyRef.current.elements().removeClass('of-inline-match');
+    target.addClass('of-inline-match');
+    cyRef.current.animate({ center: { eles: target }, duration: 250 });
+  }
 
   // ── Actions ──
 
@@ -739,8 +989,35 @@ export function VertexPage() {
     if (!objectId || !typeId) return;
     setNeighborLoading(true);
     try {
-      const next = await listNeighbors(typeId, objectId);
-      setNeighborResults(next);
+      const next = await expandNeighbors(typeId, objectId, {
+        link_type_ids: neighborLinkTypeFilter.trim() ? [neighborLinkTypeFilter.trim()] : undefined,
+        target_object_type_ids: neighborTargetTypeFilter.trim() ? [neighborTargetTypeFilter.trim()] : undefined,
+        hop_depth: neighborHopDepth,
+        page: neighborPage,
+        page_size: 25,
+      });
+      if ((next.cost?.estimated_cpu_seconds ?? 0) > analysisBudgetCpuSeconds && !allowOverBudgetExpansion) {
+        setLoadError(`Expansion exceeds budget (${next.cost?.estimated_cpu_seconds}s > ${analysisBudgetCpuSeconds}s). Confirm override to continue.`);
+        return;
+      }
+      setNeighborResults(next.data);
+      setNeighborTotal(next.total);
+      setNeighborHasMore(next.has_more);
+      setNeighborHiddenCount(next.hidden_count);
+      setNeighborRestrictedCount(next.visibility?.restricted_edges_filtered ?? 0);
+      if (next.cost) {
+        setLastExpansionCost({
+          estimated: next.cost.estimated_cpu_seconds,
+          actual: next.cost.actual_cpu_seconds,
+          rows: next.cost.rows_scanned,
+          indices: next.cost.indices_hit,
+        });
+      }
+      if (explainOnDemand && next.explain_plan) {
+        setLastExplainPlan(
+          `${next.explain_plan.strategy} using ${next.explain_plan.link_index}; pushed ${next.explain_plan.pushed_filters.join(', ') || 'none'}; estimated rows ${next.explain_plan.estimated_rows_scanned}`,
+        );
+      }
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : 'Failed to search around the selected node');
     } finally {
@@ -785,6 +1062,7 @@ export function VertexPage() {
 
   function addSearchResultToGraph(result: SearchResult) {
     if (!result.object_type_id) return;
+    setSeedSource('object_explorer');
     setRootTypeId(result.object_type_id);
     if (result.kind === 'object_instance') setRootObjectId(result.id);
   }
@@ -811,8 +1089,28 @@ export function VertexPage() {
       const response = await simulateObjectScenarios(typeId, objectId, {
         scenarios: candidates,
         include_baseline: true,
+        ...(activeBranchRid ? { depth: Math.max(1, Math.min(3, objectViewHopBudget)) } : {}),
       });
       setScenarioResponse(response);
+      const staged = candidates.flatMap((candidate) =>
+        candidate.operations.map((op) => ({
+          kind: 'property_change' as const,
+          targetObjectId: objectId,
+          targetTypeId: typeId,
+          propertyName: Object.keys(op.properties_patch ?? {})[0] ?? '',
+          propertyValue: Object.values(op.properties_patch ?? {})[0],
+        })),
+      );
+      saveVertexScenario({
+        analysisRid,
+        name: candidates[0]?.name || 'Scenario',
+        description: candidates[0]?.description || '',
+        edits: staged,
+        branchRid: activeBranchRid || null,
+        branchName: activeBranchName || null,
+        ephemeralOverlay: !activeBranchRid,
+      });
+      setSavedScenarios(listVertexScenarios(analysisRid));
       setNotice(
         `Simulated ${response.scenarios.length} Vertex scenario${
           response.scenarios.length === 1 ? '' : 's'
@@ -822,6 +1120,52 @@ export function VertexPage() {
       setLoadError(cause instanceof Error ? cause.message : 'Failed to simulate scenarios');
     } finally {
       setScenarioLoading(false);
+    }
+  }
+
+  function promoteScenarioToMainGuarded() {
+    if (activeBranchRid && !proposalApproved) {
+      setLoadError('Promotion to main is blocked on non-main branches until proposal flow is approved.');
+      return;
+    }
+    setNotice(activeBranchRid ? 'Promotion proposal approved; ready to promote to main.' : 'Promoted to main.');
+  }
+
+  async function runTraversalFromSelection() {
+    if (!selectedNode) return;
+    const typeId = selectedTypeIdFromNode(selectedNode);
+    const objectId = parseObjectId(selectedNode);
+    if (!typeId || !objectId) return;
+    const hops = traversalPattern
+      .split('->')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setTraversalPlan(hops);
+    setTraversalWarning('');
+    if (hops.length >= 3 && !traversalFilter.trim()) {
+      setTraversalWarning('Potential unbounded fan-out: add link/target filters before deep traversal.');
+    }
+    let frontier: Array<{ typeId: string; objectId: string }> = [{ typeId, objectId }];
+    for (let hopIndex = 0; hopIndex < Math.min(3, hops.length); hopIndex += 1) {
+      const nextFrontier: Array<{ typeId: string; objectId: string }> = [];
+      for (const item of frontier.slice(0, 15)) {
+        const result = await expandNeighbors(item.typeId, item.objectId, {
+          page: 1,
+          page_size: 25,
+          hop_depth: 1,
+          link_type_ids: traversalFilter.trim() ? [traversalFilter.trim()] : undefined,
+          target_object_type_ids: neighborTargetTypeFilter.trim() ? [neighborTargetTypeFilter.trim()] : undefined,
+        });
+        for (const neighbor of result.data) {
+          addNeighborToGraph(neighbor);
+          nextFrontier.push({ typeId: neighbor.object.object_type_id, objectId: neighbor.object.id });
+        }
+      }
+      frontier = nextFrontier;
+      if (frontier.length > 120) {
+        setTraversalWarning('Traversal frontier exceeded 120 nodes; results truncated to keep graph responsive.');
+        break;
+      }
     }
   }
 
@@ -894,6 +1238,86 @@ export function VertexPage() {
     return selectedSeriesRows[currentTimeIndex]?.date ?? 'No timeline';
   }
 
+  function graphHashKey() {
+    if (!graph) return 'empty';
+    return `${graph.nodes.length}:${graph.edges.length}:${graph.nodes[0]?.id ?? ''}:${graph.edges[0]?.id ?? ''}`;
+  }
+
+  function computeCentralityCached() {
+    if (!graph) return;
+    const key = graphHashKey();
+    const cached = centralityCache[key];
+    if (cached) {
+      setNotice(`Loaded cached centrality for subgraph ${key}.`);
+      return;
+    }
+    const rows = approximateCentrality(graph);
+    setCentralityCache((prev) => ({ ...prev, [key]: rows }));
+    setNotice(`Computed centrality for subgraph ${key}.`);
+  }
+
+  function computeShortestPathForSelection() {
+    if (!graph || selectedNodeIds.length < 2) return;
+    const path = shortestPath(graph, selectedNodeIds[0], selectedNodeIds[1]);
+    setPathResult(path);
+  }
+
+  function detectedMediaType(url: string): 'image' | 'video' | 'pdf' {
+    const lower = url.toLowerCase();
+    if (lower.endsWith('.pdf')) return 'pdf';
+    if (/\.(mp4|webm|mov)$/.test(lower)) return 'video';
+    return 'image';
+  }
+
+  function attachMediaToSelection() {
+    if (!selectedNode || !mediaUrlInput.trim()) return;
+    setMediaAttachmentByNode((prev) => ({
+      ...prev,
+      [selectedNode.id]: { type: detectedMediaType(mediaUrlInput.trim()), url: mediaUrlInput.trim(), markings: mediaMarkings || 'public' },
+    }));
+    setMediaUrlInput('');
+  }
+
+  function applySystemGraphTemplate(template: SystemGraphTemplate) {
+    setSelectedSystemGraphId(template.id);
+    setTraversalPattern(template.traversalPattern);
+    setDepth(template.depth);
+    const hint = objectTypes.find((item) => item.display_name.toLowerCase().includes(template.rootTypeHint.toLowerCase()));
+    if (hint) setRootTypeId(hint.id);
+    setNotice(`Applied system graph template "${template.name}" v${template.version}.`);
+  }
+
+  useEffect(() => {
+    setTimelineRange({ start: 0, end: Math.max(0, selectedSeriesRows.length - 1) });
+  }, [selectedSeriesRows.length]);
+
+  useEffect(() => {
+    if (!timelinePlaying || selectedSeriesRows.length <= 1) return;
+    const handle = window.setInterval(() => {
+      setCurrentTimeIndex((prev) => {
+        const next = prev + 1;
+        if (next > timelineRange.end) return timelineRange.start;
+        return next;
+      });
+    }, timelineSpeedMs);
+    return () => window.clearInterval(handle);
+  }, [timelinePlaying, timelineSpeedMs, selectedSeriesRows.length, timelineRange.start, timelineRange.end]);
+
+  useEffect(() => {
+    const key = `of.vertex.timeline.cursor:${analysisRid}`;
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(key, String(currentTimeIndex));
+  }, [analysisRid, currentTimeIndex]);
+
+  useEffect(() => {
+    const key = `of.vertex.timeline.cursor:${analysisRid}`;
+    if (typeof localStorage === 'undefined') return;
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed >= 0) setCurrentTimeIndex(parsed);
+  }, [analysisRid]);
+
   const selectedLens = useMemo(
     () => visualFunctions.find((item) => item.id === selectedLensId) ?? null,
     [visualFunctions, selectedLensId],
@@ -959,6 +1383,11 @@ export function VertexPage() {
           {notice}
         </div>
       )}
+      {activeBranchRid && (
+        <div className="of-status-warning" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+          Branch mode: {activeBranchName || activeBranchRid}. Traversal reads branch-scoped object/link versions.
+        </div>
+      )}
 
       <div className="of-panel" style={{ padding: 20 }}>
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
@@ -978,6 +1407,23 @@ export function VertexPage() {
               onChange={(e) => setRootObjectId(e.target.value)}
               placeholder="Optional object UUID"
             />
+          </Field>
+          <Field label="Seed source">
+            <select className="of-select" value={seedSource} onChange={(e) => setSeedSource(e.target.value as typeof seedSource)}>
+              <option value="single_object">Single object</option>
+              <option value="object_set">Object set</option>
+              <option value="object_explorer">Object Explorer selection</option>
+              <option value="workshop_variable">Workshop variable</option>
+            </select>
+          </Field>
+          <Field label="Seed object set RID">
+            <input className="of-input" value={seedObjectSetRid} onChange={(e) => setSeedObjectSetRid(e.target.value)} placeholder="ri.foundry.main.object-set..." />
+          </Field>
+          <Field label="Object View hop budget">
+            <input className="of-input" type="number" min={1} max={6} value={objectViewHopBudget} onChange={(e) => setObjectViewHopBudget(Math.max(1, Math.min(6, Number(e.target.value) || 2)))} />
+          </Field>
+          <Field label="Applied filters">
+            <input className="of-input" value={seedAppliedFilters} onChange={(e) => setSeedAppliedFilters(e.target.value)} placeholder="country=ES,status=active" />
           </Field>
           <Field label="Depth">
             <input
@@ -1041,6 +1487,59 @@ export function VertexPage() {
           <button type="button" className="of-btn" onClick={saveTemplate}>
             Save as template
           </button>
+          <input ref={inlineSearchInputRef} className="of-input" value={inlineSearchQuery} onChange={(e) => setInlineSearchQuery(e.target.value)} placeholder="Search visible graph (⌘/Ctrl+K)" style={{ minWidth: 240 }} />
+          <button type="button" className="of-btn" onClick={runInlineSearch}>Find</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 8, marginTop: 10 }}>
+          <input className="of-input" value={nodeTypeFilter} onChange={(e) => setNodeTypeFilter(e.target.value)} placeholder="Filter node type id" />
+          <input className="of-input" value={nodePropertyFilter} onChange={(e) => setNodePropertyFilter(e.target.value)} placeholder="Filter node property value" />
+          <input className="of-input" value={edgeTypeFilter} onChange={(e) => setEdgeTypeFilter(e.target.value)} placeholder="Filter edge type id" />
+          <input className="of-input" type="number" value={minDegreeFilter} onChange={(e) => setMinDegreeFilter(Number(e.target.value) || 0)} placeholder="Min degree" />
+          <select className="of-select" value={groupByMode} onChange={(e) => setGroupByMode(e.target.value as 'none' | 'type' | 'property')}>
+            <option value="none">No grouping</option>
+            <option value="type">Group by type</option>
+            <option value="property">Group by property</option>
+          </select>
+          <input className="of-input" value={groupByProperty} onChange={(e) => setGroupByProperty(e.target.value)} placeholder="Group property key" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 8, marginTop: 10 }}>
+          <input className="of-input" value={nodeLabelProperty} onChange={(e) => setNodeLabelProperty(e.target.value)} placeholder="Node label property" />
+          <input className="of-input" value={nodeSizeProperty} onChange={(e) => setNodeSizeProperty(e.target.value)} placeholder="Node size property" />
+          <select className="of-select" value={nodeIconMode} onChange={(e) => setNodeIconMode(e.target.value as 'dot' | 'diamond' | 'hexagon')}>
+            <option value="dot">Node icon: Dot</option>
+            <option value="diamond">Node icon: Diamond</option>
+            <option value="hexagon">Node icon: Hexagon</option>
+          </select>
+          <input className="of-input" value={edgeLabelProperty} onChange={(e) => setEdgeLabelProperty(e.target.value)} placeholder="Edge label property" />
+          <label className="of-text-muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={edgeDashEnabled} onChange={(e) => setEdgeDashEnabled(e.target.checked)} /> Dashed edges override
+          </label>
+        </div>
+        {groupCounts.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+            {groupCounts.slice(0, 12).map((group) => (
+              <button key={group.key} type="button" className="of-btn" onClick={() => setCollapsedGroups((prev) => ({ ...prev, [group.key]: !prev[group.key] }))}>
+                {collapsedGroups[group.key] ? 'Expand' : 'Collapse'} {group.key} ({group.count})
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="of-panel-muted" style={{ marginTop: 12, padding: 12 }}>
+          <p className="of-eyebrow">Seed metadata</p>
+          <div className="of-text-muted" style={{ fontSize: 12, marginTop: 6 }}>
+            Type: {seedSource.replaceAll('_', ' ')} · Count: {rootObjectId ? 1 : graph?.total_nodes ?? 0}
+          </div>
+          <div className="of-text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Filters: {seedAppliedFilters.trim() || '(none)'}
+          </div>
+          {(seedSource === 'object_set' || seedSource === 'workshop_variable') && (
+            <div className="of-text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Source RID/variable: {seedObjectSetRid || workshopObjectSetVariable || searchParams.get('seedObjectSetRid') || searchParams.get('workshopVariable') || '(not provided)'}
+            </div>
+          )}
+          <div className="of-text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Workshop mode: {workshopReadOnly ? 'Read-only' : 'Full-edit'} · Hover binding: {hoveredElementId || '(none)'}
+          </div>
         </div>
 
         {globalSearchResults.length > 0 && (
@@ -1105,6 +1604,11 @@ export function VertexPage() {
                   height={640}
                   onReady={handleCytoscapeReady}
                 />
+                {workshopReadOnly && (
+                  <div style={{ position: 'absolute', right: 10, top: 10 }} className="of-chip of-status-info">
+                    Workshop read-only
+                  </div>
+                )}
                 {graphLoading && (
                   <div
                     style={{
@@ -1183,6 +1687,15 @@ export function VertexPage() {
 
                 <div className="of-panel-muted" style={{ padding: 16 }}>
                   <p className="of-eyebrow">Search around</p>
+                  <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr', marginTop: 8 }}>
+                    <label className="of-text-muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input type="checkbox" checked={explainOnDemand} onChange={(e) => setExplainOnDemand(e.target.checked)} /> EXPLAIN on demand
+                    </label>
+                    <label className="of-text-muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input type="checkbox" checked={allowOverBudgetExpansion} onChange={(e) => setAllowOverBudgetExpansion(e.target.checked)} /> Allow over-budget
+                    </label>
+                  </div>
+                  <input className="of-input" type="number" min={0.001} step={0.001} value={analysisBudgetCpuSeconds} onChange={(e) => setAnalysisBudgetCpuSeconds(Math.max(0.001, Number(e.target.value) || 0.05))} placeholder="Analysis budget CPU seconds" style={{ marginTop: 8 }} />
                   <button
                     type="button"
                     className="of-btn of-btn-primary"
@@ -1199,6 +1712,24 @@ export function VertexPage() {
                     placeholder="Filter neighbors"
                     style={{ marginTop: 12, fontSize: 13 }}
                   />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 84px', gap: 8, marginTop: 8 }}>
+                    <input className="of-input" value={neighborLinkTypeFilter} onChange={(e) => setNeighborLinkTypeFilter(e.target.value)} placeholder="Link type id" />
+                    <input className="of-input" value={neighborTargetTypeFilter} onChange={(e) => setNeighborTargetTypeFilter(e.target.value)} placeholder="Target type id" />
+                    <select className="of-select" value={neighborHopDepth} onChange={(e) => setNeighborHopDepth(Number(e.target.value) as 1 | 2 | 3)}>
+                      <option value={1}>1 hop</option>
+                      <option value={2}>2 hops</option>
+                      <option value={3}>3 hops</option>
+                    </select>
+                  </div>
+                  <div className="of-text-muted" style={{ fontSize: 12, marginTop: 8 }}>
+                    Total: {neighborTotal} · Hidden: {neighborHiddenCount} not visible · Restricted edges filtered: {neighborRestrictedCount} · Page: {neighborPage}
+                  </div>
+                  {lastExpansionCost && (
+                    <div className="of-text-muted" style={{ fontSize: 12, marginTop: 8 }}>
+                      Cost est/actual CPU·s: {lastExpansionCost.estimated} / {lastExpansionCost.actual} · rows scanned {lastExpansionCost.rows} · indices hit {lastExpansionCost.indices}
+                    </div>
+                  )}
+                  {lastExplainPlan && <div className="of-panel-muted" style={{ marginTop: 8, padding: 8, fontSize: 12 }}>{lastExplainPlan}</div>}
                   <div style={{ display: 'grid', gap: 8, marginTop: 12, maxHeight: 240, overflowY: 'auto' }}>
                     {neighborResults
                       .filter((neighbor) => {
@@ -1244,6 +1775,14 @@ export function VertexPage() {
                       </div>
                     )}
                   </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button type="button" className="of-btn" onClick={() => setNeighborPage((p) => Math.max(1, p - 1))} disabled={neighborPage <= 1}>
+                      Prev
+                    </button>
+                    <button type="button" className="of-btn" onClick={() => setNeighborPage((p) => p + 1)} disabled={!neighborHasMore}>
+                      Next
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1276,14 +1815,27 @@ export function VertexPage() {
                 />
               </div>
               {selectedSeriesRows.length > 1 && (
-                <input
-                  type="range"
-                  min={0}
-                  max={Math.max(0, selectedSeriesRows.length - 1)}
-                  value={currentTimeIndex}
-                  onChange={(e) => setCurrentTimeIndex(Number(e.target.value))}
-                  style={{ marginTop: 16, width: '100%', accentColor: '#2458b8' }}
-                />
+                <>
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(0, selectedSeriesRows.length - 1)}
+                    value={currentTimeIndex}
+                    onChange={(e) => setCurrentTimeIndex(Number(e.target.value))}
+                    style={{ marginTop: 16, width: '100%', accentColor: '#2458b8' }}
+                  />
+                  <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'auto 1fr auto', marginTop: 10 }}>
+                    <button type="button" className={timelinePlaying ? 'of-btn of-btn-primary' : 'of-btn'} onClick={() => setTimelinePlaying((v) => !v)}>
+                      {timelinePlaying ? 'Pause' : 'Play'}
+                    </button>
+                    <input type="range" min={250} max={2000} step={50} value={timelineSpeedMs} onChange={(e) => setTimelineSpeedMs(Number(e.target.value))} />
+                    <span className="of-text-muted" style={{ fontSize: 12 }}>{timelineSpeedMs}ms</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                    <input className="of-input" type="number" min={0} max={timelineRange.end} value={timelineRange.start} onChange={(e) => setTimelineRange((r) => ({ ...r, start: Math.max(0, Number(e.target.value) || 0) }))} placeholder="Range start" />
+                    <input className="of-input" type="number" min={timelineRange.start} max={Math.max(0, selectedSeriesRows.length - 1)} value={timelineRange.end} onChange={(e) => setTimelineRange((r) => ({ ...r, end: Math.max(r.start, Number(e.target.value) || r.start) }))} placeholder="Range end" />
+                  </div>
+                </>
               )}
             </section>
 
@@ -1355,6 +1907,68 @@ export function VertexPage() {
                   Open source object
                 </a>
               )}
+              <div className="of-panel-muted" style={{ marginTop: 12, padding: 12 }}>
+                <p className="of-eyebrow">Actions</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                  <button type="button" className="of-btn" onClick={() => void loadNeighborsForSelection()}>Expand neighbors</button>
+                  <button type="button" className="of-btn" onClick={() => setActiveTab('scenarios')}>Run what-if</button>
+                  <button type="button" className="of-btn" onClick={() => setActiveTab('events')}>Recent events</button>
+                </div>
+                {selectedEdge && (
+                  <div className="of-text-muted" style={{ fontSize: 12, marginTop: 8 }}>
+                    Selected edge: {selectedEdge.label} ({selectedEdge.source} → {selectedEdge.target})
+                  </div>
+                )}
+              </div>
+              {selectedNodeIds.length > 1 && (
+                <div className="of-panel-muted" style={{ marginTop: 12, padding: 12 }}>
+                  <p className="of-eyebrow">Multi-select summary</p>
+                  <p className="of-text-muted" style={{ fontSize: 12, marginTop: 6 }}>
+                    Selected nodes: {selectedNodeIds.length}
+                  </p>
+                  <p className="of-text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    Shared keys: {Object.keys(selectedNodeProperties).slice(0, 6).join(', ') || '(none)'}
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button type="button" className="of-btn" onClick={() => setSelectedNodeIds([])}>Clear selection</button>
+                    <button type="button" className="of-btn">Bulk action (preview)</button>
+                  </div>
+                </div>
+              )}
+              <div className="of-panel-muted" style={{ padding: 12, marginTop: 16 }}>
+                <p className="of-eyebrow">Traversal plan</p>
+                <input className="of-input" value={traversalPattern} onChange={(e) => setTraversalPattern(e.target.value)} style={{ marginTop: 8 }} />
+                <input className="of-input" value={traversalFilter} onChange={(e) => setTraversalFilter(e.target.value)} placeholder="Link filter per hop (optional)" style={{ marginTop: 8 }} />
+                <button type="button" className="of-btn of-btn-primary" onClick={() => void runTraversalFromSelection()} style={{ marginTop: 8 }}>
+                  Run multi-hop traversal
+                </button>
+                {traversalPlan.length > 0 && (
+                  <div className="of-text-muted" style={{ fontSize: 12, marginTop: 8 }}>
+                    {traversalPlan.map((hop, i) => <div key={`${hop}-${i}`}>Hop {i + 1}: {hop}</div>)}
+                  </div>
+                )}
+                {traversalWarning && <div className="of-status-warning" style={{ marginTop: 8, padding: 8 }}>{traversalWarning}</div>}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                  <button type="button" className="of-btn" onClick={computeCentralityCached}>Centrality (cached)</button>
+                  <button type="button" className="of-btn" onClick={computeShortestPathForSelection} disabled={selectedNodeIds.length < 2}>Shortest path (2 selected)</button>
+                  <button
+                    type="button"
+                    className="of-btn"
+                    onClick={() => {
+                      if (!graph) return;
+                      const res = runGraphReasoningBlock({ block: 'neighbor_expansion', graph });
+                      setNotice(`AIP block ${res.block} executed with permission-aware mode.`);
+                    }}
+                  >
+                    Run AIP block
+                  </button>
+                </div>
+                {pathResult.length > 0 && (
+                  <div className="of-text-muted" style={{ fontSize: 12, marginTop: 8 }}>
+                    Path: {pathResult.join(' → ')}
+                  </div>
+                )}
+              </div>
             </SidebarSection>
           )}
 
@@ -1364,8 +1978,28 @@ export function VertexPage() {
                 Neighbor objects with start and end timestamps are surfaced as Vertex-style events
                 around the current selection.
               </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {timelineTypeOptions.map((type) => {
+                  const active = timelineEventTypes.includes(type);
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      className={active ? 'of-btn of-btn-primary' : 'of-btn'}
+                      onClick={() =>
+                        setTimelineEventTypes((prev) =>
+                          prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type],
+                        )
+                      }
+                      style={{ minHeight: 26, fontSize: 11 }}
+                    >
+                      {type}
+                    </button>
+                  );
+                })}
+              </div>
               <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
-                {eventRows.map((row) => (
+                {filteredTimelineRows.map((row) => (
                   <button
                     key={row.nodeId}
                     type="button"
@@ -1469,11 +2103,39 @@ export function VertexPage() {
                   </div>
                 </Field>
               </div>
+              <div className="of-panel-muted" style={{ marginTop: 12, padding: 12 }}>
+                <p className="of-eyebrow">System graph templates</p>
+                <input className="of-input" value={currentOrg} onChange={(e) => setCurrentOrg(e.target.value)} placeholder="Current org id" style={{ marginTop: 8 }} />
+                <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                  {systemGraphTemplates
+                    .filter((template) => template.orgsEnabled.includes('global') || template.orgsEnabled.includes(currentOrg))
+                    .map((template) => (
+                      <button key={template.id} type="button" className={selectedSystemGraphId === template.id ? 'of-btn of-btn-primary' : 'of-btn'} onClick={() => applySystemGraphTemplate(template)}>
+                        {template.name} · v{template.version}
+                      </button>
+                    ))}
+                </div>
+              </div>
             </SidebarSection>
           )}
 
           {activeTab === 'media' && (
             <SidebarSection title="Media layers" subtitle="Image annotations and overlays">
+              <div className="of-panel-muted" style={{ marginTop: 12, padding: 12 }}>
+                <p className="of-eyebrow">Media set policy</p>
+                <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr', marginTop: 8 }}>
+                  <select className="of-select" value={mediaPermissionMode} onChange={(e) => setMediaPermissionMode(e.target.value as 'allowed' | 'denied')}>
+                    <option value="allowed">Allowed</option>
+                    <option value="denied">Denied</option>
+                  </select>
+                  <input className="of-input" value={mediaMarkings} onChange={(e) => setMediaMarkings(e.target.value)} placeholder="markings" />
+                </div>
+                <input className="of-input" value={mediaUrlInput} onChange={(e) => setMediaUrlInput(e.target.value)} placeholder="media URL (image/video/pdf)" style={{ marginTop: 8 }} />
+                <button type="button" className="of-btn of-btn-primary" style={{ marginTop: 8 }} onClick={attachMediaToSelection} disabled={!selectedNode || mediaPermissionMode === 'denied'}>
+                  Attach media to selected node
+                </button>
+                {mediaPermissionMode === 'denied' && <div className="of-status-warning" style={{ marginTop: 8, padding: 8 }}>Access denied due to permission/marking policy.</div>}
+              </div>
               <div
                 style={{
                   marginTop: 16,
@@ -1522,6 +2184,14 @@ export function VertexPage() {
                   ))}
                 </div>
               </div>
+              {selectedNode && mediaAttachmentByNode[selectedNode.id] && mediaPermissionMode === 'allowed' && (
+                <div className="of-panel-muted" style={{ marginTop: 12, padding: 12 }}>
+                  <p className="of-eyebrow">Inline media thumbnail</p>
+                  {mediaAttachmentByNode[selectedNode.id].type === 'image' && <img src={mediaAttachmentByNode[selectedNode.id].url} alt="attachment" style={{ width: '100%', marginTop: 8, borderRadius: 8 }} />}
+                  {mediaAttachmentByNode[selectedNode.id].type === 'video' && <video src={mediaAttachmentByNode[selectedNode.id].url} controls style={{ width: '100%', marginTop: 8, borderRadius: 8 }} />}
+                  {mediaAttachmentByNode[selectedNode.id].type === 'pdf' && <a href={mediaAttachmentByNode[selectedNode.id].url} target="_blank" rel="noreferrer" className="of-btn" style={{ marginTop: 8 }}>Open PDF</a>}
+                </div>
+              )}
 
               <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
                 <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
@@ -1635,6 +2305,10 @@ export function VertexPage() {
                 impacted objects, and rule outcomes.
               </p>
               <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
+                <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
+                  <input className="of-input" value={activeBranchRid} onChange={(e) => setActiveBranchRid(e.target.value)} placeholder="Active branch RID (optional)" />
+                  <input className="of-input" value={activeBranchName} onChange={(e) => setActiveBranchName(e.target.value)} placeholder="Active branch name (optional)" />
+                </div>
                 {scenarioDrafts.map((draft, index) => (
                   <div key={index} className="of-panel-muted" style={{ padding: 16 }}>
                     <input
@@ -1690,6 +2364,10 @@ export function VertexPage() {
 
               {scenarioResponse && (
                 <div style={{ display: 'grid', gap: 12, marginTop: 20 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    <button type="button" className={showBaselineLayer ? 'of-btn of-btn-primary' : 'of-btn'} onClick={() => setShowBaselineLayer((v) => !v)}>Baseline layer</button>
+                    <button type="button" className={showScenarioOverlay ? 'of-btn of-btn-primary' : 'of-btn'} onClick={() => setShowScenarioOverlay((v) => !v)}>Scenario overlay</button>
+                  </div>
                   {scenarioResponse.scenarios.map((result) => (
                     <div key={result.scenario_id} className="of-panel-muted" style={{ padding: 16 }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
@@ -1709,8 +2387,61 @@ export function VertexPage() {
                         <Stat label="Advisory" value={result.summary.advisory_rule_matches} />
                         <Stat label="Boundaries" value={result.summary.boundary_crossings} />
                       </div>
+                      <div style={{ marginTop: 10 }}>
+                        {(() => {
+                          const diff = scenarioDiffSummary(
+                            scenarioResponse.baseline?.graph.total_nodes ?? graph?.total_nodes ?? 0,
+                            scenarioResponse.baseline?.graph.total_edges ?? graph?.total_edges ?? 0,
+                            result.graph.total_nodes,
+                            result.graph.total_edges,
+                          );
+                          return (
+                            <div className="of-text-muted" style={{ fontSize: 12 }}>
+                              Δnodes +{diff.changedNodes}/-{diff.removedNodes} · Δedges +{diff.changedEdges}/-{diff.removedEdges} · degree {diff.degree} · centrality {diff.centrality} · cluster {diff.clusterSize}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                      <button
+                        type="button"
+                        className="of-btn"
+                        style={{ marginTop: 10 }}
+                        onClick={() => {
+                          const source = savedScenarios.find((s) => s.name === result.name) ?? savedScenarios[0];
+                          if (!source) return;
+                          setPromotedActionsPreview(promoteScenarioToActions(source));
+                        }}
+                      >
+                        Promote to Actions
+                      </button>
                     </div>
                   ))}
+                </div>
+              )}
+              {savedScenarios.length > 0 && (
+                <div style={{ marginTop: 16 }} className="of-panel-muted">
+                  <div style={{ padding: 12 }}>
+                    <p className="of-eyebrow">Saved vertex_scenario rows</p>
+                    {savedScenarios.slice(0, 5).map((scenario) => (
+                      <div key={scenario.id} className="of-text-muted" style={{ fontSize: 12, marginTop: 6 }}>
+                        {scenario.name} · {scenario.branchName || 'ephemeral overlay'} · edits {scenario.edits.length}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {promotedActionsPreview.length > 0 && (
+                <div className="of-panel-muted" style={{ marginTop: 12, padding: 12 }}>
+                  <p className="of-eyebrow">Promotion preview (approval required)</p>
+                  {promotedActionsPreview.map((action) => (
+                    <div key={`${action.order}-${action.actionId}`} className="of-text-muted" style={{ fontSize: 12, marginTop: 6 }}>
+                      #{action.order} {action.actionId} · {action.mode} · {action.approval}
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button type="button" className="of-btn" onClick={() => setProposalApproved(true)}>Approve proposal</button>
+                    <button type="button" className="of-btn of-btn-primary" onClick={promoteScenarioToMainGuarded}>Promote to main</button>
+                  </div>
                 </div>
               )}
             </SidebarSection>
