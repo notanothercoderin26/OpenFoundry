@@ -17,11 +17,14 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -45,14 +48,25 @@ type State struct {
 	RKernel      NotebookRKernel
 	LLMKernel    NotebookLLMKernel
 	NotepadRepo  nbrepo.NotepadRepository
+	RevisionRepo nbrepo.NotepadRevisionRepository
+	TemplateRepo nbrepo.NotepadTemplateRepository
+	WidgetResolver notepad.WidgetResolver
+	AIPTransformer notepad.AIPTransformer
 	ListRepo     NotebookListRepository
 	MemoryRepo   *MemoryNotebookRepo
+	// Now is the clock used by autosave / revert. Defaults to
+	// time.Now when nil; tests override it for determinism.
+	Now func() time.Time
 
 	// jupyter/kernel-gateway proxy deps. All optional — when nil the
 	// gateway-backed routes return 503.
 	KernelGW       *kernelgw.Client
 	KernelMappings kernelgw.MappingRepo
 	ExecuteGuard   kernelgw.ExecuteGuard
+
+	// Gotenberg is the HTML→PDF converter. nil disables PDF export and
+	// the endpoint returns 503 with the documented error message.
+	Gotenberg *notepad.GotenbergClient
 }
 
 func (s *State) smokeMode() bool {
@@ -151,6 +165,33 @@ func (s *State) notepadRepo() nbrepo.NotepadRepository {
 	return s.NotepadRepo
 }
 
+func (s *State) revisionRepo() nbrepo.NotepadRevisionRepository {
+	if s.RevisionRepo != nil {
+		return s.RevisionRepo
+	}
+	if s.Pool != nil {
+		s.RevisionRepo = nbrepo.NewPostgresNotepadRevisionRepository(s.Pool)
+		return s.RevisionRepo
+	}
+	// In-memory revision repo needs the same docs oracle as the
+	// in-memory notepad repo so ownership checks line up. Falls back
+	// to an unowned repo (every ownerID succeeds) if the notepad repo
+	// is some other implementation under test.
+	if in, ok := s.notepadRepo().(*nbrepo.InMemoryNotepadRepository); ok {
+		s.RevisionRepo = nbrepo.NewInMemoryNotepadRevisionRepository(in)
+	} else {
+		s.RevisionRepo = nbrepo.NewInMemoryNotepadRevisionRepository(nil)
+	}
+	return s.RevisionRepo
+}
+
+func (s *State) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now().UTC()
+}
+
 func (s *State) ListDocuments(w http.ResponseWriter, r *http.Request) {
 	claims := requireClaims(w, r)
 	if claims == nil {
@@ -191,12 +232,32 @@ func (s *State) CreateDocument(w http.ResponseWriter, r *http.Request) {
 		Description: strPtrValue(body.Description),
 		OwnerID:     claims.Sub,
 		Content:     strPtrValue(body.Content),
+		ContentDoc:  body.ContentDoc,
 		TemplateKey: nonEmptyPtr(body.TemplateKey),
 		Widgets:     body.Widgets,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
+	}
+	// Seed v0 ("Initial empty document") so the version-history panel
+	// always has an anchor row to revert to.
+	if _, err := s.revisionRepo().CreateRevision(r.Context(), nbrepo.CreateRevisionParams{
+		DocumentID:  doc.ID,
+		AuthorID:    claims.Sub,
+		Kind:        models.NotepadRevisionKindInitial,
+		Title:       doc.Title,
+		Description: doc.Description,
+		Content:     doc.Content,
+		ContentDoc:  doc.ContentDoc,
+		Widgets:     doc.Widgets,
+		TemplateKey: doc.TemplateKey,
+	}); err != nil {
+		// Revision seed is best-effort: the document is already
+		// committed, so we surface the error in logs (none wired
+		// here) but do not 500 the create. The UI will just show
+		// "no history yet" until the next autosave.
+		_ = err
 	}
 	writeJSON(w, http.StatusCreated, doc)
 }
@@ -244,6 +305,7 @@ func (s *State) UpdateDocument(w http.ResponseWriter, r *http.Request) {
 		Title:         nonEmptyPtr(body.Title),
 		Description:   body.Description,
 		Content:       body.Content,
+		ContentDoc:    body.ContentDoc,
 		TemplateKey:   nonEmptyPtr(body.TemplateKey),
 		Widgets:       body.Widgets,
 		LastIndexedAt: body.LastIndexedAt,
@@ -256,7 +318,55 @@ func (s *State) UpdateDocument(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, nil)
 		return
 	}
+	// Skip the autosave check on metadata-only updates (e.g. AIP
+	// indexing setting `last_indexed_at`) — those should not produce
+	// a "v17 Manually saved version" entry in the panel.
+	if isContentEditingUpdate(&body) {
+		s.maybeAutosave(r.Context(), &doc, claims.Sub)
+	}
 	writeJSON(w, http.StatusOK, doc)
+}
+
+func isContentEditingUpdate(body *models.UpdateNotepadDocumentRequest) bool {
+	if body.Title != nil || body.Description != nil {
+		return true
+	}
+	if body.Content != nil {
+		return true
+	}
+	if len(body.ContentDoc) > 0 && string(body.ContentDoc) != "null" {
+		return true
+	}
+	if len(body.Widgets) > 0 && string(body.Widgets) != "null" {
+		return true
+	}
+	return false
+}
+
+// maybeAutosave snapshots the document into notepad_revisions when
+// the gap since the last revision is at least nbrepo.AutosaveInterval.
+// The snapshot reflects the *post-update* state so reverting to it
+// rehydrates the document to "what it looked like at this moment".
+// Best-effort — never fails the parent request.
+func (s *State) maybeAutosave(ctx context.Context, doc *models.NotepadDocument, authorID uuid.UUID) {
+	last, ok, err := s.revisionRepo().LastRevisionAt(ctx, doc.ID)
+	if err != nil {
+		return
+	}
+	if ok && s.now().Sub(last) < nbrepo.AutosaveInterval {
+		return
+	}
+	_, _ = s.revisionRepo().CreateRevision(ctx, nbrepo.CreateRevisionParams{
+		DocumentID:  doc.ID,
+		AuthorID:    authorID,
+		Kind:        models.NotepadRevisionKindAutosave,
+		Title:       doc.Title,
+		Description: doc.Description,
+		Content:     doc.Content,
+		ContentDoc:  doc.ContentDoc,
+		Widgets:     doc.Widgets,
+		TemplateKey: doc.TemplateKey,
+	})
 }
 
 func (s *State) DeleteDocument(w http.ResponseWriter, r *http.Request) {
@@ -344,24 +454,36 @@ func (s *State) UpsertPresence(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, presence)
 }
 
+// ExportDocument renders the notepad document in the requested format.
+// Behaviour:
+//
+//   - format=html (default, or `?format=html`) returns the legacy JSON
+//     envelope `NotepadExportPayload` so existing frontend code keeps
+//     working.
+//   - format=pdf streams a PDF body (Content-Type application/pdf)
+//     produced by the Gotenberg sidecar from the TipTap-rendered HTML.
+//     Returns 503 when Gotenberg is not configured.
+//   - format=docx streams a DOCX body (Content-Type
+//     application/vnd.openxmlformats-officedocument.wordprocessingml.document)
+//     produced by the pure-Go writer.
+//
+// The request body MAY include a `NotepadExportRequest` so unsaved
+// edits can be exported without round-tripping through Postgres. When
+// the body is missing or empty the persisted document is used.
 func (s *State) ExportDocument(w http.ResponseWriter, r *http.Request) {
 	claims := requireClaims(w, r)
 	if claims == nil {
 		return
 	}
-	var inline models.NotepadDocument
+
+	format := exportFormatFromRequest(r)
+
+	exportReq := models.NotepadExportRequest{}
 	if r.Body != nil && r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&inline); err == nil && inline.ID != uuid.Nil {
-			writeJSON(w, http.StatusOK, notepad.RenderExportPayload(&inline))
-			return
-		}
+		_ = json.NewDecoder(r.Body).Decode(&exportReq)
 	}
-	documentID, err := pathUUID(r, "document_id")
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errBody("invalid document id"))
-		return
-	}
-	doc, ok, err := s.notepadRepo().GetDocument(r.Context(), documentID, claims.Sub)
+
+	doc, ok, err := s.resolveExportDocument(r, claims.Sub, &exportReq)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
@@ -370,8 +492,93 @@ func (s *State) ExportDocument(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, notepad.RenderExportPayload(&doc))
+
+	if exportReq.Format != "" {
+		format = exportReq.Format
+	}
+
+	switch format {
+	case models.NotepadExportFormatPDF:
+		s.exportPDF(w, r, &doc, exportReq.HTMLBody)
+	case models.NotepadExportFormatDOCX:
+		exportDOCX(w, &doc, exportReq.HTMLBody)
+	case models.NotepadExportFormatHTML, "":
+		writeJSON(w, http.StatusOK, notepad.RenderExportPayloadHTML(&doc, exportReq.HTMLBody))
+	default:
+		writeJSON(w, http.StatusBadRequest, errBody("unsupported export format: "+string(format)))
+	}
 }
+
+func exportFormatFromRequest(r *http.Request) models.NotepadExportFormat {
+	raw := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	return models.NotepadExportFormat(raw)
+}
+
+// resolveExportDocument picks the document the export will render
+// from. Priority: explicit body (with non-empty Title), then the
+// persisted document keyed by path param. The lookup never falls
+// through silently — a missing document_id triggers a 400 via
+// pathUUID.
+func (s *State) resolveExportDocument(r *http.Request, ownerID uuid.UUID, req *models.NotepadExportRequest) (models.NotepadDocument, bool, error) {
+	if req != nil && (req.ID != uuid.Nil || strings.TrimSpace(req.Title) != "") {
+		return req.NotepadDocument, true, nil
+	}
+	documentID, err := pathUUID(r, "document_id")
+	if err != nil {
+		return models.NotepadDocument{}, false, errInvalid("invalid document id")
+	}
+	return s.notepadRepo().GetDocument(r.Context(), documentID, ownerID)
+}
+
+func (s *State) exportPDF(w http.ResponseWriter, r *http.Request, doc *models.NotepadDocument, htmlBody string) {
+	if s.Gotenberg == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errBody(notepad.ErrGotenbergDisabled.Error()))
+		return
+	}
+	htmlEnvelope := notepad.WrapHTMLBody(doc, htmlBody)
+	pdf, err := s.Gotenberg.ConvertHTMLToPDF(r.Context(), htmlEnvelope)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, errBody("pdf conversion failed: "+err.Error()))
+		return
+	}
+	fileName := exportFileName(doc.Title, "pdf")
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+fileName+`"; filename*=UTF-8''`+url.PathEscape(fileName))
+	w.Header().Set("Content-Length", strconv.Itoa(len(pdf)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(pdf)
+}
+
+func exportDOCX(w http.ResponseWriter, doc *models.NotepadDocument, htmlBody string) {
+	body := htmlBody
+	if strings.TrimSpace(body) == "" {
+		// Fall back to the legacy markdown renderer so older documents
+		// still produce a DOCX.
+		body = notepad.RenderMarkdown(doc.Content)
+	} else {
+		body = notepad.Sanitize(body)
+	}
+	docx, err := notepad.RenderDOCX(doc.Title, doc.Description, body)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody("docx conversion failed: "+err.Error()))
+		return
+	}
+	fileName := exportFileName(doc.Title, "docx")
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+fileName+`"; filename*=UTF-8''`+url.PathEscape(fileName))
+	w.Header().Set("Content-Length", strconv.Itoa(len(docx)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(docx)
+}
+
+func exportFileName(title, ext string) string {
+	slug := notepad.Slugify(strings.TrimSpace(title))
+	if slug == "" {
+		slug = "notepad-export"
+	}
+	return slug + "." + ext
+}
+
 
 func parseInt64Query(r *http.Request, key string, fallback int64) int64 {
 	if raw := r.URL.Query().Get(key); raw != "" {

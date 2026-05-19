@@ -46,6 +46,15 @@ type Config struct {
 	// SmokeMode enables documented no-DB smoke fallbacks for notebook CRUD.
 	// Production should leave this false and provide DATABASE_URL.
 	SmokeMode bool
+
+	// GotenbergURL points to a Gotenberg v8 sidecar (e.g.
+	// "http://gotenberg:3000"). When empty, PDF export is disabled and
+	// the export endpoint returns 503 for `?format=pdf`. DOCX export
+	// uses a pure-Go writer and does not depend on Gotenberg.
+	GotenbergURL string
+	// GotenbergTimeoutSeconds bounds the HTTP call to Gotenberg.
+	// Default 30s.
+	GotenbergTimeoutSeconds uint32
 }
 
 func FromEnv() (*Config, error) {
@@ -67,6 +76,8 @@ func FromEnv() (*Config, error) {
 	c.KernelIdleTimeoutSeconds = parseUint32(os.Getenv("KERNEL_IDLE_TIMEOUT_SECONDS"), 1800)
 	c.KernelGCIntervalSeconds = parseUint32(os.Getenv("KERNEL_GC_INTERVAL_SECONDS"), 60)
 	c.SmokeMode = parseBool(os.Getenv("NOTEBOOK_RUNTIME_SMOKE_MODE"), false)
+	c.GotenbergURL = os.Getenv("GOTENBERG_URL")
+	c.GotenbergTimeoutSeconds = parseUint32(os.Getenv("GOTENBERG_TIMEOUT_SECONDS"), 30)
 	return c, nil
 }
 

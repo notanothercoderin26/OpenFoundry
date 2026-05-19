@@ -80,3 +80,13 @@ oidcStub:
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits:   { cpu: 500m, memory: 512Mi }
+
+# Gotenberg v8 sidecar backing the Notepad PDF export. DOCX uses a
+# pure-Go writer in-process, so disabling this just degrades to "PDF
+# export returns 503"; the rest of Notepad keeps working.
+gotenberg:
+  enabled: true
+  image: gotenberg/gotenberg:8
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: "1",   memory: 1Gi }

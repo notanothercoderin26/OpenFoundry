@@ -2,13 +2,17 @@ import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } fro
 import { Link, useNavigate } from 'react-router-dom';
 
 import { ConfirmDialog } from '@components/ConfirmDialog';
+import { NewFromTemplateModal } from '@/lib/components/notepad/TemplateModals';
 import {
   createNotepadDocument,
   deleteNotepadDocument,
+  instantiateNotepadTemplate,
   listNotepadDocuments,
   listNotepadPresence,
+  listNotepadTemplates,
   type NotepadDocument,
   type NotepadPresence,
+  type NotepadTemplate,
 } from '@/lib/api/notepad';
 
 interface Template {
@@ -152,6 +156,9 @@ export function NotepadListPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [userTemplates, setUserTemplates] = useState<NotepadTemplate[]>([]);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [instantiating, setInstantiating] = useState(false);
 
   async function hydratePresence(nextDocuments: NotepadDocument[]) {
     if (nextDocuments.length === 0) {
@@ -200,6 +207,38 @@ export function NotepadListPage() {
     void load('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function refreshUserTemplates() {
+    try {
+      const result = await listNotepadTemplates();
+      setUserTemplates(result.data);
+    } catch {
+      // The list page should not block on template loading; show
+      // the regular built-in templates if the call fails.
+    }
+  }
+
+  useEffect(() => {
+    void refreshUserTemplates();
+  }, []);
+
+  async function createFromUserTemplate(templateId: string, inputs: Record<string, string>, titleOverride: string) {
+    setInstantiating(true);
+    setError('');
+    setFeedback('');
+    try {
+      const document = await instantiateNotepadTemplate(templateId, {
+        inputs,
+        title: titleOverride || undefined,
+      });
+      setShowTemplateModal(false);
+      navigate(`/notepad/${document.id}`);
+    } catch (cause) {
+      throw cause instanceof Error ? cause : new Error('Failed to instantiate template');
+    } finally {
+      setInstantiating(false);
+    }
+  }
 
   async function createFromTemplate(template: Template) {
     setCreatingTarget(template.key);
@@ -315,6 +354,15 @@ export function NotepadListPage() {
           <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6 }}>
             <button type="button" className="of-button" onClick={() => void load(search)} disabled={loading}>
               {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
+            <button
+              type="button"
+              className="of-button"
+              onClick={() => setShowTemplateModal(true)}
+              disabled={creating || instantiating}
+              title={userTemplates.length === 0 ? 'No templates saved yet' : 'New document from a saved template'}
+            >
+              New from template
             </button>
             <button
               type="button"
@@ -641,6 +689,14 @@ export function NotepadListPage() {
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      {showTemplateModal && (
+        <NewFromTemplateModal
+          templates={userTemplates}
+          onCancel={() => setShowTemplateModal(false)}
+          onCreate={createFromUserTemplate}
+        />
+      )}
     </section>
   );
 }

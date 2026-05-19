@@ -88,6 +88,15 @@ services:
   # telemetry-governance-service.
   # S8 / ADR-0030 (C3): nexus-service retired (legacy).
   notebook-runtime-service:
+    env:
+      # Slice E (notepad rich-text export): Gotenberg sidecar URL for
+      # HTML→PDF. DOCX uses a pure-Go writer and has no infra dep. The
+      # `of-notepad-gotenberg` Deployment + Service is deployed by the
+      # of-bootstrap stack (see infra/helm/infra/dev-bootstrap). Leave
+      # empty (or remove this env entry) to disable PDF export — the
+      # endpoint then returns 503 with the documented hint.
+      GOTENBERG_URL: http://of-notepad-gotenberg.openfoundry.svc.cluster.local:3000
+      GOTENBERG_TIMEOUT_SECONDS: "30"
     envSecrets:
       DATABASE_URL:
         secretName: notebook-runtime-db-dsn
