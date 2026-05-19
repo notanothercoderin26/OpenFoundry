@@ -92,6 +92,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/derived-property-bindings", h.ListDerivedPropertyBindings)
 		api.Post("/derived-property-bindings", h.CreateDerivedPropertyBinding)
 		api.Delete("/derived-property-bindings/{id}", h.DeleteDerivedPropertyBinding)
+
+		// Graph templates --------------------------------------------
+		api.Get("/graph-templates", h.ListGraphTemplates)
+		api.Post("/graph-templates", h.CreateGraphTemplate)
+		api.Get("/graph-templates/{id}", h.GetGraphTemplate)
+		api.Patch("/graph-templates/{id}", h.UpdateGraphTemplate)
+		api.Delete("/graph-templates/{id}", h.DeleteGraphTemplate)
+		api.Post("/graph-templates/{id}/instantiate", h.InstantiateGraphTemplate)
 	}
 
 	r.Route("/api/v1/vertex", mount)

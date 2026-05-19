@@ -74,6 +74,14 @@ type Store interface {
 	ListDerivedPropertyBindings(ctx context.Context, objectTypeID *uuid.UUID) ([]models.DerivedPropertyBinding, error)
 	CreateDerivedPropertyBinding(ctx context.Context, body *models.CreateDerivedPropertyBindingRequest, ownerID uuid.UUID) (*models.DerivedPropertyBinding, error)
 	DeleteDerivedPropertyBinding(ctx context.Context, id uuid.UUID) (bool, error)
+
+	// Graph templates
+	ListGraphTemplates(ctx context.Context, ownerID uuid.UUID, projectID *uuid.UUID, search string, page, perPage int) ([]models.GraphTemplate, int, error)
+	GetGraphTemplate(ctx context.Context, id uuid.UUID) (*models.GraphTemplate, error)
+	CreateGraphTemplate(ctx context.Context, body *models.CreateGraphTemplateRequest, ownerID uuid.UUID) (*models.GraphTemplate, error)
+	UpdateGraphTemplate(ctx context.Context, id uuid.UUID, body *models.UpdateGraphTemplateRequest) (*models.GraphTemplate, error)
+	DeleteGraphTemplate(ctx context.Context, id uuid.UUID) (bool, error)
+	InstantiateGraphTemplate(ctx context.Context, tpl *models.GraphTemplate, body *models.InstantiateGraphTemplateRequest, callerID uuid.UUID) (*models.InstantiateGraphTemplateResponse, error)
 }
 
 type Handlers struct{ Repo Store }

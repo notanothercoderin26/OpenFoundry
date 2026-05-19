@@ -61,6 +61,12 @@ func newRouter(h *handlers.Handlers) chi.Router {
 	r.Get("/search-arounds/{id}", h.GetSearchAround)
 	r.Post("/derived-property-bindings", h.CreateDerivedPropertyBinding)
 	r.Get("/derived-property-bindings", h.ListDerivedPropertyBindings)
+	r.Get("/graph-templates", h.ListGraphTemplates)
+	r.Post("/graph-templates", h.CreateGraphTemplate)
+	r.Get("/graph-templates/{id}", h.GetGraphTemplate)
+	r.Patch("/graph-templates/{id}", h.UpdateGraphTemplate)
+	r.Delete("/graph-templates/{id}", h.DeleteGraphTemplate)
+	r.Post("/graph-templates/{id}/instantiate", h.InstantiateGraphTemplate)
 	return r
 }
 

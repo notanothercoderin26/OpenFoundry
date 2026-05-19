@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/openfoundry/openfoundry-go/services/vertex-service/internal/models"
+	"github.com/openfoundry/openfoundry-go/services/vertex-service/internal/repo"
 )
 
 // fakeErrVersioningDisabled mirrors repo.ErrVersioningDisabled so the
@@ -33,6 +34,7 @@ type fakeStore struct {
 	derived   map[uuid.UUID]*models.DerivedPropertyBinding
 	grants    map[uuid.UUID][]models.GraphGrant
 	links     map[uuid.UUID]*models.LinkShare
+	templates map[uuid.UUID]*models.GraphTemplate
 }
 
 func newFakeStore() *fakeStore {
@@ -45,6 +47,7 @@ func newFakeStore() *fakeStore {
 		derived:   make(map[uuid.UUID]*models.DerivedPropertyBinding),
 		grants:    make(map[uuid.UUID][]models.GraphGrant),
 		links:     make(map[uuid.UUID]*models.LinkShare),
+		templates: make(map[uuid.UUID]*models.GraphTemplate),
 	}
 }
 
@@ -793,4 +796,194 @@ func (s *fakeStore) LinkShareRoleFor(_ context.Context, graphID uuid.UUID, prese
 		return models.RoleNone, nil
 	}
 	return ls.Role, nil
+}
+
+// ----- graph templates -----
+
+func (s *fakeStore) ListGraphTemplates(_ context.Context, ownerID uuid.UUID, projectID *uuid.UUID, search string, page, perPage int) ([]models.GraphTemplate, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]models.GraphTemplate, 0)
+	for _, t := range s.templates {
+		if t.OwnerID != ownerID {
+			continue
+		}
+		if projectID != nil {
+			if t.ProjectID == nil || *t.ProjectID != *projectID {
+				continue
+			}
+		}
+		if search != "" {
+			needle := strings.ToLower(search)
+			if !strings.Contains(strings.ToLower(t.Title), needle) &&
+				!strings.Contains(strings.ToLower(t.Description), needle) {
+				continue
+			}
+		}
+		out = append(out, *t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	total := len(out)
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 50
+	}
+	start := (page - 1) * perPage
+	if start > total {
+		start = total
+	}
+	end := start + perPage
+	if end > total {
+		end = total
+	}
+	return out[start:end], total, nil
+}
+
+func (s *fakeStore) GetGraphTemplate(_ context.Context, id uuid.UUID) (*models.GraphTemplate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.templates[id]
+	if !ok {
+		return nil, repo.ErrGraphTemplateNotFound
+	}
+	cp := *t
+	return &cp, nil
+}
+
+func (s *fakeStore) CreateGraphTemplate(_ context.Context, body *models.CreateGraphTemplateRequest, ownerID uuid.UUID) (*models.GraphTemplate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := uuid.New()
+	now := time.Now().UTC()
+	objParams := body.ObjectParameters
+	if objParams == nil {
+		objParams = []models.GraphTemplateObjectParameter{}
+	}
+	nonObjParams := body.NonObjectParameters
+	if nonObjParams == nil {
+		nonObjParams = []models.GraphTemplateNonObjectParameter{}
+	}
+	sas := body.SearchArounds
+	if sas == nil {
+		sas = []models.GraphTemplateSearchAround{}
+	}
+	lc := body.LayerConfig
+	if lc == nil {
+		lc = []models.GraphTemplateLayerConfig{}
+	}
+	orgs := body.Organizations
+	if orgs == nil {
+		orgs = []string{}
+	}
+	marks := body.Markings
+	if marks == nil {
+		marks = []string{}
+	}
+	t := &models.GraphTemplate{
+		ID:                  id,
+		RID:                 models.MakeGraphTemplateRID(id),
+		Title:               body.Title,
+		Description:         body.Description,
+		SourceGraphID:       body.SourceGraphID,
+		ObjectParameters:    objParams,
+		NonObjectParameters: nonObjParams,
+		SearchArounds:       sas,
+		LayerConfig:         lc,
+		GraphConfig:         body.GraphConfig,
+		Defaults:            body.Defaults,
+		OwnerID:             ownerID,
+		ProjectID:           body.ProjectID,
+		Organizations:       orgs,
+		Markings:            marks,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	s.templates[id] = t
+	cp := *t
+	return &cp, nil
+}
+
+func (s *fakeStore) UpdateGraphTemplate(_ context.Context, id uuid.UUID, body *models.UpdateGraphTemplateRequest) (*models.GraphTemplate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.templates[id]
+	if !ok {
+		return nil, repo.ErrGraphTemplateNotFound
+	}
+	if body.Title != nil {
+		t.Title = *body.Title
+	}
+	if body.Description != nil {
+		t.Description = *body.Description
+	}
+	if body.ObjectParameters != nil {
+		t.ObjectParameters = *body.ObjectParameters
+	}
+	if body.NonObjectParameters != nil {
+		t.NonObjectParameters = *body.NonObjectParameters
+	}
+	if body.SearchArounds != nil {
+		t.SearchArounds = *body.SearchArounds
+	}
+	if body.LayerConfig != nil {
+		t.LayerConfig = *body.LayerConfig
+	}
+	if body.GraphConfig != nil {
+		t.GraphConfig = *body.GraphConfig
+	}
+	if body.Defaults != nil {
+		t.Defaults = *body.Defaults
+	}
+	if body.ProjectID != nil {
+		t.ProjectID = body.ProjectID
+	}
+	if body.Organizations != nil {
+		t.Organizations = *body.Organizations
+	}
+	if body.Markings != nil {
+		t.Markings = *body.Markings
+	}
+	t.UpdatedAt = time.Now().UTC()
+	cp := *t
+	return &cp, nil
+}
+
+func (s *fakeStore) DeleteGraphTemplate(_ context.Context, id uuid.UUID) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.templates[id]; !ok {
+		return false, nil
+	}
+	delete(s.templates, id)
+	return true, nil
+}
+
+func (s *fakeStore) InstantiateGraphTemplate(ctx context.Context, tpl *models.GraphTemplate, body *models.InstantiateGraphTemplateRequest, callerID uuid.UUID) (*models.InstantiateGraphTemplateResponse, error) {
+	title := body.Title
+	if title == "" {
+		title = "From template · " + tpl.Title
+	}
+	seedRefs := []string{}
+	for _, refs := range body.ObjectParameterValues {
+		seedRefs = append(seedRefs, refs...)
+	}
+	createReq := &models.CreateGraphRequest{
+		Title:          title,
+		Description:    tpl.Description,
+		SeedObjectRefs: seedRefs,
+		ProjectID:      tpl.ProjectID,
+		Organizations:  tpl.Organizations,
+		Markings:       tpl.Markings,
+	}
+	g, err := s.CreateGraph(ctx, createReq, callerID)
+	if err != nil {
+		return nil, err
+	}
+	return &models.InstantiateGraphTemplateResponse{
+		Graph:                    g,
+		ObjectParameterValues:    body.ObjectParameterValues,
+		NonObjectParameterValues: body.NonObjectParameterValues,
+	}, nil
 }

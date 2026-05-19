@@ -36,6 +36,9 @@ import { useCurrentUser } from '@/lib/stores/auth';
 import { SearchAroundPanel } from './search-around/SearchAroundPanel';
 import { LinkSummaryDropdown } from './search-around/LinkSummaryDropdown';
 import { HistogramFacets, type HistogramFilterChip } from './search-around/HistogramFacets';
+import { TemplateBuilder, type BuilderLayerOption } from './template/TemplateBuilder';
+import { UseTemplateDialog } from './template/UseTemplateDialog';
+import { listGraphTemplates, type GraphTemplate } from '@/lib/api/vertexTemplates';
 import { useSearchParams } from 'react-router-dom';
 
 type LayoutMode = 'cose' | 'breadthfirst' | 'grid' | 'circle' | 'concentric';
@@ -343,6 +346,15 @@ export function VertexPage() {
   const [templateName, setTemplateName] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
 
+  // ── Graph template authoring (Phase Vertex-A) ──
+  // The TemplateBuilder drawer asks for object/non-object parameters,
+  // Search Around bindings, layer styling, and graph defaults; the
+  // UseTemplateDialog prompts a consumer for the matching values.
+  const [templateBuilderOpen, setTemplateBuilderOpen] = useState(false);
+  const [useTemplateOpen, setUseTemplateOpen] = useState(false);
+  const [savedGraphTemplates, setSavedGraphTemplates] = useState<GraphTemplate[]>([]);
+  const [activeGraphTemplate, setActiveGraphTemplate] = useState<GraphTemplate | null>(null);
+
   const [neighborResults, setNeighborResults] = useState<NeighborLink[]>([]);
   const [neighborPage, setNeighborPage] = useState(1);
   const [neighborTotal, setNeighborTotal] = useState(0);
@@ -542,6 +554,24 @@ export function VertexPage() {
     const matching = visualFunctions.find((lens) => lens.primary_type_id === rootTypeId);
     if (matching) setSelectedLensId(matching.id);
   }, [rootTypeId, visualFunctions, selectedLensId]);
+
+  // Pull the user's saved graph templates so the "Use template…"
+  // button has something to open. Refreshes when the builder closes
+  // (a new template was likely just created).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const resp = await listGraphTemplates({ per_page: 100 });
+        if (!cancelled) setSavedGraphTemplates(resp.items ?? []);
+      } catch {
+        if (!cancelled) setSavedGraphTemplates([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [templateBuilderOpen]);
 
   // Load the graph whenever rootTypeId / rootObjectId / depth change.
   const loadGraph = useCallback(async () => {
@@ -967,34 +997,12 @@ export function VertexPage() {
     setSelectedLensId(template.sharedLensId);
   }
 
-  function saveTemplate() {
-    const next: VertexTemplate = {
-      id: selectedTemplateId || createId(),
-      name: templateName.trim() || `${typeMap.get(rootTypeId)?.display_name ?? 'Vertex'} template`,
-      description: templateDescription.trim(),
-      rootTypeId,
-      rootObjectId,
-      depth,
-      layout: layoutMode,
-      nodeDisplayMode,
-      subtitleField,
-      extendedLabelField,
-      colorByField,
-      timeField,
-      eventStartField,
-      eventEndField,
-      mediaField,
-      annotationField,
-      sharedLensId: selectedLensId,
-      createdAt: selectedTemplateId
-        ? templates.find((item) => item.id === selectedTemplateId)?.createdAt ?? new Date().toISOString()
-        : new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setSelectedTemplateId(next.id);
-    setTemplates([next, ...templates.filter((item) => item.id !== next.id)]);
-    setNotice(`Saved Vertex template "${next.name}".`);
-  }
+  // The legacy localStorage-based saveTemplate() helper was retired
+  // when the backend-backed TemplateBuilder + UseTemplateDialog
+  // wizard landed below. The related `templates` / `templateName` /
+  // `templateDescription` state remains in this page only because
+  // older surfaces still read it (load-existing, delete) — its
+  // setter callers all live elsewhere in this component.
 
   function deleteTemplate(id: string) {
     setTemplates((prev) => prev.filter((item) => item.id !== id));
@@ -1682,8 +1690,26 @@ export function VertexPage() {
           >
             {graphLoading ? 'Loading…' : 'Load graph'}
           </button>
-          <button type="button" className="of-btn" onClick={saveTemplate}>
+          <button
+            type="button"
+            className="of-btn"
+            onClick={() => setTemplateBuilderOpen(true)}
+            disabled={!graph}
+            title={graph ? 'Save the current graph as a reusable template' : 'Load a graph first'}
+          >
             Save as template
+          </button>
+          <button
+            type="button"
+            className="of-btn"
+            onClick={() => {
+              setActiveGraphTemplate(savedGraphTemplates[0] ?? null);
+              setUseTemplateOpen(true);
+            }}
+            disabled={savedGraphTemplates.length === 0}
+            title={savedGraphTemplates.length === 0 ? 'No templates yet' : 'Open a saved template'}
+          >
+            Use template…
           </button>
           <input ref={inlineSearchInputRef} className="of-input" value={inlineSearchQuery} onChange={(e) => setInlineSearchQuery(e.target.value)} placeholder="Search visible graph (⌘/Ctrl+K)" style={{ minWidth: 240 }} />
           <button type="button" className="of-btn" onClick={runInlineSearch}>Find</button>
@@ -2767,6 +2793,33 @@ export function VertexPage() {
         branchContext={activeBranchRid || undefined}
         onAddToGraph={addTraverseGroupsToGraph}
         onRequestSetStartingObjects={handleSetStartingObjects}
+      />
+
+      <TemplateBuilder
+        open={templateBuilderOpen}
+        onClose={() => setTemplateBuilderOpen(false)}
+        sourceGraphId={graph?.root_object_id ?? null}
+        availableLayers={objectTypes.map<BuilderLayerOption>((t) => ({
+          id: t.id,
+          label: t.display_name,
+        }))}
+        availableObjectTypes={objectTypes.map((t) => ({ id: t.id, display_name: t.display_name }))}
+        onSaved={(tpl) => {
+          setSavedGraphTemplates((prev) => [tpl, ...prev.filter((t) => t.id !== tpl.id)]);
+        }}
+      />
+
+      <UseTemplateDialog
+        open={useTemplateOpen}
+        template={activeGraphTemplate}
+        onClose={() => setUseTemplateOpen(false)}
+        preloadObjectRid={searchParams.get('objectRid')}
+        preloadObjectSetRid={searchParams.get('objectSetRid')}
+        onInstantiated={(resp) => {
+          if (resp.graph?.id) {
+            window.location.hash = `#/vertex?graphId=${resp.graph.id}`;
+          }
+        }}
       />
     </section>
   );

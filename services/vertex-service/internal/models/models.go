@@ -386,3 +386,154 @@ func MakeGraphRID(id uuid.UUID) string {
 func MakeSearchAroundRID(id uuid.UUID) string {
 	return "ri.vertex.main.search-around." + id.String()
 }
+
+// MakeGraphTemplateRID renders a stable identifier for a graph template.
+func MakeGraphTemplateRID(id uuid.UUID) string {
+	return "ri.vertex.main.graph-template." + id.String()
+}
+
+// ----- Graph templates -----
+
+// GraphTemplate is a reusable recipe that regenerates a Vertex graph
+// from a declared set of inputs. The owner converts an existing graph
+// into a template, decides which objects and scalars become
+// parameters, and binds layer styling, search-around behaviour, and
+// graph defaults that are applied when the template is used.
+type GraphTemplate struct {
+	ID                  uuid.UUID                         `json:"id"`
+	RID                 string                            `json:"rid"`
+	Title               string                            `json:"title"`
+	Description         string                            `json:"description"`
+	SourceGraphID       *uuid.UUID                        `json:"source_graph_id,omitempty"`
+	ObjectParameters    []GraphTemplateObjectParameter    `json:"object_parameters"`
+	NonObjectParameters []GraphTemplateNonObjectParameter `json:"non_object_parameters"`
+	SearchArounds       []GraphTemplateSearchAround       `json:"search_arounds"`
+	LayerConfig         []GraphTemplateLayerConfig        `json:"layer_config"`
+	GraphConfig         GraphTemplateGraphConfig          `json:"graph_config"`
+	Defaults            GraphTemplateDefaults             `json:"defaults"`
+	OwnerID             uuid.UUID                         `json:"owner_id"`
+	ProjectID           *uuid.UUID                        `json:"project_id,omitempty"`
+	Organizations       []string                          `json:"organizations"`
+	Markings            []string                          `json:"markings"`
+	CreatedAt           time.Time                         `json:"created_at"`
+	UpdatedAt           time.Time                         `json:"updated_at"`
+}
+
+// GraphTemplateObjectParameter binds a slot in the template to an
+// ontology object input. When the template is used the caller is
+// asked to supply the matching object (or object set) and the
+// generated graph seeds from it.
+type GraphTemplateObjectParameter struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	ObjectTypeID string `json:"object_type_id"`
+	Required     bool   `json:"required"`
+	SingleObject bool   `json:"single_object"`
+}
+
+// GraphTemplateNonObjectParameter exposes a scalar input that custom
+// search-around functions can read — typical shapes are thresholds,
+// hop counts, label filters, or time windows.
+type GraphTemplateNonObjectParameter struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	ValueType    string          `json:"value_type"`
+	DefaultValue json.RawMessage `json:"default_value,omitempty"`
+	Required     bool            `json:"required"`
+}
+
+// GraphTemplateSearchAround attaches one search-around behaviour to a
+// declared object parameter. Three flavours are supported: a direct
+// ontology-link traversal, a custom function evaluated against the
+// parameter, or a re-use of a saved Search Around. Config is
+// shape-dependent and JSON-encoded.
+type GraphTemplateSearchAround struct {
+	ID                string          `json:"id"`
+	ObjectParameterID string          `json:"object_parameter_id"`
+	Kind              string          `json:"kind"`
+	Config            json.RawMessage `json:"config"`
+}
+
+// GraphTemplateLayerConfig records, for each layer present on the
+// source graph, whether the template keeps it and whether the
+// layer's styling is retained as-is or stripped to defaults.
+type GraphTemplateLayerConfig struct {
+	LayerID     string `json:"layer_id"`
+	Include     bool   `json:"include"`
+	KeepStyling bool   `json:"keep_styling"`
+}
+
+// GraphTemplateGraphConfig captures the global appearance of the
+// generated graph: the human-readable name shown above the canvas,
+// an optional description, and which layout algorithm to apply.
+type GraphTemplateGraphConfig struct {
+	DisplayName string `json:"display_name"`
+	Description string `json:"description"`
+	Layout      string `json:"layout"`
+}
+
+// GraphTemplateDefaults captures non-layout choices the template
+// owner wants to ship — currently the set of items that should be
+// pinned/selected when the generated graph first renders.
+type GraphTemplateDefaults struct {
+	PinnedItems []string `json:"pinned_items"`
+}
+
+// CreateGraphTemplateRequest is the wire payload accepted by
+// POST /graph-templates.
+type CreateGraphTemplateRequest struct {
+	Title               string                            `json:"title"`
+	Description         string                            `json:"description"`
+	SourceGraphID       *uuid.UUID                        `json:"source_graph_id,omitempty"`
+	ObjectParameters    []GraphTemplateObjectParameter    `json:"object_parameters"`
+	NonObjectParameters []GraphTemplateNonObjectParameter `json:"non_object_parameters"`
+	SearchArounds       []GraphTemplateSearchAround       `json:"search_arounds"`
+	LayerConfig         []GraphTemplateLayerConfig        `json:"layer_config"`
+	GraphConfig         GraphTemplateGraphConfig          `json:"graph_config"`
+	Defaults            GraphTemplateDefaults             `json:"defaults"`
+	ProjectID           *uuid.UUID                        `json:"project_id,omitempty"`
+	Organizations       []string                          `json:"organizations"`
+	Markings            []string                          `json:"markings"`
+}
+
+// UpdateGraphTemplateRequest is the wire payload for partial updates.
+// Pointer-valued fields are omitted by callers who only want to
+// change a subset of the template.
+type UpdateGraphTemplateRequest struct {
+	Title               *string                            `json:"title,omitempty"`
+	Description         *string                            `json:"description,omitempty"`
+	ObjectParameters    *[]GraphTemplateObjectParameter    `json:"object_parameters,omitempty"`
+	NonObjectParameters *[]GraphTemplateNonObjectParameter `json:"non_object_parameters,omitempty"`
+	SearchArounds       *[]GraphTemplateSearchAround       `json:"search_arounds,omitempty"`
+	LayerConfig         *[]GraphTemplateLayerConfig        `json:"layer_config,omitempty"`
+	GraphConfig         *GraphTemplateGraphConfig          `json:"graph_config,omitempty"`
+	Defaults            *GraphTemplateDefaults             `json:"defaults,omitempty"`
+	ProjectID           *uuid.UUID                         `json:"project_id,omitempty"`
+	Organizations       *[]string                          `json:"organizations,omitempty"`
+	Markings            *[]string                          `json:"markings,omitempty"`
+}
+
+// InstantiateGraphTemplateRequest collects the parameter values the
+// caller supplies to materialise a fresh graph from a template.
+type InstantiateGraphTemplateRequest struct {
+	Title                    string                     `json:"title,omitempty"`
+	ObjectParameterValues    map[string][]string        `json:"object_parameter_values"`
+	NonObjectParameterValues map[string]json.RawMessage `json:"non_object_parameter_values"`
+}
+
+// InstantiateGraphTemplateResponse returns the newly created graph
+// plus the resolved parameter values so callers can refresh their UI
+// state without a second round-trip.
+type InstantiateGraphTemplateResponse struct {
+	Graph                    *Graph                     `json:"graph"`
+	ObjectParameterValues    map[string][]string        `json:"object_parameter_values"`
+	NonObjectParameterValues map[string]json.RawMessage `json:"non_object_parameter_values"`
+}
+
+// ListGraphTemplatesResult is the paginated response envelope.
+type ListGraphTemplatesResult struct {
+	Items []GraphTemplate `json:"items"`
+	Total int             `json:"total"`
+}
