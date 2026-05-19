@@ -48,6 +48,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 
+		// `apps/web/src/lib/api/datasets.ts -> getCatalogFacets()` calls
+		// `/datasets/catalog/facets`; the original `/v1/catalog/facets`
+		// mount is reused below for non-browser parity callers.
+		api.Get("/datasets/catalog/facets", h.GetCatalogFacets)
 		api.Get("/datasets", h.ListDatasets)
 		api.Post("/datasets", h.CreateDataset)
 		api.Get("/datasets/{id}", h.GetDataset)

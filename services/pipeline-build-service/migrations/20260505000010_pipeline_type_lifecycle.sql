@@ -17,33 +17,49 @@ ALTER TABLE pipelines
     ADD COLUMN IF NOT EXISTS compute_profile_id TEXT,
     ADD COLUMN IF NOT EXISTS project_id         UUID;
 
-ALTER TABLE pipelines
-    ADD CONSTRAINT pipelines_pipeline_type_chk
-    CHECK (pipeline_type IN ('BATCH', 'FASTER', 'INCREMENTAL', 'STREAMING', 'EXTERNAL'));
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pipelines_pipeline_type_chk') THEN
+        ALTER TABLE pipelines
+            ADD CONSTRAINT pipelines_pipeline_type_chk
+            CHECK (pipeline_type IN ('BATCH', 'FASTER', 'INCREMENTAL', 'STREAMING', 'EXTERNAL'));
+    END IF;
+END $$;
 
-ALTER TABLE pipelines
-    ADD CONSTRAINT pipelines_lifecycle_chk
-    CHECK (lifecycle IN ('DRAFT', 'VALIDATED', 'DEPLOYED', 'ARCHIVED'));
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pipelines_lifecycle_chk') THEN
+        ALTER TABLE pipelines
+            ADD CONSTRAINT pipelines_lifecycle_chk
+            CHECK (lifecycle IN ('DRAFT', 'VALIDATED', 'DEPLOYED', 'ARCHIVED'));
+    END IF;
+END $$;
 
 -- Streaming pipelines must carry an input_stream_id; external pipelines a
 -- source_system. Enforced at the DB to defend against handler bypass.
-ALTER TABLE pipelines
-    ADD CONSTRAINT pipelines_streaming_requires_input_stream_chk
-    CHECK (
-        pipeline_type <> 'STREAMING'
-        OR (streaming_config IS NOT NULL
-            AND streaming_config ? 'input_stream_id'
-            AND COALESCE(streaming_config->>'input_stream_id', '') <> '')
-    );
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pipelines_streaming_requires_input_stream_chk') THEN
+        ALTER TABLE pipelines
+            ADD CONSTRAINT pipelines_streaming_requires_input_stream_chk
+            CHECK (
+                pipeline_type <> 'STREAMING'
+                OR (streaming_config IS NOT NULL
+                    AND streaming_config ? 'input_stream_id'
+                    AND COALESCE(streaming_config->>'input_stream_id', '') <> '')
+            );
+    END IF;
+END $$;
 
-ALTER TABLE pipelines
-    ADD CONSTRAINT pipelines_external_requires_source_system_chk
-    CHECK (
-        pipeline_type <> 'EXTERNAL'
-        OR (external_config IS NOT NULL
-            AND external_config ? 'source_system'
-            AND COALESCE(external_config->>'source_system', '') <> '')
-    );
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pipelines_external_requires_source_system_chk') THEN
+        ALTER TABLE pipelines
+            ADD CONSTRAINT pipelines_external_requires_source_system_chk
+            CHECK (
+                pipeline_type <> 'EXTERNAL'
+                OR (external_config IS NOT NULL
+                    AND external_config ? 'source_system'
+                    AND COALESCE(external_config->>'source_system', '') <> '')
+            );
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_pipelines_lifecycle      ON pipelines(lifecycle);
 CREATE INDEX IF NOT EXISTS idx_pipelines_pipeline_type  ON pipelines(pipeline_type);
