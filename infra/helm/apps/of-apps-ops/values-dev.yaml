@@ -43,6 +43,11 @@ services:
   # workflow-automation DSN (single Postgres pool); no separate
   # automation-operations-db-dsn Secret is needed.
   code-repository-review-service:
+    env:
+      # Default `/var/lib/openfoundry/code-repositories` isn't writable
+      # in the distroless image; redirect to the /tmp emptyDir for dev.
+      # Prod ships a PVC and overrides this back.
+      CODE_REPOSITORY_GIT_ROOT: /tmp/code-repositories
     envSecrets:
       DATABASE_URL:
         secretName: code-repository-review-db-dsn
@@ -105,6 +110,11 @@ services:
   # S8 / ADR-0030 (B20): scenario-simulation-service merged →
   # ontology-exploratory-analysis-service.
   sdk-generation-service:
+    env:
+      # Default `/var/openfoundry/sdk-artifacts` isn't writable in
+      # the distroless image; redirect to the /tmp emptyDir for dev.
+      # Prod attaches a PVC and overrides this back.
+      OSDK_ARTIFACT_DIR: /tmp/sdk-artifacts
     envSecrets:
       DATABASE_URL:
         secretName: sdk-generation-db-dsn
