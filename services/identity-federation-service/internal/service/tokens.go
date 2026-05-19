@@ -50,6 +50,11 @@ func (i *Issuer) IssueTokens(ctx context.Context, user *models.User, authMethods
 func (i *Issuer) IssueTokensWithScope(ctx context.Context, user *models.User, authMethods []string, scope *authmw.SessionScope) (string, string, error) {
 	now := time.Now()
 
+	roles, err := i.loadUserRoleNames(ctx, user.ID)
+	if err != nil {
+		return "", "", fmt.Errorf("load user roles: %w", err)
+	}
+
 	access := &authmw.Claims{
 		Sub:         user.ID,
 		IAT:         now.Unix(),
@@ -59,7 +64,7 @@ func (i *Issuer) IssueTokensWithScope(ctx context.Context, user *models.User, au
 		JTI:         ids.New(),
 		Email:       user.Email,
 		Name:        user.Name,
-		Roles:       []string{}, // slice 6 fills these in
+		Roles:       roles,
 		Permissions: []string{},
 		OrgID:       user.OrganizationID,
 		Attributes:  user.Attributes,
@@ -145,7 +150,7 @@ func (i *Issuer) RefreshTokens(ctx context.Context, plaintext string) (string, s
 	if err != nil {
 		return "", "", err
 	}
-	access, err := i.encodeAccessForUser(user, []string{"refresh_token"}, scope)
+	access, err := i.encodeAccessForUser(ctx, user, []string{"refresh_token"}, scope)
 	if err != nil {
 		return "", "", err
 	}
@@ -168,7 +173,11 @@ func (i *Issuer) RefreshTokens(ctx context.Context, plaintext string) (string, s
 	return access, plaintextNew, nil
 }
 
-func (i *Issuer) encodeAccessForUser(user *models.User, authMethods []string, scope *authmw.SessionScope) (string, error) {
+func (i *Issuer) encodeAccessForUser(ctx context.Context, user *models.User, authMethods []string, scope *authmw.SessionScope) (string, error) {
+	roles, err := i.loadUserRoleNames(ctx, user.ID)
+	if err != nil {
+		return "", fmt.Errorf("load user roles: %w", err)
+	}
 	now := time.Now()
 	c := &authmw.Claims{
 		Sub:         user.ID,
@@ -179,7 +188,7 @@ func (i *Issuer) encodeAccessForUser(user *models.User, authMethods []string, sc
 		JTI:         ids.New(),
 		Email:       user.Email,
 		Name:        user.Name,
-		Roles:       []string{},
+		Roles:       roles,
 		Permissions: []string{},
 		OrgID:       user.OrganizationID,
 		Attributes:  user.Attributes,
@@ -323,6 +332,24 @@ func maybe(s string) *string {
 }
 
 func strPtr(s string) *string { return &s }
+
+// loadUserRoleNames pulls the user's roles by name from the repository
+// so the access JWT advertises them under the `roles` claim. Downstream
+// services check `claims.HasRole("admin")` etc. to authorize writes.
+func (i *Issuer) loadUserRoleNames(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	if i.Repo == nil {
+		return []string{}, nil
+	}
+	roles, err := i.Repo.ListUserRoles(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(roles))
+	for _, r := range roles {
+		out = append(out, r.Name)
+	}
+	return out, nil
+}
 
 func oauthTokenAttributes(raw json.RawMessage, app *models.ThirdPartyApplication, scopes []string) json.RawMessage {
 	attrs := make(map[string]any)

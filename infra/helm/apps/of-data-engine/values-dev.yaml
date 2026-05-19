@@ -99,6 +99,12 @@ services:
         secretName: data-asset-catalog-db-dsn
         key: reader_url
   dataset-versioning-service:
+    env:
+      # Dev pods mount /tmp as emptyDir; route uploads there so
+      # the local backing FS has somewhere writable in the distroless
+      # image. Prod uses S3/Ceph instead (`STORAGE_BACKEND=s3`).
+      DATASET_FILES_BASE_DIR: datasets
+      DATASET_FILES_ROOT_DIR: /tmp
     envSecrets:
       DATABASE_URL:
         secretName: dataset-versioning-db-dsn

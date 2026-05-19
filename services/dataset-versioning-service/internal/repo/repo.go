@@ -573,8 +573,8 @@ func (r *Repo) EnsureDefaultBranch(ctx context.Context, dataset *models.Dataset)
 	}
 	_, err = r.Pool.Exec(ctx,
 		`INSERT INTO dataset_branches (id, dataset_id, dataset_rid, name, version, base_version, description, is_default)
-		 VALUES ($1, $2, 'ri.foundry.main.dataset.' || $2::text, $3, $4, $4, 'Default branch', TRUE)`,
-		uuid.New(), dataset.ID, branchName, dataset.CurrentVersion,
+		 VALUES ($1, $2, $3, $4, $5, $5, 'Default branch', TRUE)`,
+		uuid.New(), dataset.ID, "ri.foundry.main.dataset."+dataset.ID.String(), branchName, dataset.CurrentVersion,
 	)
 	if IsConflict(err) {
 		return nil

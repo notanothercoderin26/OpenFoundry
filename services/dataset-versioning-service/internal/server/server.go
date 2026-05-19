@@ -86,6 +86,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/datasets/{id}/transactions/{txn}/files/content", h.UploadTransactionFileContent)
 		api.Delete("/datasets/{id}/transactions/{txn}/files", h.DeleteTransactionFile)
 		api.Post("/datasets/{id}/outputs:commit", h.CommitDatasetOutput)
+		// Direct file upload — `DatasetUploadPage` POSTs the dataset payload
+		// straight here after creating the dataset row. The transactional
+		// variants above are reserved for branch-aware flows.
+		api.Post("/datasets/{id}/upload", h.UploadData)
 
 		api.Get("/datasets/{id}/quality", h.GetDatasetQuality)
 		api.Post("/datasets/{id}/quality/profile", h.RefreshDatasetQuality)

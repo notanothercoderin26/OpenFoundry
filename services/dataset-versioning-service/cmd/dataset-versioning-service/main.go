@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -69,6 +70,14 @@ func main() {
 		baseURL = "http://" + srvAddr(cfg.Server.Host, cfg.Server.Port)
 	}
 	backingFS := storageabstraction.NewLocalBackingFS(baseURL, os.Getenv("DATASET_FILES_BASE_DIR"), []byte(cfg.JWTSecret))
+	// DATASET_FILES_ROOT_DIR points at the filesystem root for the local
+	// proxy. Distroless containers run with `/` as CWD which is read-only,
+	// so dev deployments must override this to a writable path (e.g. an
+	// emptyDir mounted at /tmp/datasets); prod uses an object backend
+	// instead of the local FS.
+	if rootDir := strings.TrimSpace(os.Getenv("DATASET_FILES_ROOT_DIR")); rootDir != "" {
+		backingFS.RootDir = rootDir
+	}
 	store := &repo.Repo{Pool: pool}
 	h := &handlers.Handlers{Repo: store, BackingFS: backingFS, PresignTTL: 15 * time.Minute}
 	metrics := observability.NewMetrics()
