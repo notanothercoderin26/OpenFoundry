@@ -142,6 +142,19 @@ func (f *fakeStore) DeleteObjectType(_ context.Context, id uuid.UUID) (bool, err
 	return true, nil
 }
 
+func (f *fakeStore) UpdateAppCapabilities(_ context.Context, id uuid.UUID, payload json.RawMessage) (*models.ObjectType, error) {
+	v, ok := f.objectTypes[id]
+	if !ok {
+		return nil, nil
+	}
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	v.AppCapabilities = payload
+	v.UpdatedAt = time.Now().UTC()
+	return v, nil
+}
+
 func (f *fakeStore) ListProperties(_ context.Context, typeID uuid.UUID) ([]models.Property, error) {
 	if f.listPropErr != nil {
 		return nil, f.listPropErr

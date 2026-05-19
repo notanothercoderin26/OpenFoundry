@@ -24,6 +24,7 @@ type Store interface {
 	GetObjectType(ctx context.Context, id uuid.UUID) (*models.ObjectType, error)
 	CreateObjectType(ctx context.Context, body *models.CreateObjectTypeRequest, ownerID uuid.UUID) (*models.ObjectType, error)
 	UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.UpdateObjectTypeRequest) (*models.ObjectType, error)
+	UpdateAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage) (*models.ObjectType, error)
 	DeleteObjectType(ctx context.Context, id uuid.UUID) (bool, error)
 
 	ListProperties(ctx context.Context, typeID uuid.UUID) ([]models.Property, error)
@@ -153,6 +154,42 @@ func (h *Handlers) UpdateObjectType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v, err := h.Repo.UpdateObjectType(r.Context(), id, &body)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if v == nil {
+		writeJSONErr(w, http.StatusNotFound, "object type not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+// UpdateObjectTypeAppCapabilities writes the per-app capabilities
+// JSON blob without touching the rest of the row. The payload is a
+// free-form JSON object keyed by app name (e.g. `vertex_event`); see
+// migration 0004 for the shape.
+func (h *Handlers) UpdateObjectTypeAppCapabilities(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var body models.UpdateAppCapabilitiesRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if len(body.AppCapabilities) == 0 {
+		body.AppCapabilities = json.RawMessage(`{}`)
+	}
+	// Quick well-formedness check: the payload must be a JSON object.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(body.AppCapabilities, &probe); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "app_capabilities must be a JSON object")
+		return
+	}
+	v, err := h.Repo.UpdateAppCapabilities(r.Context(), id, body.AppCapabilities)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return

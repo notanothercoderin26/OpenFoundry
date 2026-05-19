@@ -54,6 +54,28 @@ export interface ObjectType {
   owner_id: string;
   created_at: string;
   updated_at: string;
+  // Per-app metadata stored as a free-form JSON object keyed by app
+  // name. The platform writes `vertex_event` here when an object
+  // type represents an event in the data model — see
+  // VertexEventCapability below.
+  app_capabilities?: AppCapabilities;
+}
+
+// AppCapabilities is the typed view over the per-object-type JSON
+// blob. Adding new app-specific keys is a non-breaking change.
+export interface AppCapabilities {
+  vertex_event?: VertexEventCapability;
+  [appKey: string]: unknown;
+}
+
+// VertexEventCapability tells Vertex how to render an event-shaped
+// object on the graph.
+export type VertexEventIntent = "danger" | "warning" | "success" | "primary" | "none";
+
+export interface VertexEventCapability {
+  event_intent?: VertexEventIntent;
+  value_property_id?: string;
+  value_unit?: string;
 }
 
 export type PropertyDisplayMode = "hidden" | "normal" | "prominent" | string;
@@ -1014,6 +1036,15 @@ export interface QuiverVisualFunction {
 
 export function getObjectType(id: string) {
   return api.get<ObjectType>(`/ontology/types/${id}`);
+}
+
+// Writes the per-app capabilities JSON blob on an object type.
+// Used by the Ontology Manager Capabilities tab and consumed by
+// Vertex to color event badges and pick the value property.
+export function updateObjectTypeAppCapabilities(id: string, appCapabilities: AppCapabilities) {
+  return api.put<ObjectType>(`/ontology/types/${id}/app-capabilities`, {
+    app_capabilities: appCapabilities,
+  });
 }
 
 export function executeInlineEdit(

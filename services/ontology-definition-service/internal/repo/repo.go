@@ -58,7 +58,8 @@ const objectTypeSelect = `SELECT id, name, display_name, description,
 	restricted_view_policy_version, restricted_view_registered_policy_version,
 	restricted_view_indexed_policy_version, restricted_view_storage_mode,
 	restricted_view_policy_updated_at, restricted_view_registered_at,
-	restricted_view_indexed_at, pipeline_rid, managed_by
+	restricted_view_indexed_at, pipeline_rid, managed_by,
+	COALESCE(app_capabilities_json, '{}'::jsonb)
 	FROM ontology_schema.object_types`
 
 func (r *Repo) ListObjectTypes(ctx context.Context) ([]models.ObjectType, error) {
@@ -317,11 +318,33 @@ func scanObjectType(r rowLikeT) (*models.ObjectType, error) {
 		&v.RestrictedViewPolicyUpdatedAt,
 		&v.RestrictedViewRegisteredAt,
 		&v.RestrictedViewIndexedAt, &v.PipelineRID,
-		&v.ManagedBy); err != nil {
+		&v.ManagedBy, &v.AppCapabilities); err != nil {
 		return nil, err
 	}
 	models.EnrichObjectTypeMetadata(v, nil)
 	return v, nil
+}
+
+// UpdateAppCapabilities writes only the app_capabilities_json column
+// for a single object type. The payload is stored verbatim — callers
+// are responsible for sanitising / validating the JSON before they
+// invoke this. Returns the refreshed ObjectType.
+func (r *Repo) UpdateAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage) (*models.ObjectType, error) {
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	tag, err := r.Pool.Exec(ctx,
+		`UPDATE ontology_schema.object_types
+		    SET app_capabilities_json = $2,
+		        updated_at = NOW()
+		    WHERE id = $1`, id, []byte(payload))
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, nil
+	}
+	return r.GetObjectType(ctx, id)
 }
 
 func ptrString(ptr *string) string {

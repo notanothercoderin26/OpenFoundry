@@ -461,6 +461,45 @@ export function VertexPage() {
   const [promotedActionsPreview, setPromotedActionsPreview] = useState<Array<{order:number;actionId:string;mode:string;approval:string;payload:unknown}>>([]);
 
   const typeMap = useMemo(() => new Map(objectTypes.map((item) => [item.id, item])), [objectTypes]);
+
+  // Pull the per-app capabilities each object type has been tagged
+  // with — Vertex consumes app_capabilities.vertex_event to render
+  // notification-style badges and colour event rows in the sidebar.
+  // We key by both id and display_name so we can look up an event by
+  // whichever label the graph node was rendered with.
+  const eventIntentByTypeKey = useMemo(() => {
+    const map = new Map<string, { intent: string; tone: string; valueProperty?: string; valueUnit?: string }>();
+    const toneFor = (intent: string): string => {
+      switch (intent) {
+        case 'danger':
+          return '#f87171';
+        case 'warning':
+          return '#fbbf24';
+        case 'success':
+          return '#34d399';
+        case 'primary':
+          return '#60a5fa';
+        default:
+          return '#94a3b8';
+      }
+    };
+    for (const t of objectTypes) {
+      const vEvent = (t.app_capabilities?.vertex_event ?? null) as
+        | { event_intent?: string; value_property_id?: string; value_unit?: string }
+        | null;
+      if (!vEvent?.event_intent || vEvent.event_intent === 'none') continue;
+      const entry = {
+        intent: vEvent.event_intent,
+        tone: toneFor(vEvent.event_intent),
+        valueProperty: vEvent.value_property_id,
+        valueUnit: vEvent.value_unit,
+      };
+      map.set(t.id, entry);
+      map.set(t.display_name, entry);
+      if (t.name) map.set(t.name, entry);
+    }
+    return map;
+  }, [objectTypes]);
   const selectedNode = useMemo(
     () => graph?.nodes.find((node) => node.id === selectedNodeId) ?? null,
     [graph, selectedNodeId],
@@ -2293,35 +2332,55 @@ export function VertexPage() {
                 })}
               </div>
               <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
-                {filteredTimelineRows.map((row) => (
-                  <button
-                    key={row.nodeId}
-                    type="button"
-                    onClick={() => setSelectedNodeId(row.nodeId)}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: 16,
-                      border: `1px solid ${row.active ? '#fecaca' : 'var(--border-default)'}`,
-                      background: row.active ? '#fff5f5' : 'var(--bg-panel-muted)',
-                      borderRadius: 'var(--radius-md)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                      <div style={{ fontWeight: 500, color: 'var(--text-strong)' }}>{row.label}</div>
-                      <span
-                        className={`of-chip ${row.active ? 'of-status-danger' : 'of-status-info'}`}
-                        style={{ fontSize: 11, fontWeight: 600 }}
-                      >
-                        {row.active ? 'Active' : 'Scheduled'}
-                      </span>
-                    </div>
-                    <div className="of-text-muted" style={{ fontSize: 12, marginTop: 8 }}>
-                      {row.typeLabel} · {row.start.slice(0, 10)} → {row.end.slice(0, 10)}
-                    </div>
-                  </button>
-                ))}
+                {filteredTimelineRows.map((row) => {
+                  const eventConfig = eventIntentByTypeKey.get(row.typeLabel);
+                  const tone = eventConfig?.tone ?? null;
+                  return (
+                    <button
+                      key={row.nodeId}
+                      type="button"
+                      onClick={() => setSelectedNodeId(row.nodeId)}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: 16,
+                        border: `1px solid ${row.active ? '#fecaca' : tone ? `${tone}55` : 'var(--border-default)'}`,
+                        background: row.active ? '#fff5f5' : 'var(--bg-panel-muted)',
+                        borderRadius: 'var(--radius-md)',
+                        cursor: 'pointer',
+                        borderLeft: tone ? `4px solid ${tone}` : undefined,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {tone && (
+                            <span
+                              aria-hidden
+                              style={{
+                                width: 10,
+                                height: 10,
+                                borderRadius: '50%',
+                                background: tone,
+                                display: 'inline-block',
+                              }}
+                            />
+                          )}
+                          <div style={{ fontWeight: 500, color: 'var(--text-strong)' }}>{row.label}</div>
+                        </div>
+                        <span
+                          className={`of-chip ${row.active ? 'of-status-danger' : 'of-status-info'}`}
+                          style={{ fontSize: 11, fontWeight: 600 }}
+                        >
+                          {row.active ? 'Active' : 'Scheduled'}
+                        </span>
+                      </div>
+                      <div className="of-text-muted" style={{ fontSize: 12, marginTop: 8 }}>
+                        {row.typeLabel}
+                        {eventConfig?.intent ? ` · ${eventConfig.intent}` : ''} · {row.start.slice(0, 10)} → {row.end.slice(0, 10)}
+                      </div>
+                    </button>
+                  );
+                })}
                 {eventRows.length === 0 && (
                   <div
                     style={{

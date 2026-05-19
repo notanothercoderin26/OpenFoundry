@@ -56,6 +56,9 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 			// Properties — nested under each type
 			api.Get(base+"/{id}/properties", h.ListProperties)
 			api.Post(base+"/{id}/properties", h.CreateProperty)
+
+			// App capabilities (per-app metadata, e.g. vertex_event)
+			api.Put(base+"/{id}/app-capabilities", h.UpdateObjectTypeAppCapabilities)
 		}
 
 		// Link types — top-level (/links). The frontend `listLinkTypes`

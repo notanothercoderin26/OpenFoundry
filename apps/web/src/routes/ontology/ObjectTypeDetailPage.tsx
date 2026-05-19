@@ -51,6 +51,7 @@ import {
 import { listDatasets, type Dataset } from '@/lib/api/datasets';
 import { CreateActionTypeWizard } from '@/lib/components/ontology/CreateActionTypeWizard';
 import { ObjectDetailDrawer } from '@/lib/components/ontology/ObjectDetailDrawer';
+import { VertexEventCapabilityEditor } from '@/lib/components/ontology/VertexEventCapabilityEditor';
 import { ObjectExplorer } from '@/lib/components/ontology/ObjectExplorer';
 import { PropertyPanel } from '@/lib/components/ontology/PropertyPanel';
 import { SaveAsAppModal } from '@/lib/components/apps/SaveAsAppModal';
@@ -58,7 +59,7 @@ import { Tabs } from '@/lib/components/Tabs';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { useAuth } from '@/lib/stores/auth';
 
-type Tab = 'overview' | 'properties' | 'objects' | 'actions' | 'datasources' | 'links' | 'rules' | 'shared';
+type Tab = 'overview' | 'properties' | 'objects' | 'actions' | 'datasources' | 'links' | 'rules' | 'shared' | 'capabilities';
 
 interface DatasourceSettings {
   backing_source_kind: 'dataset' | 'restricted_view';
@@ -628,6 +629,7 @@ export function ObjectTypeDetailPage() {
           { id: 'links', label: links.length ? `Links (${links.length})` : 'Links' },
           { id: 'rules', label: rules.length ? `Rules (${rules.length})` : 'Rules' },
           { id: 'shared', label: shared.length ? `Shared (${shared.length})` : 'Shared' },
+          { id: 'capabilities', label: 'Capabilities' },
         ] as const}
         active={tab}
         onChange={(next) => void loadTab(next)}
@@ -1274,6 +1276,14 @@ export function ObjectTypeDetailPage() {
             {shared.length === 0 && <li className="of-text-muted">None attached.</li>}
           </ul>
         </section>
+      )}
+
+      {tab === 'capabilities' && (
+        <VertexEventCapabilityEditor
+          objectType={effectiveType ?? type}
+          properties={properties}
+          onSaved={(updated) => setType(updated)}
+        />
       )}
 
       <ObjectDetailDrawer

@@ -60,6 +60,35 @@ type ObjectType struct {
 	OwnerID                               uuid.UUID                        `json:"owner_id"`
 	CreatedAt                             time.Time                        `json:"created_at"`
 	UpdatedAt                             time.Time                        `json:"updated_at"`
+	// AppCapabilities carries per-application metadata as a free-form
+	// JSON object keyed by app name. See migration 0004; concrete
+	// helpers for known keys live in app_capabilities.go.
+	AppCapabilities json.RawMessage `json:"app_capabilities,omitempty"`
+}
+
+// ----- App capabilities -----
+
+// AppCapabilities is the typed view over the app_capabilities_json
+// JSONB column. New app keys can be added without a schema change.
+type AppCapabilities struct {
+	VertexEvent *VertexEventCapability `json:"vertex_event,omitempty"`
+}
+
+// VertexEventCapability tells Vertex how to render an event-shaped
+// object on the graph: the badge intent (color), which numeric
+// property carries the severity / magnitude, and the unit shown in
+// the side panel.
+type VertexEventCapability struct {
+	EventIntent     string `json:"event_intent,omitempty"`
+	ValuePropertyID string `json:"value_property_id,omitempty"`
+	ValueUnit       string `json:"value_unit,omitempty"`
+}
+
+// UpdateAppCapabilitiesRequest is the wire payload for the dedicated
+// PATCH endpoint that writes app_capabilities_json without touching
+// the rest of the object_type row.
+type UpdateAppCapabilitiesRequest struct {
+	AppCapabilities json.RawMessage `json:"app_capabilities"`
 }
 
 type RestrictedViewPropagationStatus struct {
