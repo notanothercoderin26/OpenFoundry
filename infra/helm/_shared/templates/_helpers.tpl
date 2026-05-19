@@ -206,7 +206,11 @@ spec:
             {{- end }}
           {{- end }}
           env:
-            {{- if gt (len $ports) 0 }}
+            {{- $userEnvMap := dict }}
+            {{- if kindIs "map" ($service.env | default dict) }}
+              {{- $userEnvMap = ($service.env | default dict) }}
+            {{- end }}
+            {{- if and (gt (len $ports) 0) (not (hasKey $userEnvMap "PORT")) }}
             - name: PORT
               value: {{ (toString ((first $ports).containerPort)) | quote }}
             {{- end }}

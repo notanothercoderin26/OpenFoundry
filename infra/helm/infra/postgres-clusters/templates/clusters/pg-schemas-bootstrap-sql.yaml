@@ -66,7 +66,13 @@ data:
         'ai_application_generation',
         'document_intelligence',
         'mcp_orchestration',
-        'scenario_simulation'
+        'scenario_simulation',
+        'entity_resolution',
+        'iceberg_catalog',
+        'llm_catalog',
+        'media_sets',
+        'ontology_definition',
+        'ontology_exploratory_analysis'
       ];
     BEGIN
       FOREACH bc IN ARRAY bcs LOOP

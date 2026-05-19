@@ -139,6 +139,12 @@ dsnSecrets:
       - document_intelligence
       - mcp_orchestration
       - scenario_simulation
+      - entity_resolution
+      - iceberg_catalog
+      - llm_catalog
+      - media_sets
+      - ontology_definition
+      - ontology_exploratory_analysis
     pg-policy:
       - identity_federation
       - oauth_integration
@@ -152,6 +158,7 @@ dsnSecrets:
       - checkpoints_purpose
       - telemetry_governance
       - code_security_scanning
+      - authorization_policy
     pg-runtime-config:
       - agent_runtime
       - function_runtime
@@ -179,3 +186,8 @@ dsnSecrets:
       - time_series_data
       - report
       - reindex_coordinator
+      - ai_evaluation
+      - compute_module
+      - model_deployment
+      - ontology_actions
+      - retrieval_context

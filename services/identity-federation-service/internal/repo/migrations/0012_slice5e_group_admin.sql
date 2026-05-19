@@ -47,11 +47,14 @@ ALTER TABLE groups
 
 UPDATE groups SET display_name = name WHERE display_name IS NULL;
 
-ALTER TABLE groups
-    ADD CONSTRAINT groups_kind_check
-        CHECK (kind IN ('internal', 'external', 'rule_based')) NOT VALID;
-
-ALTER TABLE groups VALIDATE CONSTRAINT groups_kind_check;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'groups_kind_check') THEN
+        ALTER TABLE groups
+            ADD CONSTRAINT groups_kind_check
+                CHECK (kind IN ('internal', 'external', 'rule_based')) NOT VALID;
+        ALTER TABLE groups VALIDATE CONSTRAINT groups_kind_check;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS groups_kind_idx ON groups (kind);
 CREATE INDEX IF NOT EXISTS groups_realm_idx ON groups (realm);

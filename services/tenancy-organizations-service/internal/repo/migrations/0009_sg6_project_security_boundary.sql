@@ -34,11 +34,15 @@ ALTER TABLE ontology_projects
     ADD COLUMN IF NOT EXISTS point_of_contact_email   TEXT NULL,
     ADD COLUMN IF NOT EXISTS "references"             JSONB NOT NULL DEFAULT '[]'::jsonb;
 
-ALTER TABLE ontology_projects
-    ADD CONSTRAINT ontology_projects_default_role_check
-        CHECK (default_role IN ('discoverer', 'viewer', 'editor', 'owner'))
-        NOT VALID;
-ALTER TABLE ontology_projects VALIDATE CONSTRAINT ontology_projects_default_role_check;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ontology_projects_default_role_check') THEN
+        ALTER TABLE ontology_projects
+            ADD CONSTRAINT ontology_projects_default_role_check
+                CHECK (default_role IN ('discoverer', 'viewer', 'editor', 'owner'))
+                NOT VALID;
+        ALTER TABLE ontology_projects VALIDATE CONSTRAINT ontology_projects_default_role_check;
+    END IF;
+END $$;
 
 -- Widen the user-membership role CHECK to admit the new
 -- 'discoverer' rank. Drop+re-add because Postgres has no in-place

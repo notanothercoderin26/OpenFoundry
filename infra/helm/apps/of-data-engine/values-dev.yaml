@@ -151,6 +151,8 @@ services:
     spark:
       rbac:
         create: false
+    env:
+      PYTHON_SIDECAR_BINARY: ""
     envSecrets:
       DATABASE_URL:
         secretName: pipeline-build-db-dsn

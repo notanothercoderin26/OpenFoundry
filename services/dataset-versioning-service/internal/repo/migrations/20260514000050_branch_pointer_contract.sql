@@ -6,18 +6,20 @@
 -- committing, and aborting transactions; this migration backfills existing
 -- rows and repairs any branch that still points at an aborted transaction.
 
+WITH latest AS (
+    SELECT DISTINCT ON (t.branch_id) t.branch_id, t.id
+      FROM dataset_transactions t
+     WHERE t.status IN ('OPEN', 'COMMITTED')
+     ORDER BY t.branch_id,
+              COALESCE(t.committed_at, t.started_at) DESC,
+              t.started_at DESC
+)
 UPDATE dataset_branches b
    SET head_transaction_id = latest.id,
        updated_at = NOW()
-  FROM LATERAL (
-        SELECT t.id
-          FROM dataset_transactions t
-         WHERE t.branch_id = b.id
-           AND t.status IN ('OPEN', 'COMMITTED')
-         ORDER BY COALESCE(t.committed_at, t.started_at) DESC, t.started_at DESC
-         LIMIT 1
-       ) latest
- WHERE b.deleted_at IS NULL
+  FROM latest
+ WHERE latest.branch_id = b.id
+   AND b.deleted_at IS NULL
    AND b.archived_at IS NULL
    AND (b.head_transaction_id IS DISTINCT FROM latest.id);
 

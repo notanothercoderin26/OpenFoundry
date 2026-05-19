@@ -58,7 +58,12 @@ data:
         -- `reindex_coordinator.reindex_jobs` resume-cursor table that
         -- replaces the Temporal workflow `ResumeToken` from the legacy
         -- Go `workers-go/reindex` worker (ADR-0021).
-        'reindex_coordinator'
+        'reindex_coordinator',
+        'ai_evaluation',
+        'compute_module',
+        'model_deployment',
+        'ontology_actions',
+        'retrieval_context'
       ];
     BEGIN
       FOREACH bc IN ARRAY bcs LOOP

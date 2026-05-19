@@ -6,19 +6,19 @@
 -- search results or cross-app launchers.
 
 UPDATE compass_resource_search_index
-   SET open_url = '/projects/' || rid,
+   SET open_url = '/projects/' || resource_rid,
        indexed_at = NOW()
- WHERE type = 'project'
-   AND rid LIKE 'ri.%'
-   AND open_url IS DISTINCT FROM '/projects/' || rid;
+ WHERE resource_type = 'project'
+   AND resource_rid LIKE 'ri.%'
+   AND open_url IS DISTINCT FROM '/projects/' || resource_rid;
 
 UPDATE compass_resource_search_index idx
    SET open_url = '/projects/' || COALESCE(idx.owning_project_rid, 'ri.compass.main.project.' || idx.owning_project_id::text)
-                  || '/folders/' || idx.rid,
+                  || '/folders/' || idx.resource_rid,
        indexed_at = NOW()
- WHERE idx.type = 'folder'
-   AND idx.rid LIKE 'ri.%'
+ WHERE idx.resource_type = 'folder'
+   AND idx.resource_rid LIKE 'ri.%'
    AND idx.owning_project_id IS NOT NULL
    AND idx.open_url IS DISTINCT FROM
        '/projects/' || COALESCE(idx.owning_project_rid, 'ri.compass.main.project.' || idx.owning_project_id::text)
-       || '/folders/' || idx.rid;
+       || '/folders/' || idx.resource_rid;

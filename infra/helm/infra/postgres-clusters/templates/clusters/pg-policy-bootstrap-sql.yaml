@@ -41,7 +41,8 @@ data:
         'lineage_deletion',
         'checkpoints_purpose',
         'telemetry_governance',
-        'code_security_scanning'
+        'code_security_scanning',
+        'authorization_policy'
       ];
     BEGIN
       FOREACH bc IN ARRAY bcs LOOP
@@ -102,7 +103,7 @@ data:
         'identity_federation','oauth_integration','network_boundary','cipher',
         'security_governance','sds','audit_compliance','retention_policy',
         'lineage_deletion','checkpoints_purpose','telemetry_governance',
-        'code_security_scanning'
+        'code_security_scanning','authorization_policy'
       ]) LOOP
         EXECUTE format('GRANT USAGE ON SCHEMA outbox TO svc_%I', bc);
         EXECUTE format(
@@ -123,7 +124,7 @@ data:
         'identity_federation','oauth_integration','network_boundary','cipher',
         'security_governance','sds','audit_compliance','retention_policy',
         'lineage_deletion','checkpoints_purpose','telemetry_governance',
-        'code_security_scanning'
+        'code_security_scanning','authorization_policy'
       ]) LOOP
         EXECUTE format('GRANT USAGE ON SCHEMA %I TO debezium_cdc', bc);
         EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO debezium_cdc', bc);
