@@ -146,6 +146,7 @@ type UpstreamURLs struct {
 	SDS                       string `koanf:"sds_service_url"`
 	Nexus                     string `koanf:"nexus_service_url"`
 	TelemetryGovernance       string `koanf:"telemetry_governance_service_url"`
+	Vertex                    string `koanf:"vertex_service_url"`
 }
 
 // DefaultUpstreams returns the default localhost ports for dev /
@@ -231,6 +232,7 @@ func DefaultUpstreams() UpstreamURLs {
 		SDS:                 "http://localhost:50115",
 		Nexus:               "http://localhost:50113",
 		TelemetryGovernance: "http://localhost:50153",
+		Vertex:              "http://localhost:50180",
 	}
 }
 

@@ -1,0 +1,213 @@
+syntax = "proto3";
+package open_foundry.vertex;
+
+import "common/types.proto";
+import "vertex/vertex.proto";
+
+// TraversalService is hosted by ontology-query-service. It executes
+// the Search Around DSL stored in vertex-service, returns link-summary
+// aggregations for the right-click context menu, computes histogram
+// facets over a subgraph, and exposes graph-reasoning primitives that
+// AIP Logic consumes.
+service TraversalService {
+  // Summary of outgoing/incoming link types from an object with the
+  // count of targets per type — populates the right-click Search
+  // Around dropdown ("Arriving Flight 102064", "Runway 4", ...).
+  rpc LinkSummary(LinkSummaryRequest) returns (LinkSummaryResponse);
+
+  // Single-hop neighbor expansion with property filters. Reads OSV2
+  // link indices when available.
+  rpc ExpandNeighbors(ExpandNeighborsRequest) returns (ExpandNeighborsResponse);
+
+  // Execute a saved Search Around (multi-step DSL) bound to a starting
+  // object set and parameter values. Returns the resulting object refs
+  // grouped by ontology type so the frontend can paint them.
+  rpc ExecuteSearchAround(ExecuteSearchAroundRequest) returns (ExecuteSearchAroundResponse);
+
+  // Histogram facets over a subgraph: counts + numeric stats per
+  // property, used by the Histogram sidebar tab.
+  rpc Histogram(HistogramRequest) returns (HistogramResponse);
+
+  // Path-finding between two object refs (shortest, k-shortest).
+  rpc FindPaths(FindPathsRequest) returns (FindPathsResponse);
+
+  // Centrality measures (degree, betweenness, eigenvector) over the
+  // caller-provided subgraph.
+  rpc Centrality(CentralityRequest) returns (CentralityResponse);
+}
+
+message LinkSummaryRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+  string object_id = 2;
+  string branch_context = 3;
+}
+message LinkSummaryResponse {
+  repeated LinkSummaryEntry entries = 1;
+}
+message LinkSummaryEntry {
+  open_foundry.common.Uuid link_type_id = 1;
+  open_foundry.common.Uuid target_object_type_id = 2;
+  string display_name = 3;
+  Direction direction = 4;
+  int64 count = 5;
+  // True when the count was capped because the actual number of
+  // neighbors exceeds the configured limit.
+  bool count_is_estimate = 6;
+}
+
+message ExpandNeighborsRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+  string object_id = 2;
+  open_foundry.common.Uuid link_type_id = 3;
+  Direction direction = 4;
+  repeated SearchAroundFilter filters = 5;
+  int32 limit = 6;
+  string cursor = 7;
+  string branch_context = 8;
+}
+message ExpandNeighborsResponse {
+  repeated ObjectRef items = 1;
+  string next_cursor = 2;
+  int64 total = 3;
+  bool total_is_estimate = 4;
+  // Reported when caller-invisible neighbors were filtered out, so
+  // the UI can render "12 neighbors not visible" instead of dropping
+  // them silently (VTX.23).
+  int64 hidden_count = 5;
+}
+
+message ObjectRef {
+  open_foundry.common.Uuid object_type_id = 1;
+  string object_id = 2;
+  // Display label fetched eagerly so the canvas can render without
+  // a follow-up read.
+  string display_label = 3;
+  // Subset of the object's properties (display-relevant only) so
+  // the selection sidebar can paint without round-tripping.
+  string properties_json = 4;
+}
+
+message ExecuteSearchAroundRequest {
+  // Either an inline DSL or a reference to a saved search_around RID.
+  oneof source {
+    open_foundry.common.Uuid saved_search_around_id = 1;
+    InlineSearchAround inline = 2;
+  }
+  // Starting object set (the canvas selection).
+  repeated ObjectRef starting_set = 3;
+  // Caller-supplied parameter values keyed by parameter name.
+  map<string, string> parameter_values_json = 4;
+  string branch_context = 5;
+}
+
+message InlineSearchAround {
+  open_foundry.common.Uuid starting_object_type_id = 1;
+  repeated SearchAroundStep steps = 2;
+  repeated SearchAroundParameter parameters = 3;
+}
+
+message ExecuteSearchAroundResponse {
+  // Resulting object refs grouped by ontology type.
+  repeated ResultGroup groups = 1;
+  // Cost insights for the expansion (VTX.22).
+  Cost cost = 2;
+}
+
+message ResultGroup {
+  open_foundry.common.Uuid object_type_id = 1;
+  repeated ObjectRef items = 2;
+  int64 total = 3;
+}
+
+message Cost {
+  double cpu_seconds = 1;
+  int64 rows_scanned = 2;
+  repeated string indices_hit = 3;
+  bool budget_exceeded = 4;
+}
+
+message HistogramRequest {
+  // Object refs whose properties to aggregate.
+  repeated ObjectRef object_refs = 1;
+  // Optional: limit to these property names. Empty = all.
+  repeated string properties = 2;
+  string branch_context = 3;
+}
+
+message HistogramResponse {
+  repeated HistogramFacet facets = 1;
+}
+
+message HistogramFacet {
+  string property = 1;
+  open_foundry.common.Uuid object_type_id = 2;
+  // Discrete buckets (value -> count) for categorical/low-cardinality props.
+  repeated HistogramBucket buckets = 3;
+  // Numeric summary for numeric properties.
+  NumericSummary numeric = 4;
+  // n = distinct object refs aggregated.
+  int64 n = 5;
+  // uniq = distinct values seen (categorical).
+  int64 uniq = 6;
+}
+
+message HistogramBucket {
+  string value_json = 1;
+  int64 count = 2;
+}
+
+message NumericSummary {
+  double sum = 1;
+  double avg = 2;
+  double min = 3;
+  double max = 4;
+  int64 n = 5;
+}
+
+message FindPathsRequest {
+  ObjectRef start = 1;
+  ObjectRef end = 2;
+  int32 k = 3;  // number of paths to return (1 = shortest only)
+  int32 max_hops = 4;
+  string branch_context = 5;
+}
+
+message FindPathsResponse {
+  repeated Path paths = 1;
+}
+
+message Path {
+  repeated ObjectRef nodes = 1;
+  // Edges between consecutive nodes; size = nodes - 1.
+  repeated PathEdge edges = 2;
+  double weight = 3;
+}
+
+message PathEdge {
+  open_foundry.common.Uuid link_type_id = 1;
+  Direction direction = 2;
+}
+
+message CentralityRequest {
+  // Subgraph to analyze.
+  repeated ObjectRef object_refs = 1;
+  repeated CentralityMeasure measures = 2;
+  string branch_context = 3;
+}
+
+enum CentralityMeasure {
+  CENTRALITY_MEASURE_UNSPECIFIED = 0;
+  CENTRALITY_MEASURE_DEGREE = 1;
+  CENTRALITY_MEASURE_BETWEENNESS = 2;
+  CENTRALITY_MEASURE_EIGENVECTOR = 3;
+}
+
+message CentralityResponse {
+  repeated CentralityScore scores = 1;
+}
+
+message CentralityScore {
+  ObjectRef ref = 1;
+  CentralityMeasure measure = 2;
+  double value = 3;
+}

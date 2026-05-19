@@ -1,0 +1,411 @@
+syntax = "proto3";
+package open_foundry.vertex;
+
+import "common/types.proto";
+import "google/protobuf/timestamp.proto";
+
+// VertexService owns graph CRUD, saved Search Around resources,
+// scenarios (what-if analysis), derived-property bindings, and
+// canvas annotations. Traversal (neighbor expansion, multi-hop,
+// path-finding, centrality) is hosted in ontology-query-service.
+service VertexService {
+  // Graph resource — the top-level Vertex artifact ("Vertex Graph").
+  rpc CreateGraph(CreateGraphRequest) returns (Graph);
+  rpc GetGraph(GetGraphRequest) returns (Graph);
+  rpc ListGraphs(ListGraphsRequest) returns (ListGraphsResponse);
+  rpc UpdateGraph(UpdateGraphRequest) returns (Graph);
+  rpc DeleteGraph(DeleteGraphRequest) returns (DeleteGraphResponse);
+  rpc ForkGraph(ForkGraphRequest) returns (Graph);
+
+  // Versions — explicit saves of a graph with a changelog message.
+  rpc CreateGraphVersion(CreateGraphVersionRequest) returns (GraphVersion);
+  rpc ListGraphVersions(ListGraphVersionsRequest) returns (ListGraphVersionsResponse);
+  rpc GetGraphVersion(GetGraphVersionRequest) returns (GraphVersion);
+
+  // Search Around as a saveable, parameterized resource.
+  rpc CreateSearchAround(CreateSearchAroundRequest) returns (SearchAround);
+  rpc GetSearchAround(GetSearchAroundRequest) returns (SearchAround);
+  rpc ListSearchArounds(ListSearchAroundsRequest) returns (ListSearchAroundsResponse);
+  rpc UpdateSearchAround(UpdateSearchAroundRequest) returns (SearchAround);
+  rpc DeleteSearchAround(DeleteSearchAroundRequest) returns (DeleteSearchAroundResponse);
+
+  // Scenarios — staged edits ("what-if") attached to a graph.
+  rpc CreateScenario(CreateScenarioRequest) returns (Scenario);
+  rpc GetScenario(GetScenarioRequest) returns (Scenario);
+  rpc ListScenarios(ListScenariosRequest) returns (ListScenariosResponse);
+  rpc UpdateScenario(UpdateScenarioRequest) returns (Scenario);
+  rpc DeleteScenario(DeleteScenarioRequest) returns (DeleteScenarioResponse);
+  rpc DiffScenario(DiffScenarioRequest) returns (ScenarioDiff);
+  rpc PromoteScenarioToActions(PromoteScenarioRequest) returns (PromoteScenarioResponse);
+
+  // Derived-property bindings — declare which function computes a
+  // virtual property on an object type. The actual execution flows
+  // through function-runtime-service; vertex-service stores the
+  // (object_type_id, property_name) -> function_rid mapping.
+  rpc CreateDerivedPropertyBinding(CreateDerivedPropertyBindingRequest) returns (DerivedPropertyBinding);
+  rpc ListDerivedPropertyBindings(ListDerivedPropertyBindingsRequest) returns (ListDerivedPropertyBindingsResponse);
+  rpc DeleteDerivedPropertyBinding(DeleteDerivedPropertyBindingRequest) returns (DeleteDerivedPropertyBindingResponse);
+
+  // Annotations — free-form text/shape overlays painted on a graph.
+  rpc CreateAnnotation(CreateAnnotationRequest) returns (Annotation);
+  rpc ListAnnotations(ListAnnotationsRequest) returns (ListAnnotationsResponse);
+  rpc UpdateAnnotation(UpdateAnnotationRequest) returns (Annotation);
+  rpc DeleteAnnotation(DeleteAnnotationRequest) returns (DeleteAnnotationResponse);
+}
+
+// ----- Graph -----
+
+message Graph {
+  open_foundry.common.Uuid id = 1;
+  string rid = 2;
+  string title = 3;
+  string description = 4;
+  // Seed object set rendered when the graph is opened; format is
+  // "object_type_id:object_id,object_type_id:object_id,...".
+  repeated string seed_object_refs = 5;
+  // Active branch the graph reads from. Empty string means "main".
+  string branch_context = 6;
+  // Active model rid for simulation; empty means "Model: None".
+  string model_rid = 7;
+  // JSON blob: per-user layout positions, pinned nodes, zoom, sidebar tab.
+  string layout_state_json = 8;
+  // JSON blob: layer styling rules (color-by-property, icon, edge style).
+  string layer_configuration_json = 9;
+  // JSON blob: timeline state — bound event types + current cursor.
+  string timeline_state_json = 10;
+  // Project / org scoping. Empty project_id means "private".
+  open_foundry.common.Uuid project_id = 11;
+  repeated string organizations = 12;
+  repeated string markings = 13;
+  open_foundry.common.Uuid owner_id = 14;
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
+}
+
+message GraphVersion {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid graph_id = 2;
+  int32 version = 3;
+  string changelog = 4;
+  // Frozen snapshot of layout + layers + timeline at save time.
+  string snapshot_json = 5;
+  open_foundry.common.Uuid author_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message CreateGraphRequest {
+  string title = 1;
+  string description = 2;
+  repeated string seed_object_refs = 3;
+  string branch_context = 4;
+  string model_rid = 5;
+  open_foundry.common.Uuid project_id = 6;
+  repeated string organizations = 7;
+  repeated string markings = 8;
+}
+
+message GetGraphRequest { open_foundry.common.Uuid id = 1; }
+message ListGraphsRequest {
+  open_foundry.common.PageRequest pagination = 1;
+  open_foundry.common.Uuid project_id = 2;
+  string search = 3;
+}
+message ListGraphsResponse {
+  repeated Graph items = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+message UpdateGraphRequest {
+  open_foundry.common.Uuid id = 1;
+  string title = 2;
+  string description = 3;
+  repeated string seed_object_refs = 4;
+  string branch_context = 5;
+  string model_rid = 6;
+  string layout_state_json = 7;
+  string layer_configuration_json = 8;
+  string timeline_state_json = 9;
+}
+message DeleteGraphRequest { open_foundry.common.Uuid id = 1; }
+message DeleteGraphResponse { bool deleted = 1; }
+message ForkGraphRequest {
+  open_foundry.common.Uuid id = 1;
+  string new_title = 2;
+}
+
+message CreateGraphVersionRequest {
+  open_foundry.common.Uuid graph_id = 1;
+  string changelog = 2;
+}
+message ListGraphVersionsRequest {
+  open_foundry.common.Uuid graph_id = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+message ListGraphVersionsResponse {
+  repeated GraphVersion items = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+message GetGraphVersionRequest {
+  open_foundry.common.Uuid graph_id = 1;
+  int32 version = 2;
+}
+
+// ----- Search Around -----
+//
+// Search Around is a typed, parameterized graph-traversal DSL persisted
+// as a Compass resource. The same wire form is what AIP Logic uses for
+// graph-reasoning blocks (vertex-service stores them; ontology-query
+// executes them).
+
+message SearchAround {
+  open_foundry.common.Uuid id = 1;
+  string rid = 2;
+  string title = 3;
+  string description = 4;
+  // Type of objects the search starts from. Required for resource picker.
+  open_foundry.common.Uuid starting_object_type_id = 5;
+  repeated SearchAroundStep steps = 6;
+  repeated SearchAroundParameter parameters = 7;
+  open_foundry.common.Uuid project_id = 8;
+  open_foundry.common.Uuid owner_id = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message SearchAroundStep {
+  int32 ordinal = 1;
+  // Link type id from the ontology.
+  open_foundry.common.Uuid relation_id = 2;
+  Direction direction = 3;
+  repeated SearchAroundFilter filters = 4;
+}
+
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  DIRECTION_OUTGOING = 1;
+  DIRECTION_INCOMING = 2;
+}
+
+message SearchAroundFilter {
+  // Property to filter on (e.g. "Cancelled", "Date").
+  string property = 1;
+  FilterOp op = 2;
+  // Literal value, JSON-encoded so multiple types can share one field.
+  // If parameter_ref is set, this field is ignored.
+  string literal_json = 3;
+  // Reference to a SearchAroundParameter by name.
+  string parameter_ref = 4;
+}
+
+enum FilterOp {
+  FILTER_OP_UNSPECIFIED = 0;
+  FILTER_OP_EQ = 1;
+  FILTER_OP_NEQ = 2;
+  FILTER_OP_IN = 3;
+  FILTER_OP_LT = 4;
+  FILTER_OP_LTE = 5;
+  FILTER_OP_GT = 6;
+  FILTER_OP_GTE = 7;
+  FILTER_OP_RANGE = 8;
+  FILTER_OP_CONTAINS = 9;
+}
+
+message SearchAroundParameter {
+  string name = 1;
+  ParamType type = 2;
+  string description = 3;
+  string default_value_json = 4;
+  bool required = 5;
+}
+
+enum ParamType {
+  PARAM_TYPE_UNSPECIFIED = 0;
+  PARAM_TYPE_STRING = 1;
+  PARAM_TYPE_NUMBER = 2;
+  PARAM_TYPE_BOOLEAN = 3;
+  PARAM_TYPE_DATE = 4;
+  PARAM_TYPE_TIMESTAMP = 5;
+}
+
+message CreateSearchAroundRequest {
+  string title = 1;
+  string description = 2;
+  open_foundry.common.Uuid starting_object_type_id = 3;
+  repeated SearchAroundStep steps = 4;
+  repeated SearchAroundParameter parameters = 5;
+  open_foundry.common.Uuid project_id = 6;
+}
+message GetSearchAroundRequest { open_foundry.common.Uuid id = 1; }
+message ListSearchAroundsRequest {
+  open_foundry.common.PageRequest pagination = 1;
+  open_foundry.common.Uuid project_id = 2;
+  open_foundry.common.Uuid starting_object_type_id = 3;
+  string search = 4;
+}
+message ListSearchAroundsResponse {
+  repeated SearchAround items = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+message UpdateSearchAroundRequest {
+  open_foundry.common.Uuid id = 1;
+  string title = 2;
+  string description = 3;
+  repeated SearchAroundStep steps = 4;
+  repeated SearchAroundParameter parameters = 5;
+}
+message DeleteSearchAroundRequest { open_foundry.common.Uuid id = 1; }
+message DeleteSearchAroundResponse { bool deleted = 1; }
+
+// ----- Scenario -----
+
+message Scenario {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid graph_id = 2;
+  string name = 3;
+  string description = 4;
+  repeated StagedEdit edits = 5;
+  // Optional branch where the scenario lives. Empty means ephemeral
+  // overlay not written to main.
+  string branch_context = 6;
+  open_foundry.common.Uuid author_id = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message StagedEdit {
+  EditKind kind = 1;
+  // For PROPERTY_CHANGE / LINK_ADD / LINK_REMOVE / ACTION_DRYRUN.
+  string target_ref = 2;  // "object_type_id:object_id" or "link_type_id:src:dst"
+  string property_name = 3;
+  // JSON-encoded old/new value (or action input for ACTION_DRYRUN).
+  string old_value_json = 4;
+  string new_value_json = 5;
+  open_foundry.common.Uuid action_id = 6;
+}
+
+enum EditKind {
+  EDIT_KIND_UNSPECIFIED = 0;
+  EDIT_KIND_PROPERTY_CHANGE = 1;
+  EDIT_KIND_LINK_ADD = 2;
+  EDIT_KIND_LINK_REMOVE = 3;
+  EDIT_KIND_ACTION_DRYRUN = 4;
+}
+
+message ScenarioDiff {
+  open_foundry.common.Uuid scenario_id = 1;
+  int32 changed_node_count = 2;
+  int32 changed_edge_count = 3;
+  int32 added_count = 4;
+  int32 removed_count = 5;
+  // Per-node degree/centrality deltas, JSON-encoded.
+  string metrics_json = 6;
+  // Object refs whose state changed under the scenario.
+  repeated string impacted_object_refs = 7;
+}
+
+message CreateScenarioRequest {
+  open_foundry.common.Uuid graph_id = 1;
+  string name = 2;
+  string description = 3;
+  repeated StagedEdit edits = 4;
+  string branch_context = 5;
+}
+message GetScenarioRequest { open_foundry.common.Uuid id = 1; }
+message ListScenariosRequest {
+  open_foundry.common.Uuid graph_id = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+message ListScenariosResponse {
+  repeated Scenario items = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+message UpdateScenarioRequest {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string description = 3;
+  repeated StagedEdit edits = 4;
+}
+message DeleteScenarioRequest { open_foundry.common.Uuid id = 1; }
+message DeleteScenarioResponse { bool deleted = 1; }
+message DiffScenarioRequest { open_foundry.common.Uuid id = 1; }
+message PromoteScenarioRequest {
+  open_foundry.common.Uuid id = 1;
+  // If true, the produced action invocations target a branch instead
+  // of main and require the proposal flow.
+  bool target_branch = 2;
+}
+message PromoteScenarioResponse {
+  // Action invocation ids that were created in dry-run state for
+  // ontology-actions-service to review.
+  repeated open_foundry.common.Uuid action_invocation_ids = 1;
+}
+
+// ----- Derived properties -----
+
+message DerivedPropertyBinding {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid object_type_id = 2;
+  string property_name = 3;
+  string display_name = 4;
+  string description = 5;
+  // function-runtime-service rid that evaluates this property.
+  string function_rid = 6;
+  // Return type hint for the UI rendering layer.
+  ParamType return_type = 7;
+  open_foundry.common.Uuid owner_id = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message CreateDerivedPropertyBindingRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+  string property_name = 2;
+  string display_name = 3;
+  string description = 4;
+  string function_rid = 5;
+  ParamType return_type = 6;
+}
+message ListDerivedPropertyBindingsRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+}
+message ListDerivedPropertyBindingsResponse {
+  repeated DerivedPropertyBinding items = 1;
+}
+message DeleteDerivedPropertyBindingRequest { open_foundry.common.Uuid id = 1; }
+message DeleteDerivedPropertyBindingResponse { bool deleted = 1; }
+
+// ----- Annotation -----
+
+message Annotation {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid graph_id = 2;
+  AnnotationKind kind = 3;
+  string text = 4;
+  // JSON-encoded geometry (anchor, size, color, attached node ref).
+  string geometry_json = 5;
+  open_foundry.common.Uuid author_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+enum AnnotationKind {
+  ANNOTATION_KIND_UNSPECIFIED = 0;
+  ANNOTATION_KIND_TEXT = 1;
+  ANNOTATION_KIND_SHAPE = 2;
+  ANNOTATION_KIND_CALLOUT = 3;
+}
+
+message CreateAnnotationRequest {
+  open_foundry.common.Uuid graph_id = 1;
+  AnnotationKind kind = 2;
+  string text = 3;
+  string geometry_json = 4;
+}
+message ListAnnotationsRequest { open_foundry.common.Uuid graph_id = 1; }
+message ListAnnotationsResponse { repeated Annotation items = 1; }
+message UpdateAnnotationRequest {
+  open_foundry.common.Uuid id = 1;
+  string text = 2;
+  string geometry_json = 3;
+}
+message DeleteAnnotationRequest { open_foundry.common.Uuid id = 1; }
+message DeleteAnnotationResponse { bool deleted = 1; }

@@ -197,8 +197,18 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		strings.HasPrefix(path, "/api/v1/ontology/graph"),
 		strings.HasPrefix(path, "/api/v1/ontology/quiver"),
 		strings.HasPrefix(path, "/api/v1/ontology/object-sets"),
+		strings.HasPrefix(path, "/api/v1/ontology/traverse"),
+		strings.HasPrefix(path, "/api/v1/ontology/histogram"),
+		(strings.HasPrefix(path, "/api/v1/ontology/objects/") && strings.HasSuffix(path, "/link-summary")),
 		(strings.HasPrefix(path, "/api/v1/ontology/types/") && strings.HasSuffix(path, "/objects/knn")):
 		return u.OntologyQuery
+
+	// Vertex graph application — its own backing service handles
+	// graph CRUD, saved Search Around resources, scenarios, derived
+	// property bindings, and annotations. Traversal endpoints live in
+	// ontology-query-service and are matched above.
+	case strings.HasPrefix(path, "/api/v1/vertex/"):
+		return u.Vertex
 
 	case strings.HasPrefix(path, "/api/v1/ontology/links/") && strings.Contains(path, "/instances"):
 		return u.ObjectDatabase

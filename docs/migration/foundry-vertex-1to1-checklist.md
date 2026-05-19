@@ -1,6 +1,31 @@
 # Foundry Vertex 1:1 parity checklist
 
-Date: 2026-05-17
+Date: 2026-05-19 (revised — replaces the aspirational 2026-05-17 version)
+
+## Implementation evidence
+
+This checklist previously marked every item `done` while the
+implementation was a `localStorage`-only frontend cascarón. That has
+been corrected: `vertex-service` now exists, the gateway routes
+`/api/v1/vertex/*` to it, traversal lives in `ontology-query-service`,
+and AIP block kinds are registered in `libs/aip-graph-reasoning`.
+Tests prove the surface:
+
+- `services/vertex-service/internal/handlers/handlers_test.go` —
+  graph CRUD + versioning + scenarios + search-arounds + derived props.
+- `services/ontology-query-service/internal/handlers/traversal_test.go` —
+  link-summary, traverse with filters, histogram aggregation.
+- `services/edge-gateway-service/internal/proxy/route_table_vertex_test.go` —
+  asserts `/api/v1/vertex/*` and traversal paths route correctly.
+- `libs/aip-graph-reasoning/blocks_test.go` — block catalog completeness.
+
+The frontend swapped localStorage for HTTP in
+`apps/web/src/lib/api/vertexAnalyses.ts`,
+`apps/web/src/lib/api/vertexScenarios.ts`, plus new modules
+`vertexSearchArounds.ts`, `vertexAnnotations.ts`, `derivedProperties.ts`,
+`vertexTraversal.ts`.
+
+Original date: 2026-05-17
 Scope: public-docs-based parity plan for OpenFoundry's Vertex graph
 exploration app: system graphs, link traversal, neighbor expansion, scenario
 planning and what-if analysis, time-aware event layers, media layers,
@@ -149,8 +174,9 @@ traversal/scenario APIs that sit on top of them.
   - Highlight impacted nodes in the canvas; toggle baseline/scenario layers.
   - Docs: [Scenario planning](https://www.palantir.com/docs/foundry/vertex/scenarios).
 
-- [x] `VTX.13` Scenario promotion to Actions (`P1`, `done`)
-  - Convert a scenario's staged edits into a sequence of Action invocations that can be reviewed and applied on a branch or main with proper approvals.
+- [ ] `VTX.13` Scenario promotion to Actions (`P1`, `partial`)
+  - `POST /api/v1/vertex/graphs/{id}/scenarios/{scenarioId}/promote` returns the synthesised action invocation ids derived from the staged edits.
+  - The cross-service handoff to `ontology-actions-service` to actually file the invocations is not wired yet — the handler only returns ids for the frontend to display.
   - Docs: [Scenario planning](https://www.palantir.com/docs/foundry/vertex/scenarios).
 
 ### Event timelines
@@ -179,32 +205,31 @@ traversal/scenario APIs that sit on top of them.
 
 ### Branched graphs and Workshop embed
 
-- [x] `VTX.18` Branch-aware analysis (`P1`, `done`)
-  - Honor the active branch from the Global Branching taskbar: traversal reads branched object/link versions when set, otherwise main.
-  - Mark analyses opened on a non-main branch with a banner and forbid promote-to-main without proposal flow.
+- [ ] `VTX.18` Branch-aware analysis (`P1`, `partial`)
+  - `Graph.branch_context` is persisted in vertex-service and `TraverseRequest.branch_context` is plumbed to ontology-query-service, but the backend storage layer does not yet read branched object/link versions — pending the `dataset-versioning-service` time-travel contract.
+  - The frontend banner + non-main fork flow is not implemented.
   - Docs: [Vertex application](https://www.palantir.com/docs/foundry/vertex/application).
 
-- [x] `VTX.19` Workshop Vertex widget (`P1`, `done`)
-  - Workshop widget bound to an object set variable that mirrors the standalone Vertex with read-only or full-edit toggles.
-  - Two-way binding for selection and hovered element.
+- [ ] `VTX.19` Workshop Vertex widget (`P1`, `todo`)
+  - Not implemented. Workshop modules cannot embed a Vertex graph today.
   - Docs: [Workshop Vertex embed](https://www.palantir.com/docs/foundry/workshop/widgets/vertex).
 
-- [x] `VTX.20` Object View graph panel (`P1`, `done`)
-  - Reusable graph panel for Object Views seeded from the current object with a configurable hop budget.
+- [ ] `VTX.20` Object View graph panel (`P1`, `todo`)
+  - Not implemented. Object views do not surface a graph panel.
   - Docs: [Object Views graph panel](https://www.palantir.com/docs/foundry/object-views/graph-panel).
 
 ## Milestone C: scale, governance, AIP
 
 ### Pushdown and cost insights
 
-- [x] `VTX.21` Traversal pushdown to Object Storage V2 (`P2`, `done`)
-  - Translate neighbor and multi-hop queries into Object Storage V2 link-index lookups.
-  - Avoid scanning the full object set; emit `EXPLAIN` plans on demand for power users.
+- [ ] `VTX.21` Traversal pushdown to Object Storage V2 (`P2`, `partial`)
+  - `/api/v1/ontology/traverse` is implemented as an in-process loop over `LinkStore.ListOutgoing/ListIncoming` followed by `ObjectStore.Get`. The OSV2 link-index pushdown is not yet wired — when it lands, the handler shape stays the same but `rows_scanned` and `indices_hit` start reflecting reality.
+  - `EXPLAIN` plans are not yet emitted.
   - Docs: [Graphs and traversal](https://www.palantir.com/docs/foundry/vertex/graphs-and-traversal).
 
-- [x] `VTX.22` Graph cost insights (`P2`, `done`)
-  - Surface estimated and actual cost (CPU·s, rows scanned, indices hit) per expansion in the sidebar.
-  - Throttle expansions that exceed an analysis-level budget; require explicit user confirmation to continue.
+- [ ] `VTX.22` Graph cost insights (`P2`, `partial`)
+  - `TraverseResponse.cost` exposes `cpu_seconds`, `rows_scanned`, `indices_hit`, `budget_exceeded`; the in-process traversal only populates `rows_scanned`.
+  - Analysis-level budget enforcement is not implemented.
   - Docs: [Vertex application](https://www.palantir.com/docs/foundry/vertex/application).
 
 ### Governance
@@ -221,31 +246,31 @@ traversal/scenario APIs that sit on top of them.
 
 ### AIP integration
 
-- [x] `VTX.25` AIP Logic graph reasoning blocks (`P2`, `done`)
-  - Expose neighbor expansion, path-finding, and centrality as AIP Logic blocks consumable by Agents.
-  - Each block enforces caller permissions; agents do not bypass restricted views.
+- [ ] `VTX.25` AIP Logic graph reasoning blocks (`P2`, `partial`)
+  - Block kinds (`graph_neighbor_expansion`, `graph_path_finding`, `graph_centrality`) and their input/output schemas are declared in `libs/aip-graph-reasoning/blocks.go`.
+  - The agent-runtime dispatcher does not yet consume this catalog; agents using these kinds will fail at execution time until the runtime routes them through ontology-query-service.
   - Docs: [AIP Logic graph reasoning](https://www.palantir.com/docs/foundry/logic/graph-reasoning).
 
-- [x] `VTX.26` Path-finding and centrality measures (`P2`, `done`)
-  - Shortest path, k-shortest paths, betweenness, eigenvector centrality computed over the current analysis subgraph.
-  - Cache results keyed by subgraph hash.
+- [ ] `VTX.26` Path-finding and centrality measures (`P2`, `todo`)
+  - Proto definitions for `FindPaths` / `Centrality` live in `proto/vertex/traversal.proto`.
+  - Handlers in `services/ontology-query-service/internal/handlers/` are not yet implemented; the AIP block catalog points to routes that don't exist yet.
   - Docs: [Graphs and traversal](https://www.palantir.com/docs/foundry/vertex/graphs-and-traversal).
 
-## Implementation inventory to collect before coding
+## Implementation inventory (resolved 2026-05-19)
 
-- [ ] `INV.1` Identify the current Vertex frontend route and the libraries used for rendering (Cytoscape, sigma, etc.).
-- [ ] `INV.2` Identify the neighbor expansion API in the ontology-query/object-database services.
-- [ ] `INV.3` Identify the link-index status in Object Storage V2.
-- [ ] `INV.4` Identify the branch-aware traversal contract with the dataset-versioning service.
-- [ ] `INV.5` Identify the marking-aware filter path for traversal results.
-- [ ] `INV.6` Produce a parity matrix sibling JSON entry once a first implementation inventory is in place.
+- [x] `INV.1` Vertex frontend route: `apps/web/src/routes/vertex/VertexPage.tsx` renders with Cytoscape (`import cytoscape from 'cytoscape'`); sidebar tabs Layers/Selection/Search/Histogram/Info wired via local state.
+- [x] `INV.2` Neighbor expansion API: `POST /api/v1/ontology/traverse` and `GET /api/v1/ontology/objects/{tenant}/{object_id}/link-summary` in `services/ontology-query-service/internal/handlers/traversal.go`.
+- [ ] `INV.3` OSV2 link-index pushdown is still in-process: `traversal.go` walks `LinkStore.ListOutgoing/ListIncoming` and applies filters post-hoc. The pushdown is tracked separately under `osv2-storage-layout.md`.
+- [ ] `INV.4` Branch-aware traversal: `TraverseRequest.BranchContext` is plumbed through the wire but the storage backend does not yet branch on it — currently a no-op pending the `dataset-versioning-service` time-travel contract.
+- [x] `INV.5` Marking-aware filter path: `traversal.go` calls `canReadMarkings(claims, obj.Markings)` per object, matching the existing pattern in `handlers.go::GetObject` (VTX.23).
+- [x] `INV.6` Parity matrix entry: see `docs/migration/foundry-feature-parity-matrix.md` for the row that now reflects vertex-service as a real backend (status: `partial`, since VTX.21 and VTX.18 are not yet end-to-end).
 
-## Suggested service boundaries
+## Realized service boundaries
 
-| Surface | Responsibilities |
-| --- | --- |
-| `vertex-service` | Analysis + scenario + saved-version CRUD, layout state, timeline state, expansion-cost accounting. |
-| `ontology-query-service` | Neighbor expansion, multi-hop traversal, path-finding, centrality measures, with Object Storage V2 pushdown. |
-| `object-storage-v2` | Link indices, spatial indices when geo properties are involved, permission-aware filters. |
-| `media-sets-service` | Media-layer fetch with marking enforcement. |
-| `apps/web` | Vertex app shell, sidebar, scenario panel, timeline, media overlay, Workshop embed, Object View graph panel. |
+| Surface | Responsibilities | Code |
+| --- | --- | --- |
+| `vertex-service` | Graph + version + scenario + saved Search Around + derived-property-binding + annotation CRUD. | `services/vertex-service/` (port 50180) |
+| `ontology-query-service` | Link-summary, multi-hop traversal (`/traverse`), histogram facets. Path-finding + centrality slots reserved for the OSV2 push-down work. | `services/ontology-query-service/internal/handlers/traversal.go` |
+| `edge-gateway-service` | Routes `/api/v1/vertex/*` to `vertex-service`; routes `/api/v1/ontology/{traverse,histogram}` and `…/link-summary` to `ontology-query-service`. | `services/edge-gateway-service/internal/proxy/router_table.go` |
+| `libs/aip-graph-reasoning` | Declares the AIP Logic block kinds (`graph_neighbor_expansion`, `graph_path_finding`, `graph_centrality`) plus their HTTP routes. | `libs/aip-graph-reasoning/blocks.go` |
+| `apps/web` | Vertex app shell, sidebar, scenario panel, timeline, media overlay, Workshop embed, Object View graph panel. | `apps/web/src/routes/vertex/VertexPage.tsx` + `apps/web/src/lib/api/vertex*.ts` |

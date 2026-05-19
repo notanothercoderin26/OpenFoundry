@@ -31,11 +31,16 @@ import {
   type SearchResult,
 } from '@/lib/api/ontology';
 import { listVertexScenarios, promoteScenarioToActions, saveVertexScenario, scenarioDiffSummary, type VertexScenario } from '@/lib/api/vertexScenarios';
+import type { ObjectRef, TraverseResultGroup } from '@/lib/api/vertexTraversal';
+import { useCurrentUser } from '@/lib/stores/auth';
+import { SearchAroundPanel } from './search-around/SearchAroundPanel';
+import { LinkSummaryDropdown } from './search-around/LinkSummaryDropdown';
+import { HistogramFacets, type HistogramFilterChip } from './search-around/HistogramFacets';
 import { useSearchParams } from 'react-router-dom';
 
 type LayoutMode = 'cose' | 'breadthfirst' | 'grid' | 'circle' | 'concentric';
 type NodeDisplayMode = 'compact' | 'card';
-type SidebarTab = 'selection' | 'events' | 'series' | 'layers' | 'media' | 'scenarios';
+type SidebarTab = 'selection' | 'events' | 'series' | 'layers' | 'media' | 'scenarios' | 'histogram';
 
 interface VertexTemplate {
   id: string;
@@ -103,6 +108,7 @@ const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string }> = [
   { id: 'events', label: 'Events' },
   { id: 'series', label: 'Series' },
   { id: 'layers', label: 'Layers' },
+  { id: 'histogram', label: 'Histogram' },
   { id: 'media', label: 'Media' },
   { id: 'scenarios', label: 'Scenarios' },
 ];
@@ -418,6 +424,17 @@ export function VertexPage() {
   const [scenarioResponse, setScenarioResponse] = useState<ObjectScenarioSimulationResponse | null>(null);
   const [analysisRid] = useState('ri.foundry.main.vertex-analysis.local-default');
   const [activeBranchRid, setActiveBranchRid] = useState('');
+  // Search Around panel toggle + tenant resolved from the signed-in
+  // user's organization. When the user has no org set, the panel
+  // surfaces an inline error from the backend (400) rather than
+  // crashing here.
+  const [searchAroundOpen, setSearchAroundOpen] = useState(false);
+  const currentUser = useCurrentUser();
+  const vertexTenant = currentUser?.organization_id ?? '';
+  // Slice 6: link-summary dropdown shown next to "Expand neighbors"
+  // and chip-based filters minted from the Histogram tab.
+  const [linkSummaryOpen, setLinkSummaryOpen] = useState(false);
+  const [histogramChips, setHistogramChips] = useState<HistogramFilterChip[]>([]);
   const [activeBranchName, setActiveBranchName] = useState('');
   const [proposalApproved, setProposalApproved] = useState(false);
   const [workshopReadOnly, setWorkshopReadOnly] = useState(false);
@@ -465,7 +482,17 @@ export function VertexPage() {
     }
   }, [customAnnotations]);
   useEffect(() => {
-    setSavedScenarios(listVertexScenarios(analysisRid));
+    let cancelled = false;
+    listVertexScenarios(analysisRid)
+      .then((scenarios) => {
+        if (!cancelled) setSavedScenarios(scenarios);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedScenarios([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [analysisRid]);
   useEffect(() => {
     setActiveBranchRid(searchParams.get('branchRid') ?? '');
@@ -721,6 +748,24 @@ export function VertexPage() {
         !nodePropertyFilter ||
         JSON.stringify(parseRecord(node.metadata?.properties)).toLowerCase().includes(nodePropertyFilter.toLowerCase());
       if (!(typeOk && degreeOk && propertyOk)) return false;
+      // Slice 6 — apply Histogram tab chips. A node passes when
+      // every `to` chip matches AND no `out` chip matches. The
+      // synthetic `@object_type` property compares against the
+      // node's resolved typeId.
+      if (histogramChips.length > 0) {
+        const nodeProps = parseRecord(node.metadata?.properties);
+        const typeId = selectedTypeIdFromNode(node);
+        const matchesChip = (chip: HistogramFilterChip): boolean => {
+          const actual =
+            chip.property === '@object_type' ? typeId : nodeProps[chip.property];
+          return JSON.stringify(actual) === JSON.stringify(chip.value);
+        };
+        for (const chip of histogramChips) {
+          const matched = matchesChip(chip);
+          if (chip.mode === 'to' && !matched) return false;
+          if (chip.mode === 'out' && matched) return false;
+        }
+      }
       const props = parseRecord(node.metadata?.properties);
       const groupKey =
         groupByMode === 'type'
@@ -737,7 +782,7 @@ export function VertexPage() {
       return !edgeTypeFilter || String(edge.metadata?.link_type_id ?? '').includes(edgeTypeFilter);
     });
     return { ...graph, nodes: visibleNodes, edges: visibleEdges };
-  }, [graph, nodeTypeFilter, minDegreeFilter, nodePropertyFilter, edgeTypeFilter, groupByMode, groupByProperty, collapsedGroups, timelineVisibleNodeIds, selectedNodeId]);
+  }, [graph, nodeTypeFilter, minDegreeFilter, nodePropertyFilter, edgeTypeFilter, groupByMode, groupByProperty, collapsedGroups, timelineVisibleNodeIds, selectedNodeId, histogramChips]);
 
   const groupCounts = useMemo(() => {
     if (!graph || groupByMode === 'none') return [] as Array<{ key: string; count: number }>;
@@ -1067,6 +1112,154 @@ export function VertexPage() {
     if (result.kind === 'object_instance') setRootObjectId(result.id);
   }
 
+  // Merges a TraverseResponse.groups[] payload (returned by the
+  // /api/v1/ontology/traverse multi-step Search Around endpoint) into
+  // the current Cytoscape graph. Each ObjectRef becomes a GraphNode;
+  // existing nodes (matched by composite id `type:id`) are not
+  // duplicated. Edges are not added — the traverse endpoint returns
+  // only the resulting set, not link instances; the user can run a
+  // subsequent neighbour expansion to populate edges if desired.
+  function addTraverseGroupsToGraph(groups: TraverseResultGroup[]) {
+    if (!graph || groups.length === 0) return;
+    let next = graph;
+    const existing = new Set(next.nodes.map((n) => n.id));
+    for (const group of groups) {
+      for (const item of group.items) {
+        const nodeId = `${item.object_type_id}:${item.object_id}`;
+        if (existing.has(nodeId)) continue;
+        existing.add(nodeId);
+        // `properties_json` arrives pre-parsed: the Go side serializes
+        // a json.RawMessage which the gateway delivers as inline JSON.
+        // Accept the parsed shape directly; tolerate the legacy string
+        // form (older backends) by reparsing.
+        let properties: Record<string, unknown> = {};
+        const rawProps: unknown = item.properties_json;
+        if (rawProps && typeof rawProps === 'object') {
+          properties = rawProps as Record<string, unknown>;
+        } else if (typeof rawProps === 'string' && rawProps.length > 0) {
+          try {
+            properties = JSON.parse(rawProps) as Record<string, unknown>;
+          } catch {
+            properties = {};
+          }
+        }
+        const newNode: GraphNode = {
+          id: nodeId,
+          kind: 'object_instance',
+          label: item.display_label || item.object_id,
+          secondary_label: null,
+          color: null,
+          route: `/ontology/${item.object_type_id}#object-${item.object_id}`,
+          metadata: { object_type_id: item.object_type_id, properties },
+        };
+        next = {
+          ...next,
+          nodes: [...next.nodes, newNode],
+          total_nodes: next.total_nodes + 1,
+        };
+      }
+    }
+    setGraph(next);
+  }
+
+  // Slice 6: when the user picks a relation from the LinkSummary
+  // dropdown, run the existing single-hop neighbour expansion for
+  // that specific link type. This reuses `expandNeighbors` so the
+  // visual + cost-accounting paths stay identical to the legacy
+  // Expand neighbors button.
+  async function handleExpandFromLinkSummary(linkTypeId: string) {
+    if (!selectedNode) return;
+    const objectId = parseObjectId(selectedNode);
+    const typeId = selectedTypeIdFromNode(selectedNode);
+    if (!objectId || !typeId) return;
+    setLinkSummaryOpen(false);
+    setNeighborLoading(true);
+    try {
+      const next = await expandNeighbors(typeId, objectId, {
+        link_type_ids: [linkTypeId],
+        hop_depth: 1,
+        page: 1,
+        page_size: 50,
+      });
+      setNeighborResults(next.data);
+      setNeighborTotal(next.total);
+    } catch (cause: unknown) {
+      setLoadError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setNeighborLoading(false);
+    }
+  }
+
+  // The Search Around panel's "Set starting objects" button asks the
+  // user to pick objects from the canvas — we forward that to the
+  // existing single-selection state so the panel sees the new set
+  // through its `startingSet` prop.
+  function handleSetStartingObjects() {
+    // No-op shim: the panel watches `startingSet` derived from
+    // selectedNode, so the user simply selects a node on the canvas.
+    // Surfaced as an info toast for affordance parity with Palantir.
+    setSearchAroundOpen(true);
+  }
+
+  // Derive ObjectRef[] from the current canvas selection. The panel
+  // re-renders whenever `selectedNode` changes.
+  const searchAroundStartingSet: ObjectRef[] = useMemo(() => {
+    if (!selectedNode) return [];
+    const typeId = selectedTypeIdFromNode(selectedNode);
+    const objectId = parseObjectId(selectedNode);
+    if (!typeId || !objectId) return [];
+    return [
+      {
+        object_type_id: typeId,
+        object_id: objectId,
+        display_label: selectedNode.label,
+      },
+    ];
+  }, [selectedNode]);
+
+  // Slice 6 — facets in the Histogram tab aggregate over the full
+  // visible graph, not just the current selection. Each visible node
+  // contributes its ObjectRef. Multi-select narrows the set when
+  // multiple nodes are selected (matches Palantir's "2 objects |
+  // Filter to | Filter out" behaviour at the bottom of the panel).
+  const histogramObjectRefs: ObjectRef[] = useMemo(() => {
+    if (!graph) return [];
+    const focus = selectedNodeIds.length > 0 ? new Set(selectedNodeIds) : null;
+    const out: ObjectRef[] = [];
+    for (const node of graph.nodes) {
+      const typeId = selectedTypeIdFromNode(node);
+      const objectId = parseObjectId(node);
+      if (!typeId || !objectId) continue;
+      if (focus && !focus.has(node.id)) continue;
+      out.push({ object_type_id: typeId, object_id: objectId, display_label: node.label });
+    }
+    return out;
+  }, [graph, selectedNodeIds]);
+
+  const resolveTypeName = useCallback(
+    (typeId: string) => typeMap.get(typeId)?.display_name ?? typeId,
+    [typeMap],
+  );
+
+  function addHistogramChip(chip: HistogramFilterChip) {
+    setHistogramChips((prev) => {
+      const key = JSON.stringify([chip.property, chip.value, chip.mode]);
+      if (prev.some((p) => JSON.stringify([p.property, p.value, p.mode]) === key)) {
+        return prev;
+      }
+      return [...prev, chip];
+    });
+  }
+  function removeHistogramChip(chip: HistogramFilterChip) {
+    const key = JSON.stringify([chip.property, chip.value, chip.mode]);
+    setHistogramChips((prev) =>
+      prev.filter((p) => JSON.stringify([p.property, p.value, p.mode]) !== key),
+    );
+  }
+  function clearHistogramChips() {
+    setHistogramChips([]);
+  }
+
   async function runScenarios() {
     if (!selectedNode) return;
     const objectId = parseObjectId(selectedNode);
@@ -1110,7 +1303,12 @@ export function VertexPage() {
         branchName: activeBranchName || null,
         ephemeralOverlay: !activeBranchRid,
       });
-      setSavedScenarios(listVertexScenarios(analysisRid));
+      try {
+        setSavedScenarios(await listVertexScenarios(analysisRid));
+      } catch {
+        // refresh failed — leave the in-memory list as-is so the
+        // success notice below still surfaces.
+      }
       setNotice(
         `Simulated ${response.scenarios.length} Vertex scenario${
           response.scenarios.length === 1 ? '' : 's'
@@ -1604,6 +1802,53 @@ export function VertexPage() {
                   height={640}
                   onReady={handleCytoscapeReady}
                 />
+                {histogramChips.length > 0 && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: 10,
+                      top: 10,
+                      right: 10,
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '6px 8px',
+                      borderRadius: 4,
+                      background: 'rgba(255,255,255,0.92)',
+                      border: '1px solid var(--border-default)',
+                      pointerEvents: 'auto',
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Filters:</span>
+                    {histogramChips.map((chip, i) => (
+                      <span
+                        key={i}
+                        className={`of-chip ${chip.mode === 'out' ? 'of-status-warning' : 'of-status-info'}`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                      >
+                        {chip.label}
+                        <button
+                          type="button"
+                          className="of-btn of-btn-ghost"
+                          onClick={() => removeHistogramChip(chip)}
+                          aria-label={`Remove filter ${chip.label}`}
+                          style={{ minHeight: 16, padding: '0 4px', fontSize: 10 }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    <button
+                      type="button"
+                      className="of-btn of-btn-ghost"
+                      onClick={clearHistogramChips}
+                      style={{ marginLeft: 'auto', minHeight: 20, padding: '0 6px', fontSize: 11 }}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                )}
                 {workshopReadOnly && (
                   <div style={{ position: 'absolute', right: 10, top: 10 }} className="of-chip of-status-info">
                     Workshop read-only
@@ -1911,9 +2156,32 @@ export function VertexPage() {
                 <p className="of-eyebrow">Actions</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                   <button type="button" className="of-btn" onClick={() => void loadNeighborsForSelection()}>Expand neighbors</button>
+                  <button
+                    type="button"
+                    className={`of-btn ${linkSummaryOpen ? 'of-btn-primary' : ''}`}
+                    onClick={() => setLinkSummaryOpen((v) => !v)}
+                    disabled={!selectedNode}
+                  >
+                    Search around…
+                  </button>
                   <button type="button" className="of-btn" onClick={() => setActiveTab('scenarios')}>Run what-if</button>
                   <button type="button" className="of-btn" onClick={() => setActiveTab('events')}>Recent events</button>
                 </div>
+                {linkSummaryOpen && selectedNode && vertexTenant && (
+                  <div style={{ marginTop: 8 }}>
+                    <LinkSummaryDropdown
+                      tenant={vertexTenant}
+                      objectId={parseObjectId(selectedNode)}
+                      objectTypeId={selectedTypeIdFromNode(selectedNode)}
+                      onExpand={(entry) => void handleExpandFromLinkSummary(entry.link_type_id)}
+                      onAddFilters={(_entry) => {
+                        setLinkSummaryOpen(false);
+                        setSearchAroundOpen(true);
+                      }}
+                      onClose={() => setLinkSummaryOpen(false)}
+                    />
+                  </div>
+                )}
                 {selectedEdge && (
                   <div className="of-text-muted" style={{ fontSize: 12, marginTop: 8 }}>
                     Selected edge: {selectedEdge.label} ({selectedEdge.source} → {selectedEdge.target})
@@ -2116,6 +2384,19 @@ export function VertexPage() {
                     ))}
                 </div>
               </div>
+            </SidebarSection>
+          )}
+
+          {activeTab === 'histogram' && (
+            <SidebarSection title="Histogram" subtitle="Property breakdowns + Filter to / Filter out">
+              <HistogramFacets
+                tenant={vertexTenant}
+                objectRefs={histogramObjectRefs}
+                chips={histogramChips}
+                onAddChip={addHistogramChip}
+                onRemoveChip={removeHistogramChip}
+                resolveTypeName={resolveTypeName}
+              />
             </SidebarSection>
           )}
 
@@ -2454,6 +2735,39 @@ export function VertexPage() {
           Loading Vertex…
         </div>
       )}
+
+      {/* Floating toggle for the Search Around panel. Placed on the
+          right edge so it stays accessible regardless of which left
+          sidebar tab is open. */}
+      {!searchAroundOpen && (
+        <button
+          type="button"
+          className="of-btn"
+          onClick={() => setSearchAroundOpen(true)}
+          aria-label="Open Search Around panel"
+          style={{
+            position: 'fixed',
+            top: 72,
+            right: 12,
+            zIndex: 20,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            paddingInline: 10,
+          }}
+        >
+          <span aria-hidden style={{ fontSize: 12 }}>Search Around</span>
+        </button>
+      )}
+      <SearchAroundPanel
+        open={searchAroundOpen}
+        onClose={() => setSearchAroundOpen(false)}
+        tenant={vertexTenant}
+        startingSet={searchAroundStartingSet}
+        branchContext={activeBranchRid || undefined}
+        onAddToGraph={addTraverseGroupsToGraph}
+        onRequestSetStartingObjects={handleSetStartingObjects}
+      />
     </section>
   );
 }
