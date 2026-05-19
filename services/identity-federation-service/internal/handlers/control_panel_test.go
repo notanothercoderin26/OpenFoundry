@@ -105,10 +105,10 @@ func TestApplicationAccessEvaluationBlocksMatchingGroup(t *testing.T) {
 	h := NewControlPanel()
 	cfg := defaultApplicationAccessConfig()
 	cfg.Rules = []ApplicationAccessRule{{
-		ID:             "hide-beta-ai",
-		Name:           "Hide beta AIP tools from basic users",
+		ID:             "hide-beta-ai-assist",
+		Name:           "Hide beta AI Assist from basic users",
 		Effect:         "block",
-		ApplicationIDs: []string{"ai"},
+		ApplicationIDs: []string{"aip-assist"},
 		GroupIDs:       []string{"basic-users"},
 		Enabled:        true,
 		Reason:         "Reduce application surface for curated users.",
@@ -123,7 +123,7 @@ func TestApplicationAccessEvaluationBlocksMatchingGroup(t *testing.T) {
 
 	claims := controlPanelClaims()
 	claims.Attributes = json.RawMessage(`{"group_ids":["basic-users"]}`)
-	req = httptest.NewRequest(http.MethodPost, "/application-access/evaluate", strings.NewReader(`{"application_id":"ai"}`)).
+	req = httptest.NewRequest(http.MethodPost, "/application-access/evaluate", strings.NewReader(`{"application_id":"aip-assist"}`)).
 		WithContext(authmw.ContextWithClaims(context.Background(), claims))
 	rec = httptest.NewRecorder()
 	h.EvaluateApplicationAccess(rec, req)
@@ -134,7 +134,7 @@ func TestApplicationAccessEvaluationBlocksMatchingGroup(t *testing.T) {
 	require.Len(t, resp.Decisions, 1)
 	require.False(t, resp.Decisions[0].Visible)
 	require.Equal(t, "blocked_by_rule", resp.Decisions[0].Decision)
-	require.Equal(t, []string{"hide-beta-ai"}, resp.Decisions[0].MatchedRuleIDs)
+	require.Equal(t, []string{"hide-beta-ai-assist"}, resp.Decisions[0].MatchedRuleIDs)
 	require.True(t, resp.Decisions[0].UXScopeOnly)
 }
 
@@ -152,7 +152,7 @@ func TestApplicationAccessDefaultHiddenRequiresAllowRule(t *testing.T) {
 	}}
 	claims := controlPanelClaims()
 	resp, err := evaluateApplicationAccess(cfg, ApplicationAccessEvaluateRequest{
-		ApplicationIDs: []string{"control-panel", "datasets"},
+		ApplicationIDs: []string{"control-panel", "dataset-preview"},
 		GroupIDs:       []string{"platform-admins"},
 	}, claims)
 

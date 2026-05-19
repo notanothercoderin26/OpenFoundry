@@ -2796,7 +2796,7 @@ const LOGIC_USAGE_DESCRIPTIONS: Record<LogicUsageSurfaceId, Pick<LogicUsageSurfa
   automate: {
     label: 'Automate',
     description: 'Create an automation that invokes the published function from a schedule or object event.',
-    href: '/automate',
+    href: '/foundry-rules',
   },
   api_curl: {
     label: 'API / curl',

@@ -1,4 +1,13 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, redirect } from 'react-router-dom';
+
+// Compatibility redirect for routes renamed during the launcher alignment
+// to Foundry's canonical app catalog (see docs/reference/launcher-app-mapping.md).
+function redirectTo(newPath: string) {
+  return ({ request }: { request: Request }) => {
+    const url = new URL(request.url);
+    return redirect(`${newPath}${url.search}${url.hash}`);
+  };
+}
 
 import { AppShell } from '@components/AppShell';
 import { AuthLayout } from '@components/AuthLayout';
@@ -42,6 +51,87 @@ export const router = createBrowserRouter([
     errorElement: <NotFound />,
     children: [
       { index: true, element: <Home /> },
+      // Legacy URL used by Phase 1 launcher tiles; the canonical routes
+      // below render the same component but at stable per-app paths.
+      {
+        path: 'coming-soon',
+        lazy: async () => ({ Component: (await import('./routes/AppRoadmapPage')).AppRoadmapPage }),
+      },
+      // Canonical landings for Foundry-parity apps that have not yet been
+      // built out. Once a dedicated page exists for an app, replace its
+      // entry here with a normal lazy import.
+      {
+        path: 'pipelines/linter',
+        lazy: async () => ({ Component: (await import('./routes/pipeline-linter/LinterPage')).LinterPage }),
+      },
+      {
+        path: 'peer-manager',
+        lazy: async () => ({ Component: (await import('./routes/peer-manager/PeerManagerPage')).PeerManagerPage }),
+      },
+      {
+        path: 'insight',
+        lazy: async () => ({ Component: (await import('./routes/insight/InvestigatorPage')).InvestigatorPage }),
+      },
+      {
+        path: 'ai/assist',
+        lazy: async () => ({ Component: (await import('./routes/ai/AssistPage')).AssistPage }),
+      },
+      {
+        path: 'ai/analyst',
+        lazy: async () => ({ Component: (await import('./routes/ai/AnalystPage')).AnalystPage }),
+      },
+      {
+        path: 'ai/threads',
+        lazy: async () => ({ Component: (await import('./routes/ai/ThreadsPage')).ThreadsPage }),
+      },
+      {
+        path: 'ai/documents',
+        lazy: async () => ({ Component: (await import('./routes/ai/DocumentsPage')).DocumentsPage }),
+      },
+      {
+        path: 'ai/chatbot-studio',
+        lazy: async () => ({ Component: (await import('./routes/ai/ChatbotStudioPage')).ChatbotStudioPage }),
+      },
+      {
+        path: 'ai/operator',
+        lazy: async () => ({ Component: (await import('./routes/ai/OperatorPage')).OperatorPage }),
+      },
+      {
+        path: 'slate',
+        lazy: async () => ({ Component: (await import('./routes/slate/SlatePage')).SlatePage }),
+      },
+      {
+        path: 'pilot',
+        lazy: async () => ({ Component: (await import('./routes/pilot/PilotPage')).PilotPage }),
+      },
+      {
+        path: 'widgets',
+        lazy: async () => ({ Component: (await import('./routes/widgets/CustomWidgetsPage')).CustomWidgetsPage }),
+      },
+      {
+        path: 'osdk-apps',
+        lazy: async () => ({ Component: (await import('./routes/osdk-apps/OsdkAppsPage')).OsdkAppsPage }),
+      },
+      {
+        path: 'custom-endpoints',
+        lazy: async () => ({ Component: (await import('./routes/custom-endpoints/CustomEndpointsPage')).CustomEndpointsPage }),
+      },
+      {
+        path: 'checkpoints',
+        lazy: async () => ({ Component: (await import('./routes/checkpoints/CheckpointsPage')).CheckpointsPage }),
+      },
+      {
+        path: 'cipher',
+        lazy: async () => ({ Component: (await import('./routes/cipher/CipherPage')).CipherPage }),
+      },
+      {
+        path: 'sds',
+        lazy: async () => ({ Component: (await import('./routes/sds/SensitiveDataScannerPage')).SensitiveDataScannerPage }),
+      },
+      {
+        path: 'retention',
+        lazy: async () => ({ Component: (await import('./routes/retention/RetentionPoliciesPage')).RetentionPoliciesPage }),
+      },
       {
         path: 'applications',
         lazy: async () => ({ Component: (await import('./routes/applications/ApplicationsPage')).ApplicationsPage }),
@@ -62,18 +152,13 @@ export const router = createBrowserRouter([
         path: 'settings',
         lazy: async () => ({ Component: (await import('./routes/settings/SettingsPage')).SettingsPage }),
       },
-      {
-        path: 'dashboards',
-        lazy: async () => ({ Component: (await import('./routes/dashboards/DashboardsListPage')).DashboardsListPage }),
-      },
-      {
-        path: 'dashboards/:id',
-        lazy: async () => ({ Component: (await import('./routes/dashboards/DashboardDetailPage')).DashboardDetailPage }),
-      },
-      {
-        path: 'workflow-lineage',
-        lazy: async () => ({ Component: (await import('./routes/workflow-lineage/WorkflowLineagePage')).WorkflowLineagePage }),
-      },
+      // Removed from the canonical launcher catalog (Phase 5 cleanup).
+      // Functionality is covered by Quiver, which provides drill-down
+      // dashboards on top of object and time series data.
+      { path: 'dashboards', loader: redirectTo('/quiver') },
+      { path: 'dashboards/:id', loader: redirectTo('/quiver') },
+      // Workflow lineage is covered by Data Lineage.
+      { path: 'workflow-lineage', loader: redirectTo('/lineage') },
       {
         path: 'lineage',
         lazy: async () => ({ Component: (await import('./routes/lineage/LineagePage')).LineagePage }),
@@ -98,10 +183,9 @@ export const router = createBrowserRouter([
         path: 'search',
         lazy: async () => ({ Component: (await import('./routes/search/SearchPage')).SearchPage }),
       },
-      {
-        path: 'queries',
-        lazy: async () => ({ Component: (await import('./routes/queries/QueriesPage')).QueriesPage }),
-      },
+      // Search-style queries are surfaced from Object Explorer in the
+      // canonical catalog.
+      { path: 'queries', loader: redirectTo('/object-explorer') },
       {
         path: 'quiver',
         lazy: async () => ({ Component: (await import('./routes/quiver/QuiverPage')).QuiverPage }),
@@ -118,14 +202,10 @@ export const router = createBrowserRouter([
         path: 'notepad/:id',
         lazy: async () => ({ Component: (await import('./routes/notepad/NotepadDetailPage')).NotepadDetailPage }),
       },
-      {
-        path: 'reports',
-        lazy: async () => ({ Component: (await import('./routes/reports/ReportsPage')).ReportsPage }),
-      },
-      {
-        path: 'global-branching',
-        lazy: async () => ({ Component: (await import('./routes/global-branching/GlobalBranchingPage')).GlobalBranchingPage }),
-      },
+      // Narrative reports merge into Slate's Web App Studio.
+      { path: 'reports', loader: redirectTo('/slate') },
+      // No canonical equivalent for Global Branching; send to Workspace.
+      { path: 'global-branching', loader: redirectTo('/') },
       {
         path: 'developers',
         lazy: async () => ({ Component: (await import('./routes/developers/DevelopersPage')).DevelopersPage }),
@@ -134,14 +214,10 @@ export const router = createBrowserRouter([
         path: 'object-databases',
         lazy: async () => ({ Component: (await import('./routes/object-databases/ObjectDatabasesPage')).ObjectDatabasesPage }),
       },
-      {
-        path: 'workflows',
-        lazy: async () => ({ Component: (await import('./routes/workflows/WorkflowsPage')).WorkflowsPage }),
-      },
-      {
-        path: 'ontology-design',
-        lazy: async () => ({ Component: (await import('./routes/ontology-design/OntologyDesignPage')).OntologyDesignPage }),
-      },
+      // Workflow orchestration folds into Operational Rules (Foundry Rules).
+      { path: 'workflows', loader: redirectTo('/foundry-rules') },
+      // Ontology design is part of Ontology Manager in the canonical catalog.
+      { path: 'ontology-design', loader: redirectTo('/ontology-manager') },
       {
         path: 'dynamic-scheduling',
         lazy: async () => ({ Component: (await import('./routes/dynamic-scheduling/DynamicSchedulingPage')).DynamicSchedulingPage }),
@@ -162,26 +238,23 @@ export const router = createBrowserRouter([
         path: 'fusion',
         lazy: async () => ({ Component: (await import('./routes/fusion/FusionPage')).FusionPage }),
       },
+      // Grounded LLM agents land in the canonical AI Threads experience.
+      { path: 'nexus', loader: redirectTo('/ai/threads') },
       {
-        path: 'nexus',
-        lazy: async () => ({ Component: (await import('./routes/nexus/NexusPage')).NexusPage }),
+        path: 'approvals',
+        lazy: async () => ({ Component: (await import('./routes/audit/AuditPage')).AuditPage }),
       },
       {
         path: 'audit',
-        lazy: async () => ({ Component: (await import('./routes/audit/AuditPage')).AuditPage }),
+        loader: redirectTo('/approvals'),
       },
       {
         path: 'code-repos',
         lazy: async () => ({ Component: (await import('./routes/code-repos/CodeReposPage')).CodeReposPage }),
       },
-      {
-        path: 'marketplace',
-        lazy: async () => ({ Component: (await import('./routes/marketplace/MarketplacePage')).MarketplacePage }),
-      },
-      {
-        path: 'marketplace/:id',
-        lazy: async () => ({ Component: (await import('./routes/marketplace/MarketplaceProductPage')).MarketplaceProductPage }),
-      },
+      // No canonical equivalent for Marketplace; send to Workspace.
+      { path: 'marketplace', loader: redirectTo('/') },
+      { path: 'marketplace/:id', loader: redirectTo('/') },
       {
         path: 'virtual-tables',
         lazy: async () => ({ Component: (await import('./routes/virtual-tables/VirtualTablesPage')).VirtualTablesPage }),
@@ -198,10 +271,8 @@ export const router = createBrowserRouter([
         path: 'logic',
         lazy: async () => ({ Component: (await import('./routes/logic/LogicAuthoringPage')).LogicAuthoringPage }),
       },
-      {
-        path: 'automate',
-        lazy: async () => ({ Component: (await import('./routes/automate/AutomatePage')).AutomatePage }),
-      },
+      // Automation surface maps to Operational Rules.
+      { path: 'automate', loader: redirectTo('/foundry-rules') },
       {
         path: 'aip-evals',
         lazy: async () => ({ Component: (await import('./routes/aip-evals/AipEvalsPage')).AipEvalsPage }),
@@ -226,10 +297,8 @@ export const router = createBrowserRouter([
         path: 'ontology-indexing',
         lazy: async () => ({ Component: (await import('./routes/ontology-indexing/OntologyIndexingPage')).OntologyIndexingPage }),
       },
-      {
-        path: 'ontologies',
-        lazy: async () => ({ Component: (await import('./routes/ontologies/OntologiesPage')).OntologiesPage }),
-      },
+      // Ontology project browser is part of Ontology Manager.
+      { path: 'ontologies', loader: redirectTo('/ontology-manager') },
       {
         path: 'object-monitors',
         lazy: async () => ({ Component: (await import('./routes/object-monitors/ObjectMonitorsPage')).ObjectMonitorsPage }),
@@ -335,8 +404,12 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/control-panel/RetentionPoliciesPage')).RetentionPoliciesPage }),
       },
       {
-        path: 'functions',
+        path: 'compute-modules',
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionsPage')).FunctionsPage }),
+      },
+      {
+        path: 'functions',
+        loader: redirectTo('/compute-modules'),
       },
       {
         path: 'pipelines',
@@ -363,8 +436,12 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/schedules/ScheduleDetailPage')).ScheduleDetailPage }),
       },
       {
-        path: 'ml',
+        path: 'model-catalog',
         lazy: async () => ({ Component: (await import('./routes/ml/MlPage')).MlPage }),
+      },
+      {
+        path: 'ml',
+        loader: redirectTo('/model-catalog'),
       },
       {
         path: 'action-types',

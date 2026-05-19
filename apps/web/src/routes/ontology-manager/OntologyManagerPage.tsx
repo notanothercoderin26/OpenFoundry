@@ -1883,12 +1883,6 @@ export function OntologyManagerPage() {
                     <Link to="/interfaces">Interfaces →</Link>
                   </li>
                   <li>
-                    <Link to="/ontologies">Ontology projects →</Link>
-                  </li>
-                  <li>
-                    <Link to="/ontology-design">Ontology design →</Link>
-                  </li>
-                  <li>
                     <Link to="/ontology-indexing">
                       Ontology indexing (Funnel) →
                     </Link>

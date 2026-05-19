@@ -808,7 +808,7 @@ function functionResource(fn: FunctionPackage, watchedChecks: Set<string>): Moni
     folder: null,
     owner: fn.owner_id || null,
     branch: null,
-    href: '/functions',
+    href: '/compute-modules',
     updatedAt: fn.updated_at,
     status: rollupStatus(checks),
     checks,

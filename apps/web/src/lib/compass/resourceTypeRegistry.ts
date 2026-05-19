@@ -304,9 +304,9 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     owningService: 'model-catalog-service',
     defaultIcon: 'cube',
     supportedActions: COMMON_ACTIONS,
-    openAppURLTemplate: '/ml?model={rid}',
+    openAppURLTemplate: '/model-catalog?model={rid}',
     referenceTargets: [{ relationship: 'trained_from', targetType: 'dataset' }],
-    openWith: [{ id: 'model', label: 'Model catalog', icon: 'cube', urlTemplate: '/ml?model={rid}' }],
+    openWith: [{ id: 'model', label: 'Model catalog', icon: 'cube', urlTemplate: '/model-catalog?model={rid}' }],
   },
   {
     id: 'FOUNDRY_VERTEX_ANALYSIS',

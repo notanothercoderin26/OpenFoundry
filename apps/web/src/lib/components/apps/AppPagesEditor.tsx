@@ -71,7 +71,7 @@ export function defaultWidget(item: WidgetCatalogItem): AppWidget {
     props: item.default_props ?? {},
     binding: item.supported_bindings.length > 0 ? { ...EMPTY_BINDING, source_type: item.supported_bindings[0] } : null,
     events: item.widget_type === 'button'
-      ? [{ id: makeId('event'), trigger: 'click', action: 'open_link', label: 'Open', config: { url: '/workflows' } }]
+      ? [{ id: makeId('event'), trigger: 'click', action: 'open_link', label: 'Open', config: { url: '/foundry-rules' } }]
       : [],
     children: [],
   };

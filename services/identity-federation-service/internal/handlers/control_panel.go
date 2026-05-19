@@ -1168,29 +1168,83 @@ func memberDiscoveryAllowsGroups(cfg MemberDiscoveryConfig, organizationID strin
 	return cfg.DefaultDiscoverGroups
 }
 
+// defaultApplicationAccessConfig seeds the launcher catalog with the 47
+// canonical OpenFoundry applications. The IDs and display names are the
+// stable contract shared with apps/web/src/lib/launcher/catalog.ts and the
+// mapping table in docs/reference/launcher-app-mapping.md. Lifecycle
+// stages: "generally_available" for apps backed by an existing route,
+// "beta" for apps still on the Phase 4 roadmap (rendered through the
+// ComingSoon placeholder).
 func defaultApplicationAccessConfig() ApplicationAccessConfig {
 	cfg := ApplicationAccessConfig{
 		Enabled:           true,
 		DefaultVisibility: "visible",
 		Warning:           ApplicationAccessScopeWarning,
 		Applications: []ApplicationAccessApplication{
-			{ID: "control-panel", Name: "Control Panel", Category: "Administration", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "resource-management", Name: "Resource Management", Category: "Administration", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "audit", Name: "Audit", Category: "Security", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "datasets", Name: "Datasets", Category: "Data", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "lineage", Name: "Lineage", Category: "Data", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "pipelines", Name: "Pipelines", Category: "Data", LifecycleStage: "generally_available", Enabled: true},
+			// Workspace
+			{ID: "compass", Name: "Workspace", Category: "Workspace", LifecycleStage: "generally_available", Enabled: true},
+
+			// Ontology
 			{ID: "ontology-manager", Name: "Ontology Manager", Category: "Ontology", LifecycleStage: "generally_available", Enabled: true},
 			{ID: "object-explorer", Name: "Object Explorer", Category: "Ontology", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "workshop", Name: "Workshop", Category: "Applications", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "apps-marketplace", Name: "Applications Marketplace", Category: "Applications", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "logic", Name: "Logic", Category: "AIP", LifecycleStage: "beta", Enabled: true},
-			{ID: "ai", Name: "AIP", Category: "AIP", LifecycleStage: "beta", Enabled: true},
-			{ID: "ml", Name: "Models", Category: "AIP", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "notepad", Name: "Notepad", Category: "Analysis", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "contour", Name: "Contour", Category: "Analysis", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "fusion", Name: "Fusion", Category: "Analysis", LifecycleStage: "generally_available", Enabled: true},
-			{ID: "map", Name: "Map", Category: "Analysis", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "object-views", Name: "Object Views", Category: "Ontology", LifecycleStage: "generally_available", Enabled: true},
+
+			// Data integration
+			{ID: "pipeline-builder", Name: "Pipeline Builder", Category: "Data Integration", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "code-repositories", Name: "Code Repositories", Category: "Data Integration", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "data-lineage", Name: "Data Lineage", Category: "Data Integration", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "dataset-preview", Name: "Dataset Preview", Category: "Data Integration", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "linter", Name: "Pipeline Linter", Category: "Data Integration", LifecycleStage: "beta", Enabled: true},
+			{ID: "peer-manager", Name: "Peer Manager", Category: "Data Integration", LifecycleStage: "beta", Enabled: true},
+			{ID: "machinery", Name: "Job Engine", Category: "Data Integration", LifecycleStage: "generally_available", Enabled: true},
+
+			// Analytics & Operations
+			{ID: "contour", Name: "Lens", Category: "Analytics & Operations", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "insight", Name: "Investigator", Category: "Analytics & Operations", LifecycleStage: "beta", Enabled: true},
+			{ID: "quiver", Name: "Chart Studio", Category: "Analytics & Operations", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "notepad", Name: "Notepad", Category: "Analytics & Operations", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "fusion", Name: "Data Sheet", Category: "Analytics & Operations", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "vertex", Name: "Graph Explorer", Category: "Analytics & Operations", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "map", Name: "Geo Map", Category: "Analytics & Operations", LifecycleStage: "generally_available", Enabled: true},
+
+			// AI Platform
+			{ID: "aip-logic", Name: "AI Logic", Category: "AI Platform", LifecycleStage: "beta", Enabled: true},
+			{ID: "aip-assist", Name: "AI Assist", Category: "AI Platform", LifecycleStage: "beta", Enabled: true},
+			{ID: "aip-analyst", Name: "AI Analyst", Category: "AI Platform", LifecycleStage: "beta", Enabled: true},
+			{ID: "aip-threads", Name: "AI Threads", Category: "AI Platform", LifecycleStage: "beta", Enabled: true},
+			{ID: "aip-document-intelligence", Name: "Document AI", Category: "AI Platform", LifecycleStage: "beta", Enabled: true},
+			{ID: "aip-chatbot-studio", Name: "Chatbot Studio", Category: "AI Platform", LifecycleStage: "beta", Enabled: true},
+			{ID: "aip-evals", Name: "AI Evals", Category: "AI Platform", LifecycleStage: "beta", Enabled: true},
+			{ID: "ai-fde", Name: "AI Operator", Category: "AI Platform", LifecycleStage: "beta", Enabled: true},
+			{ID: "model-catalog", Name: "Model Catalog", Category: "AI Platform", LifecycleStage: "generally_available", Enabled: true},
+
+			// Application development
+			{ID: "workshop", Name: "Workshop", Category: "Application Development", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "slate", Name: "Web App Studio", Category: "Application Development", LifecycleStage: "beta", Enabled: true},
+			{ID: "pilot", Name: "AI App Builder", Category: "Application Development", LifecycleStage: "beta", Enabled: true},
+			{ID: "custom-widgets", Name: "Custom Widgets", Category: "Application Development", LifecycleStage: "beta", Enabled: true},
+			{ID: "osdk-apps", Name: "Ontology SDK Apps", Category: "Application Development", LifecycleStage: "beta", Enabled: true},
+			{ID: "custom-endpoints", Name: "Custom APIs", Category: "Application Development", LifecycleStage: "beta", Enabled: true},
+			{ID: "developer-console", Name: "Developer Console", Category: "Application Development", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "compute-modules", Name: "Compute Modules", Category: "Application Development", LifecycleStage: "generally_available", Enabled: true},
+
+			// Automation
+			{ID: "foundry-rules", Name: "Operational Rules", Category: "Automation", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "dynamic-scheduling", Name: "Dynamic Schedules", Category: "Automation", LifecycleStage: "generally_available", Enabled: true},
+
+			// Security & Governance
+			{ID: "approvals", Name: "Approvals", Category: "Security & Governance", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "checkpoints", Name: "Justification Checkpoints", Category: "Security & Governance", LifecycleStage: "beta", Enabled: true},
+			{ID: "cipher", Name: "Crypto Service", Category: "Security & Governance", LifecycleStage: "beta", Enabled: true},
+			{ID: "sensitive-data-scanner", Name: "Sensitive Data Scanner", Category: "Security & Governance", LifecycleStage: "beta", Enabled: true},
+			{ID: "data-lifetime", Name: "Retention Policies", Category: "Security & Governance", LifecycleStage: "beta", Enabled: true},
+
+			// Administration
+			{ID: "control-panel", Name: "Control Panel", Category: "Administration", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "resource-management", Name: "Resource Management", Category: "Administration", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "upgrade-assistant", Name: "Upgrade Assistant", Category: "Administration", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "enrollment-settings", Name: "Enrollment Settings", Category: "Administration", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "organization-settings", Name: "Organization Settings", Category: "Administration", LifecycleStage: "generally_available", Enabled: true},
 		},
 		Rules: []ApplicationAccessRule{},
 		ApprovalPolicy: ApplicationAccessApprovalPolicy{
