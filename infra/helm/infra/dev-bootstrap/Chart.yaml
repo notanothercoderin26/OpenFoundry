@@ -1,0 +1,17 @@
+apiVersion: v2
+name: dev-bootstrap
+description: |
+  Dev-only bootstrap resources that production gets from External Secrets / Vault:
+  - `open-foundry-{,dev-}env` shared env secret consumed via envFrom by every of-* service.
+  - `openfoundry-jwt` JWT signing secret referenced by data-engine services.
+  - `pg-<cluster>-app` Secrets that CNPG requires before booting each Postgres cluster.
+  - `lakekeeper-encryption-key` + a copy of `pg-lakekeeper-app` in the lakekeeper namespace.
+  - `oidc-stub` Deployment + Service (navikt/mock-oauth2-server) so Lakekeeper's
+    `auth.oauth2.providerUri` resolves without a real identity provider.
+
+  Render with `--set enabled=true` (or via the dev profile in helmfile). Staging /
+  prod must leave this chart disabled — External Secrets Operator syncs the real
+  values from Vault.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -40,11 +40,15 @@ CREATE TABLE IF NOT EXISTS user_roles (
     PRIMARY KEY (user_id, role_id)
 );
 
--- INSERT INTO roles (name, description) VALUES
---     ('admin', 'Full platform administrator'),
---     ('editor', 'Can create and modify resources'),
---     ('viewer', 'Read-only access')
--- ON CONFLICT (name) DO NOTHING;
+-- Seed the canonical role triad. The `Register` handler looks up the
+-- `admin` role by name when assigning the first-user-becomes-admin
+-- promotion; without these rows the call fails with `lookup role
+-- admin: no rows in result set` on a fresh install.
+INSERT INTO roles (id, name, description) VALUES
+    (gen_random_uuid(), 'admin', 'Full platform administrator'),
+    (gen_random_uuid(), 'editor', 'Can create and modify resources'),
+    (gen_random_uuid(), 'viewer', 'Read-only access')
+ON CONFLICT (name) DO NOTHING;
 
 -- Postgres-backed refresh tokens for slice 1.
 -- Slice 2 migrates these to Cassandra `auth_runtime.refresh_tokens`

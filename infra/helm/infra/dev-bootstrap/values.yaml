@@ -1,0 +1,82 @@
+# Disabled by default. Only the dev profile flips this on.
+enabled: false
+
+# Namespaces touched by the bootstrap. Override only if the layout
+# drifts from the canonical openfoundry / lakekeeper split.
+namespaces:
+  openfoundry: openfoundry
+  lakekeeper: lakekeeper
+
+# Shared placeholder password the bootstrap-SQL of `postgres-clusters`
+# writes verbatim for every `svc_<bc>` role. Keep in sync with
+# `infra/helm/infra/postgres-clusters/values.yaml -> dsnSecrets.password`.
+postgresPlaceholderPassword: "PLACEHOLDER_ROTATE_VIA_EXTERNAL_SECRETS"
+
+# CNPG bootstrap.initdb.secret references — one per consolidated cluster.
+# Each entry creates a `kubernetes.io/basic-auth` Secret named `<cluster>-app`
+# in the openfoundry namespace before `postgres-clusters` runs.
+postgresAppSecrets:
+  pg-policy-app:        { username: app }
+  pg-runtime-config-app: { username: app }
+  pg-schemas-app:       { username: app }
+  pg-lakekeeper-app:    { username: lakekeeper }
+
+# Keys merged into both `open-foundry-env` and `open-foundry-dev-env`.
+# Plain `stringData` is rendered as-is; values referencing other Secrets
+# / generated material are derived in the template.
+sharedEnv:
+  # Kafka bootstrap accepts plaintext in dev (no SASL listener configured).
+  KAFKA_SASL_PASSWORD: ""
+  KAFKA_SASL_USERNAME: ""
+  KAFKA_SASL_MECHANISM: PLAIN
+  KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+  # Logging defaults so services emit JSON.
+  LOG_FORMAT: json
+  OF_LOG_LEVEL: info
+  # Cassandra connection points (operator deployed in k8ssandra-operator ns).
+  CASSANDRA_CONTACT_POINTS: of-cass-dev-dc1-service.k8ssandra-operator.svc.cluster.local
+  CASSANDRA_LOCAL_DC: dc1
+  CASSANDRA_CONSISTENCY: LOCAL_QUORUM
+  # `ontology-actions-service` requires the keyspace explicitly.
+  CASSANDRA_KEYSPACE: ontology_objects
+  # Service-specific dev escape hatches: report needs in-memory store,
+  # ingestion-replication tolerates no upstream control plane, pipeline-build
+  # skips the python sidecar because the dev image does not ship the binary.
+  OF_REPORT_ALLOW_MEMORY_STORE: "true"
+  INGESTION_RECONCILE_MODE: dev
+  INGESTION_CONTROL_PLANE_URL: http://ingestion-replication-service.openfoundry.svc.cluster.local:8080
+  PYTHON_SIDECAR_BINARY: ""
+  OPENFOUNDRY_ENV: dev
+  # identity-federation: dev serves over plain HTTP, so `Secure` cookies
+  # are rejected by the browser. Re-enable in prod.
+  AUTH_COOKIE_SECURE: "false"
+
+# Cassandra superuser credentials. The operator drops `of-cass-dev-superuser`
+# in the k8ssandra-operator ns; we copy the values into the shared env secret
+# so services running in `openfoundry` can authenticate.
+cassandraSuperuserSecret:
+  namespace: k8ssandra-operator
+  name: of-cass-dev-superuser
+
+# 32-byte symmetric key reused across both encryption envs. Hex for
+# `OF_CIPHER_LOCAL_KEK` (the cipher service decodes hex); base64 for
+# `CREDENTIAL_ENCRYPTION_KEY` / `ENCRYPTION_KEY` (Go config base64-decodes).
+# Override on re-installs; rotating these invalidates ciphertext at rest.
+encryption:
+  hexKey: "0000000000000000000000000000000000000000000000000000000000000000"
+  base64Key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+# JWT signing secret used by data-engine handlers. Random per fresh install.
+jwt:
+  secret: "dev-jwt-secret-replace-me-via-external-secrets"
+
+# Mock OIDC provider for the Lakekeeper catalog. The chart ships
+# `navikt/mock-oauth2-server` with the default config; Lakekeeper's
+# `auth.oauth2.providerUri` resolves the `lakekeeper` issuer it exposes.
+oidcStub:
+  enabled: true
+  image: ghcr.io/navikt/mock-oauth2-server:2.1.10
+  port: 8080
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }

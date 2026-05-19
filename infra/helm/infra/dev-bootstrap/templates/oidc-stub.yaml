@@ -1,0 +1,62 @@
+{{- if and .Values.enabled .Values.oidcStub.enabled }}
+{{- /*
+navikt/mock-oauth2-server stub for Lakekeeper. The `infra/lakekeeper`
+chart's dev values point `auth.oauth2.providerUri` at
+http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper. Default
+container config exposes a `lakekeeper` issuer at that path.
+*/}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oidc-stub
+  namespace: {{ .Values.namespaces.lakekeeper }}
+  labels:
+    app: oidc-stub
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: oidc-stub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oidc-stub
+  template:
+    metadata:
+      labels:
+        app: oidc-stub
+    spec:
+      containers:
+        - name: oidc-stub
+          image: {{ .Values.oidcStub.image | quote }}
+          ports:
+            - containerPort: {{ .Values.oidcStub.port }}
+          env:
+            - name: SERVER_PORT
+              value: {{ .Values.oidcStub.port | quote }}
+          readinessProbe:
+            httpGet:
+              path: /lakekeeper/.well-known/openid-configuration
+              port: {{ .Values.oidcStub.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.oidcStub.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oidc-stub
+  namespace: {{ .Values.namespaces.lakekeeper }}
+  labels:
+    app: oidc-stub
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: oidc-stub
+spec:
+  selector:
+    app: oidc-stub
+  ports:
+    - port: {{ .Values.oidcStub.port }}
+      targetPort: {{ .Values.oidcStub.port }}
+{{- end }}

@@ -259,12 +259,30 @@ releases:
   # ───────────────────────────────────────────────────────────────────
   # Layer 2 — Infrastructure CRs / clusters
   # ───────────────────────────────────────────────────────────────────
+
+  # Dev-only secret + mock-service bootstrap. Disabled outside dev
+  # because staging/prod expect External Secrets Operator to sync the
+  # equivalent material from Vault.
+  - name: dev-bootstrap
+    namespace: {{ $ns }}
+    installed: {{ $isDev }}
+    chart: ./infra/dev-bootstrap
+    needs:
+      - cnpg-system/cnpg
+      - k8ssandra-operator/k8ssandra-operator
+    values:
+      - ./infra/dev-bootstrap/values.yaml
+      - ./infra/dev-bootstrap/values-{{ $profile }}.yaml
+
   - name: postgres-clusters
     namespace: {{ $ns }}
     installed: {{ $postgresClustersInstalled }}
     chart: ./infra/postgres-clusters
     needs:
       - cnpg-system/cnpg
+      {{- if $isDev }}
+      - {{ $ns }}/dev-bootstrap
+      {{- end }}
     values:
       - ./infra/postgres-clusters/values.yaml
       - ./infra/postgres-clusters/values-{{ $profile }}.yaml
