@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -21,6 +24,125 @@ import (
 
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/models"
 )
+
+// previewMaxRows caps the number of rows we project into the file-index
+// metadata. `Repo.previewRowsFromFileIndexMetadata` will read up to this
+// many anyway; storing more inflates the row without benefit.
+const previewMaxRows = 25
+
+// inferUploadPreview parses the raw upload bytes for json/csv shapes and
+// returns the column list + the first `previewMaxRows` rows. Any error
+// (binary file, malformed payload, unknown format) returns zero values
+// so the caller can store the bare sha256 metadata instead.
+func inferUploadPreview(format string, data []byte) (columns []string, rows [][]models.JSONValue, totalRows int) {
+	format = strings.ToLower(strings.TrimSpace(format))
+	switch format {
+	case "json", "jsonl":
+		return inferJSONPreview(data)
+	case "csv":
+		return inferCSVPreview(data)
+	}
+	return nil, nil, 0
+}
+
+func inferJSONPreview(data []byte) ([]string, [][]models.JSONValue, int) {
+	trimmed := bytes.TrimLeft(data, " \t\r\n")
+	if len(trimmed) == 0 {
+		return nil, nil, 0
+	}
+	var records []map[string]json.RawMessage
+	if trimmed[0] == '[' {
+		if err := json.Unmarshal(trimmed, &records); err != nil {
+			return nil, nil, 0
+		}
+	} else {
+		// NDJSON / JSONL — one object per line.
+		dec := json.NewDecoder(bytes.NewReader(trimmed))
+		for dec.More() {
+			var row map[string]json.RawMessage
+			if err := dec.Decode(&row); err != nil {
+				return nil, nil, 0
+			}
+			records = append(records, row)
+		}
+	}
+	if len(records) == 0 {
+		return nil, nil, 0
+	}
+	cols := collectJSONColumns(records)
+	rows := make([][]models.JSONValue, 0, previewMaxRows)
+	limit := previewMaxRows
+	if len(records) < limit {
+		limit = len(records)
+	}
+	for i := 0; i < limit; i++ {
+		row := make([]models.JSONValue, len(cols))
+		for j, c := range cols {
+			if v, ok := records[i][c]; ok && len(v) > 0 {
+				row[j] = models.JSONValue(append([]byte(nil), v...))
+			} else {
+				row[j] = models.JSONValue("null")
+			}
+		}
+		rows = append(rows, row)
+	}
+	return cols, rows, len(records)
+}
+
+func collectJSONColumns(records []map[string]json.RawMessage) []string {
+	seen := map[string]struct{}{}
+	cols := make([]string, 0, 8)
+	for _, r := range records {
+		for k := range r {
+			if _, ok := seen[k]; ok {
+				continue
+			}
+			seen[k] = struct{}{}
+			cols = append(cols, k)
+		}
+	}
+	return cols
+}
+
+func inferCSVPreview(data []byte) ([]string, [][]models.JSONValue, int) {
+	reader := csv.NewReader(bytes.NewReader(data))
+	reader.FieldsPerRecord = -1
+	header, err := reader.Read()
+	if err != nil || len(header) == 0 {
+		return nil, nil, 0
+	}
+	rows := make([][]models.JSONValue, 0, previewMaxRows)
+	total := 0
+	for {
+		rec, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, nil, 0
+		}
+		total++
+		if len(rows) < previewMaxRows {
+			row := make([]models.JSONValue, len(header))
+			for j := range header {
+				if j < len(rec) {
+					encoded, _ := json.Marshal(rec[j])
+					row[j] = models.JSONValue(encoded)
+				} else {
+					row[j] = models.JSONValue("null")
+				}
+			}
+			rows = append(rows, row)
+		}
+	}
+	return header, rows, total
+}
+
+// datasetStatsUpdater is the narrow surface UploadData uses to refresh
+// `datasets.size_bytes` / `row_count` after merging the file index.
+type datasetStatsUpdater interface {
+	UpdateDatasetStats(ctx context.Context, datasetID uuid.UUID, sizeBytes, rowCount int64) error
+}
 
 type localObjectStore interface {
 	ReadLocalObject(key string) ([]byte, error)
@@ -129,7 +251,24 @@ func (h *Handlers) UploadData(w http.ResponseWriter, r *http.Request) {
 	physical := storageabstraction.PhysicalLocation{FSID: h.BackingFS.FSID(), RelativePath: objectKey}
 	now := time.Now().UTC()
 	sum := sha256.Sum256(data)
-	metadata, _ := models.MarshalJSONValue(map[string]any{"sha256": hex.EncodeToString(sum[:])})
+	metaMap := map[string]any{"sha256": hex.EncodeToString(sum[:])}
+	// Project the upload into the file-index `preview_*` keys so
+	// `Repo.previewRowsFromFileIndexMetadata` (the source of the
+	// /preview response) can serve real rows without waiting on a
+	// follow-up schema-inference call. Limited to json/csv; everything
+	// else stores the bare sha256 entry.
+	dataset, _ := h.Repo.GetDataset(r.Context(), datasetID)
+	format := ""
+	if dataset != nil {
+		format = dataset.Format
+	}
+	previewCols, previewRows, totalRows := inferUploadPreview(format, data)
+	if len(previewCols) > 0 && len(previewRows) > 0 {
+		metaMap["preview_columns"] = previewCols
+		metaMap["preview_rows"] = previewRows
+		metaMap["total_rows"] = totalRows
+	}
+	metadata, _ := models.MarshalJSONValue(metaMap)
 	contentType := header.Header.Get("Content-Type")
 	entryType := "file"
 	size := int64(len(data))
@@ -159,6 +298,30 @@ func (h *Handlers) UploadData(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, "failed to list dataset file index")
 		return
+	}
+	// Refresh `datasets.size_bytes` / `row_count` from the updated
+	// index so the dataset card and `/api/v1/datasets/{id}` reflect
+	// reality. `row_count` falls back to the count of preview rows
+	// when no `total_rows` is recorded (e.g. binary uploads).
+	if u, ok := any(h.Repo).(datasetStatsUpdater); ok {
+		var totalSize, totalRows int64
+		for _, it := range items {
+			totalSize += it.SizeBytes
+			if it.Metadata != nil {
+				var stat struct {
+					TotalRows   int64                  `json:"total_rows"`
+					PreviewRows [][]models.JSONValue   `json:"preview_rows"`
+				}
+				if err := json.Unmarshal(it.Metadata, &stat); err == nil {
+					if stat.TotalRows > 0 {
+						totalRows += stat.TotalRows
+					} else if len(stat.PreviewRows) > 0 {
+						totalRows += int64(len(stat.PreviewRows))
+					}
+				}
+			}
+		}
+		_ = u.UpdateDatasetStats(r.Context(), datasetID, totalSize, totalRows)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"path": logical, "physical_uri": physical.URI(), "size_bytes": size, "files": items})
 }

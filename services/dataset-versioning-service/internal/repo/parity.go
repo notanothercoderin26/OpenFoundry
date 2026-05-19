@@ -3013,7 +3013,13 @@ func (r *Repo) PreviewData(ctx context.Context, datasetID uuid.UUID, viewID *uui
 			currentPaths[strings.TrimLeft(file.LogicalPath, "/")] = struct{}{}
 		}
 	}
-	if preview, ok, err := r.previewRowsFromFileIndexMetadata(ctx, datasetID, columns, limit, offset, format, currentPaths, viewID == nil && viewErr == nil); err != nil {
+	// Only filter file-index entries against the resolved view when the
+	// view actually carries files. A brand-new dataset (uploaded with
+	// no transactional commit yet) has an empty view but a populated
+	// file index, and the preview should still surface those rows
+	// rather than collapse to the logical_path fallback.
+	enforceCurrentPaths := viewID == nil && viewErr == nil && len(currentPaths) > 0
+	if preview, ok, err := r.previewRowsFromFileIndexMetadata(ctx, datasetID, columns, limit, offset, format, currentPaths, enforceCurrentPaths); err != nil {
 		return nil, err
 	} else if ok {
 		return preview, nil
@@ -3115,7 +3121,7 @@ func (r *Repo) previewRowsFromFileIndexMetadata(ctx context.Context, datasetID u
 		for i := range out {
 			out[i] = append([]models.JSONValue(nil), meta.PreviewRows[start+i]...)
 		}
-		return &models.PreviewDataResponse{Columns: columns, Rows: out, Format: format, Limit: limit, Offset: offset}, true, nil
+		return &models.PreviewDataResponse{DatasetID: datasetID, Columns: columns, Rows: out, Format: format, Limit: limit, Offset: offset}, true, nil
 	}
 	return nil, false, rows.Err()
 }

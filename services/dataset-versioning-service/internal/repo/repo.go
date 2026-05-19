@@ -551,6 +551,24 @@ func (r *Repo) CreateVersion(ctx context.Context, datasetID uuid.UUID, body *mod
 	return v, err
 }
 
+// UpdateDatasetStats refreshes the cached row-count + size-bytes columns
+// on the dataset row. Called by `UploadData` after the file index merge
+// so the dataset card and `/api/v1/datasets/{id}` show real numbers
+// without waiting for a separate profile run.
+func (r *Repo) UpdateDatasetStats(ctx context.Context, datasetID uuid.UUID, sizeBytes, rowCount int64) error {
+	if sizeBytes < 0 {
+		sizeBytes = 0
+	}
+	if rowCount < 0 {
+		rowCount = 0
+	}
+	_, err := r.Pool.Exec(ctx,
+		`UPDATE datasets SET size_bytes = $2, row_count = $3, updated_at = $4 WHERE id = $1`,
+		datasetID, sizeBytes, rowCount, time.Now().UTC(),
+	)
+	return err
+}
+
 const branchSelect = `SELECT id,
 	COALESCE(rid, 'ri.foundry.main.branch.' || id::text) AS rid,
 	dataset_id,

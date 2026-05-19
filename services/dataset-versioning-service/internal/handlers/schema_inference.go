@@ -61,10 +61,16 @@ func (h *Handlers) InferDatasetSchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Body is optional: an agent or the UI's "Build" button can POST
+	// without a payload to ask the service to infer the schema from
+	// the dataset's declared format. An io.EOF here just means the
+	// caller deferred all decisions to the defaults below.
 	var body models.InferDatasetSchemaRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSONErr(w, http.StatusBadRequest, "invalid body")
-		return
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeJSONErr(w, http.StatusBadRequest, "invalid body")
+			return
+		}
 	}
 	if body.Apply {
 		if _, ok := h.requireDatasetWrite(w, r, datasetID); !ok {
