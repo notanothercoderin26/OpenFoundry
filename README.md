@@ -4,124 +4,159 @@
   </a>
 
 
-  **The Open-Source Data Operating System**
+<p align="center">The Open-Source Data Operating System</p>
 
-  An open, cloud-native operational data platform for building data products with datasets, ontologies, applications, AI/ML, governance, and observability from one monorepo.
+<p align="center">
+  <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/openfoundry-go.yml"><img alt="Go CI" src="https://github.com/openfoundry/openfoundry-go/actions/workflows/openfoundry-go.yml/badge.svg" /></a>
+  <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/ci-frontend.yml"><img alt="Frontend CI" src="https://github.com/openfoundry/openfoundry-go/actions/workflows/ci-frontend.yml/badge.svg" /></a>
+  <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/proto-check.yml"><img alt="Proto Check" src="https://github.com/openfoundry/openfoundry-go/actions/workflows/proto-check.yml/badge.svg" /></a>
+  <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/openfoundry/openfoundry-go" />
+  <img alt="GitHub Last Commit" src="https://img.shields.io/github/last-commit/openfoundry/openfoundry-go" />
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg" /></a>
+</p>
 
-  <p align="center">
-    <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/openfoundry-go.yml"><img src="https://img.shields.io/github/actions/workflow/status/openfoundry/openfoundry-go/openfoundry-go.yml?branch=main&style=for-the-badge&label=Go%20CI" alt="Go CI" /></a>
-    <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/ci-frontend.yml"><img src="https://img.shields.io/github/actions/workflow/status/openfoundry/openfoundry-go/ci-frontend.yml?branch=main&style=for-the-badge&label=Frontend%20CI" alt="Frontend CI" /></a>
-    <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/proto-check.yml"><img src="https://img.shields.io/github/actions/workflow/status/openfoundry/openfoundry-go/proto-check.yml?branch=main&style=for-the-badge&label=Proto%20Check" alt="Proto Check" /></a>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg?style=for-the-badge" alt="AGPL-3.0-only license" /></a>
-  </p>
-
-  [Documentation](docs/) · [Architecture](ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Issues](https://github.com/openfoundry/openfoundry-go/issues)
-</div>
-
----
+<p align="center">
+  <a href="docs/">Getting Started</a>
+  · <a href="docs/">Docs</a>
+  · <a href="https://github.com/openfoundry/openfoundry-go/issues">Bug reports</a>
+  · <a href="https://github.com/openfoundry/openfoundry-go/discussions">Discussions</a>
+</p>
 
 OpenFoundry is an open-source operational data platform inspired by the capability model of Palantir Foundry, implemented as auditable, extensible software. It combines **50 service directories**, **36 shared libraries**, Protobuf/OpenAPI contracts, generated SDKs, a **React 19 + Vite + TypeScript** web console, and declarative infrastructure for Kubernetes.
 
-The goal is to provide a reproducible foundation for teams that need to connect sources, version datasets, model an ontology, expose APIs, automate workflows, govern access, and operate analytical or AI workloads with end-to-end traceability.
+Unlike closed data platforms, OpenFoundry ships as a single Go monorepo with stable contracts, GitOps-native delivery, and governance that lives next to the code. The goal is to provide a reproducible foundation for teams that need to connect sources, version datasets, model an ontology, expose APIs, automate workflows, govern access, and operate analytical or AI workloads with end-to-end traceability.
 
 > **Working with this codebase as an AI agent?** Start at [`CLAUDE.md`](CLAUDE.md). It is the canonical onboarding guide for commands, conventions, security-critical zones, and what not to read by default.
 
-## Features & Status
+## Feature & Status
 
-- **Cloud-native architecture:** small Go services, one entrypoint per service, and delivery through Helm, ArgoCD, and Terraform.
-- **Ontology at the core:** object types, actions, functions, object views, lineage, and stable contracts for building applications on operational data.
-- **Contracts first:** Protobuf as the source of truth, generated OpenAPI, and synchronized TypeScript, Python, and Java SDKs.
-- **Integrated governance:** authentication, authorization, Cedar policies, audit, tenancy, SSO/MFA, and egress controls.
-- **Observability by default:** `/healthz`, `/metrics`, Prometheus, Grafana, Mimir, structured logs, and OTel traces.
-- **Developer platform:** CLI tooling, SDK generation, service templates, VitePress docs, and unit/integration test paths.
+- **Cloud-Native Architecture**: Small Go services with one entrypoint per service, delivered through Helm, ArgoCD, and Terraform.
+- **Ontology at the Core**: Object types, actions, functions, object views, lineage, and stable contracts for building applications on operational data.
+- **Contracts First**: Protobuf as the source of truth, generated OpenAPI, and synchronized TypeScript, Python, and Java SDKs.
+- **Integrated Governance**: Authentication, authorization, Cedar policies, audit, tenancy, SSO/MFA, and egress controls.
+- **Observability by Default**: `/healthz`, `/metrics`, Prometheus, Grafana, Mimir, structured logs, and OTel traces.
+- **Developer Platform**: CLI tooling, SDK generation, service templates, VitePress docs, and unit/integration test paths.
+- **Single Go Module**: One root `go.mod` keeps `libs/` and `services/` synchronized without version drift.
 
-| Capability | Status | Capability | Status |
-| :-- | :-- | :-- | :-- |
-| **Datasets & versioning** | ✅ Available | **Ontology services** | ✅ Available |
-| **React web console** | ✅ Available | **Generated SDKs** | ✅ Available |
-| **Protobuf/OpenAPI contracts** | ✅ Available | **AuthN/AuthZ foundations** | ✅ Available |
-| **Observability stack** | ✅ Available | **Helm/ArgoCD delivery** | ✅ Available |
-| **Kafka/NATS integrations** | ✅ Available | **Lakehouse/Iceberg paths** | Under active development |
-| **AI/agent runtime services** | Under active development | **Production hardening** | In progress |
+| Capability                     | Status                       | Capability                  | Status                       |
+| :----------------------------- | :--------------------------- | :-------------------------- | :--------------------------- |
+| **Datasets & Versioning**      | ✅ Available                 | **Ontology Services**       | ✅ Available                 |
+| **React Web Console**          | ✅ Available                 | **Generated SDKs**          | ✅ Available                 |
+| **Protobuf/OpenAPI Contracts** | ✅ Available                 | **AuthN/AuthZ Foundations** | ✅ Available                 |
+| **Observability Stack**        | ✅ Available                 | **Helm/ArgoCD Delivery**    | ✅ Available                 |
+| **Kafka/NATS Integrations**    | ✅ Available                 | **Lakehouse / Iceberg**     | 🚧 Under active development  |
+| **AI / Agent Runtime**         | 🚧 Under active development  | **Production Hardening**    | 🚧 In progress               |
 
-## OpenFoundry vs closed data platforms
+## OpenFoundry vs Closed Data Platforms
 
-| Area | OpenFoundry | Closed platforms |
-| :-- | :-- | :-- |
-| **Control** | Auditable code, contracts, and infrastructure in one monorepo. | Strong provider dependency and less implementation visibility. |
-| **Extensibility** | Services, libraries, SDKs, and docs can evolve with your needs. | Extensions are limited by external APIs and vendor roadmaps. |
-| **Deployment** | Kubernetes, Helm, ArgoCD, Terraform, and Compose for reproducible environments. | Usually SaaS or managed deployments with less operational control. |
-| **Governance** | Policies, audit, and tenancy live beside the platform code. | Governance is coupled to the product and its commercial boundaries. |
-| **Developer workflow** | Standard Go, TypeScript, Python, Java, Protobuf, and Makefile workflows. | Proprietary tooling or local workflows that are harder to automate. |
+| Feature              | OpenFoundry                                                                                                                       | Closed Data Platforms                                                                  |
+| :------------------- | :-------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------- |
+| **Control**          | **Auditable Code & Contracts**<br>One monorepo with services, libraries, SDKs, and infra fully inspectable.                       | **Vendor Lock-in**<br>Strong provider dependency and limited implementation visibility. |
+| **Extensibility**    | **Open Ecosystem**<br>Services, libraries, SDKs, and docs evolve with your needs.                                                 | **Bounded by APIs**<br>Limited by external APIs and vendor roadmaps.                   |
+| **Deployment**       | **GitOps-Native**<br>Kubernetes, Helm, ArgoCD, Terraform, and Compose for reproducible environments.                              | **SaaS-First**<br>Managed deployments with less operational control.                   |
+| **Governance**       | **In-Tree Policies & Audit**<br>Policies, audit, and tenancy live beside the platform code.                                       | **Coupled to Product**<br>Governance is tied to the vendor's commercial boundaries.    |
+| **Developer Flow**   | **Standard Tooling**<br>Go, TypeScript, Python, Java, Protobuf, and Makefile workflows.                                           | **Proprietary Tooling**<br>Local workflows that are harder to automate.                |
+| **Contracts**        | **Wire-Compatibility Invariants**<br>Pinned by golden tests; RIDs, JWT claims, and resource registries are stable.                | **Opaque Contracts**<br>Internal APIs change without notice.                           |
+| **Licensing**        | **AGPL-3.0-only**<br>Strong copyleft, transparent governance, no hidden terms.                                                    | **Closed Source**<br>Opaque pricing and IP boundaries.                                 |
+
+## Staying ahead
+
+Star OpenFoundry on GitHub and be instantly notified of new releases.
 
 ## Quickstart
 
+To get started with OpenFoundry, follow these steps:
+
 ### 1. Clone the repository
 
-```sh
+```bash
 git clone https://github.com/openfoundry/openfoundry-go.git
 cd openfoundry-go
 ```
 
-### 2. Install development tools
+### 2. Local development (Option 1)
 
-```sh
+Install the Go tools used by the monorepo into `./bin`, including `buf`, `golangci-lint`, `sqlc`, and `gofumpt`:
+
+```bash
 make tools
 ```
 
-This installs the Go tools used by the monorepo into `./bin`, including `buf`, `golangci-lint`, `sqlc`, and `gofumpt`.
+Run the canonical local gate (tidy + vet + lint + contract checks + unit tests):
 
-### 3. Run the main local gate
-
-```sh
+```bash
 make ci
 ```
 
-`make ci` runs tidy, vet, lint, contract checks, and unit tests. For faster iteration, use:
+For faster iteration:
 
-```sh
-make test
-make build
-make contracts-check
+```bash
+make test              # unit tests with -race + coverage
+make build             # compile all packages
+make contracts-check   # verify OpenAPI + SDK drift
 ```
 
-### 4. Start the frontend
+### 3. Frontend (Option 2)
 
-```sh
+The web console lives in [`apps/web/`](apps/web/) and uses React 19, Vite, and TypeScript:
+
+```bash
 pnpm install
-pnpm --filter @open-foundry/web dev
+pnpm --filter @open-foundry/web dev      # vite dev server
+pnpm --filter @open-foundry/web check    # tsc -b --noEmit
+pnpm --filter @open-foundry/web test     # vitest
 ```
 
-The web application lives in [`apps/web/`](apps/web/) and uses React 19, Vite, and TypeScript.
+### 4. Docker Compose (Option 3)
 
-### 5. Start local dependencies with Compose
+Bring up local infrastructure (Postgres, Kafka, NATS, observability stack, …):
 
-```sh
+```bash
 docker compose -f infra/compose/docker-compose.yml up -d
 ```
 
-For development, there is also:
+For development with auto-reload services:
 
-```sh
+```bash
 docker compose -f infra/compose/docker-compose.dev.yml up -d
 ```
 
-### 6. Deploy to Kubernetes
-
-```sh
-make gitops-bootstrap
-make gitops-status
-```
+### 5. Helm / Kubernetes (Option 4) - Cloud Native
 
 Delivery assets live in [`infra/`](infra/): Helm charts, ArgoCD apps, Terraform, Compose, and operational runbooks.
+
+```bash
+make gitops-bootstrap     # bootstrap ArgoCD applications
+make gitops-status        # check sync status
+make build-services       # one binary per service into ./bin/
+```
+
+### 6. Code generation (Option 5)
+
+Regenerate Protobuf Go, sqlc, OpenAPI, and SDKs whenever contracts change:
+
+```bash
+make gen
+make contracts-check
+```
+
+> **Heads-up**: `make lint` baselines pre-existing issues via `.golangci.yml` (`new-from-rev: HEAD`). To audit the full backlog, run `golangci-lint run --new-from-rev= ./...`.
+
+---
+
+### Accessing OpenFoundry
+
+1. **Web Console**: Open `http://localhost:5173` (Vite dev server) or the URL exposed by your Kubernetes ingress.
+2. **APIs**: Each service exposes `/healthz`, `/metrics`, and a versioned `/api/v1/...` surface.
+3. **CLI**: Use `of-cli` from [`tools/of-cli/`](tools/of-cli/) for service introspection, contract checks, and route audits.
 
 ## Repository layout
 
 ```text
 openfoundry-go/
 ├── apps/web/         React 19 + Vite + TypeScript frontend
-├── services/         Go microservices; copy docs/templates/service-skeleton/ for new services
-├── libs/             Shared Go packages for auth, observability, kernels and more
+├── services/         50 Go microservices (copy docs/templates/service-skeleton/ for new ones)
+├── libs/             36 shared Go packages (auth, observability, kernels, …)
 ├── proto/            Protobuf source of truth; Go generated into libs/proto-gen/
 ├── sdks/             Generated TypeScript, Python and Java SDKs
 ├── infra/            Helm, ArgoCD, Terraform, Compose and operational runbooks
@@ -132,111 +167,52 @@ openfoundry-go/
 └── Makefile          Canonical local task runner
 ```
 
-Per-service shape:
-
-```text
-services/<svc>/
-  cmd/<svc>/main.go          entrypoint
-  internal/server/           chi router (/healthz, /metrics, /api)
-  internal/handlers/         HTTP handlers
-  internal/domain/           pure logic
-  internal/repo/             data access, sqlc-generated when relevant
-  internal/repo/migrations/  goose-style SQL migrations
-  internal/models/           wire types
-  internal/config/           koanf-backed config
-```
-
-## Why a single Go module?
-
-OpenFoundry uses a single Go module (`go.mod` at the root) instead of a multi-module `go.work` setup because it:
-
-- Keeps `libs/` and `services/` synchronized without version drift.
-- Simplifies dependency resolution, caching, and builds.
-- Makes contract generation and compatibility tests more direct.
-- Follows a familiar pattern for large infrastructure monorepos.
-
-Splitting specific services into their own modules remains possible if the project needs it.
-
-## Day-to-day commands
-
-Run these commands from the repository root:
-
-```sh
-make help              # list available targets
-make tools             # install tools into ./bin
-make ci                # tidy + vet + lint + contracts-check + test
-make test              # unit tests with race detector and coverage
-make test-integration  # tests with the integration build tag; requires Docker
-make gen               # regenerate proto Go, sqlc, OpenAPI, and SDKs
-make contracts-check   # verify OpenAPI and SDK drift
-make build             # compile all packages
-make build-services    # compile one binary per service into ./bin/
-make lint              # golangci-lint
-make fmt               # gofumpt + gci
-```
-
-Frontend:
-
-```sh
-pnpm --filter @open-foundry/web dev
-pnpm --filter @open-foundry/web check
-pnpm --filter @open-foundry/web test
-```
-
 ## Documentation
 
+For detailed documentation, including configuration options, API references, ADRs, and advanced usage, please visit:
+
 - [`docs/`](docs/) — capability-oriented technical documentation.
-- [`docs/index.md`](docs/index.md) — VitePress site entrypoint.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — high-level architecture overview.
 - [`docs/architecture/adr/`](docs/architecture/adr/) — dated architectural decisions.
 - [`CLAUDE.md`](CLAUDE.md) — concise onboarding for AI agents.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — PR process, RFC requirements, and DCO policy.
 - [`SECURITY.md`](SECURITY.md) — how to report vulnerabilities.
 
-## Wire-compatibility invariants
+## Getting Help
 
-Some contracts are pinned by golden tests and must not change without an explicit migration:
+If you have any questions or need assistance:
 
-- `/healthz` payload shape (`status`, `service`, `version`, `timestamp`).
-- JWT claim names and JSON tags.
-- Resource RID format and minting: `ri.<service>.<instance>.<type>.<uuid>` for platform-minted resources; `libs/core-models/rid` owns parsing, UUIDv7 minting, and registry-reservation collision handling.
-- Resource type registry: `libs/core-models/resource` is the canonical registry for display names, owning services, icons, actions, RID namespace mapping, open-app URLs, and unknown-type placeholders.
-- Compass project resource: `tenancy-organizations-service` owns the stable project `rid`, parent `space_rid`, organization/marking RIDs, default queue RID, resource-level grant toggle, and per-role policy payload.
-- Compass folder resource: `tenancy-organizations-service` owns stable folder `rid` values, project/parent/space RID projection, folder trash status, and inheritance from project policies with folder-scope grant overrides.
-- Compass move/rename: workspace operations may update project/folder parentage, display names, slugs, and derived breadcrumbs, but must not mutate resource RIDs; cross-project folder moves require explicit access-policy and marking confirmations.
-- Compass search index: `tenancy-organizations-service` maintains `compass_resource_search_index` entries for project/folder RIDs and long-text catalog sources such as descriptions, READMEs, ontology object/property descriptions, code repository READMEs, and dashboard descriptions. Writes emit `compass.resource.search.updated.v1` outbox events on create/update/move/trash/restore/purge instead of relying on table polling.
-- Compass search API: `GET /api/v1/compass/search` (no current edge-gateway route; handler-level/roadmap surface until `router_table.go` adds a branch) is permission-aware, supports `q`, `type`, `project`, `owner`, repeated `marking`, `modified`, `limit`, and `cursor`, returns highlighted snippets and facets for type/project/owner/marking/last-modified buckets, and paginates by opaque cursor over text score, last modified time, and RID.
-- Compass search UI shell: `apps/web` route `/search` combines ontology search with the handler-level Compass search surface (`GET /api/v1/compass/search` has no current edge-gateway route), keeps the `Cmd/Ctrl+J` global search shell, loads jump-to recents/favorites, displays marking badges and snippet highlights, renders resource facets in the sidebar, and derives resource "Open with" actions from the frontend Compass resource type registry.
-- Compass saved searches: `compass_saved_searches` stores per-user named Quicksearch/Data Catalog queries with tab, type, project, owner, marking, and last-modified filters; `/api/v1/workspace/saved-searches` lists/creates/deletes them for the search sidebar.
-- Compass recommendations: `GET /api/v1/workspace/recommendations` returns permission-filtered "you might want to open" resources scored from collaborator opens, the caller's recent opens, and explicit project follows stored in `compass_project_follows`; Quicksearch jump-to mode renders them beside favorites and recents.
-- Compass open-with menu: `apps/web/src/lib/components/workspace/OpenWithMenu.tsx` is the shared registry-backed launcher for search results, project/folder list views, and resource detail headers; targets resolve from immutable RIDs when present and retain an unknown-resource fallback.
-- Compass breadcrumbs: `apps/web` uses the shared `ProjectBreadcrumb` for project/folder paths, click-to-open navigation, and per-crumb copy-RID actions derived from stable project/folder RIDs.
-- Compass trash workflow: project/folder/resource-binding deletes are soft deletes with configurable `retention_days` (default 30), `purge_after` metadata, search-index trash/restore events, and folder restore fallback to the project root when the original parent path is gone.
-- Compass hard delete audit: permanent deletes are allowed after `purge_after` or by admin override, clean directly affected Compass surface rows, and emit marking-aware `compass.resource.purged` audit events with the dependent rows/resources affected by the purge.
-- Compass resource audit: create, move, rename, trash, restore, purge, share grant/update/revoke, and marking-change mutations emit marking-aware `compass.resource.*` events to `audit.events.v1`; `audit-compliance-service` owns the public `GET /api/v1/audit/events` route; `services/audit-sink` only consumes `audit.events.v1` into Iceberg for storage/export pipelines.
-- Compass bulk operations: `POST /api/v1/workspace/resources/batch` applies selected search/folder rows as one preflighted move/trash/share batch, aborts before mutation when any row fails policy/confirmation checks, and emits one `compass.resource.bulk_operation` audit event for the batch instead of per-row audit noise.
-- Compass reverse-reference graph: `compass_resource_references` stores directed `source depends on target` edges, the resource registry declares supported reference targets, and workspace APIs/UI expose `depends_on` / `used_by` with move/trash warnings.
-- Compass stable resource URLs: web routes and search/open-with URLs identify resources by RID, with optional slug suffixes treated only as visual sugar so rename and move operations do not invalidate links.
-- Compass favorites: `user_favorites` is the synced per-user profile store for resource shortcuts; favorites have optional groups, stable display order, and a sidebar/search management UI backed by `/api/v1/workspace/favorites`.
-- Compass recents: `resource_access_log` records per-user opens, while `/api/v1/workspace/recents` returns at most 50 visible resources by default, ordered by last-opened and filtered against current project visibility so revoked resources disappear.
-- Compass propagate view requirements: `tenancy-organizations-service` keeps Palantir's planned-deprecated setting as a legacy compatibility toggle. Project/folder rows record whether propagation is enabled plus the permanent `disabled_at` marker; new folders and project resource bindings copy the inherited view-requirement marking snapshot on create, and parent policy changes enqueue `compass_view_requirement_propagation_jobs` to update existing descendants with progress reporting and `compass.view_requirements.propagated` audit events.
-- Dataset RID format: `ri.foundry.main.dataset.<uuid-v7>`.
-- Transaction state/type tokens: `open|committed|aborted` and `snapshot|append|update|delete`.
-- Marking source and schema field type discriminators.
-- Media reference camelCase keys (`mediaSetRid`, `mediaItemRid`, `branch`, `schema`).
+- Check the existing [GitHub Discussions](https://github.com/openfoundry/openfoundry-go/discussions) for common issues and solutions.
+- Ask questions and share your experiences in [Discussions](https://github.com/openfoundry/openfoundry-go/discussions).
+- Open an issue on [GitHub Issues](https://github.com/openfoundry/openfoundry-go/issues) for bug reports or feature requests.
 
-## Getting help
+## Links
 
-- Open a bug report or feature request in [GitHub Issues](https://github.com/openfoundry/openfoundry-go/issues).
-- Review the documentation in [`docs/`](docs/) before changing services or contracts.
-- For new capabilities, start from the [`service skeleton`](docs/templates/service-skeleton/) and the existing ADRs.
+- [Documentation](docs/) — The manual you should read
+- [Changelog](https://github.com/openfoundry/openfoundry-go/releases) — Releases and notable changes
+- [GitHub Discussions](https://github.com/openfoundry/openfoundry-go/discussions) — Where the community lives
 
-## Contributing
+## Contact
 
-Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the PR process, RFC requirements, and DCO policy. Security reports follow [`SECURITY.md`](SECURITY.md).
+- **Bugs**: [GitHub Issues](https://github.com/openfoundry/openfoundry-go/issues)
+- **General Discussion**: [GitHub Discussions](https://github.com/openfoundry/openfoundry-go/discussions)
+- **Security**: [SECURITY.md](SECURITY.md)
+- **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## Contributors
+
+OpenFoundry is a community-driven project, and we appreciate all contributions. Check out the [Contributors](https://github.com/openfoundry/openfoundry-go/graphs/contributors) page to see the amazing people who have helped make OpenFoundry better.
+
+<a href="https://github.com/openfoundry/openfoundry-go/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=openfoundry/openfoundry-go" alt="Contributors" />
+</a>
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=openfoundry/openfoundry-go&type=Date&legend=top-left)](https://www.star-history.com/#openfoundry/openfoundry-go&Date&legend=top-left)
 
 ## License
 
-OpenFoundry is licensed under **AGPL-3.0-only**. See [`LICENSE`](LICENSE).
+[AGPL-3.0-only](https://opensource.org/licenses/AGPL-3.0)
 
-
+**OpenFoundry** is a trademark of the OpenFoundry project. All other trademarks are the property of their respective owners.
