@@ -84,6 +84,12 @@ services:
       maxReplicas: 2
       targetCPUUtilizationPercentage: 70
       targetMemoryUtilizationPercentage: 80
+    env:
+      # Dev clusters serve over plain HTTP (`http://<host>:8081`). The
+      # `Secure` cookie attribute makes browsers drop the of_session /
+      # of_refresh cookies on HTTP responses, breaking login. Re-enable
+      # in prod where the gateway terminates TLS.
+      AUTH_COOKIE_SECURE: "false"
     envSecrets:
       DATABASE_URL:
         secretName: identity-federation-db-dsn
