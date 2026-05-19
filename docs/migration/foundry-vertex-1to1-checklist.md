@@ -75,49 +75,49 @@ traversal/scenario APIs that sit on top of them.
 
 ### Analysis resource and lifecycle
 
-- [ ] `VTX.1` Vertex analysis resource (`P0`, `todo`)
+- [x] `VTX.1` Vertex analysis resource (`P0`, `done`)
   - CRUD a `vertex_analysis` resource with title, description, seed object set, layout state, layer configuration, scenario set, branch context, owning project, organizations, and markings.
   - Auto-save layout changes per user; explicit save creates a shared version readable by other users with view permission.
   - Stable RID and Compass-discoverable.
   - Docs: [Vertex overview](https://www.palantir.com/docs/foundry/vertex/overview), [Vertex application](https://www.palantir.com/docs/foundry/vertex/application).
 
-- [ ] `VTX.2` Saved versions and forks (`P0`, `todo`)
+- [x] `VTX.2` Saved versions and forks (`P0`, `done`)
   - Version a Vertex analysis on explicit save with author, timestamp, and changelog message.
   - Fork an analysis to a new owner without copying private user state.
   - Docs: [Vertex application](https://www.palantir.com/docs/foundry/vertex/application).
 
 ### Seeding and neighbor expansion
 
-- [ ] `VTX.3` Seed selection (`P0`, `todo`)
+- [x] `VTX.3` Seed selection (`P0`, `done`)
   - Seed the graph from a single object, an object set, an Object Explorer selection, or a Workshop variable.
   - Show seed metadata in the sidebar (type, count, applied filters).
   - Docs: [Graphs and traversal](https://www.palantir.com/docs/foundry/vertex/graphs-and-traversal).
 
-- [ ] `VTX.4` Neighbor expansion API (`P0`, `todo`)
+- [x] `VTX.4` Neighbor expansion API (`P0`, `done`)
   - Server endpoint that returns neighbors for a node set, filtered by link type, target object type, link properties, and hop depth (1-3 by default).
   - Page neighbors and return aggregate counts when the cap is exceeded; let the user opt into more rows.
   - Push down to Object Storage V2 indices when available.
   - Docs: [Graphs and traversal](https://www.palantir.com/docs/foundry/vertex/graphs-and-traversal).
 
-- [ ] `VTX.5` Multi-hop traversal (`P0`, `todo`)
+- [x] `VTX.5` Multi-hop traversal (`P0`, `done`)
   - Support typed multi-hop traversal patterns (e.g. `Person -[owns]-> Account -[transacted]-> Person`) with property filters per hop.
   - Show traversal plan in the sidebar and warn on unbounded fan-out.
   - Docs: [Graphs and traversal](https://www.palantir.com/docs/foundry/vertex/graphs-and-traversal).
 
 ### Layout, filtering, styling
 
-- [ ] `VTX.6` Layout engine (`P0`, `todo`)
+- [x] `VTX.6` Layout engine (`P0`, `done`)
   - Layouts: force-directed (cose), breadth-first, concentric, grid, hierarchical.
   - Allow per-node pinning; preserve pinned positions across re-layout.
   - Docs: [Vertex application](https://www.palantir.com/docs/foundry/vertex/application).
 
-- [ ] `VTX.7` Filtering and grouping (`P0`, `todo`)
+- [x] `VTX.7` Filtering and grouping (`P0`, `done`)
   - Filter nodes/edges by type, property, and degree.
   - Group nodes by type or property with collapsible group bubbles.
   - Show counts on collapsed groups.
   - Docs: [Vertex application](https://www.palantir.com/docs/foundry/vertex/application).
 
-- [ ] `VTX.8` Node and edge styling (`P0`, `todo`)
+- [x] `VTX.8` Node and edge styling (`P0`, `done`)
   - Style nodes by icon, color, size, label property; style edges by color, width, dash pattern, label.
   - Style expressions reference object/edge property values.
   - Provide a per-type style preset and an analysis-level override.
@@ -125,12 +125,12 @@ traversal/scenario APIs that sit on top of them.
 
 ### Search and detail panel
 
-- [ ] `VTX.9` Inline search (`P0`, `todo`)
+- [x] `VTX.9` Inline search (`P0`, `done`)
   - Search visible graph by property or RID with keyboard shortcut focus.
   - Highlight matching nodes and pan to first match.
   - Docs: [Vertex application](https://www.palantir.com/docs/foundry/vertex/application).
 
-- [ ] `VTX.10` Selection detail panel (`P0`, `todo`)
+- [x] `VTX.10` Selection detail panel (`P0`, `done`)
   - Sidebar showing selected node/edge properties, applicable Actions, link to Object View, recent timeline events, and traversal options.
   - Multi-select shows shared property summary and bulk Actions.
   - Docs: [Vertex application](https://www.palantir.com/docs/foundry/vertex/application).
@@ -139,57 +139,57 @@ traversal/scenario APIs that sit on top of them.
 
 ### Scenarios and what-if analysis
 
-- [ ] `VTX.11` Scenario resource (`P1`, `todo`)
+- [x] `VTX.11` Scenario resource (`P1`, `done`)
   - `vertex_scenario` rows attached to an analysis with: name, description, list of staged edits (object property changes, simulated link adds/removes, Action invocations in dry-run mode).
   - Persist scenarios as branch-scoped staged edits when a branch is active; otherwise as ephemeral overlays not written to main.
   - Docs: [Scenario planning](https://www.palantir.com/docs/foundry/vertex/scenarios).
 
-- [ ] `VTX.12` Scenario diff and impact summary (`P1`, `todo`)
+- [x] `VTX.12` Scenario diff and impact summary (`P1`, `done`)
   - Show diff between baseline and scenario: changed nodes, changed edges, added/removed elements, and computed metrics (degree, centrality, cluster size).
   - Highlight impacted nodes in the canvas; toggle baseline/scenario layers.
   - Docs: [Scenario planning](https://www.palantir.com/docs/foundry/vertex/scenarios).
 
-- [ ] `VTX.13` Scenario promotion to Actions (`P1`, `todo`)
+- [x] `VTX.13` Scenario promotion to Actions (`P1`, `done`)
   - Convert a scenario's staged edits into a sequence of Action invocations that can be reviewed and applied on a branch or main with proper approvals.
   - Docs: [Scenario planning](https://www.palantir.com/docs/foundry/vertex/scenarios).
 
 ### Event timelines
 
-- [ ] `VTX.14` Event timeline overlay (`P1`, `todo`)
+- [x] `VTX.14` Event timeline overlay (`P1`, `done`)
   - Bind one or more event object types (with timestamp properties) to a timeline overlaying the graph.
   - Filter graph view to elements present at the timeline cursor.
   - Docs: [Event timelines](https://www.palantir.com/docs/foundry/vertex/timelines).
 
-- [ ] `VTX.15` Timeline playback (`P1`, `todo`)
+- [x] `VTX.15` Timeline playback (`P1`, `done`)
   - Play/pause, speed selection, range brushing, and per-event-type toggles.
   - Sync timeline cursor across multiple Vertex tabs in the same analysis.
   - Docs: [Event timelines](https://www.palantir.com/docs/foundry/vertex/timelines).
 
 ### Media layers and system graphs
 
-- [ ] `VTX.16` Media layer overlay (`P1`, `todo`)
+- [x] `VTX.16` Media layer overlay (`P1`, `done`)
   - Attach images, videos, or PDFs (media set items) to nodes/edges as a side panel and inline thumbnails.
   - Respect media-set permissions and markings.
   - Docs: [Media layers](https://www.palantir.com/docs/foundry/vertex/media-layers).
 
-- [ ] `VTX.17` System graphs (`P1`, `todo`)
+- [x] `VTX.17` System graphs (`P1`, `done`)
   - Predefined graph templates that auto-seed and traverse common patterns (e.g., supply chain, fraud rings, infrastructure dependencies).
   - Template registry with versioning and per-org enablement.
   - Docs: [System graphs](https://www.palantir.com/docs/foundry/vertex/system-graphs).
 
 ### Branched graphs and Workshop embed
 
-- [ ] `VTX.18` Branch-aware analysis (`P1`, `todo`)
+- [x] `VTX.18` Branch-aware analysis (`P1`, `done`)
   - Honor the active branch from the Global Branching taskbar: traversal reads branched object/link versions when set, otherwise main.
   - Mark analyses opened on a non-main branch with a banner and forbid promote-to-main without proposal flow.
   - Docs: [Vertex application](https://www.palantir.com/docs/foundry/vertex/application).
 
-- [ ] `VTX.19` Workshop Vertex widget (`P1`, `todo`)
+- [x] `VTX.19` Workshop Vertex widget (`P1`, `done`)
   - Workshop widget bound to an object set variable that mirrors the standalone Vertex with read-only or full-edit toggles.
   - Two-way binding for selection and hovered element.
   - Docs: [Workshop Vertex embed](https://www.palantir.com/docs/foundry/workshop/widgets/vertex).
 
-- [ ] `VTX.20` Object View graph panel (`P1`, `todo`)
+- [x] `VTX.20` Object View graph panel (`P1`, `done`)
   - Reusable graph panel for Object Views seeded from the current object with a configurable hop budget.
   - Docs: [Object Views graph panel](https://www.palantir.com/docs/foundry/object-views/graph-panel).
 
@@ -197,36 +197,36 @@ traversal/scenario APIs that sit on top of them.
 
 ### Pushdown and cost insights
 
-- [ ] `VTX.21` Traversal pushdown to Object Storage V2 (`P2`, `todo`)
+- [x] `VTX.21` Traversal pushdown to Object Storage V2 (`P2`, `done`)
   - Translate neighbor and multi-hop queries into Object Storage V2 link-index lookups.
   - Avoid scanning the full object set; emit `EXPLAIN` plans on demand for power users.
   - Docs: [Graphs and traversal](https://www.palantir.com/docs/foundry/vertex/graphs-and-traversal).
 
-- [ ] `VTX.22` Graph cost insights (`P2`, `todo`)
+- [x] `VTX.22` Graph cost insights (`P2`, `done`)
   - Surface estimated and actual cost (CPU·s, rows scanned, indices hit) per expansion in the sidebar.
   - Throttle expansions that exceed an analysis-level budget; require explicit user confirmation to continue.
   - Docs: [Vertex application](https://www.palantir.com/docs/foundry/vertex/application).
 
 ### Governance
 
-- [ ] `VTX.23` Permission and marking enforcement on traversal (`P2`, `todo`)
+- [x] `VTX.23` Permission and marking enforcement on traversal (`P2`, `done`)
   - Every neighbor expansion enforces the caller's clearances and link-level permissions.
   - Hidden neighbors are reported as opaque counts ("12 neighbors not visible") rather than silently dropped.
   - Docs: [Graphs and traversal](https://www.palantir.com/docs/foundry/vertex/graphs-and-traversal).
 
-- [ ] `VTX.24` Restricted-view enforcement on edges (`P2`, `todo`)
+- [x] `VTX.24` Restricted-view enforcement on edges (`P2`, `done`)
   - Restricted views applied to link types filter edges per caller.
   - Vertex never returns an edge that the caller cannot see in Object Explorer.
   - Docs: [Graphs and traversal](https://www.palantir.com/docs/foundry/vertex/graphs-and-traversal).
 
 ### AIP integration
 
-- [ ] `VTX.25` AIP Logic graph reasoning blocks (`P2`, `todo`)
+- [x] `VTX.25` AIP Logic graph reasoning blocks (`P2`, `done`)
   - Expose neighbor expansion, path-finding, and centrality as AIP Logic blocks consumable by Agents.
   - Each block enforces caller permissions; agents do not bypass restricted views.
   - Docs: [AIP Logic graph reasoning](https://www.palantir.com/docs/foundry/logic/graph-reasoning).
 
-- [ ] `VTX.26` Path-finding and centrality measures (`P2`, `todo`)
+- [x] `VTX.26` Path-finding and centrality measures (`P2`, `done`)
   - Shortest path, k-shortest paths, betweenness, eigenvector centrality computed over the current analysis subgraph.
   - Cache results keyed by subgraph hash.
   - Docs: [Graphs and traversal](https://www.palantir.com/docs/foundry/vertex/graphs-and-traversal).

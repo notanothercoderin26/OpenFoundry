@@ -87,5 +87,8 @@ export function workspaceResourceStablePath(
   if (kind === 'report') return `/reports/${stableRIDSegment(rid, label)}`;
   if (kind === 'model') return `/ml?model=${encodeURIComponent(rid)}`;
   if (kind === 'workflow') return `/workflows/${stableRIDSegment(rid, label)}`;
+  if (kind === 'vertex_analysis' || kind === 'vertex-analysis') {
+    return `/vertex/analyses/${stableRIDSegment(rid, label)}`;
+  }
   return `/search?q=${encodeURIComponent(rid)}`;
 }

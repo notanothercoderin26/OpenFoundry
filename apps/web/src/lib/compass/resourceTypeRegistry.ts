@@ -309,6 +309,16 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     openWith: [{ id: 'model', label: 'Model catalog', icon: 'cube', urlTemplate: '/ml?model={rid}' }],
   },
   {
+    id: 'FOUNDRY_VERTEX_ANALYSIS',
+    type: 'vertex-analysis',
+    displayName: 'Vertex analysis',
+    owningService: 'vertex-service',
+    defaultIcon: 'graph',
+    supportedActions: COMMON_ACTIONS,
+    openAppURLTemplate: '/vertex/analyses/{rid}',
+    openWith: [{ id: 'vertex-analysis', label: 'Vertex', icon: 'graph', urlTemplate: '/vertex/analyses/{rid}' }],
+  },
+  {
     id: 'FOUNDRY_WORKFLOW',
     type: 'workflow',
     displayName: 'Workflow',
@@ -334,6 +344,7 @@ const RESOURCE_KIND_TO_TYPE: Record<string, string> = {
   ontology_resource_binding: 'unknown',
   project: 'project',
   folder: 'folder',
+  vertex_analysis: 'vertex-analysis',
 };
 const RID_NAMESPACE_BY_TYPE: Record<string, { service: string; resourceType: string }> = {
   project: { service: 'compass', resourceType: 'project' },
@@ -356,6 +367,7 @@ const RID_NAMESPACE_BY_TYPE: Record<string, { service: string; resourceType: str
   dashboard: { service: 'foundry', resourceType: 'dashboard' },
   model: { service: 'foundry', resourceType: 'model' },
   workflow: { service: 'foundry', resourceType: 'workflow' },
+  'vertex-analysis': { service: 'foundry', resourceType: 'vertex-analysis' },
 };
 
 export const UNKNOWN_RESOURCE_TYPE: CompassResourceTypeDefinition = {
