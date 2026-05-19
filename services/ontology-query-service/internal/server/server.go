@@ -46,6 +46,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/objects/{tenant}/by-type/{type_id}", h.ListObjectsByType)
 		api.Get("/objects/{tenant}/{object_id}/links/{link_type}/outgoing", h.ListOutgoingLinks)
 		api.Get("/objects/{tenant}/{object_id}/links/{link_type}/incoming", h.ListIncomingLinks)
+
+		// Traversal primitives for Vertex (read-only graph operations).
+		// link-summary populates the right-click Search Around dropdown;
+		// /traverse executes the multi-step Search Around DSL; /histogram
+		// powers the Histogram sidebar tab.
+		api.Get("/objects/{tenant}/{object_id}/link-summary", h.LinkSummary)
+		api.Post("/traverse", h.Traverse)
+		api.Post("/histogram", h.Histogram)
 	})
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{

@@ -96,6 +96,7 @@ var upstreamServiceMapping = []struct {
 	{"SDS", "", "audit-compliance-service"},
 	{"Nexus", "", "tenancy-organizations-service"},
 	{"TelemetryGovernance", "telemetry-governance-service", "telemetry-governance-service"},
+	{"Vertex", "vertex-service", ""},
 }
 
 // upstreamsWithoutGoService lists UpstreamURLs fields for which no

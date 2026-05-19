@@ -72,7 +72,8 @@ data:
         'llm_catalog',
         'media_sets',
         'ontology_definition',
-        'ontology_exploratory_analysis'
+        'ontology_exploratory_analysis',
+        'vertex'
       ];
     BEGIN
       FOREACH bc IN ARRAY bcs LOOP

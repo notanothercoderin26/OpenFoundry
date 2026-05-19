@@ -188,6 +188,34 @@ services:
         cpu: "1"
         memory: 1Gi
 
+  # Vertex graph application backend. Owns vertex_schema in Postgres
+  # (graph CRUD, saved Search Around resources, scenarios, derived
+  # property bindings, annotations). Traversal is delegated to
+  # ontology-query-service; this binary does not call Cassandra.
+  vertex-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 50180
+        servicePort: 50180
+    env:
+      PORT: "50180"
+      PG_SCHEMA: vertex
+    envSecrets:
+      DATABASE_URL:
+        secretName: vertex-db-dsn
+        key: writer_url
+      JWT_SECRET:
+        secretName: openfoundry-jwt
+        key: jwt_secret
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
   # Read-side ontology slice (S1.5). Cassandra-only: schema and object
   # rows live in the `ontology_objects` keyspace; no SQL surface.
   # Environment contract:
