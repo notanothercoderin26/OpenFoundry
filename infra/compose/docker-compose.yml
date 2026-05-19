@@ -983,6 +983,10 @@ services:
       # is started with --KernelGatewayApp.auth_token='' below.
       KERNEL_IDLE_TIMEOUT_SECONDS: "1800"
       KERNEL_GC_INTERVAL_SECONDS: "60"
+      # Slice E (notepad rich-text export): GOTENBERG_URL enables the
+      # HTML→PDF route. DOCX uses the pure-Go writer and has no extra
+      # dependency. Leave GOTENBERG_URL unset to disable PDF.
+      GOTENBERG_URL: http://gotenberg:3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -992,10 +996,30 @@ services:
         condition: service_started
       notebook-kernel-gateway:
         condition: service_healthy
+      gotenberg:
+        condition: service_started
     volumes:
       - notebook_data:/var/lib/openfoundry/notebook-data
     ports:
       - "${OPENFOUNDRY_NOTEBOOK_RUNTIME_HOST_PORT:-50134}:50134"
+
+  # Gotenberg v8 sidecar — backs the Notepad PDF export pathway.
+  # Chromium renders the TipTap-sanitised HTML to PDF (the only
+  # endpoint we currently call is /forms/chromium/convert/html). The
+  # DOCX export uses a pure-Go writer and does not require Gotenberg.
+  # https://gotenberg.dev/
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    profiles: *profiles-intelligence
+    command:
+      - gotenberg
+      - --api-port=3000
+      # 60s caps Chromium runs in case the editor produces a runaway
+      # document; matches the GOTENBERG_TIMEOUT_SECONDS default in the
+      # notebook-runtime-service config.
+      - --api-timeout=60s
+    ports:
+      - "${OPENFOUNDRY_GOTENBERG_HOST_PORT:-3000}:3000"
 
   # jupyter/kernel-gateway sidecar — backs the gateway-proxy execute
   # path. Uses the upstream image as-is. `notebook_http` is the API

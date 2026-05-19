@@ -1,24 +1,35 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import type { Editor } from '@tiptap/react';
 
 import {
   createKnowledgeDocument,
   listKnowledgeBases,
   type KnowledgeBase,
 } from '@/lib/api/ai';
-import { MonacoEditor } from '@/lib/components/MonacoEditor';
+import { SaveAsTemplateModal } from '@/lib/components/notepad/TemplateModals';
+import { TipTapEditor } from '@/lib/components/notepad/TipTapEditor';
+import { VersionHistoryPanel } from '@/lib/components/notepad/VersionHistoryPanel';
 import { WidgetEmbeds, type WidgetEmbedRecord } from '@/lib/components/notepad/WidgetEmbeds';
 import {
-  exportNotepadDocument,
+  createNotepadTemplate,
+  exportNotepadDocumentBinary,
+  exportNotepadDocumentHTML,
   getNotepadDocument,
   listNotepadPresence,
   updateNotepadDocument,
   upsertNotepadPresence,
+  type NotepadBinaryExport,
   type NotepadDocument,
   type NotepadExportPayload,
   type NotepadPresence,
+  type NotepadRevision,
+  type NotepadTemplateInput,
+  type ProseMirrorDoc,
 } from '@/lib/api/notepad';
 import { useCurrentUser } from '@stores/auth';
+
+const EMPTY_DOC: ProseMirrorDoc = { type: 'doc', content: [{ type: 'paragraph' }] };
 
 function documentWidgets(doc: NotepadDocument | null): WidgetEmbedRecord[] {
   return Array.isArray(doc?.widgets) ? (doc.widgets as WidgetEmbedRecord[]) : [];
@@ -31,7 +42,49 @@ function widgetReference(widget: WidgetEmbedRecord) {
   return `{{widget:${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'embed'}}}`;
 }
 
-function downloadExportPayload(payload: NotepadExportPayload) {
+function resolveInitialContent(doc: NotepadDocument | null): ProseMirrorDoc | null {
+  if (!doc) return null;
+  if (doc.content_doc && typeof doc.content_doc === 'object' && 'type' in doc.content_doc) {
+    return doc.content_doc as ProseMirrorDoc;
+  }
+  // Pre-rich-text documents only carry markdown in `content`. Seed the
+  // editor with a single paragraph holding the raw text so users see
+  // their old content and can re-format it inline.
+  const raw = (doc.content ?? '').trim();
+  if (!raw) return EMPTY_DOC;
+  return {
+    type: 'doc',
+    content: raw.split(/\n{2,}/).map((para) => ({
+      type: 'paragraph',
+      content: [{ type: 'text', text: para }],
+    })),
+  };
+}
+
+function revisionKindLabel(kind: NotepadRevision['kind']): string {
+  switch (kind) {
+    case 'initial':
+      return 'Initial empty document';
+    case 'manual':
+      return 'Manually saved version';
+    case 'autosave':
+    default:
+      return 'Autosaved version';
+  }
+}
+
+function downloadBlob(payload: NotepadBinaryExport) {
+  const url = URL.createObjectURL(payload.blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = payload.file_name;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function downloadHTMLPayload(payload: NotepadExportPayload) {
   const blob = new Blob([payload.html], { type: payload.mime_type || 'text/html' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -60,8 +113,42 @@ export function NotepadDetailPage() {
   const [indexing, setIndexing] = useState(false);
   const [error, setError] = useState('');
   const [exportNotice, setExportNotice] = useState('');
+  // Selected past revision (null = live current document).
+  const [previewRevision, setPreviewRevision] = useState<NotepadRevision | null>(null);
+  // "Compare with" pick from the history panel. When set together
+  // with `previewRevision`, the preview pane switches to a
+  // side-by-side rendering.
+  const [compareRevision, setCompareRevision] = useState<NotepadRevision | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [showSaveAsTemplate, setShowSaveAsTemplate] = useState(false);
+
+  // The TipTap editor is the source of truth for live edits. We mirror
+  // its current JSON + HTML into refs so save / export handlers can
+  // read the freshest values without React state churn.
+  const editorRef = useRef<Editor | null>(null);
+  const contentDocRef = useRef<ProseMirrorDoc | null>(null);
+  const contentHTMLRef = useRef<string>('');
 
   const sessionIdRef = useRef<string>(crypto.randomUUID?.() ?? Math.random().toString(36).slice(2));
+
+  const editorSourceDoc = useMemo<NotepadDocument | null>(() => {
+    if (!previewRevision || !doc) return doc;
+    // Synthesise a NotepadDocument from the previewed revision so the
+    // editor seeding logic stays single-source. Title/description
+    // come from the revision so the panel preview is honest about
+    // what that snapshot contained.
+    return {
+      ...doc,
+      title: previewRevision.title,
+      description: previewRevision.description,
+      content: previewRevision.content,
+      content_doc: previewRevision.content_doc,
+      widgets: previewRevision.widgets,
+      updated_at: previewRevision.created_at,
+    };
+  }, [doc, previewRevision]);
+
+  const initialContent = useMemo(() => resolveInitialContent(editorSourceDoc), [editorSourceDoc]);
 
   const sendPresence = useCallback(
     async (cursorLabel = 'editing document') => {
@@ -100,7 +187,7 @@ export function NotepadDetailPage() {
       try {
         const [d, exp, pres, kbs] = await Promise.all([
           getNotepadDocument(documentId),
-          exportNotepadDocument(documentId),
+          exportNotepadDocumentHTML(documentId),
           listNotepadPresence(documentId),
           listKnowledgeBases().catch(() => ({ data: [] as KnowledgeBase[] })),
         ]);
@@ -142,14 +229,16 @@ export function NotepadDetailPage() {
     setExportNotice('');
   }
 
-  async function renderExportPayload(sourceDoc: NotepadDocument) {
-    const exp = await exportNotepadDocument(sourceDoc.id, {
+  async function refreshHTMLPreview(sourceDoc: NotepadDocument) {
+    const exp = await exportNotepadDocumentHTML(sourceDoc.id, {
       id: sourceDoc.id,
       title: sourceDoc.title,
       description: sourceDoc.description,
       content: sourceDoc.content,
+      content_doc: contentDocRef.current ?? undefined,
       widgets: sourceDoc.widgets,
       template_key: sourceDoc.template_key,
+      html_body: contentHTMLRef.current,
     });
     setExportPayload(exp);
     return exp;
@@ -164,10 +253,11 @@ export function NotepadDetailPage() {
         title: doc.title,
         description: doc.description,
         content: doc.content,
+        content_doc: contentDocRef.current ?? undefined,
         widgets: doc.widgets,
       });
       setDoc(updated);
-      await renderExportPayload(updated);
+      await refreshHTMLPreview(updated);
       setExportNotice('Saved and refreshed the export preview.');
       await sendPresence('reviewing latest changes');
     } catch (cause) {
@@ -177,18 +267,44 @@ export function NotepadDetailPage() {
     }
   }
 
-  async function exportDocument() {
+  async function exportHTML() {
     if (!doc) return;
     setExporting(true);
     setError('');
     setExportNotice('');
     try {
-      const exp = await renderExportPayload(doc);
-      downloadExportPayload(exp);
+      const exp = await refreshHTMLPreview(doc);
+      downloadHTMLPayload(exp);
       setExportNotice(`Exported ${exp.file_name}.`);
       await sendPresence('exporting document');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to export document');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function exportBinary(format: 'pdf' | 'docx') {
+    if (!doc) return;
+    setExporting(true);
+    setError('');
+    setExportNotice('');
+    try {
+      const result = await exportNotepadDocumentBinary(doc.id, format, {
+        id: doc.id,
+        title: doc.title,
+        description: doc.description,
+        content: doc.content,
+        content_doc: contentDocRef.current ?? undefined,
+        widgets: doc.widgets,
+        template_key: doc.template_key,
+        html_body: contentHTMLRef.current,
+      });
+      downloadBlob(result);
+      setExportNotice(`Exported ${result.file_name}.`);
+      await sendPresence(`exporting ${format.toUpperCase()}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : `Failed to export ${format.toUpperCase()}`);
     } finally {
       setExporting(false);
     }
@@ -200,11 +316,30 @@ export function NotepadDetailPage() {
   }
 
   function insertWidgetReference(widget: WidgetEmbedRecord) {
-    if (!doc) return;
+    if (!doc || !editorRef.current) return;
     const marker = widgetReference(widget);
-    const content = doc.content.trimEnd();
-    patchDoc({ content: `${content}${content ? '\n\n' : ''}${marker}` });
+    editorRef.current.chain().focus().insertContent(marker + ' ').run();
     void sendPresence('linking an embed');
+  }
+
+  async function saveAsTemplate(body: {
+    name: string;
+    description?: string;
+    title: string;
+    inputs_schema: NotepadTemplateInput[];
+  }) {
+    if (!doc) return;
+    await createNotepadTemplate({
+      name: body.name,
+      description: body.description,
+      title: body.title || doc.title,
+      content: doc.content,
+      content_doc: (contentDocRef.current ?? undefined) as ProseMirrorDoc | undefined,
+      widgets: doc.widgets,
+      inputs_schema: body.inputs_schema,
+    });
+    setShowSaveAsTemplate(false);
+    setExportNotice(`Saved "${body.name}" as a reusable template.`);
   }
 
   async function indexInKnowledgeBase() {
@@ -212,10 +347,11 @@ export function NotepadDetailPage() {
     setIndexing(true);
     setError('');
     try {
+      const plainBody = contentHTMLRef.current.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || doc.content;
       await createKnowledgeDocument(selectedKnowledgeBaseId, {
         title: doc.title,
         content: [
-          doc.content,
+          plainBody,
           '',
           ...documentWidgets(doc).map(
             (widget) => `- ${widget.title ?? 'Widget'}: ${widget.summary ?? ''}`,
@@ -246,7 +382,7 @@ export function NotepadDetailPage() {
     setError('');
     setExportNotice('');
     try {
-      const exp = await renderExportPayload(doc);
+      const exp = await refreshHTMLPreview(doc);
       windowRef.document.write(exp.html);
       windowRef.document.close();
       windowRef.focus();
@@ -340,17 +476,41 @@ export function NotepadDetailPage() {
             <button type="button" className="of-btn" onClick={() => navigate('/notepad')}>
               Close
             </button>
-            <button type="button" className="of-btn" onClick={() => void openPrintView()} disabled={exporting}>
-              Print / PDF
+            <button
+              type="button"
+              className="of-btn"
+              onClick={() => setHistoryOpen((open) => !open)}
+              title="Toggle version history panel"
+            >
+              {historyOpen ? 'Hide history' : 'Version history'}
             </button>
-            <button type="button" className="of-btn" onClick={() => void exportDocument()} disabled={exporting}>
-              {exporting ? 'Exporting...' : 'Export HTML'}
+            <button
+              type="button"
+              className="of-btn"
+              onClick={() => setShowSaveAsTemplate(true)}
+              title="Save the current document as a reusable template"
+              disabled={previewRevision !== null}
+            >
+              Save as template
+            </button>
+            <button type="button" className="of-btn" onClick={() => void openPrintView()} disabled={exporting}>
+              Print
+            </button>
+            <button type="button" className="of-btn" onClick={() => void exportBinary('pdf')} disabled={exporting}>
+              {exporting ? 'Exporting…' : 'Export PDF'}
+            </button>
+            <button type="button" className="of-btn" onClick={() => void exportBinary('docx')} disabled={exporting}>
+              {exporting ? 'Exporting…' : 'Export DOCX'}
+            </button>
+            <button type="button" className="of-btn" onClick={() => void exportHTML()} disabled={exporting}>
+              {exporting ? 'Exporting…' : 'Export HTML'}
             </button>
             <button
               type="button"
               className="of-btn of-btn-primary"
               onClick={() => void saveDocument()}
-              disabled={saving || exporting}
+              disabled={saving || exporting || previewRevision !== null}
+              title={previewRevision !== null ? 'Revert to a past version to enable Save' : 'Save current edits'}
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
@@ -382,31 +542,73 @@ export function NotepadDetailPage() {
               <div>
                 <p className="of-eyebrow">Document body</p>
                 <h2 className="of-heading-md" style={{ marginTop: 4 }}>
-                  Markdown-first collaborative note
+                  {previewRevision && compareRevision ? 'Comparing versions' : 'Rich-text editor'}
                 </h2>
               </div>
               <span className="of-text-muted" style={{ fontSize: 12 }}>
                 {presence.length} active collaborators
               </span>
             </div>
+            {previewRevision && compareRevision ? (
+              <RevisionDiffView left={compareRevision} right={previewRevision} />
+            ) : (
             <div
-              onFocusCapture={() => void sendPresence('editing body')}
               style={{
                 marginTop: 16,
                 borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--border-default)',
-                background: 'var(--bg-panel-muted)',
                 overflow: 'hidden',
               }}
             >
-              <MonacoEditor
-                value={doc.content}
-                language="markdown"
+              <TipTapEditor
+                initialContent={initialContent ?? undefined}
+                placeholder="Type your notes — / for shortcuts, @ to mention"
                 minHeight={560}
-                onChange={(content) => patchDoc({ content })}
-                onBlur={() => void sendPresence('reviewing body')}
+                editable={previewRevision === null}
+                onEditorReady={(editor) => {
+                  editorRef.current = editor;
+                  contentDocRef.current = editor.getJSON() as ProseMirrorDoc;
+                  contentHTMLRef.current = editor.getHTML();
+                }}
+                onChange={({ json, html }) => {
+                  if (previewRevision !== null) return;
+                  contentDocRef.current = json as ProseMirrorDoc;
+                  contentHTMLRef.current = html;
+                  setExportNotice('');
+                }}
+                onFocus={() => previewRevision === null && void sendPresence('editing body')}
+                onBlur={() => previewRevision === null && void sendPresence('reviewing body')}
               />
+              {previewRevision !== null && (
+                <div
+                  style={{
+                    padding: '8px 14px',
+                    background: '#eff6ff',
+                    color: '#1d4ed8',
+                    fontSize: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                  }}
+                >
+                  <span>
+                    Viewing <strong>v{previewRevision.rev}</strong>{' '}
+                    {previewRevision.name || revisionKindLabel(previewRevision.kind)} ·{' '}
+                    {new Date(previewRevision.created_at).toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    className="of-btn"
+                    onClick={() => setPreviewRevision(null)}
+                    style={{ height: 24, padding: '0 8px', fontSize: 12 }}
+                  >
+                    Return to current
+                  </button>
+                </div>
+              )}
             </div>
+            )}
           </section>
 
           <WidgetEmbeds
@@ -417,6 +619,25 @@ export function NotepadDetailPage() {
         </div>
 
         <aside style={{ display: 'grid', gap: 16 }}>
+          {historyOpen && (
+            <section className="of-panel" style={{ padding: 24 }}>
+              <VersionHistoryPanel
+                documentId={doc.id}
+                current={doc}
+                selectedRev={previewRevision?.rev ?? null}
+                onSelect={(revision) => setPreviewRevision(revision)}
+                onCompareChange={(revision) => setCompareRevision(revision)}
+                onReverted={(updated) => {
+                  setDoc(updated);
+                  setPreviewRevision(null);
+                  setCompareRevision(null);
+                  setExportNotice(`Reverted document — new state is now the live version.`);
+                  void refreshHTMLPreview(updated).catch(() => undefined);
+                }}
+              />
+            </section>
+          )}
+
           <section className="of-panel" style={{ padding: 24 }}>
             <p className="of-eyebrow">Presence</p>
             <h2 className="of-heading-md" style={{ marginTop: 4 }}>
@@ -498,7 +719,7 @@ export function NotepadDetailPage() {
             <p className="of-eyebrow">Preview</p>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
               <h2 className="of-heading-md">Rendered export</h2>
-              <button type="button" className="of-btn" onClick={() => void exportDocument()} disabled={exporting} style={{ minHeight: 30, fontSize: 12 }}>
+              <button type="button" className="of-btn" onClick={() => void refreshHTMLPreview(doc).catch(() => undefined)} disabled={exporting} style={{ minHeight: 30, fontSize: 12 }}>
                 Refresh
               </button>
             </div>
@@ -533,6 +754,16 @@ export function NotepadDetailPage() {
           </section>
         </aside>
       </div>
+
+      {showSaveAsTemplate && doc && (
+        <SaveAsTemplateModal
+          defaultName={doc.title || 'Untitled template'}
+          defaultDescription={doc.description}
+          defaultTitle={doc.title}
+          onCancel={() => setShowSaveAsTemplate(false)}
+          onSave={saveAsTemplate}
+        />
+      )}
     </section>
   );
 }
@@ -553,5 +784,85 @@ function Field({ label, children, fullWidth }: FieldProps) {
       </div>
       {children}
     </label>
+  );
+}
+
+// ── Diff view (Slice F v1) ───────────────────────────────────────────
+//
+// Side-by-side rendering of two revisions using the same TipTap
+// instance the editor uses. Both panes are read-only; the title
+// strip above each pane carries the version label so a glance is
+// enough to map "left vs right" to "older vs newer".
+//
+// A token-level inline diff (Foundry's red/green highlighting) is a
+// follow-up — it needs a ProseMirror change set, which a v1 ships
+// without to keep scope tight.
+
+interface RevisionDiffViewProps {
+  left: NotepadRevision;
+  right: NotepadRevision;
+}
+
+function RevisionDiffView({ left, right }: RevisionDiffViewProps) {
+  return (
+    <div
+      style={{
+        marginTop: 16,
+        display: 'grid',
+        gap: 12,
+        gridTemplateColumns: '1fr 1fr',
+      }}
+    >
+      <DiffColumn revision={left} accent="#1d4ed8" />
+      <DiffColumn revision={right} accent="#0f766e" />
+    </div>
+  );
+}
+
+interface DiffColumnProps {
+  revision: NotepadRevision;
+  accent: string;
+}
+
+function DiffColumn({ revision, accent }: DiffColumnProps) {
+  return (
+    <div
+      style={{
+        borderRadius: 'var(--radius-md)',
+        border: '1px solid var(--border-default)',
+        overflow: 'hidden',
+        display: 'grid',
+        gridTemplateRows: 'auto 1fr',
+      }}
+    >
+      <div
+        style={{
+          padding: '8px 12px',
+          background: 'var(--bg-panel-muted)',
+          borderBottom: '1px solid var(--border-default)',
+          fontSize: 12,
+          fontWeight: 600,
+          color: accent,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <span>v{revision.rev}</span>
+        <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+          {revision.name || revisionKindLabel(revision.kind)} ·{' '}
+          {new Date(revision.created_at).toLocaleString()}
+        </span>
+      </div>
+      <TipTapEditor
+        initialContent={
+          revision.content_doc && typeof revision.content_doc === 'object' && 'type' in revision.content_doc
+            ? (revision.content_doc as ProseMirrorDoc)
+            : { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: revision.content || '' }] }] }
+        }
+        editable={false}
+        minHeight={420}
+      />
+    </div>
   );
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/domain/notepad"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/handler"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/kernelgw"
 )
@@ -59,6 +60,15 @@ func BuildRouterWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observabil
 }
 
 func BuildRouterWithDeps(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel, gw GatewayDeps, probes ...capabilities.DependencyProbe) http.Handler {
+	var gotenberg *notepad.GotenbergClient
+	if cfg.GotenbergURL != "" {
+		timeout := time.Duration(cfg.GotenbergTimeoutSeconds) * time.Second
+		if timeout <= 0 {
+			timeout = 30 * time.Second
+		}
+		gotenberg = notepad.NewGotenbergClient(cfg.GotenbergURL, &http.Client{Timeout: timeout})
+	}
+
 	state := &handler.State{
 		Cfg:            cfg,
 		Pool:           pool,
@@ -66,6 +76,7 @@ func BuildRouterWithDeps(cfg *config.Config, pool *pgxpool.Pool, m *observabilit
 		KernelGW:       gw.Client,
 		KernelMappings: gw.Mappings,
 		ExecuteGuard:   gw.Guard,
+		Gotenberg:      gotenberg,
 	}
 
 	r := chi.NewRouter()
@@ -131,6 +142,26 @@ func BuildRouterWithDeps(cfg *config.Config, pool *pgxpool.Pool, m *observabilit
 		api.Get("/notepad/documents/{document_id}/presence", state.ListPresence)
 		api.Post("/notepad/documents/{document_id}/presence", state.UpsertPresence)
 		api.Post("/notepad/documents/{document_id}/export", state.ExportDocument)
+
+		// Notepad version history (Slice F).
+		api.Get("/notepad/documents/{document_id}/revisions", state.ListRevisions)
+		api.Post("/notepad/documents/{document_id}/revisions", state.CreateRevision)
+		api.Get("/notepad/documents/{document_id}/revisions/{rev}", state.GetRevision)
+		api.Post("/notepad/documents/{document_id}/revisions/{rev}/revert", state.RevertRevision)
+
+		// Notepad live embeds (Slice C).
+		api.Post("/notepad/embeds/resolve", state.ResolveEmbed)
+
+		// Notepad AIP transforms (Slice D — Edit with AIP).
+		api.Post("/notepad/aip/transform", state.AIPTransform)
+
+		// Notepad templates v2 (Slice G).
+		api.Get("/notepad/templates", state.ListTemplates)
+		api.Post("/notepad/templates", state.CreateTemplate)
+		api.Get("/notepad/templates/{template_id}", state.GetTemplate)
+		api.Patch("/notepad/templates/{template_id}", state.UpdateTemplate)
+		api.Delete("/notepad/templates/{template_id}", state.DeleteTemplate)
+		api.Post("/notepad/templates/{template_id}/instantiate", state.InstantiateTemplate)
 
 		// jupyter/kernel-gateway proxy surface. CRUD over upstream
 		// kernels + per-session execute streaming.

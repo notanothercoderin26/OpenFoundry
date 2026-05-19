@@ -39,6 +39,7 @@ type CreateDocumentParams struct {
 	Description string
 	OwnerID     uuid.UUID
 	Content     string
+	ContentDoc  json.RawMessage
 	TemplateKey *string
 	Widgets     json.RawMessage
 }
@@ -49,6 +50,7 @@ type UpdateDocumentParams struct {
 	Title         *string
 	Description   *string
 	Content       *string
+	ContentDoc    json.RawMessage
 	TemplateKey   *string
 	Widgets       json.RawMessage
 	LastIndexedAt *time.Time
@@ -88,7 +90,7 @@ func (r *PostgresNotepadRepository) ListDocuments(ctx context.Context, params Li
 		return out, err
 	}
 	offset := (page - 1) * perPage
-	rows, err := r.Pool.Query(ctx, `SELECT id, title, description, owner_id, content, template_key, widgets, last_indexed_at, created_at, updated_at
+	rows, err := r.Pool.Query(ctx, `SELECT id, title, description, owner_id, content, content_doc, template_key, widgets, last_indexed_at, created_at, updated_at
 		FROM notepad_documents
 		WHERE owner_id = $1 AND (title ILIKE $2 OR description ILIKE $2)
 		ORDER BY updated_at DESC, created_at DESC
@@ -116,15 +118,19 @@ func (r *PostgresNotepadRepository) CreateDocument(ctx context.Context, params C
 	if len(widgets) == 0 || string(widgets) == "null" {
 		widgets = json.RawMessage(`[]`)
 	}
-	row := r.Pool.QueryRow(ctx, `INSERT INTO notepad_documents (id, title, description, owner_id, content, template_key, widgets)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, title, description, owner_id, content, template_key, widgets, last_indexed_at, created_at, updated_at`,
-		id, params.Title, params.Description, params.OwnerID, params.Content, params.TemplateKey, string(widgets))
+	contentDoc := params.ContentDoc
+	if len(contentDoc) == 0 || string(contentDoc) == "null" {
+		contentDoc = json.RawMessage(`{}`)
+	}
+	row := r.Pool.QueryRow(ctx, `INSERT INTO notepad_documents (id, title, description, owner_id, content, content_doc, template_key, widgets)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, title, description, owner_id, content, content_doc, template_key, widgets, last_indexed_at, created_at, updated_at`,
+		id, params.Title, params.Description, params.OwnerID, params.Content, string(contentDoc), params.TemplateKey, string(widgets))
 	return scanDocument(row)
 }
 
 func (r *PostgresNotepadRepository) GetDocument(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (models.NotepadDocument, bool, error) {
-	row := r.Pool.QueryRow(ctx, `SELECT id, title, description, owner_id, content, template_key, widgets, last_indexed_at, created_at, updated_at FROM notepad_documents WHERE id = $1 AND owner_id = $2`, id, ownerID)
+	row := r.Pool.QueryRow(ctx, `SELECT id, title, description, owner_id, content, content_doc, template_key, widgets, last_indexed_at, created_at, updated_at FROM notepad_documents WHERE id = $1 AND owner_id = $2`, id, ownerID)
 	doc, err := scanDocument(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.NotepadDocument{}, false, nil
@@ -135,10 +141,11 @@ func (r *PostgresNotepadRepository) GetDocument(ctx context.Context, id uuid.UUI
 func (r *PostgresNotepadRepository) UpdateDocument(ctx context.Context, params UpdateDocumentParams) (models.NotepadDocument, bool, error) {
 	row := r.Pool.QueryRow(ctx, `UPDATE notepad_documents
 		SET title = COALESCE($3, title), description = COALESCE($4, description), content = COALESCE($5, content),
-		    template_key = COALESCE($6, template_key), widgets = COALESCE($7, widgets), last_indexed_at = COALESCE($8, last_indexed_at), updated_at = NOW()
+		    content_doc = COALESCE($6, content_doc),
+		    template_key = COALESCE($7, template_key), widgets = COALESCE($8, widgets), last_indexed_at = COALESCE($9, last_indexed_at), updated_at = NOW()
 		WHERE id = $1 AND owner_id = $2
-		RETURNING id, title, description, owner_id, content, template_key, widgets, last_indexed_at, created_at, updated_at`,
-		params.ID, params.OwnerID, params.Title, params.Description, params.Content, params.TemplateKey, nullableJSON(params.Widgets), params.LastIndexedAt)
+		RETURNING id, title, description, owner_id, content, content_doc, template_key, widgets, last_indexed_at, created_at, updated_at`,
+		params.ID, params.OwnerID, params.Title, params.Description, params.Content, nullableJSON(params.ContentDoc), params.TemplateKey, nullableJSON(params.Widgets), params.LastIndexedAt)
 	doc, err := scanDocument(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.NotepadDocument{}, false, nil
@@ -265,8 +272,12 @@ func (r *InMemoryNotepadRepository) CreateDocument(_ context.Context, params Cre
 	if len(widgets) == 0 || string(widgets) == "null" {
 		widgets = json.RawMessage(`[]`)
 	}
+	contentDoc := params.ContentDoc
+	if len(contentDoc) == 0 || string(contentDoc) == "null" {
+		contentDoc = json.RawMessage(`{}`)
+	}
 	now := r.now()
-	doc := models.NotepadDocument{ID: id, Title: params.Title, Description: params.Description, OwnerID: params.OwnerID, Content: params.Content, TemplateKey: params.TemplateKey, Widgets: append(json.RawMessage(nil), widgets...), CreatedAt: now, UpdatedAt: now}
+	doc := models.NotepadDocument{ID: id, Title: params.Title, Description: params.Description, OwnerID: params.OwnerID, Content: params.Content, ContentDoc: append(json.RawMessage(nil), contentDoc...), TemplateKey: params.TemplateKey, Widgets: append(json.RawMessage(nil), widgets...), CreatedAt: now, UpdatedAt: now}
 	r.documents[id] = doc
 	return doc, nil
 }
@@ -296,6 +307,9 @@ func (r *InMemoryNotepadRepository) UpdateDocument(_ context.Context, params Upd
 	}
 	if params.Content != nil {
 		doc.Content = *params.Content
+	}
+	if len(params.ContentDoc) > 0 && string(params.ContentDoc) != "null" {
+		doc.ContentDoc = append(json.RawMessage(nil), params.ContentDoc...)
 	}
 	if params.TemplateKey != nil {
 		doc.TemplateKey = params.TemplateKey
@@ -416,7 +430,7 @@ type scanner interface{ Scan(dest ...any) error }
 
 func scanDocument(row scanner) (models.NotepadDocument, error) {
 	var doc models.NotepadDocument
-	if err := row.Scan(&doc.ID, &doc.Title, &doc.Description, &doc.OwnerID, &doc.Content, &doc.TemplateKey, &doc.Widgets, &doc.LastIndexedAt, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
+	if err := row.Scan(&doc.ID, &doc.Title, &doc.Description, &doc.OwnerID, &doc.Content, &doc.ContentDoc, &doc.TemplateKey, &doc.Widgets, &doc.LastIndexedAt, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
 		return models.NotepadDocument{}, err
 	}
 	return doc, nil
