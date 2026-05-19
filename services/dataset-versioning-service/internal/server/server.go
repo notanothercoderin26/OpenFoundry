@@ -101,7 +101,34 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Patch("/datasets/{id}/quality/rules/{rule_id}", h.UpdateQualityRule)
 		api.Delete("/datasets/{id}/quality/rules/{rule_id}", h.DeleteQualityRule)
 		api.Get("/datasets/{id}/lint", h.GetDatasetLint)
-		api.Get("/datasets/{rid}/health", h.GetDatasetHealth)
+		api.Get("/datasets/{id}/health", h.GetDatasetHealth)
+
+		// React UI calls (dataset detail page tabs: Preview, Schema,
+		// Details, Files, Lineage, Retention). The original /v1 mount
+		// carries the same handlers behind the Foundry-parity URL set;
+		// the SPA's `lib/api/client.ts` always prefixes `/api/v1`, so
+		// the routes have to live here too. `datasetIDParam` reads
+		// either `id` or `rid`, so reusing the same handlers works.
+		api.Get("/datasets/{id}/preview", h.PreviewDataset)
+		api.Get("/datasets/{id}/readTable", h.ReadTableDataset)
+		api.Get("/datasets/{id}/schema", h.GetCurrentSchema)
+		api.Put("/datasets/{id}/schema", h.PutFoundryDatasetSchema)
+		api.Post("/datasets/{id}/schema:infer", h.InferDatasetSchema)
+		api.Post("/datasets/{id}/schema:validate", h.ValidateSchema)
+		api.Get("/datasets/{id}/schema/history", h.ListDatasetSchemaHistory)
+		api.Get("/datasets/{id}/storage-details", h.StorageDetails)
+		api.Get("/datasets/{id}/files/index", h.ListDatasetFileIndex)
+		api.Put("/datasets/{id}/files/index", h.PutDatasetFileIndex)
+		api.Get("/datasets/{id}/metadata", h.GetDatasetMetadata)
+		api.Patch("/datasets/{id}/metadata", h.PatchDatasetMetadata)
+		api.Get("/datasets/{id}/lineage-links", h.ListDatasetLineageLinks)
+		api.Put("/datasets/{id}/lineage-links", h.PutDatasetLineageLinks)
+		api.Get("/datasets/{id}/markings", h.ListDatasetMarkings)
+		api.Put("/datasets/{id}/markings", h.PutDatasetMarkings)
+		api.Get("/datasets/{id}/permissions", h.ListDatasetPermissions)
+		api.Put("/datasets/{id}/permissions", h.PutDatasetPermissions)
+		api.Get("/datasets/{id}/model", h.GetDatasetModel)
+		api.Get("/datasets/{id}/compare", h.CompareViews)
 	})
 
 	r.Route("/internal", func(api chi.Router) {
