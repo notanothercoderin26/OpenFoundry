@@ -6,6 +6,7 @@ import { buildObjectViewActionSuccessToastLink, executeAction, executeActionBatc
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { EChartCanvas } from '@/lib/components/EChartCanvas';
 import { AppRenderer } from '@/lib/components/apps/AppRenderer';
+import { useAppHeaderCollapsed } from '@/lib/components/apps/AppHeaderCollapseContext';
 import { FreeFormAnalysisWidget } from '@/lib/components/apps/widgets/FreeFormAnalysisWidget';
 import { WorkshopMapWidget } from '@/lib/components/apps/widgets/WorkshopMapWidget';
 import { readFreeFormAnalysisProps } from '@/lib/components/apps/widgets/freeFormAnalysis';
@@ -5299,6 +5300,64 @@ export function ButtonGroupWidgetView({ widget }: { widget: AppWidget }) {
   const fillHorizontal = Boolean((widget.props as { fill_horizontal?: boolean })?.fill_horizontal);
   const orientation = (widget.props as { orientation?: "horizontal" | "vertical" })?.orientation ?? "horizontal";
   const runtime = useRuntime();
+  // When the surrounding AppHeader is collapsed, swap labels for icon-only
+  // square buttons. This is the OpenFoundry equivalent of Foundry's
+  // "Button Group widgets show icons-only when header collapsed" behaviour.
+  const collapsedHeader = useAppHeaderCollapsed();
+  if (collapsedHeader) {
+    return (
+      <div
+        data-testid={`button-group-${widget.id}-collapsed`}
+        data-collapsed="true"
+        style={{
+          padding: 4,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+        }}
+      >
+        {buttons.map((btn) => {
+          const icon = btn.icon && btn.icon.trim() ? btn.icon : (btn.label?.charAt(0) ?? '·');
+          return (
+            <button
+              key={btn.id}
+              type="button"
+              className="of-button of-button--ghost"
+              aria-label={btn.label}
+              title={btn.label}
+              data-button-id={btn.id}
+              data-icon-only="true"
+              onClick={(event) => {
+                if (runtime.preview) {
+                  event.stopPropagation();
+                  void (async () => {
+                    await runtime.dispatchEvents(widget, 'click', {
+                      button_id: btn.id,
+                      button_label: btn.label,
+                      button: btn,
+                    });
+                    runtime.onButtonClick(btn);
+                  })();
+                }
+              }}
+              style={{
+                width: 36,
+                height: 36,
+                padding: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 16,
+                lineHeight: 1,
+              }}
+            >
+              <span aria-hidden="true">{icon}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
   return (
     <div style={{ padding: 10, display: orientation === "horizontal" ? "flex" : "grid", gap: 6 }}>
       {buttons.map((btn) => (
