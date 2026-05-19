@@ -39,6 +39,7 @@ import { HistogramFacets, type HistogramFilterChip } from './search-around/Histo
 import { TemplateBuilder, type BuilderLayerOption } from './template/TemplateBuilder';
 import { UseTemplateDialog } from './template/UseTemplateDialog';
 import { listGraphTemplates, type GraphTemplate } from '@/lib/api/vertexTemplates';
+import { EventBadgeOverlay, type NodeEventBadge } from './EventBadgeOverlay';
 import { useSearchParams } from 'react-router-dom';
 
 type LayoutMode = 'cose' | 'breadthfirst' | 'grid' | 'circle' | 'concentric';
@@ -329,6 +330,13 @@ export function VertexPage() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState('');
   const cyRef = useRef<Core | null>(null);
+  // We also keep the cytoscape Core in React state so child overlays
+  // (event badges, future linked-events context menu) re-render when
+  // the canvas instance becomes available.
+  const [cyInstance, setCyInstance] = useState<Core | null>(null);
+  // Right-click context menu for a graph node. The {x, y} are
+  // relative to the canvas wrapper (renderedPosition from cytoscape).
+  const [nodeContextMenu, setNodeContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [pinnedPositions, setPinnedPositions] = useState<Record<string, { x: number; y: number }>>({});
 
   const [subtitleField, setSubtitleField] = useState('');
@@ -867,6 +875,68 @@ export function VertexPage() {
     return Object.entries(buckets).map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count);
   }, [graph, groupByMode, groupByProperty]);
 
+  // Per-node aggregation of linked events. For every non-event node
+  // we count how many adjacent nodes resolve to a type that has been
+  // tagged with a vertex_event intent, and surface the most severe
+  // intent so the badge tone reflects the worst signal.
+  const nodeEventBadges = useMemo<Record<string, NodeEventBadge>>(() => {
+    if (!filteredGraph) return {};
+    const SEVERITY: Record<string, number> = {
+      danger: 4,
+      warning: 3,
+      primary: 2,
+      success: 1,
+    };
+    // Adjacency: build a Set per node id.
+    const adjacency = new Map<string, Set<string>>();
+    for (const edge of filteredGraph.edges) {
+      if (!adjacency.has(edge.source)) adjacency.set(edge.source, new Set());
+      if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set());
+      adjacency.get(edge.source)!.add(edge.target);
+      adjacency.get(edge.target)!.add(edge.source);
+    }
+    const nodeById = new Map(filteredGraph.nodes.map((n) => [n.id, n]));
+    const lookupIntent = (node: typeof filteredGraph.nodes[number]) => {
+      const a = eventIntentByTypeKey.get(node.secondary_label ?? '');
+      if (a) return a;
+      return eventIntentByTypeKey.get(node.kind ?? '');
+    };
+    const out: Record<string, NodeEventBadge> = {};
+    for (const node of filteredGraph.nodes) {
+      // Event-shaped nodes themselves are not target hosts — they
+      // are the badge data, not the badge owner.
+      if (lookupIntent(node)) continue;
+      const neighbours = adjacency.get(node.id);
+      if (!neighbours || neighbours.size === 0) continue;
+      let count = 0;
+      let topIntent: string | null = null;
+      let topTone: string | null = null;
+      let topSeverity = -1;
+      for (const otherId of neighbours) {
+        const other = nodeById.get(otherId);
+        if (!other) continue;
+        const entry = lookupIntent(other);
+        if (!entry) continue;
+        count += 1;
+        const sev = SEVERITY[entry.intent] ?? 0;
+        if (sev > topSeverity) {
+          topSeverity = sev;
+          topIntent = entry.intent;
+          topTone = entry.tone;
+        }
+      }
+      if (count > 0 && topIntent && topTone) {
+        out[node.id] = {
+          count,
+          intent: topIntent,
+          tone: topTone,
+          label: `${count} linked ${topIntent} event${count === 1 ? '' : 's'}`,
+        };
+      }
+    }
+    return out;
+  }, [filteredGraph, eventIntentByTypeKey]);
+
   const cyElements = useMemo<ElementDefinition[]>(() => {
     if (!filteredGraph) return [];
     return [
@@ -973,15 +1043,32 @@ export function VertexPage() {
 
   const handleCytoscapeReady = useCallback((cy: Core) => {
     cyRef.current = cy;
+    setCyInstance(cy);
     cy.on('tap', 'node', (event: EventObject) => {
       const id = String(event.target.id());
       setSelectedNodeId(id);
       const maybeMulti = (event.originalEvent as MouseEvent | undefined)?.shiftKey;
       setSelectedNodeIds((prev) => (maybeMulti ? Array.from(new Set([...prev, id])) : [id]));
       setSelectedEdgeId('');
+      setNodeContextMenu(null);
     });
     cy.on('tap', 'edge', (event: EventObject) => {
       setSelectedEdgeId(String(event.target.id()));
+      setNodeContextMenu(null);
+    });
+    // Tap on empty canvas dismisses the context menu.
+    cy.on('tap', (event: EventObject) => {
+      if (event.target === cy) setNodeContextMenu(null);
+    });
+    cy.on('cxttap', 'node', (event: EventObject) => {
+      const id = String(event.target.id());
+      const rp = event.target.renderedPosition();
+      setSelectedNodeId(id);
+      setNodeContextMenu({ nodeId: id, x: rp.x, y: rp.y });
+      const orig = event.originalEvent as MouseEvent | TouchEvent | undefined;
+      if (orig && typeof (orig as MouseEvent).preventDefault === 'function') {
+        (orig as MouseEvent).preventDefault();
+      }
     });
     cy.on('mouseover', 'node,edge', (event: EventObject) => {
       setHoveredElementId(String(event.target.id()));
@@ -991,6 +1078,11 @@ export function VertexPage() {
       const pos = event.target.position();
       setPinnedPositions((prev) => ({ ...prev, [id]: { x: pos.x, y: pos.y } }));
       event.target.lock();
+    });
+    cy.on('viewport pan zoom', () => {
+      // A repositioning gesture invalidates the floating context menu
+      // — we close it rather than chase the node around.
+      setNodeContextMenu(null);
     });
   }, []);
 
@@ -1867,6 +1959,72 @@ export function VertexPage() {
                   height={640}
                   onReady={handleCytoscapeReady}
                 />
+                <EventBadgeOverlay cy={cyInstance} badges={nodeEventBadges} />
+                {nodeContextMenu && (
+                  <div
+                    role="menu"
+                    style={{
+                      position: 'absolute',
+                      top: nodeContextMenu.y + 12,
+                      left: nodeContextMenu.x + 12,
+                      background: 'rgba(15, 23, 42, 0.98)',
+                      color: '#e2e8f0',
+                      border: '1px solid rgba(148, 163, 184, 0.25)',
+                      borderRadius: 8,
+                      padding: 6,
+                      boxShadow: '0 8px 18px rgba(0,0,0,0.35)',
+                      minWidth: 200,
+                      zIndex: 30,
+                    }}
+                    onMouseLeave={() => setNodeContextMenu(null)}
+                  >
+                    <button
+                      type="button"
+                      className="of-btn of-btn-ghost"
+                      style={{ width: '100%', justifyContent: 'flex-start', color: 'inherit' }}
+                      onClick={() => {
+                        setSelectedNodeId(nodeContextMenu.nodeId);
+                        setActiveTab('events');
+                        setNodeContextMenu(null);
+                      }}
+                      disabled={!nodeEventBadges[nodeContextMenu.nodeId]}
+                      title={
+                        nodeEventBadges[nodeContextMenu.nodeId]
+                          ? nodeEventBadges[nodeContextMenu.nodeId].label ?? 'Open linked events'
+                          : 'No linked events tagged for this node'
+                      }
+                    >
+                      Open linked events
+                      {nodeEventBadges[nodeContextMenu.nodeId]
+                        ? ` · ${nodeEventBadges[nodeContextMenu.nodeId].count}`
+                        : ''}
+                    </button>
+                    <button
+                      type="button"
+                      className="of-btn of-btn-ghost"
+                      style={{ width: '100%', justifyContent: 'flex-start', color: 'inherit' }}
+                      onClick={() => {
+                        setSelectedNodeId(nodeContextMenu.nodeId);
+                        setActiveTab('series');
+                        setNodeContextMenu(null);
+                      }}
+                    >
+                      Open series
+                    </button>
+                    <button
+                      type="button"
+                      className="of-btn of-btn-ghost"
+                      style={{ width: '100%', justifyContent: 'flex-start', color: 'inherit' }}
+                      onClick={() => {
+                        setSelectedNodeId(nodeContextMenu.nodeId);
+                        setActiveTab('selection');
+                        setNodeContextMenu(null);
+                      }}
+                    >
+                      Show properties
+                    </button>
+                  </div>
+                )}
                 {histogramChips.length > 0 && (
                   <div
                     style={{
