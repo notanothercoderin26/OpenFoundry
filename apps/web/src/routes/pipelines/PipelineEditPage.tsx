@@ -40,6 +40,7 @@ import { UnionEditor } from '@/lib/components/pipeline/UnionEditor';
 import { composeUnionSql, newUnionDraft, type UnionDraft } from '@/lib/components/pipeline/unionDraft';
 import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/OutputDrawer';
 import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
+import { PipelineDetailsDrawer } from '@/lib/components/pipeline/PipelineDetailsDrawer';
 import { previewDataset } from '@/lib/api/datasets';
 import { ensureExpectationChangesReviewed, guardPipelineRunWithExpectationGates } from '@/lib/api/data-expectations';
 import { virtualTableExternalReference, type VirtualTable } from '@/lib/api/virtual-tables';
@@ -295,6 +296,7 @@ export function PipelineEditPage() {
   const [outputDraft, setOutputDraft] = useState<OutputDraft | null>(null);
   const [outputNodeId, setOutputNodeId] = useState<string | null>(null);
   const [deployOpen, setDeployOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [aipOpen, setAipOpen] = useState(false);
   const [aipPrompt, setAipPrompt] = useState('');
   const [aipBusy, setAipBusy] = useState(false);
@@ -996,6 +998,15 @@ export function PipelineEditPage() {
             >
               Deploy
             </button>
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="of-button"
+              aria-label="Share"
+              title="Share"
+            >
+              <Glyph name="add-user" size={12} /> Share
+            </button>
           </div>
         </div>
       </header>
@@ -1353,6 +1364,15 @@ export function PipelineEditPage() {
           void loadRuns();
           setTab('runs');
         }}
+      />
+
+      <PipelineDetailsDrawer
+        open={shareOpen}
+        pipeline={pipeline}
+        branchName={branchName}
+        description={description}
+        onDescriptionChange={setDescription}
+        onClose={() => setShareOpen(false)}
       />
     </section>
   );
