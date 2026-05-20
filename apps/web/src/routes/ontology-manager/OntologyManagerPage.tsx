@@ -102,6 +102,7 @@ import { listPipelines, type Pipeline } from "@/lib/api/pipelines";
 import { Glyph } from "@/lib/components/ui/Glyph";
 import { CreateObjectTypeWizard } from "@/lib/components/ontology/CreateObjectTypeWizard";
 import { LinkEditor } from "@/lib/components/ontology/LinkEditor";
+import { OntologyEditsButton } from "@/lib/components/ontology/OntologyEditsButton";
 import { calculateLogicMetrics, type LogicRunHistoryRecord } from "@/lib/logic/blocks";
 import { useAuth } from "@/lib/stores/auth";
 
@@ -1347,6 +1348,10 @@ export function OntologyManagerPage() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Working-state edit counter + Review-edits modal opener.
+              Hidden when there are zero staged edits, so the top bar
+              keeps the read-only layout intact in the common case. */}
+          <OntologyEditsButton />
           <Link
             to="/ontology-manager/bindings"
             className="of-button"
