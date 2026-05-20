@@ -1755,6 +1755,54 @@ button {
   min-width: 0;
 }
 
+.of-quicksearch-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.of-quicksearch-popup__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(8, 11, 16, 0.45);
+}
+
+.of-quicksearch-popup__surface {
+  position: absolute;
+  top: 56px;
+  left: 270px;
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, calc(100vw - 296px));
+  max-height: calc(100vh - 80px);
+  overflow: hidden;
+  border: 1px solid rgba(14, 18, 24, 0.4);
+  background: #0d1218;
+  color: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 22px 42px rgba(8, 11, 16, 0.5);
+}
+
+.of-quicksearch-popup[data-sidebar-collapsed] .of-quicksearch-popup__surface {
+  left: 80px;
+  width: min(1280px, calc(100vw - 106px));
+}
+
+.of-quicksearch-popup__loading {
+  padding: 32px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Override Quicksearch root sizing when embedded inside the popup. The
+   route-page version assumes a full-bleed viewport; inside the popup it
+   should fill the modal surface instead. */
+.of-quicksearch-popup .of-quicksearch,
+.of-quicksearch[data-embedded] {
+  height: 100%;
+  max-height: calc(100vh - 80px);
+}
+
 .of-app-launcher {
   position: fixed;
   inset: 0;
