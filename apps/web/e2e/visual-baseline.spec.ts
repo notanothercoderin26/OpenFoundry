@@ -1,5 +1,6 @@
-import { test, expect } from './fixtures/base';
+import { test } from './fixtures/base';
 import { mockAuth } from './fixtures/mocks';
+import { expectScreenshot, prepareForVisual } from './helpers/visual';
 import { LoginPage } from './pages/LoginPage';
 
 /**
@@ -7,7 +8,7 @@ import { LoginPage } from './pages/LoginPage';
  * `e2e/__snapshots__/` and are pixel-compared on every run.
  *
  * Generating / updating snapshots:
- *   pnpm test:e2e:update-snapshots
+ *   pnpm --filter @open-foundry/web exec playwright test --update-snapshots
  *
  * Only stable, fully-static surfaces belong here. Workshop runtimes, charts,
  * graphs and editor canvases produce per-run pixel noise and should NOT be
@@ -22,13 +23,7 @@ test.describe('visual baselines', () => {
     await login.goto();
     await login.expectVisible();
 
-    // Wait for fonts to settle so the diff is deterministic.
-    await page.evaluate(() => document.fonts.ready);
-
-    await expect(page).toHaveScreenshot('login.png', {
-      fullPage: true,
-      maxDiffPixelRatio: 0.01,
-      animations: 'disabled',
-    });
+    await prepareForVisual(page);
+    await expectScreenshot(page, 'login');
   });
 });

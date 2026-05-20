@@ -35,10 +35,18 @@ type FixtureOptions = {
   freezeTime: boolean;
   /**
    * Patterns to strip from {@link pageErrors} before the auto post-test
-   * assertion. Override per file via
-   * `test.use({ errorAllowlist: [...DEFAULT_ERROR_ALLOWLIST, /my noise/] })`.
+   * assertion. Wrapped in `{ patterns: [...] }` because Playwright's
+   * `test.use` mis-detects bare array values as fixture-override tuples
+   * (`[value, opts]`), which silently collapses the array to its first
+   * element. Override per file via:
+   *
+   *     test.use({
+   *       errorAllowlist: {
+   *         patterns: [...DEFAULT_ERROR_ALLOWLIST, /my noise/],
+   *       },
+   *     });
    */
-  errorAllowlist: readonly RegExp[];
+  errorAllowlist: { patterns: readonly RegExp[] };
 };
 
 type Fixtures = {
@@ -101,7 +109,7 @@ export const test = base.extend<FixtureOptions & Fixtures>({
 
   authOptions: [{}, { option: true }],
   freezeTime: [false, { option: true }],
-  errorAllowlist: [DEFAULT_ERROR_ALLOWLIST, { option: true }],
+  errorAllowlist: [{ patterns: DEFAULT_ERROR_ALLOWLIST }, { option: true }],
 
   // ---- Auto fixtures ------------------------------------------------------
 
@@ -129,7 +137,7 @@ export const test = base.extend<FixtureOptions & Fixtures>({
       if (testInfo.status !== testInfo.expectedStatus) return;
 
       const filtered = errors.filter(
-        (e) => !errorAllowlist.some((rx) => rx.test(e)),
+        (e) => !errorAllowlist.patterns.some((rx) => rx.test(e)),
       );
       expect(
         filtered,

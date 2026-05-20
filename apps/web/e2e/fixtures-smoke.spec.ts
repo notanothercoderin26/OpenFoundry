@@ -83,7 +83,7 @@ test('viewerPage exposes the read-only identity', async ({ viewerPage }) => {
 });
 
 test.describe('pageErrors allowlist', () => {
-  test.use({ errorAllowlist: [/expected noise/i] });
+  test.use({ errorAllowlist: { patterns: [/expected noise/i] } });
 
   test('custom allowlist filters matching console errors', async ({ adminPage }) => {
     await adminPage.route('**/__smoke__', async (route) => {

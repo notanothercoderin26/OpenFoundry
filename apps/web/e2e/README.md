@@ -48,16 +48,56 @@ pnpm --filter @open-foundry/web test:e2e:report
 
 ### Visual snapshots
 
-Snapshots live in `e2e/__snapshots__/` and are diffed pixel-by-pixel. The
-first time you add a `toHaveScreenshot()` assertion, generate the baseline
-locally and commit it:
+Snapshots live in `e2e/__snapshots__/<spec>-snapshots/<name>-<project>-<platform>.png`
+and are diffed pixel-by-pixel on every run. Use the
+{@link helpers/visual.ts} helpers — `prepareForVisual(page)` and
+`expectScreenshot(page, name)` — instead of calling `toHaveScreenshot`
+directly so the project-wide defaults (animations disabled, fonts
+ready, default mask set, `maxDiffPixelRatio: 0.01`) stay in sync.
 
-```sh
-pnpm --filter @open-foundry/web test:e2e:update-snapshots
+Authoring a new snapshot:
+
+```ts
+import { expectScreenshot, prepareForVisual } from './helpers/visual';
+
+test('my page is visually stable', async ({ adminPage, apiMocks }) => {
+  await apiMocks.mockDatasetsList(adminPage);
+  await adminPage.goto('/datasets');
+
+  await prepareForVisual(adminPage);
+  await expectScreenshot(adminPage, 'datasets-list', {
+    mask: [adminPage.getByRole('cell', { name: /^\d+ MB$/ })],
+  });
+});
 ```
 
-Snapshots are platform-sensitive — regenerate on Linux/CI if you author on
-macOS or Windows.
+Generating / refreshing baselines:
+
+```sh
+# Regenerate every snapshot in the suite (use sparingly — re-review diffs!).
+pnpm --filter @open-foundry/web exec playwright test --update-snapshots
+
+# Regenerate just one spec's baselines.
+pnpm --filter @open-foundry/web exec playwright test datasets-list --update-snapshots
+
+# Regenerate per-browser (run inside the matching project).
+pnpm --filter @open-foundry/web exec playwright test --project=firefox --update-snapshots
+```
+
+After regenerating, **review the diff** before committing — a baseline
+update is functionally a "this is what the page should look like" commit
+and silently locks in any unintended UI change. CI baselines are
+generated on Linux; if you author on macOS / Windows, regenerate inside
+a Linux container (or let CI fail once and pull the artifact).
+
+Volatile content is masked automatically by `expectScreenshot`:
+- `<time>` elements
+- `[data-testid$="-timestamp"]`, `[data-testid$="-id"]`,
+  `[data-testid$="-uuid"]`, `[data-testid$="-relative-time"]`
+- Externally hosted avatars (`img[src*="avatar"]`, `…gravatar`)
+- Anything tagged `[data-mask-visual]` (opt-in for new code)
+
+Pass extra locators via the `mask` option for spec-specific noise.
 
 ### Browser filter
 
@@ -87,17 +127,21 @@ Per-test option knobs (set via `test.use({...})`):
 |------------------|-------------------------------|-----------------------------------------------------------------------------------|
 | `authOptions`    | `{}`                          | Forwarded to `mockAuth` (user overrides, sso providers, requiresInitialAdmin).    |
 | `freezeTime`     | `false`                       | When `true`, `Date.now()` / `new Date()` are pinned to `E2E_NOW` on every page.   |
-| `errorAllowlist` | `DEFAULT_ERROR_ALLOWLIST`     | Regex array filtered out before the `pageErrors` post-test assertion.             |
+| `errorAllowlist` | `{ patterns: DEFAULT_ERROR_ALLOWLIST }` | Regex bag filtered out before the `pageErrors` post-test assertion. |
 
 The default allowlist covers `ERR_ABORTED`, `Failed to load resource`,
 `AbortError`, and `ResizeObserver loop` noise. Extend it (don't replace it)
-if your spec genuinely needs to tolerate more:
+if your spec genuinely needs to tolerate more. The option value is wrapped
+in `{ patterns: [...] }` because Playwright's `test.use` mis-detects bare
+array values as fixture-override tuples:
 
 ```ts
 import { DEFAULT_ERROR_ALLOWLIST } from './fixtures/base';
 
 test.use({
-  errorAllowlist: [...DEFAULT_ERROR_ALLOWLIST, /MapLibre canvas warning/],
+  errorAllowlist: {
+    patterns: [...DEFAULT_ERROR_ALLOWLIST, /MapLibre canvas warning/],
+  },
 });
 ```
 
@@ -235,8 +279,52 @@ test('my page is accessible', async ({ page }) => {
 });
 ```
 
-Exclusions need a justifying comment — third-party canvases are fine, our
-own components are not.
+Heavy third-party widgets (Monaco, Cytoscape, MapLibre, ECharts) are
+excluded by default via `DEFAULT_A11Y_EXCLUDES`. Additional exclusions
+need a justifying comment — third-party canvases are fine, our own
+components are not.
+
+Every scan writes a detailed JSON report to
+`test-results/a11y/<test-name>.json` (and attaches it to the Playwright
+HTML report) with violation counts, node selectors, HTML snippets, and
+help URLs. CI uploads `test-results/a11y/` as an artifact for triage.
+
+For one-call "go to a route and audit it", use `auditPageA11y`:
+
+```ts
+import { auditPageA11y } from './helpers/a11y';
+
+test('datasets list is accessible', async ({ adminPage }) => {
+  await auditPageA11y(adminPage, {
+    route: '/datasets',
+    screenshot: true, // attach a screenshot on violation for triage
+  });
+});
+```
+
+For pages with known noisy rules you'd rather track than fail on, set
+per-rule severity:
+
+```ts
+await expectNoA11yViolations(page, {
+  rules: {
+    'color-contrast': 'warn',      // logged + reported, doesn't fail
+    region: 'off',                  // disabled in axe entirely
+    'aria-allowed-attr': 'error',  // default — fails the test
+  },
+});
+```
+
+`warn` violations show up as a `a11y-warning` annotation on the test
+result and still appear in the JSON report. Use sparingly; the goal is
+zero `error` violations across the suite.
+
+`include` scopes the scan INTO a subtree (useful when one component is
+ready before the rest of the page):
+
+```ts
+await expectNoA11yViolations(page, { include: ['[data-testid="datasets-table"]'] });
+```
 
 ## CI
 
