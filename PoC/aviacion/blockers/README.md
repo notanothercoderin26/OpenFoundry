@@ -10,11 +10,11 @@ This folder gives an AI agent — or a senior engineer — a **single jump-off
 point per blocker** that combines:
 
 1. The exact OpenFoundry service and launcher app affected
-   ([../../docs/reference/launcher-app-mapping.md](../../docs/reference/launcher-app-mapping.md)).
+   ([../../docs/reference/launcher-app-mapping.md](../../../docs/reference/launcher-app-mapping.md)).
 2. The PoC act(s) that break because of it
    ([../11-guion-demo.md](../11-guion-demo.md)).
 3. The existing OpenFoundry 1-to-1 parity checklist for the area
-   ([../../docs/migration/](../../docs/migration/)).
+   ([../../docs/migration/](../../../docs/migration/)).
 4. **The public Palantir Foundry documentation** that defines the target
    behavior, both as live URLs *and* as locally scraped Markdown + full-page
    screenshots (so the agent can `Read` the PNGs and the MD without network).
@@ -22,14 +22,14 @@ point per blocker** that combines:
    to unblock the PoC.
 
 Parity scope is governed by
-[../../docs/reference/foundry-public-docs-parity-policy.md](../../docs/reference/foundry-public-docs-parity-policy.md):
+[../../docs/reference/foundry-public-docs-parity-policy.md](../../../docs/reference/foundry-public-docs-parity-policy.md):
 public docs are reference material, not copy-paste source.
 
 ---
 
 ## How the scraped material is generated
 
-The scraper at [../../docs_original_palantir_foundry/scraper.py](../../docs_original_palantir_foundry/scraper.py)
+The scraper at [../../docs_original_palantir_foundry/scraper.py](../../../docs_original_palantir_foundry/scraper.py)
 accepts a `--seed-urls` flag (added 2026-05-20) so we can mirror **only** the
 pages relevant to these blockers, instead of the whole Foundry docs tree.
 
@@ -74,13 +74,13 @@ above and the paths will resolve.
 
 | ID | Title | OpenFoundry service | Launcher app(s) | PoC act(s) | 1-to-1 checklist | Severity |
 |---|---|---|---|---|---|---|
-| [B01](B01-workshop-backend.md) | Workshop backend (app composition) is a stub | `application-composition-service` | #28 Workshop (`/apps`) | Act 4 | [foundry-workshop-pipeline-1to1-checklist.md](../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) | **Critical** |
-| [B02](B02-ontology-definition.md) | Ontology definition service is a stub | `ontology-definition-service` | #2 Ontology Manager (`/ontology-manager`) | Act 2 | [foundry-ontology-manager-object-views-1to1-checklist.md](../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md) | **Critical** |
-| [B03](B03-ontology-indexer.md) | Ontology indexer is a stub | `ontology-indexer` | #2 Ontology Manager → "Ontology Indexing" tab, impacts #3 Object Explorer | Act 2, Act 4 | [foundry-ontology-manager-object-views-1to1-checklist.md](../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md) | High |
-| [B04](B04-llm-catalog.md) | LLM catalog service is a stub | `llm-catalog-service` | #27 Model Catalog (`/model-catalog`), feeds #19-#26 AI family | Act 5 | [foundry-aip-document-analyst-catalog-1to1-checklist.md](../../docs/migration/foundry-aip-document-analyst-catalog-1to1-checklist.md) | **Critical** |
-| [B05](B05-notifications.md) | Notification & alerting service is a stub | `notification-alerting-service` | Cross-cutting: #36 Operational Rules, #37 Dynamic Schedules, #38 Approvals | Act 5, Act 6 | [foundry-automate-rules-1to1-checklist.md](../../docs/migration/foundry-automate-rules-1to1-checklist.md) | High |
-| [B06](B06-iceberg-e2e.md) | Iceberg end-to-end is in Phase A/B | `pipeline-runtime` lib + `iceberg-catalog-service` + `pipeline-runner-spark` | #5 Pipeline Builder (`/pipelines`), Iceberg Tables tab, #7 Data Lineage | Act 1, Act 3 | [foundry-workshop-pipeline-1to1-checklist.md](../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) | High |
-| [B07](B07-agent-runtime-tool-routing.md) | Agent runtime is partial: tool routing depends on stub ontology | `agent-runtime-service` + `retrieval-context-service` | #20 AI Assist, #21 AI Analyst, #22 AI Threads, #26 AI Operator | Act 5 | [foundry-aip-agents-threads-assist-1to1-checklist.md](../../docs/migration/foundry-aip-agents-threads-assist-1to1-checklist.md) | **Critical** |
+| [B01](B01-workshop-backend.md) | Workshop backend (app composition) is a stub | `application-composition-service` | #28 Workshop (`/apps`) | Act 4 | [foundry-workshop-pipeline-1to1-checklist.md](../../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) | **Critical** |
+| [B02](B02-ontology-definition.md) | Ontology definition service is a stub | `ontology-definition-service` | #2 Ontology Manager (`/ontology-manager`) | Act 2 | [foundry-ontology-manager-object-views-1to1-checklist.md](../../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md) | **Critical** |
+| [B03](B03-ontology-indexer.md) | Ontology indexer is a stub | `ontology-indexer` | #2 Ontology Manager → "Ontology Indexing" tab, impacts #3 Object Explorer | Act 2, Act 4 | [foundry-ontology-manager-object-views-1to1-checklist.md](../../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md) | High |
+| [B04](B04-llm-catalog.md) | LLM catalog service is a stub | `llm-catalog-service` | #27 Model Catalog (`/model-catalog`), feeds #19-#26 AI family | Act 5 | [foundry-aip-document-analyst-catalog-1to1-checklist.md](../../../docs/migration/foundry-aip-document-analyst-catalog-1to1-checklist.md) | **Critical** |
+| [B05](B05-notifications.md) | Notification & alerting service is a stub | `notification-alerting-service` | Cross-cutting: #36 Operational Rules, #37 Dynamic Schedules, #38 Approvals | Act 5, Act 6 | [foundry-automate-rules-1to1-checklist.md](../../../docs/migration/foundry-automate-rules-1to1-checklist.md) | High |
+| [B06](B06-iceberg-e2e.md) | Iceberg end-to-end is in Phase A/B | `pipeline-runtime` lib + `iceberg-catalog-service` + `pipeline-runner-spark` | #5 Pipeline Builder (`/pipelines`), Iceberg Tables tab, #7 Data Lineage | Act 1, Act 3 | [foundry-workshop-pipeline-1to1-checklist.md](../../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) | High |
+| [B07](B07-agent-runtime-tool-routing.md) | Agent runtime is partial: tool routing depends on stub ontology | `agent-runtime-service` + `retrieval-context-service` | #20 AI Assist, #21 AI Analyst, #22 AI Threads, #26 AI Operator | Act 5 | [foundry-aip-agents-threads-assist-1to1-checklist.md](../../../docs/migration/foundry-aip-agents-threads-assist-1to1-checklist.md) | **Critical** |
 
 Severity legend: **Critical** = the PoC narrative cannot continue past this
 gap; **High** = the gap can be worked around with degraded behavior but the
