@@ -5,7 +5,14 @@ import { CreateProjectModal } from '@/lib/components/projects/CreateProjectModal
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { listDatasets, type Dataset } from '@/lib/api/datasets';
 import { listProjects, type OntologyProject } from '@/lib/api/ontology';
-import { listSharedWithMe, type ResourceShare } from '@/lib/api/workspace';
+import {
+  listRecents,
+  listSharedWithMe,
+  resolveResourceLabels,
+  type RecentEntry,
+  type ResourceKind,
+  type ResourceShare,
+} from '@/lib/api/workspace';
 import { projectStablePath, workspaceResourceStablePath } from '@/lib/compass/stableResourceUrls';
 import { useAuth } from '@/lib/stores/auth';
 
@@ -32,6 +39,99 @@ const NEW_ACTIONS: { label: string; to: string; description: string }[] = [
   { label: 'New pipeline', to: '/pipelines/new', description: 'Author a batch or streaming pipeline.' },
   { label: 'Upload data', to: '/datasets/upload', description: 'Upload files to a new dataset.' },
 ];
+
+interface QuickStartTile {
+  label: string;
+  description: string;
+  to?: string;
+  action?: 'create-collection';
+  glyph: GlyphName;
+  tone: string;
+}
+
+const QUICK_START_TILES: QuickStartTile[] = [
+  {
+    label: 'Create a collection',
+    description: 'Group related datasets, dashboards and notebooks under one project.',
+    action: 'create-collection',
+    glyph: 'project',
+    tone: 'var(--status-info)',
+  },
+  {
+    label: 'Upload a dataset',
+    description: 'Bring CSV, Parquet or JSON files into the catalog in minutes.',
+    to: '/datasets/upload',
+    glyph: 'database',
+    tone: 'var(--status-success, #2f855a)',
+  },
+  {
+    label: 'Build a pipeline',
+    description: 'Author a batch or streaming transformation between datasets.',
+    to: '/pipelines/new',
+    glyph: 'graph',
+    tone: 'var(--accent-strong, #6b46c1)',
+  },
+  {
+    label: 'Explore the ontology',
+    description: 'Browse object types, links and the shared semantic model.',
+    to: '/ontology',
+    glyph: 'ontology',
+    tone: 'var(--status-warning, #b45309)',
+  },
+];
+
+function greeting(now: Date): string {
+  const h = now.getHours();
+  if (h < 5) return 'Good evening';
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function firstName(user: { name?: string | null; email?: string | null } | null | undefined): string {
+  if (!user) return 'there';
+  const raw = (user.name ?? user.email ?? '').trim();
+  if (!raw) return 'there';
+  const first = raw.split(/[\s@.]+/)[0];
+  if (!first) return raw;
+  return first.charAt(0).toUpperCase() + first.slice(1);
+}
+
+function relativeTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(date);
+}
+
+function recentKey(entry: Pick<RecentEntry, 'resource_kind' | 'resource_id'>) {
+  return `${entry.resource_kind}:${entry.resource_id}`;
+}
+
+function resourceKindLabel(kind: ResourceKind | string): string {
+  return String(kind).replace(/^ontology_/, '').replace(/_/g, ' ');
+}
+
+function glyphForResource(kind: ResourceKind | string): GlyphName {
+  if (kind === 'ontology_project') return 'project';
+  if (kind === 'ontology_folder') return 'folder';
+  if (kind === 'dataset') return 'database';
+  if (kind === 'pipeline') return 'graph';
+  if (kind === 'notebook') return 'code';
+  if (kind === 'app') return 'app';
+  if (kind === 'dashboard') return 'spreadsheet';
+  if (kind === 'report') return 'document';
+  if (kind === 'model') return 'cube';
+  if (kind === 'workflow') return 'run';
+  return 'object';
+}
 
 const FALLBACK_OWNER_HINT = 'Demo collection';
 const PAGE_SIZE = 50;
@@ -71,6 +171,8 @@ export function Home() {
   const [projects, setProjects] = useState<OntologyProject[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [shared, setShared] = useState<ResourceShare[]>([]);
+  const [recents, setRecents] = useState<RecentEntry[]>([]);
+  const [recentLabels, setRecentLabels] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -82,12 +184,30 @@ export function Home() {
       listProjects({ per_page: PAGE_SIZE }).then((res) => res.data),
       listDatasets({ per_page: PAGE_SIZE }).then((res) => res.data),
       listSharedWithMe({ limit: PAGE_SIZE }),
+      listRecents({ limit: 8 }).catch(() => [] as RecentEntry[]),
     ])
-      .then(([nextProjects, nextDatasets, nextShared]) => {
+      .then(async ([nextProjects, nextDatasets, nextShared, nextRecents]) => {
         if (cancelled) return;
         setProjects(nextProjects);
         setDatasets(nextDatasets);
         setShared(nextShared);
+        setRecents(nextRecents);
+        if (nextRecents.length > 0) {
+          const resolved = await resolveResourceLabels(
+            nextRecents.map((entry) => ({
+              resource_kind: entry.resource_kind,
+              resource_id: entry.resource_id,
+            })),
+          ).catch(() => null);
+          if (cancelled) return;
+          const map = new Map<string, string>();
+          for (const entry of resolved?.data ?? []) {
+            if (entry.label) map.set(recentKey(entry), entry.label);
+          }
+          setRecentLabels(map);
+        } else {
+          setRecentLabels(new Map());
+        }
       })
       .catch((cause) => {
         if (cancelled) return;
@@ -123,9 +243,20 @@ export function Home() {
   }, [datasets, user]);
 
   const showFiltersSidebar = activeSpace === 'data-catalog' && activeSubTab === 'files';
+  const isEmptyWorkspace = !loading && projects.length === 0 && datasets.length === 0 && recents.length === 0;
 
   return (
-    <section className="of-page" style={{ display: 'grid', gap: 12 }}>
+    <section className="of-page" style={{ display: 'grid', gap: 16 }}>
+      <HomeGreeting userName={firstName(user)} />
+
+      {recents.length > 0 ? (
+        <RecentStrip entries={recents} labels={recentLabels} />
+      ) : null}
+
+      {isEmptyWorkspace ? (
+        <QuickStartTiles onCreateCollection={() => setCreateOpen(true)} />
+      ) : null}
+
       {/* Top spaces strip */}
       <div
         style={{
@@ -712,6 +843,186 @@ function SharedView({ shared, loading }: { shared: ResourceShare[]; loading: boo
           )}
         </tbody>
       </table>
+    </section>
+  );
+}
+
+function HomeGreeting({ userName }: { userName: string }) {
+  const hello = useMemo(() => greeting(new Date()), []);
+  return (
+    <header style={{ display: 'grid', gap: 2 }}>
+      <h1 className="of-heading-xl" style={{ margin: 0, fontSize: 22 }}>
+        {hello}, {userName}
+      </h1>
+      <p className="of-text-muted" style={{ margin: 0, fontSize: 13 }}>
+        Here&apos;s what&apos;s happening in your workspace.
+      </p>
+    </header>
+  );
+}
+
+function RecentStrip({
+  entries,
+  labels,
+}: {
+  entries: RecentEntry[];
+  labels: Map<string, string>;
+}) {
+  const visible = entries.slice(0, 6);
+  return (
+    <section style={{ display: 'grid', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h2
+          className="of-eyebrow"
+          style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <Glyph name="history" size={14} /> Recent
+        </h2>
+        <Link to="/recent" className="of-link" style={{ fontSize: 12 }}>
+          View all
+        </Link>
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+          gap: 8,
+        }}
+      >
+        {visible.map((entry) => {
+          const key = recentKey(entry);
+          const label = labels.get(key) ?? entry.resource_id;
+          return (
+            <Link
+              key={key}
+              to={workspaceResourceStablePath(entry.resource_kind, entry.resource_id, label)}
+              className="of-panel"
+              style={{
+                display: 'grid',
+                gap: 6,
+                padding: '10px 12px',
+                textDecoration: 'none',
+                color: 'inherit',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Glyph name={glyphForResource(entry.resource_kind)} size={16} tone="var(--status-info)" />
+                <span
+                  style={{
+                    color: 'var(--text-strong)',
+                    fontWeight: 600,
+                    fontSize: 13,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={label}
+                >
+                  {label}
+                </span>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: 11,
+                }}
+              >
+                <span className="of-text-muted" style={{ textTransform: 'capitalize' }}>
+                  {resourceKindLabel(entry.resource_kind)}
+                </span>
+                <span className="of-text-soft">{relativeTime(entry.last_accessed_at)}</span>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function QuickStartTiles({ onCreateCollection }: { onCreateCollection: () => void }) {
+  return (
+    <section
+      className="of-panel"
+      style={{ padding: '16px 16px 14px', display: 'grid', gap: 12 }}
+    >
+      <div style={{ display: 'grid', gap: 2 }}>
+        <h2 className="of-heading-lg" style={{ margin: 0, fontSize: 16 }}>
+          Get started
+        </h2>
+        <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+          Your workspace is empty. Pick a starting point to populate the catalog.
+        </p>
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 10,
+        }}
+      >
+        {QUICK_START_TILES.map((tile) => {
+          const inner = (
+            <>
+              <span
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--surface-subtle, rgba(0,0,0,0.04))',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Glyph name={tile.glyph} size={18} tone={tile.tone} />
+              </span>
+              <div style={{ display: 'grid', gap: 2 }}>
+                <span style={{ color: 'var(--text-strong)', fontWeight: 600, fontSize: 13 }}>
+                  {tile.label}
+                </span>
+                <span className="of-text-muted" style={{ fontSize: 11 }}>
+                  {tile.description}
+                </span>
+              </div>
+            </>
+          );
+          const tileStyle = {
+            display: 'grid',
+            gridTemplateColumns: '32px minmax(0, 1fr)',
+            alignItems: 'flex-start',
+            gap: 10,
+            padding: '12px',
+            background: 'var(--surface-default, transparent)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
+            textAlign: 'left' as const,
+            cursor: 'pointer',
+            textDecoration: 'none',
+            color: 'inherit',
+            width: '100%',
+          };
+          if (tile.action === 'create-collection') {
+            return (
+              <button
+                key={tile.label}
+                type="button"
+                onClick={onCreateCollection}
+                style={tileStyle}
+              >
+                {inner}
+              </button>
+            );
+          }
+          return (
+            <Link key={tile.label} to={tile.to ?? '#'} style={tileStyle}>
+              {inner}
+            </Link>
+          );
+        })}
+      </div>
     </section>
   );
 }
