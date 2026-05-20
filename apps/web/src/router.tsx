@@ -440,6 +440,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/ml/MlPage')).MlPage }),
       },
       {
+        path: 'llm-catalog',
+        lazy: async () => ({ Component: (await import('./routes/llm-catalog/LlmCatalogPage')).LlmCatalogPage }),
+      },
+      {
         path: 'ml',
         loader: redirectTo('/model-catalog'),
       },
