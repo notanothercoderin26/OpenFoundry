@@ -132,6 +132,7 @@ func transformCatalogV1() pipelineTransformCatalogResponse {
 			transformCatalogGPXParse(docs),
 			transformCatalogPythonTransform(docs),
 			transformCatalogLLMNode(docs),
+			transformCatalogMLPredict(docs),
 			transformCatalogOutputMapping(docs),
 		},
 	}
@@ -655,6 +656,38 @@ func transformCatalogLLMNode(docs []string) pipelineTransformCatalogEntry {
 		{Name: "max_tokens", Label: "Max tokens", FieldType: "number", Required: false, Default: 256},
 	}
 	entry.OutputContract = pipelineTransformOutputContract{Mode: "schema_add_column", Description: "Output schema adds or replaces the configured LLM output column."}
+	return entry
+}
+
+func transformCatalogMLPredict(docs []string) pipelineTransformCatalogEntry {
+	mlDocs := append([]string{
+		"https://www.palantir.com/docs/foundry/pipeline-builder/pipeline-builder-ml/index.html",
+	}, docs...)
+	entry := baseTransformCatalogEntry(
+		"ml_predict",
+		"Trained model",
+		"Score upstream rows with a registered trained model. Inputs are mapped from upstream columns; outputs are appended per the model's declared output schema.",
+		"ai_assisted",
+		"ml_predict",
+		"ml_predict_editor",
+		"available",
+		"lightweight_table",
+		"cube",
+		mlDocs,
+	)
+	entry.TransformType = "ml_predict"
+	entry.Tags = []string{"ml", "model", "inference", "prediction"}
+	entry.DefaultConfig = map[string]any{
+		"model_id":       "",
+		"input_mapping":  map[string]string{},
+		"output_columns": map[string]string{},
+	}
+	entry.Form.Fields = []pipelineTransformCatalogField{
+		{Name: "model_id", Label: "Model", FieldType: "ml_model", Required: true, HelpText: "Pick a registered trained model. Use Manage models to add one."},
+		{Name: "input_mapping", Label: "Input mapping", FieldType: "ml_input_mapping", Required: false, HelpText: "Map each model feature to an upstream column. Defaults to matching by name."},
+		{Name: "output_columns", Label: "Output columns", FieldType: "ml_output_columns", Required: false, HelpText: "Rename model outputs as they appear in the resulting table."},
+	}
+	entry.OutputContract = pipelineTransformOutputContract{Mode: "schema_from_model_output", Description: "Output schema adds one column per entry in the model's output_schema."}
 	return entry
 }
 

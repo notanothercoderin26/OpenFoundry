@@ -32,6 +32,7 @@ interface TransformStackEditorProps {
   open: boolean;
   stack: TransformStack | null;
   schema?: string[];
+  parameters?: ReadonlyArray<{ name: string; type?: string; description?: string }>;
   onClose: () => void;
   onApplyAll: (next: TransformStack) => void;
 }
@@ -64,7 +65,7 @@ const FALLBACK_ADD_BLOCK_OPTIONS: AddBlockOption[] = [
   { id: 'haversine_distance', label: 'Haversine distance', description: 'Calculate distance between two coordinate pairs.', status: 'available', create: () => newHaversineDistanceBlock() },
 ];
 
-export function TransformStackEditor({ open, stack, schema = [], onClose, onApplyAll }: TransformStackEditorProps) {
+export function TransformStackEditor({ open, stack, schema = [], parameters = [], onClose, onApplyAll }: TransformStackEditorProps) {
   const [draft, setDraft] = useState<TransformStack | null>(null);
   const [search, setSearch] = useState('');
   const [showSearchMenu, setShowSearchMenu] = useState(false);
@@ -285,6 +286,51 @@ export function TransformStackEditor({ open, stack, schema = [], onClose, onAppl
             <strong style={{ fontSize: 13 }}>{draft.source_dataset_name}</strong>
             <span className="of-text-muted" style={{ fontSize: 12 }}>{schema.length || ''} columns</span>
           </div>
+
+          {parameters.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 12px',
+                background: '#fef3c7',
+                border: '1px solid #f59e0b',
+                borderRadius: 4,
+                alignSelf: 'center',
+                fontSize: 12,
+                flexWrap: 'wrap',
+                maxWidth: '90%',
+              }}
+            >
+              <span style={{ color: '#92400e', fontWeight: 600 }}>Parameters:</span>
+              {parameters.map((param) => {
+                const reference = `\${params.${param.name}}`;
+                return (
+                  <button
+                    key={param.name}
+                    type="button"
+                    onClick={() => {
+                      if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+                      void navigator.clipboard.writeText(reference).catch(() => undefined);
+                    }}
+                    title={param.description ? `${param.description} — click to copy` : 'Click to copy reference'}
+                    className="of-button"
+                    style={{
+                      fontSize: 11,
+                      fontFamily: 'var(--font-mono)',
+                      padding: '2px 6px',
+                      background: '#fffbeb',
+                      border: '1px solid #fbbf24',
+                      color: '#92400e',
+                    }}
+                  >
+                    {reference}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {draft.blocks.length === 0 ? (
             <p className="of-text-muted" style={{ textAlign: 'center', padding: 32 }}>

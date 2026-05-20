@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   validatePipeline,
@@ -8,6 +8,13 @@ import {
   type PipelineValidationResponse,
 } from '@/lib/api/pipelines';
 import { Glyph } from '@/lib/components/ui/Glyph';
+import { mergePastedNodes, readNodesFromClipboard, writeNodesToClipboard } from './canvasClipboard';
+import {
+  NODE_COLORS,
+  applyColorToNodes,
+  getNodeColor,
+  legendEntriesForNodes,
+} from './nodeColor';
 
 interface PipelineCanvasProps {
   nodes: PipelineNode[];
@@ -28,6 +35,30 @@ const NODE_W = 180;
 const NODE_H = 64;
 const STAGE_GAP_X = 80;
 const STAGE_GAP_Y = 24;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 2;
+const ZOOM_STEP = 0.2;
+
+interface Rect {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+function normalizeRect(rect: Rect): Rect {
+  return {
+    x1: Math.min(rect.x1, rect.x2),
+    y1: Math.min(rect.y1, rect.y2),
+    x2: Math.max(rect.x1, rect.x2),
+    y2: Math.max(rect.y1, rect.y2),
+  };
+}
+
+function rectIntersectsNode(rect: Rect, pos: { x: number; y: number }): boolean {
+  const r = normalizeRect(rect);
+  return pos.x < r.x2 && pos.x + NODE_W > r.x1 && pos.y < r.y2 && pos.y + NODE_H > r.y1;
+}
 
 const TRANSFORM_OPTIONS = [
   { value: 'passthrough', label: 'Passthrough' },
@@ -103,6 +134,16 @@ export function PipelineCanvas({
   const [validation, setValidation] = useState<PipelineValidationResponse | null>(null);
   const [validating, setValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [multiSelected, setMultiSelected] = useState<Set<string>>(() => new Set());
+  const [marquee, setMarquee] = useState<Rect | null>(null);
+  const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
+  const [editingLabelDraft, setEditingLabelDraft] = useState('');
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const stages = useMemo(() => topologicalStages(nodes), [nodes]);
 
@@ -147,6 +188,47 @@ export function PipelineCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, status, scheduleConfig.enabled, scheduleConfig.cron]);
 
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.key === '=' || event.key === '+') {
+        event.preventDefault();
+        zoomIn();
+      } else if (event.key === '-' || event.key === '_') {
+        event.preventDefault();
+        zoomOut();
+      } else if (event.key === '0') {
+        event.preventDefault();
+        zoomReset();
+      } else if (event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        if (readOnly) return;
+        setMultiSelected(new Set(nodes.map((n) => n.id)));
+        setSelectedId(null);
+      } else if (event.key.toLowerCase() === 'c') {
+        if (currentSelectionIds().length === 0) return;
+        event.preventDefault();
+        copySelectionToClipboard();
+      } else if (event.key.toLowerCase() === 'v') {
+        if (readOnly) return;
+        event.preventDefault();
+        pasteClipboardIntoCanvas();
+      } else if (event.key.toLowerCase() === 'd') {
+        if (readOnly || currentSelectionIds().length === 0) return;
+        event.preventDefault();
+        duplicateSelection();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, readOnly, multiSelected, selectedId]);
+
   function selectNode(id: string | null) {
     if (readOnly && id !== null) return;
     setSelectedId(id);
@@ -177,6 +259,139 @@ export function PipelineCanvas({
     onChange?.(nodes.filter((n) => n.id !== removed).map((n) => ({ ...n, depends_on: n.depends_on.filter((d) => d !== removed) })));
     setSelectedId(null);
     onSelect?.(null);
+  }
+
+  function removeMultiSelected() {
+    if (readOnly || multiSelected.size === 0) return;
+    const removed = multiSelected;
+    onChange?.(
+      nodes
+        .filter((n) => !removed.has(n.id))
+        .map((n) => ({ ...n, depends_on: n.depends_on.filter((d) => !removed.has(d)) })),
+    );
+    setMultiSelected(new Set());
+  }
+
+  function currentSelectionIds(): string[] {
+    if (multiSelected.size > 0) return Array.from(multiSelected);
+    return selectedId ? [selectedId] : [];
+  }
+
+  function copySelectionToClipboard(): boolean {
+    const ids = currentSelectionIds();
+    if (ids.length === 0) return false;
+    const subset = nodes.filter((entry) => ids.includes(entry.id));
+    return writeNodesToClipboard(subset);
+  }
+
+  function pasteClipboardIntoCanvas(): boolean {
+    if (readOnly) return false;
+    const pasted = readNodesFromClipboard();
+    if (pasted.length === 0) return false;
+    const { nodes: nextNodes, inserted } = mergePastedNodes(nodes, pasted);
+    onChange?.(nextNodes);
+    setMultiSelected(new Set(inserted.map((entry) => entry.id)));
+    setSelectedId(inserted[inserted.length - 1]?.id ?? null);
+    return inserted.length > 0;
+  }
+
+  function duplicateSelection(): boolean {
+    if (readOnly) return false;
+    const ids = currentSelectionIds();
+    if (ids.length === 0) return false;
+    const subset = nodes.filter((entry) => ids.includes(entry.id));
+    const { nodes: nextNodes, inserted } = mergePastedNodes(nodes, subset);
+    onChange?.(nextNodes);
+    setMultiSelected(new Set(inserted.map((entry) => entry.id)));
+    setSelectedId(inserted[inserted.length - 1]?.id ?? null);
+    return inserted.length > 0;
+  }
+
+  function applyColorToSelection(slug: string | null) {
+    if (readOnly) return;
+    const ids = currentSelectionIds();
+    if (ids.length === 0) return;
+    onChange?.(applyColorToNodes(nodes, new Set(ids), slug));
+  }
+
+  const legendEntries = legendEntriesForNodes(nodes);
+
+  function beginLabelEdit(node: PipelineNode) {
+    if (readOnly) return;
+    setEditingLabelId(node.id);
+    setEditingLabelDraft(node.label);
+  }
+
+  function commitLabelEdit() {
+    if (!editingLabelId) return;
+    const id = editingLabelId;
+    const next = editingLabelDraft.trim();
+    setEditingLabelId(null);
+    setEditingLabelDraft('');
+    if (!next) return;
+    if (nodes.find((entry) => entry.id === id)?.label === next) return;
+    onChange?.(nodes.map((entry) => (entry.id === id ? { ...entry, label: next } : entry)));
+  }
+
+  function cancelLabelEdit() {
+    setEditingLabelId(null);
+    setEditingLabelDraft('');
+  }
+
+  function clampZoom(value: number) {
+    return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(value.toFixed(2))));
+  }
+
+  function zoomIn() {
+    setZoom((current) => clampZoom(current + ZOOM_STEP));
+  }
+
+  function zoomOut() {
+    setZoom((current) => clampZoom(current - ZOOM_STEP));
+  }
+
+  function zoomReset() {
+    setZoom(1);
+  }
+
+  function zoomToFit() {
+    const container = scrollRef.current;
+    if (!container) return;
+    const padding = 40;
+    const fitW = Math.max(canvasW, 1);
+    const fitH = Math.max(canvasH, 1);
+    const widthScale = (container.clientWidth - padding) / fitW;
+    const heightScale = (container.clientHeight - padding) / fitH;
+    setZoom(clampZoom(Math.min(widthScale, heightScale)));
+  }
+
+  function layoutAndFit() {
+    // The graph layout is recomputed from `nodes` on every render, so this
+    // button's job is to clear transient interaction state and re-center the
+    // viewport. Matches Foundry's "Layout" button which tidies pan/zoom.
+    setMarquee(null);
+    setMultiSelected(new Set());
+    setPendingSourceId(null);
+    setPendingJoinLeftId(null);
+    setPendingJoinRightId(null);
+    setPendingUnionIds([]);
+    zoomToFit();
+    const container = scrollRef.current;
+    if (container) {
+      container.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    }
+  }
+
+  function clientPointToCanvas(event: { clientX: number; clientY: number }): { x: number; y: number } | null {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const transformed = pt.matrixTransform(ctm.inverse());
+    return { x: transformed.x, y: transformed.y };
   }
 
   function startConnect() {
@@ -252,8 +467,11 @@ export function PipelineCanvas({
   }
 
   function nodeFill(node: PipelineNode) {
+    if (multiSelected.has(node.id)) return '#dbeafe';
     if (selectedId === node.id) return '#e8f1ff';
     if (pendingSourceId === node.id) return '#fff3df';
+    const tag = getNodeColor(node);
+    if (tag) return tag.fill;
     return '#ffffff';
   }
 
@@ -264,8 +482,56 @@ export function PipelineCanvas({
     if (tone === 'INVALID') return '#ef4444';
     if (tone === 'PENDING') return '#eab308';
     if (tone === 'VALID') return '#10b981';
+    if (multiSelected.has(node.id)) return '#2d72d2';
     if (selectedId === node.id) return '#2d72d2';
     return '#aeb8c5';
+  }
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  function nodeMatchesSearch(node: PipelineNode): boolean {
+    if (!normalizedQuery) return true;
+    return (
+      node.label.toLowerCase().includes(normalizedQuery) ||
+      node.id.toLowerCase().includes(normalizedQuery) ||
+      node.transform_type.toLowerCase().includes(normalizedQuery)
+    );
+  }
+  const searchActive = normalizedQuery.length > 0;
+  const matchCount = searchActive ? nodes.filter(nodeMatchesSearch).length : nodes.length;
+
+  function onSvgMouseDown(event: React.MouseEvent<SVGSVGElement>) {
+    if (readOnly) return;
+    if (pendingJoinLeftId || pendingUnionIds.length > 0 || pendingSourceId) return;
+    if (!event.shiftKey) return;
+    const target = event.target as Element | null;
+    if (target?.closest('[data-pipeline-node]')) return;
+    const p = clientPointToCanvas(event);
+    if (!p) return;
+    event.preventDefault();
+    setMarquee({ x1: p.x, y1: p.y, x2: p.x, y2: p.y });
+    setMultiSelected(new Set());
+    setSelectedId(null);
+  }
+
+  function onSvgMouseMove(event: React.MouseEvent<SVGSVGElement>) {
+    if (!marquee) return;
+    const p = clientPointToCanvas(event);
+    if (!p) return;
+    setMarquee({ ...marquee, x2: p.x, y2: p.y });
+  }
+
+  function onSvgMouseUp() {
+    if (!marquee) return;
+    const r = normalizeRect(marquee);
+    const inside = new Set<string>();
+    nodes.forEach((node) => {
+      const pos = positions.get(node.id);
+      if (!pos) return;
+      if (rectIntersectsNode(r, pos)) inside.add(node.id);
+    });
+    setMultiSelected(inside);
+    setMarquee(null);
+    if (inside.size > 0) onSelect?.(null);
   }
 
   function statusGlyph(nodeId: string) {
@@ -300,15 +566,117 @@ export function PipelineCanvas({
             </button>
           </>
         )}
-        <span className="of-text-muted" style={{ fontSize: 11, marginLeft: 'auto' }}>
-          {validating && '· validating…'}
-          {!validating && validation && validation.valid && '· ✓ valid'}
-          {!validating && validation && !validation.valid && `· ${validation.errors.length} error${validation.errors.length === 1 ? '' : 's'}`}
-          {!validating && validationError && ` · ${validationError}`}
-        </span>
+        {!readOnly && currentSelectionIds().length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={copySelectionToClipboard}
+              className="of-button"
+              style={{ fontSize: 11 }}
+              title="Copy selection (Ctrl+C)"
+            >
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={duplicateSelection}
+              className="of-button"
+              style={{ fontSize: 11 }}
+              title="Duplicate selection (Ctrl+D)"
+            >
+              Duplicate
+            </button>
+          </>
+        )}
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={pasteClipboardIntoCanvas}
+            className="of-button"
+            style={{ fontSize: 11 }}
+            title="Paste from clipboard (Ctrl+V)"
+          >
+            Paste
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={layoutAndFit}
+          className="of-button"
+          style={{ fontSize: 11 }}
+          title="Re-layout & fit to viewport"
+        >
+          <Glyph name="view-grid" size={11} /> Layout
+        </button>
+        {!readOnly && (
+          <LegendButton
+            entries={legendEntries}
+            selectionSize={currentSelectionIds().length}
+            open={legendOpen}
+            onToggle={() => setLegendOpen((prev) => !prev)}
+            onClose={() => setLegendOpen(false)}
+            onAssign={(slug) => {
+              applyColorToSelection(slug);
+              setLegendOpen(false);
+            }}
+          />
+        )}
+        {!readOnly && multiSelected.size > 0 && (
+          <>
+            <span className="of-chip" style={{ fontSize: 11 }}>
+              {multiSelected.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={removeMultiSelected}
+              className="of-button"
+              style={{ fontSize: 11, color: '#b91c1c', borderColor: '#fecaca' }}
+            >
+              Remove all
+            </button>
+            <button
+              type="button"
+              onClick={() => setMultiSelected(new Set())}
+              className="of-button"
+              style={{ fontSize: 11 }}
+            >
+              Clear selection
+            </button>
+          </>
+        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+          <label
+            className="of-input"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', fontSize: 11 }}
+          >
+            <Glyph name="search" size={12} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search nodes"
+              aria-label="Search nodes"
+              style={{ border: 0, outline: 'none', background: 'transparent', fontSize: 11, width: 110 }}
+            />
+            {searchActive && (
+              <span className="of-text-muted" style={{ fontSize: 10 }}>
+                {matchCount}/{nodes.length}
+              </span>
+            )}
+          </label>
+          <span className="of-text-muted" style={{ fontSize: 11 }}>
+            {validating && 'validating…'}
+            {!validating && validation && validation.valid && '✓ valid'}
+            {!validating && validation && !validation.valid && `${validation.errors.length} error${validation.errors.length === 1 ? '' : 's'}`}
+            {!validating && validationError && validationError}
+          </span>
+        </div>
       </div>
 
-      <div style={{ overflow: 'auto', border: 0, background: '#eef1f5', position: 'relative' }}>
+      <div
+        ref={scrollRef}
+        style={{ overflow: 'auto', border: 0, background: '#eef1f5', position: 'relative', height: '60vh', minHeight: 320 }}
+      >
         {pendingUnionIds.length > 0 ? (
           (() => {
             const primary = nodes.find((entry) => entry.id === pendingUnionIds[0]);
@@ -435,8 +803,8 @@ export function PipelineCanvas({
               <div
                 style={{
                   position: 'absolute',
-                  top: pos.y,
-                  left: pos.x + NODE_W + 6,
+                  top: pos.y * zoom,
+                  left: (pos.x + NODE_W + 6) * zoom,
                   zIndex: 5,
                   display: 'grid',
                   gap: 2,
@@ -465,6 +833,12 @@ export function PipelineCanvas({
                   tone="#b42318"
                   onClick={() => startUnion(selectedNode)}
                   glyph={<UnionGlyph />}
+                />
+                <FloatingActionButton
+                  label="Duplicate"
+                  tone="#5f6b7a"
+                  onClick={duplicateSelection}
+                  glyph={<Glyph name="duplicate" size={14} />}
                 />
                 <FloatingActionButton label="Pivot" tone="#b42318" disabled glyph={<PivotGlyph />} />
                 <FloatingActionButton label="Filter" tone="#7c5dd6" disabled glyph={<DotsGlyph />} />
@@ -537,7 +911,19 @@ export function PipelineCanvas({
             );
           })()
         ) : null}
-        <svg width={Math.max(canvasW, 600)} height={Math.max(canvasH, 200)} role="img" aria-label="Pipeline DAG" style={{ display: 'block' }}>
+        <svg
+          ref={svgRef}
+          width={Math.max(canvasW, 600) * zoom}
+          height={Math.max(canvasH, 200) * zoom}
+          viewBox={`0 0 ${Math.max(canvasW, 600)} ${Math.max(canvasH, 200)}`}
+          role="img"
+          aria-label="Pipeline DAG"
+          style={{ display: 'block', cursor: marquee ? 'crosshair' : undefined }}
+          onMouseDown={onSvgMouseDown}
+          onMouseMove={onSvgMouseMove}
+          onMouseUp={onSvgMouseUp}
+          onMouseLeave={() => marquee && setMarquee(null)}
+        >
           <defs>
             <pattern id="pipeline-grid" width="18" height="18" patternUnits="userSpaceOnUse">
               <path d="M 18 0 L 0 0 0 18" fill="none" stroke="#d7dde5" strokeWidth="1" />
@@ -582,17 +968,53 @@ export function PipelineCanvas({
           {nodes.map((n) => {
             const pos = positions.get(n.id);
             if (!pos) return null;
+            const dimmed = searchActive && !nodeMatchesSearch(n);
+            const matched = searchActive && nodeMatchesSearch(n);
             return (
               <g
                 key={n.id}
+                data-pipeline-node={n.id}
                 transform={`translate(${pos.x}, ${pos.y})`}
                 onClick={() => nodeClick(n.id)}
-                style={{ cursor: readOnly ? 'default' : 'pointer' }}
+                onContextMenu={(event) => {
+                  if (readOnly) return;
+                  event.preventDefault();
+                  if (!multiSelected.has(n.id)) selectNode(n.id);
+                  setContextMenu({ nodeId: n.id, x: event.clientX, y: event.clientY });
+                }}
+                style={{ cursor: readOnly ? 'default' : 'pointer', opacity: dimmed ? 0.25 : 1 }}
               >
+                {matched && (
+                  <rect
+                    x={-4}
+                    y={-4}
+                    width={NODE_W + 8}
+                    height={NODE_H + 8}
+                    rx={4}
+                    ry={4}
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                  />
+                )}
                 <rect width={NODE_W} height={NODE_H} rx={2} ry={2} fill={nodeFill(n)} stroke={nodeStroke(n)} strokeWidth={1.5} />
                 <rect width={4} height={NODE_H} rx={2} ry={2} fill={selectedId === n.id ? '#2d72d2' : '#6f7d8c'} />
-                <text x={12} y={22} fill="#1f252d" fontSize={12} fontWeight={600}>
+                <text
+                  x={12}
+                  y={22}
+                  fill="#1f252d"
+                  fontSize={12}
+                  fontWeight={600}
+                  onDoubleClick={(event) => {
+                    if (readOnly) return;
+                    event.stopPropagation();
+                    beginLabelEdit(n);
+                  }}
+                  style={{ cursor: readOnly ? 'default' : 'text' }}
+                >
                   {n.label.length > 22 ? `${n.label.slice(0, 22)}…` : n.label}
+                  {!readOnly && <title>Double-click to rename</title>}
                 </text>
                 <text x={12} y={42} fill="#5f6b7a" fontSize={11}>
                   {n.transform_type}
@@ -609,12 +1031,127 @@ export function PipelineCanvas({
               </g>
             );
           })}
+          {marquee && (() => {
+            const r = normalizeRect(marquee);
+            return (
+              <rect
+                x={r.x1}
+                y={r.y1}
+                width={Math.max(0, r.x2 - r.x1)}
+                height={Math.max(0, r.y2 - r.y1)}
+                fill="rgba(45, 114, 210, 0.08)"
+                stroke="#2d72d2"
+                strokeWidth={1}
+                strokeDasharray="4 3"
+                pointerEvents="none"
+              />
+            );
+          })()}
           {nodes.length === 0 && (
             <text x={20} y={40} fill="#5f6b7a" fontSize={12}>
               Empty DAG. Click "+ SQL" or another transform to add a node.
             </text>
           )}
         </svg>
+        {editingLabelId && (() => {
+          const pos = positions.get(editingLabelId);
+          if (!pos) return null;
+          return (
+            <input
+              autoFocus
+              value={editingLabelDraft}
+              onChange={(event) => setEditingLabelDraft(event.target.value)}
+              onBlur={commitLabelEdit}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitLabelEdit();
+                } else if (event.key === 'Escape') {
+                  event.preventDefault();
+                  cancelLabelEdit();
+                }
+              }}
+              aria-label="Edit node label"
+              style={{
+                position: 'absolute',
+                top: (pos.y + 8) * zoom,
+                left: (pos.x + 10) * zoom,
+                width: (NODE_W - 16) * zoom,
+                height: 22 * zoom,
+                padding: '0 4px',
+                fontSize: 12 * zoom,
+                fontWeight: 600,
+                color: '#1f252d',
+                background: '#fff',
+                border: '1px solid #2d72d2',
+                borderRadius: 3,
+                outline: 'none',
+                zIndex: 7,
+              }}
+            />
+          );
+        })()}
+        <div
+          role="group"
+          aria-label="Zoom controls"
+          style={{
+            position: 'absolute',
+            bottom: 12,
+            right: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            background: '#fff',
+            border: '1px solid var(--border-default)',
+            borderRadius: 4,
+            padding: 4,
+            boxShadow: '0 4px 12px rgba(15, 23, 42, 0.08)',
+            zIndex: 6,
+          }}
+        >
+          <button
+            type="button"
+            className="of-button"
+            onClick={zoomIn}
+            disabled={zoom >= ZOOM_MAX}
+            title="Zoom in (Ctrl++)"
+            aria-label="Zoom in"
+            style={{ width: 28, height: 28, padding: 0, fontSize: 14 }}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="of-button"
+            onClick={zoomOut}
+            disabled={zoom <= ZOOM_MIN}
+            title="Zoom out (Ctrl+-)"
+            aria-label="Zoom out"
+            style={{ width: 28, height: 28, padding: 0, fontSize: 14 }}
+          >
+            −
+          </button>
+          <button
+            type="button"
+            className="of-button"
+            onClick={zoomToFit}
+            title="Fit to screen"
+            aria-label="Fit to screen"
+            style={{ width: 28, height: 28, padding: 0, fontSize: 11 }}
+          >
+            ⤢
+          </button>
+          <button
+            type="button"
+            className="of-button"
+            onClick={zoomReset}
+            title="Reset zoom (Ctrl+0)"
+            aria-label="Reset zoom"
+            style={{ width: 28, height: 28, padding: 0, fontSize: 10 }}
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+        </div>
       </div>
 
       {validation && validation.errors.length > 0 && (
@@ -632,6 +1169,271 @@ export function PipelineCanvas({
             {validation.warnings.map((w, i) => <li key={i}>{w}</li>)}
           </ul>
         </div>
+      )}
+      {contextMenu && (() => {
+        const node = nodes.find((entry) => entry.id === contextMenu.nodeId);
+        if (!node) return null;
+        const config = (node.config as { dataset_id?: unknown } | undefined) ?? {};
+        const datasetID = typeof config.dataset_id === 'string' ? config.dataset_id : null;
+        const isMulti = multiSelected.size > 1 && multiSelected.has(node.id);
+        const closeMenu = () => setContextMenu(null);
+        return (
+          <>
+            <div
+              aria-hidden
+              onClick={closeMenu}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                closeMenu();
+              }}
+              style={{ position: 'fixed', inset: 0, zIndex: 80 }}
+            />
+            <div
+              role="menu"
+              style={{
+                position: 'fixed',
+                top: contextMenu.y,
+                left: contextMenu.x,
+                minWidth: 200,
+                background: '#fff',
+                border: '1px solid var(--border-default)',
+                borderRadius: 4,
+                boxShadow: '0 8px 24px rgba(15, 23, 42, 0.16)',
+                padding: 4,
+                zIndex: 81,
+                display: 'grid',
+                gap: 2,
+              }}
+            >
+              <ContextMenuItem
+                label="Edit transform"
+                onClick={() => {
+                  closeMenu();
+                  onTransform?.(node);
+                }}
+              />
+              <ContextMenuItem
+                label="Rename"
+                onClick={() => {
+                  closeMenu();
+                  beginLabelEdit(node);
+                }}
+              />
+              {datasetID && (
+                <ContextMenuItem
+                  label="Open dataset"
+                  onClick={() => {
+                    closeMenu();
+                    if (typeof window !== 'undefined') {
+                      window.open(`/datasets/${encodeURIComponent(datasetID)}`, '_blank', 'noopener');
+                    }
+                  }}
+                />
+              )}
+              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} aria-hidden />
+              <ContextMenuItem
+                label={isMulti ? `Copy ${multiSelected.size} nodes` : 'Copy'}
+                hint="Ctrl+C"
+                onClick={() => {
+                  closeMenu();
+                  copySelectionToClipboard();
+                }}
+              />
+              <ContextMenuItem
+                label="Duplicate"
+                hint="Ctrl+D"
+                onClick={() => {
+                  closeMenu();
+                  duplicateSelection();
+                }}
+              />
+              <ContextMenuItem
+                label="Paste"
+                hint="Ctrl+V"
+                onClick={() => {
+                  closeMenu();
+                  pasteClipboardIntoCanvas();
+                }}
+              />
+              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} aria-hidden />
+              <ContextMenuItem
+                label={isMulti ? `Delete ${multiSelected.size} nodes` : 'Delete'}
+                tone="#b91c1c"
+                onClick={() => {
+                  closeMenu();
+                  if (isMulti) removeMultiSelected();
+                  else {
+                    selectNode(node.id);
+                    onChange?.(
+                      nodes
+                        .filter((entry) => entry.id !== node.id)
+                        .map((entry) => ({ ...entry, depends_on: entry.depends_on.filter((dep) => dep !== node.id) })),
+                    );
+                    setSelectedId(null);
+                    onSelect?.(null);
+                  }
+                }}
+              />
+            </div>
+          </>
+        );
+      })()}
+    </div>
+  );
+}
+
+function ContextMenuItem({
+  label,
+  hint,
+  tone,
+  onClick,
+}: {
+  label: string;
+  hint?: string;
+  tone?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="of-button"
+      style={{
+        justifyContent: 'space-between',
+        textAlign: 'left',
+        fontSize: 12,
+        background: 'transparent',
+        border: 0,
+        padding: '6px 10px',
+        color: tone,
+      }}
+    >
+      <span>{label}</span>
+      {hint && <span className="of-text-muted" style={{ fontSize: 11, marginLeft: 12 }}>{hint}</span>}
+    </button>
+  );
+}
+
+interface LegendButtonProps {
+  entries: ReturnType<typeof legendEntriesForNodes>;
+  selectionSize: number;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onAssign: (slug: string | null) => void;
+}
+
+function LegendButton({ entries, selectionSize, open, onToggle, onClose, onAssign }: LegendButtonProps) {
+  const canAssign = selectionSize > 0;
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="of-button"
+        style={{ fontSize: 11 }}
+        title="Legend & color picker"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        Legend{entries.length > 0 && (
+          <span aria-hidden style={{ marginLeft: 6, display: 'inline-flex', gap: 2 }}>
+            {entries.slice(0, 4).map((entry) => (
+              <span
+                key={entry.color.slug}
+                style={{ width: 8, height: 8, borderRadius: '50%', background: entry.color.fill, border: '1px solid #cbd5e1' }}
+              />
+            ))}
+          </span>
+        )}
+      </button>
+      {open && (
+        <>
+          <div aria-hidden onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+          <div
+            role="menu"
+            style={{
+              position: 'absolute',
+              top: '100%',
+              right: 0,
+              marginTop: 4,
+              minWidth: 240,
+              background: '#fff',
+              border: '1px solid var(--border-default)',
+              borderRadius: 4,
+              boxShadow: '0 8px 24px rgba(15, 23, 42, 0.16)',
+              padding: 8,
+              zIndex: 41,
+              display: 'grid',
+              gap: 6,
+            }}
+          >
+            <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)', letterSpacing: 0.4 }}>
+              {canAssign
+                ? `ASSIGN COLOR · ${selectionSize} NODE${selectionSize === 1 ? '' : 'S'}`
+                : 'COLORS IN USE'}
+            </p>
+            {canAssign ? (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                  {NODE_COLORS.map((color) => (
+                    <button
+                      key={color.slug}
+                      type="button"
+                      title={`Assign ${color.label}`}
+                      onClick={() => onAssign(color.slug)}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 4,
+                        background: color.fill,
+                        border: '1px solid #cbd5e1',
+                        cursor: 'pointer',
+                      }}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onAssign(null)}
+                  className="of-button"
+                  style={{ fontSize: 11, justifyContent: 'flex-start' }}
+                >
+                  <Glyph name="x" size={11} /> Clear color
+                </button>
+                {entries.length > 0 && (
+                  <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} aria-hidden />
+                )}
+              </>
+            ) : (
+              <p className="of-text-muted" style={{ margin: 0, fontSize: 11 }}>
+                Select one or more nodes to assign a color.
+              </p>
+            )}
+            {entries.length === 0 ? (
+              <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+                No colors assigned yet.
+              </p>
+            ) : (
+              entries.map((entry) => (
+                <div
+                  key={entry.color.slug}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
+                >
+                  <span
+                    aria-hidden
+                    style={{ width: 14, height: 14, borderRadius: 3, background: entry.color.fill, border: '1px solid #cbd5e1' }}
+                  />
+                  <strong>{entry.color.label}</strong>
+                  <span className="of-text-muted" style={{ marginLeft: 'auto', fontSize: 11 }}>
+                    {entry.count} node{entry.count === 1 ? '' : 's'}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </>
       )}
     </div>
   );

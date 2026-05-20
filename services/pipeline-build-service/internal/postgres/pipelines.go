@@ -19,6 +19,7 @@ const pipelineSelectColumns = `id, name, description, owner_id, COALESCE(draft_d
 	COALESCE(lifecycle, 'DRAFT') AS lifecycle,
 	schedule_config, retry_policy, next_run_at,
 	external_config, incremental_config, streaming_config, distributed_config, compute_profile_id, project_id,
+	COALESCE(parameters, '[]'::jsonb) AS parameters,
 	COALESCE(draft_dag, dag) AS draft_dag,
 	COALESCE(published_dag, 'null'::jsonb) AS published_dag,
 	COALESCE(branch_name, 'main') AS branch_name,
@@ -132,8 +133,18 @@ func (r *Repository) CreatePipeline(ctx context.Context, req models.CreatePipeli
 	if err != nil {
 		return nil, fmt.Errorf("encode retry_policy: %w", err)
 	}
+	var parameters json.RawMessage = []byte(`[]`)
+	if req.Parameters != nil {
+		if err := models.ValidatePipelineParameters(*req.Parameters); err != nil {
+			return nil, fmt.Errorf("validate parameters: %w", err)
+		}
+		parameters, err = json.Marshal(*req.Parameters)
+		if err != nil {
+			return nil, fmt.Errorf("encode parameters: %w", err)
+		}
+	}
 	id := uuid.New()
-	pipeline, err := r.insertPipeline(ctx, id, req.Name, description, ownerID, dag, status, pipelineType, lifecycle, branchName, scheduleConfig, retryPolicyRaw, externalConfig, incrementalConfig, streamingConfig, distributedConfig, req.ComputeProfile, req.ProjectID)
+	pipeline, err := r.insertPipeline(ctx, id, req.Name, description, ownerID, dag, status, pipelineType, lifecycle, branchName, scheduleConfig, retryPolicyRaw, externalConfig, incrementalConfig, streamingConfig, distributedConfig, req.ComputeProfile, req.ProjectID, parameters)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +222,19 @@ func (r *Repository) UpdatePipeline(ctx context.Context, id uuid.UUID, req model
 	}
 	computeProfileID := current.ComputeProfileID
 	if req.ComputeProfile != nil {
-		computeProfileID = req.ComputeProfile
+		trimmed := strings.TrimSpace(*req.ComputeProfile)
+		if trimmed == "" {
+			computeProfileID = nil
+		} else {
+			exists, existsErr := r.ComputeProfileExists(ctx, trimmed)
+			if existsErr != nil {
+				return nil, existsErr
+			}
+			if !exists {
+				return nil, fmt.Errorf("unknown compute profile %q", trimmed)
+			}
+			computeProfileID = &trimmed
+		}
 	}
 	projectID := current.ProjectID
 	if req.ProjectID != nil {
@@ -246,13 +269,24 @@ func (r *Repository) UpdatePipeline(ctx context.Context, id uuid.UUID, req model
 			return nil, fmt.Errorf("encode retry_policy: %w", err)
 		}
 	}
+	parameters := current.Parameters
+	if req.Parameters != nil {
+		if err := models.ValidatePipelineParameters(*req.Parameters); err != nil {
+			return nil, fmt.Errorf("validate parameters: %w", err)
+		}
+		parameters, err = json.Marshal(*req.Parameters)
+		if err != nil {
+			return nil, fmt.Errorf("encode parameters: %w", err)
+		}
+	}
 	var p models.Pipeline
 	err = r.db.QueryRow(ctx, `UPDATE pipelines
 SET name=$2, description=$3, dag=$4, draft_dag=$4, status=$5, schedule_config=$6, retry_policy=$7, branch_name=$8,
     pipeline_type=$9, lifecycle=$10, external_config=$11, incremental_config=$12, streaming_config=$13, distributed_config=$14, compute_profile_id=$15, project_id=$16,
+    parameters=$17,
     draft_updated_at=NOW(), updated_at=NOW()
 WHERE id=$1
-RETURNING `+pipelineSelectColumns, id, name, description, dag, status, scheduleConfig, retryPolicy, branchName, pipelineType, lifecycle, externalConfig, incrementalConfig, streamingConfig, distributedConfig, computeProfileID, projectID).Scan(pipelineScanDest(&p)...)
+RETURNING `+pipelineSelectColumns, id, name, description, dag, status, scheduleConfig, retryPolicy, branchName, pipelineType, lifecycle, externalConfig, incrementalConfig, streamingConfig, distributedConfig, computeProfileID, projectID, parameters).Scan(pipelineScanDest(&p)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -368,6 +402,12 @@ func (r *Repository) RestorePipelineVersion(ctx context.Context, pipelineID, ver
 		return nil, err
 	}
 	message := firstNonEmptyString(req.Message, fmt.Sprintf("Restored version %d", version.VersionNumber))
+	branchName := version.BranchName
+	if req.BranchName != nil {
+		if trimmed := strings.TrimSpace(*req.BranchName); trimmed != "" {
+			branchName = trimmed
+		}
+	}
 	restoredSnapshot := *current
 	restoredSnapshot.DAG = version.DAG
 	restoredSnapshot.DraftDAG = version.DAG
@@ -375,7 +415,7 @@ func (r *Repository) RestorePipelineVersion(ctx context.Context, pipelineID, ver
 	restoredSnapshot.Description = version.Description
 	restoredSnapshot.ScheduleConfig = version.ScheduleConfig
 	restoredSnapshot.RetryPolicy = version.RetryPolicy
-	restoredSnapshot.BranchName = version.BranchName
+	restoredSnapshot.BranchName = branchName
 	restoredVersion, err := r.insertPipelineVersion(ctx, &restoredSnapshot, "restored", message, actorID, &version.ID)
 	if err != nil {
 		return nil, err
@@ -386,14 +426,14 @@ func (r *Repository) RestorePipelineVersion(ctx context.Context, pipelineID, ver
 SET name=$2, description=$3, dag=$4, draft_dag=$4, schedule_config=$5, retry_policy=$6,
     branch_name=$7, draft_updated_at=NOW(), proposal_state='none', proposal_title=NULL, proposal_description=NULL, updated_at=NOW()
 WHERE id=$1
-RETURNING `+pipelineSelectColumns, pipelineID, version.Name, version.Description, version.DAG, version.ScheduleConfig, version.RetryPolicy, version.BranchName).Scan(pipelineScanDest(&pipeline)...)
+RETURNING `+pipelineSelectColumns, pipelineID, version.Name, version.Description, version.DAG, version.ScheduleConfig, version.RetryPolicy, branchName).Scan(pipelineScanDest(&pipeline)...)
 	} else {
 		err = r.db.QueryRow(ctx, `UPDATE pipelines
 SET name=$2, description=$3, dag=$4, draft_dag=$4, published_dag=$4, schedule_config=$5, retry_policy=$6,
     branch_name=$7, active_version_id=$8, published_at=NOW(), status='active',
     proposal_state='none', proposal_title=NULL, proposal_description=NULL, draft_updated_at=NOW(), updated_at=NOW()
 WHERE id=$1
-RETURNING `+pipelineSelectColumns, pipelineID, version.Name, version.Description, version.DAG, version.ScheduleConfig, version.RetryPolicy, version.BranchName, restoredVersion.ID).Scan(pipelineScanDest(&pipeline)...)
+RETURNING `+pipelineSelectColumns, pipelineID, version.Name, version.Description, version.DAG, version.ScheduleConfig, version.RetryPolicy, branchName, restoredVersion.ID).Scan(pipelineScanDest(&pipeline)...)
 	}
 	if err != nil {
 		return nil, err
@@ -401,12 +441,15 @@ RETURNING `+pipelineSelectColumns, pipelineID, version.Name, version.Description
 	return &models.PipelinePublishResponse{Pipeline: pipeline, Version: restoredVersion}, nil
 }
 
-func (r *Repository) insertPipeline(ctx context.Context, id uuid.UUID, name, description string, ownerID uuid.UUID, dag json.RawMessage, status string, pipelineType string, lifecycle string, branchName string, scheduleConfig json.RawMessage, retryPolicy json.RawMessage, externalConfig any, incrementalConfig any, streamingConfig any, distributedConfig any, computeProfileID *string, projectID *uuid.UUID) (*models.Pipeline, error) {
+func (r *Repository) insertPipeline(ctx context.Context, id uuid.UUID, name, description string, ownerID uuid.UUID, dag json.RawMessage, status string, pipelineType string, lifecycle string, branchName string, scheduleConfig json.RawMessage, retryPolicy json.RawMessage, externalConfig any, incrementalConfig any, streamingConfig any, distributedConfig any, computeProfileID *string, projectID *uuid.UUID, parameters json.RawMessage) (*models.Pipeline, error) {
 	var p models.Pipeline
+	if len(parameters) == 0 {
+		parameters = json.RawMessage(`[]`)
+	}
 	err := r.db.QueryRow(ctx, `INSERT INTO pipelines
-	(id, name, description, owner_id, dag, draft_dag, status, pipeline_type, lifecycle, branch_name, schedule_config, retry_policy, external_config, incremental_config, streaming_config, distributed_config, compute_profile_id, project_id, draft_updated_at)
-VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())
-RETURNING `+pipelineSelectColumns, id, name, description, ownerID, dag, status, pipelineType, lifecycle, branchName, scheduleConfig, retryPolicy, externalConfig, incrementalConfig, streamingConfig, distributedConfig, computeProfileID, projectID).Scan(pipelineScanDest(&p)...)
+	(id, name, description, owner_id, dag, draft_dag, status, pipeline_type, lifecycle, branch_name, schedule_config, retry_policy, external_config, incremental_config, streaming_config, distributed_config, compute_profile_id, project_id, parameters, draft_updated_at)
+VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
+RETURNING `+pipelineSelectColumns, id, name, description, ownerID, dag, status, pipelineType, lifecycle, branchName, scheduleConfig, retryPolicy, externalConfig, incrementalConfig, streamingConfig, distributedConfig, computeProfileID, projectID, parameters).Scan(pipelineScanDest(&p)...)
 	return &p, err
 }
 
@@ -468,6 +511,7 @@ func pipelineScanDest(p *models.Pipeline) []any {
 		&p.PipelineType, &p.Lifecycle,
 		&p.ScheduleConfig, &p.RetryPolicy, &p.NextRunAt,
 		&p.ExternalConfig, &p.IncrementalConfig, &p.StreamingConfig, &p.DistributedConfig, &p.ComputeProfileID, &p.ProjectID,
+		&p.Parameters,
 		&p.DraftDAG, &p.PublishedDAG, &p.BranchName,
 		&p.DraftUpdatedAt, &p.PublishedAt, &p.ActiveVersionID,
 		&p.ProposalState, &p.ProposalTitle, &p.ProposalDescription,

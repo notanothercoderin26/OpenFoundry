@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import {
@@ -11,6 +11,7 @@ import {
   pipelineNodesFromDAG,
   pipelineSchemaGuidanceById,
   publishPipeline,
+  recordPipelineView,
   retryPipelineRun,
   restorePipelineVersion,
   triggerRun,
@@ -20,6 +21,7 @@ import {
   type PipelineDAG,
   type PipelineJoinSchemaGuidance,
   type PipelineNode,
+  type PipelineParameter,
   type PipelineRun,
   type PipelineVersion,
   type PipelineUnionSchemaGuidance,
@@ -40,9 +42,17 @@ import { UnionEditor } from '@/lib/components/pipeline/UnionEditor';
 import { composeUnionSql, newUnionDraft, type UnionDraft } from '@/lib/components/pipeline/unionDraft';
 import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/OutputDrawer';
 import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
+import { BuildChecksStatus } from '@/lib/components/pipeline/BuildChecksStatus';
+import { BuildSettingsButton } from '@/lib/components/pipeline/BuildSettingsButton';
+import { MLPredictEditor } from '@/lib/components/pipeline/MLPredictEditor';
+import { OutputsSidebar } from '@/lib/components/pipeline/OutputsSidebar';
+import { PipelineDetailsDrawer } from '@/lib/components/pipeline/PipelineDetailsDrawer';
+import { PipelineParametersModal } from '@/lib/components/pipeline/PipelineParametersModal';
+import { PipelineVersionViewerDrawer } from '@/lib/components/pipeline/PipelineVersionViewerDrawer';
 import { previewDataset } from '@/lib/api/datasets';
 import { ensureExpectationChangesReviewed, guardPipelineRunWithExpectationGates } from '@/lib/api/data-expectations';
 import { virtualTableExternalReference, type VirtualTable } from '@/lib/api/virtual-tables';
+import { useUndoableState } from '@/lib/utils/useUndoableState';
 
 function parseJson<T>(value: string, fallback: T): T {
   try {
@@ -125,19 +135,40 @@ function virtualTableOutputReference(sourceConfig: PipelineOutputConfig | null, 
   return { kind: 'tabular', database: '', schema: '', table: safeExternalTableName(displayName) };
 }
 
+type EditSubTab = 'canvas' | 'nodes' | 'config' | 'runs' | 'validate';
+type PipelineTab = EditSubTab | 'proposals' | 'history';
+type TopView = 'edit' | 'proposals' | 'history';
+type ProposalFilter = 'all' | 'open' | 'merged';
+
+const EDIT_SUB_TABS: readonly EditSubTab[] = ['canvas', 'nodes', 'config', 'runs', 'validate'];
+
+function isEditSubTab(tab: PipelineTab): tab is EditSubTab {
+  return (EDIT_SUB_TABS as readonly string[]).includes(tab);
+}
+
 export function PipelineEditPage() {
   const { id = '', runId } = useParams<{ id: string; runId?: string }>();
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [versions, setVersions] = useState<PipelineVersion[]>([]);
   const [validation, setValidation] = useState<PipelineValidationResponse | null>(null);
-  const [tab, setTab] = useState<'canvas' | 'nodes' | 'config' | 'runs' | 'history' | 'validate'>(runId ? 'runs' : 'canvas');
+  const [tab, setTab] = useState<PipelineTab>(runId ? 'runs' : 'canvas');
+  const [lastEditTab, setLastEditTab] = useState<EditSubTab>(runId ? 'runs' : 'canvas');
+  const [proposalFilter, setProposalFilter] = useState<ProposalFilter>('all');
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [statusValue, setStatusValue] = useState('draft');
   const [branchName, setBranchName] = useState('main');
-  const [nodesJson, setNodesJson] = useState('');
+  const {
+    value: nodesJson,
+    setValue: setNodesJson,
+    replace: resetNodesJson,
+    undo: undoNodesJson,
+    redo: redoNodesJson,
+    canUndo,
+    canRedo,
+  } = useUndoableState('', { limit: 100, coalesceMs: 500 });
   const [scheduleJson, setScheduleJson] = useState('');
   const [retryJson, setRetryJson] = useState('');
 
@@ -273,6 +304,17 @@ export function PipelineEditPage() {
   const [outputDraft, setOutputDraft] = useState<OutputDraft | null>(null);
   const [outputNodeId, setOutputNodeId] = useState<string | null>(null);
   const [deployOpen, setDeployOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [parametersOpen, setParametersOpen] = useState(false);
+  const [parametersBusy, setParametersBusy] = useState(false);
+  const [liveValidation, setLiveValidation] = useState<PipelineValidationResponse | null>(null);
+  const [outputsSidebarCollapsed, setOutputsSidebarCollapsed] = useState(false);
+  const [mlPredictNode, setMlPredictNode] = useState<PipelineNode | null>(null);
+  const [versionViewer, setVersionViewer] = useState<{
+    mode: 'details' | 'changes';
+    version: PipelineVersion;
+    previous: PipelineVersion | null;
+  } | null>(null);
   const [aipOpen, setAipOpen] = useState(false);
   const [aipPrompt, setAipPrompt] = useState('');
   const [aipBusy, setAipBusy] = useState(false);
@@ -406,8 +448,27 @@ export function PipelineEditPage() {
     setOutputNodeId(newId);
   }
 
+  function handleOpenExistingOutput(node: PipelineNode) {
+    const config = outputConfigForNode(node);
+    const sourceId = node.depends_on[0];
+    const sourceNode = sourceId ? currentNodes().find((entry) => entry.id === sourceId) : null;
+    setOutputDraft({
+      kind: (config.kind as 'dataset' | 'object_type' | 'link_type' | 'virtual_table' | undefined) ?? 'dataset',
+      display_name: node.label,
+      source_node_id: sourceNode?.id ?? '',
+      source_node_label: sourceNode?.label ?? '—',
+      columns_total: 0,
+      columns_mapped: 0,
+    });
+    setOutputNodeId(node.id);
+    setSelectedNodeId(node.id);
+  }
+
   function handleRenameOutput(name: string) {
     setOutputDraft((current) => (current ? { ...current, display_name: name } : current));
+    if (outputNodeId) {
+      setPipelineNodes(currentNodes().map((entry) => (entry.id === outputNodeId ? { ...entry, label: name } : entry)));
+    }
     if (!outputNodeId) return;
     const existing = currentNodes();
     const updated = existing.map((node) => {
@@ -463,6 +524,10 @@ export function PipelineEditPage() {
   }
 
   function handleOpenTransform(node: PipelineNode) {
+    if (node.transform_type === 'ml_predict') {
+      setMlPredictNode(node);
+      return;
+    }
     const config = node.config as Record<string, unknown> | undefined;
     const storedStack = config?._stack as TransformStack | undefined;
     if (storedStack) {
@@ -594,7 +659,7 @@ export function PipelineEditPage() {
       setDescription(nextPipeline.description);
       setStatusValue(nextPipeline.status);
       setBranchName(nextPipeline.branch_name || 'main');
-      setNodesJson(JSON.stringify(nextPipeline.dag, null, 2));
+      resetNodesJson(JSON.stringify(nextPipeline.dag, null, 2));
       setScheduleJson(JSON.stringify(nextPipeline.schedule_config, null, 2));
       setRetryJson(JSON.stringify(nextPipeline.retry_policy, null, 2));
     } catch (cause) {
@@ -629,11 +694,47 @@ export function PipelineEditPage() {
     void load();
     void loadRuns();
     void loadVersions();
+    // Best-effort view recording — surface no error if the principal is
+    // unauthenticated or the endpoint is unavailable.
+    if (id) {
+      void recordPipelineView(id).catch(() => undefined);
+    }
   }, [id]);
 
   useEffect(() => {
     if (runId) setTab('runs');
   }, [runId]);
+
+  useEffect(() => {
+    if (isEditSubTab(tab)) setLastEditTab(tab);
+  }, [tab]);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redoNodesJson();
+        else undoNodesJson();
+      } else if (key === 'y') {
+        event.preventDefault();
+        redoNodesJson();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undoNodesJson, redoNodesJson]);
+
+  const topView: TopView = isEditSubTab(tab) ? 'edit' : tab;
+  function setTopView(next: TopView) {
+    setTab(next === 'edit' ? lastEditTab : next);
+  }
 
   async function save() {
     if (!pipeline) return;
@@ -651,7 +752,7 @@ export function PipelineEditPage() {
       });
       setPipeline(updated);
       setBranchName(updated.branch_name || branchName.trim() || 'main');
-      setNodesJson(JSON.stringify(updated.dag, null, 2));
+      resetNodesJson(JSON.stringify(updated.dag, null, 2));
       setScheduleJson(JSON.stringify(updated.schedule_config, null, 2));
       setRetryJson(JSON.stringify(updated.retry_policy, null, 2));
       await loadVersions();
@@ -749,7 +850,7 @@ export function PipelineEditPage() {
     setDescription(nextPipeline.description);
     setStatusValue(nextPipeline.status);
     setBranchName(nextPipeline.branch_name || 'main');
-    setNodesJson(JSON.stringify(nextPipeline.dag, null, 2));
+    resetNodesJson(JSON.stringify(nextPipeline.dag, null, 2));
     setScheduleJson(JSON.stringify(nextPipeline.schedule_config, null, 2));
     setRetryJson(JSON.stringify(nextPipeline.retry_policy, null, 2));
   }
@@ -767,7 +868,7 @@ export function PipelineEditPage() {
       });
       applyLifecyclePipeline(response.pipeline);
       await loadVersions();
-      setTab('history');
+      setTab('proposals');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Proposal failed');
     } finally {
@@ -796,6 +897,63 @@ export function PipelineEditPage() {
       setTab('history');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Publish failed');
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
+  async function saveComputeProfile(slug: string | null) {
+    if (!pipeline) return;
+    setError('');
+    try {
+      const updated = await updatePipeline(pipeline.id, { compute_profile_id: slug ?? '' });
+      setPipeline(updated);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Compute profile save failed');
+    }
+  }
+
+  async function saveParameters(next: PipelineParameter[]) {
+    if (!pipeline) return;
+    setParametersBusy(true);
+    setError('');
+    try {
+      const updated = await updatePipeline(pipeline.id, { parameters: next });
+      setPipeline(updated);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Parameters save failed');
+      throw cause;
+    } finally {
+      setParametersBusy(false);
+    }
+  }
+
+  function findPreviousVersion(target: PipelineVersion): PipelineVersion | null {
+    const lower = versions.filter((entry) => entry.version_number < target.version_number);
+    if (lower.length === 0) return null;
+    return lower.reduce((best, entry) => (entry.version_number > best.version_number ? entry : best));
+  }
+
+  async function createBranchFromVersion(version: PipelineVersion) {
+    if (!pipeline) return;
+    const defaultName = `${version.branch_name || 'main'}-from-v${version.version_number}`;
+    const branch = typeof window !== 'undefined'
+      ? window.prompt('Name for the new branch?', defaultName)
+      : defaultName;
+    if (!branch || !branch.trim()) return;
+    setHistoryBusy(true);
+    setError('');
+    try {
+      const response = await restorePipelineVersion(pipeline.id, version.id, {
+        as_draft: true,
+        message: `Created branch ${branch.trim()} from version ${version.version_number}`,
+        branch_name: branch.trim(),
+      });
+      applyLifecyclePipeline(response.pipeline);
+      await loadVersions();
+      setTab('canvas');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Create branch failed');
     } finally {
       setHistoryBusy(false);
     }
@@ -892,11 +1050,60 @@ export function PipelineEditPage() {
             <span className="of-text-muted" style={{ alignSelf: 'center', fontSize: 11 }}>
               {runs.length} run{runs.length === 1 ? '' : 's'} | {versions.length} version{versions.length === 1 ? '' : 's'}
             </span>
+            <BuildChecksStatus
+              validation={liveValidation}
+              latestRun={runs[0] ?? null}
+              nodeCount={parsedNodes.length}
+            />
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div role="group" aria-label="History" style={{ display: 'flex', gap: 2 }}>
+              <button
+                type="button"
+                onClick={undoNodesJson}
+                disabled={!canUndo}
+                className="of-button"
+                title="Undo (Ctrl+Z)"
+                aria-label="Undo"
+              >
+                <Glyph name="undo" size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={redoNodesJson}
+                disabled={!canRedo}
+                className="of-button"
+                title="Redo (Ctrl+Shift+Z)"
+                aria-label="Redo"
+                style={{ transform: 'scaleX(-1)' }}
+              >
+                <Glyph name="undo" size={12} />
+              </button>
+            </div>
             <button type="button" onClick={() => setAipOpen(true)} disabled={aipBusy} className="of-button">
               <Glyph name="sparkles" size={12} /> AIP Generate
             </button>
+            <button
+              type="button"
+              onClick={() => setParametersOpen(true)}
+              className="of-button"
+              title="Pipeline parameters"
+            >
+              <em style={{ fontFamily: 'var(--font-mono)', fontStyle: 'normal' }}>(x)</em>{' '}
+              Parameters
+              {pipeline.parameters && pipeline.parameters.length > 0 && (
+                <span
+                  className="of-chip"
+                  style={{ marginLeft: 6, fontSize: 10, padding: '0 4px' }}
+                >
+                  {pipeline.parameters.length}
+                </span>
+              )}
+            </button>
+            <BuildSettingsButton
+              selectedSlug={pipeline.compute_profile_id ?? null}
+              onSelect={(slug) => void saveComputeProfile(slug)}
+            />
             <button type="button" onClick={() => void runValidate()} disabled={busy} className="of-button">
               Validate
             </button>
@@ -920,6 +1127,15 @@ export function PipelineEditPage() {
             >
               Deploy
             </button>
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="of-button"
+              aria-label="Share"
+              title="Share"
+            >
+              <Glyph name="add-user" size={12} /> Share
+            </button>
           </div>
         </div>
       </header>
@@ -940,11 +1156,39 @@ export function PipelineEditPage() {
       )}
 
       <section className="of-panel" style={{ overflow: 'hidden' }}>
-        <Tabs tabs={['canvas', 'nodes', 'config', 'runs', 'history', 'validate'] as const} active={tab} onChange={setTab} />
+        <Tabs
+          tabs={[
+            { id: 'edit', label: 'Edit' },
+            { id: 'proposals', label: 'Proposals' },
+            { id: 'history', label: 'History' },
+          ] as const}
+          active={topView}
+          onChange={setTopView}
+        />
+        {topView === 'edit' && (
+          <Tabs
+            tabs={EDIT_SUB_TABS}
+            active={isEditSubTab(tab) ? tab : 'canvas'}
+            onChange={(next) => setTab(next)}
+          />
+        )}
 
         <div style={{ padding: tab === 'canvas' ? 0 : 10 }}>
           {tab === 'canvas' && (
-            <div style={{ position: 'relative' }}>
+            <div
+              style={{
+                position: 'relative',
+                paddingRight: outputsSidebarCollapsed ? 0 : 280,
+              }}
+            >
+              <OutputsSidebar
+                nodes={parsedNodes}
+                collapsed={outputsSidebarCollapsed}
+                onToggle={() => setOutputsSidebarCollapsed((prev) => !prev)}
+                onSelect={(node) => setSelectedNodeId(node.id)}
+                onOpenOutput={(node) => handleOpenExistingOutput(node)}
+                onAddOutput={(source, kind) => handleAddOutput(source, kind)}
+              />
               <PipelineCanvas
                 nodes={parsedNodes}
                 status={statusValue}
@@ -955,6 +1199,7 @@ export function PipelineEditPage() {
                 onUnionStart={(inputs) => handleStartUnion(inputs)}
                 onAddOutput={(source, kind) => handleAddOutput(source, kind)}
                 onSelect={(node) => setSelectedNodeId(node?.id ?? null)}
+                onValidate={setLiveValidation}
               />
               {isPipelineEmpty(parsedNodes) ? (
                 <PipelineWelcomePanel onAddFoundryData={() => setAddDataOpen(true)} />
@@ -1073,6 +1318,20 @@ export function PipelineEditPage() {
             </table>
           )}
 
+          {tab === 'proposals' && (
+            <ProposalsTabContent
+              pipeline={pipeline}
+              versions={versions}
+              filter={proposalFilter}
+              onFilterChange={setProposalFilter}
+              busy={historyBusy}
+              onRefresh={() => void loadVersions()}
+              onPublish={() => void publishDraft()}
+              onRestore={(version) => void restoreVersion(version, true)}
+              onViewDetail={(version) => setVersionViewer({ mode: 'details', version, previous: null })}
+            />
+          )}
+
           {tab === 'history' && (
             <section style={{ display: 'grid', gap: 10 }}>
               <div className="of-toolbar" style={{ justifyContent: 'space-between' }}>
@@ -1123,26 +1382,14 @@ export function PipelineEditPage() {
                       </td>
                       <td>{new Date(version.created_at).toLocaleString()}</td>
                       <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                          <button
-                            type="button"
-                            onClick={() => void restoreVersion(version, true)}
-                            disabled={historyBusy}
-                            className="of-button"
-                            style={{ fontSize: 11 }}
-                          >
-                            Restore draft
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void restoreVersion(version, false)}
-                            disabled={historyBusy}
-                            className="of-button"
-                            style={{ fontSize: 11 }}
-                          >
-                            Restore + publish
-                          </button>
-                        </div>
+                        <VersionActionsMenu
+                          disabled={historyBusy}
+                          onViewDetails={() => setVersionViewer({ mode: 'details', version, previous: null })}
+                          onViewChanges={() => setVersionViewer({ mode: 'changes', version, previous: findPreviousVersion(version) })}
+                          onCreateBranch={() => void createBranchFromVersion(version)}
+                          onRestoreDraft={() => void restoreVersion(version, true)}
+                          onRestorePublish={() => void restoreVersion(version, false)}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -1190,6 +1437,7 @@ export function PipelineEditPage() {
       <TransformStackEditor
         open={Boolean(transformStack)}
         stack={transformStack}
+        parameters={pipeline?.parameters ?? []}
         onClose={() => {
           setTransformStack(null);
           setTransformOriginNodeId(null);
@@ -1242,6 +1490,7 @@ export function PipelineEditPage() {
         outputs={parsedNodes
           .filter((node) => node.transform_type.startsWith('output_') || Boolean(outputConfigForNode(node).kind))
           .map((node) => ({ id: node.id, label: node.label }))}
+        parameters={pipeline?.parameters ?? []}
         lastDeploymentLabel={runs.length > 0 ? new Date(runs[0].started_at).toLocaleString() : 'None'}
         onClose={() => setDeployOpen(false)}
         onDeployed={() => {
@@ -1249,7 +1498,324 @@ export function PipelineEditPage() {
           setTab('runs');
         }}
       />
+
+      <PipelineDetailsDrawer
+        open={shareOpen}
+        pipeline={pipeline}
+        branchName={branchName}
+        description={description}
+        onDescriptionChange={setDescription}
+        onClose={() => setShareOpen(false)}
+      />
+
+      <PipelineVersionViewerDrawer
+        open={Boolean(versionViewer)}
+        mode={versionViewer?.mode ?? 'details'}
+        version={versionViewer?.version ?? null}
+        previousVersion={versionViewer?.previous ?? null}
+        onClose={() => setVersionViewer(null)}
+      />
+
+      <PipelineParametersModal
+        open={parametersOpen}
+        parameters={pipeline.parameters ?? []}
+        busy={parametersBusy}
+        onClose={() => setParametersOpen(false)}
+        onSave={(next) => saveParameters(next)}
+      />
+
+      <MLPredictEditor
+        open={Boolean(mlPredictNode)}
+        node={mlPredictNode}
+        upstreamColumns={(() => {
+          if (!mlPredictNode) return [];
+          const sourceId = mlPredictNode.depends_on[0];
+          const source = sourceId ? parsedNodes.find((entry) => entry.id === sourceId) : null;
+          const config = source?.config as Record<string, unknown> | undefined;
+          const schema = config?.schema_columns;
+          if (Array.isArray(schema)) return schema.filter((value): value is string => typeof value === 'string');
+          return [];
+        })()}
+        onClose={() => setMlPredictNode(null)}
+        onApply={(next) => {
+          setPipelineNodes(currentNodes().map((entry) => (entry.id === next.id ? next : entry)));
+        }}
+      />
     </section>
+  );
+}
+
+function proposalStateForVersion(
+  version: PipelineVersion,
+  latestProposalId: string | undefined,
+  pipelineProposalState: string | undefined,
+): 'open' | 'merged' {
+  if (version.id === latestProposalId && pipelineProposalState === 'open') return 'open';
+  return 'merged';
+}
+
+interface ProposalsTabContentProps {
+  pipeline: Pipeline;
+  versions: PipelineVersion[];
+  filter: ProposalFilter;
+  onFilterChange: (next: ProposalFilter) => void;
+  busy: boolean;
+  onRefresh: () => void;
+  onPublish: () => void;
+  onRestore: (version: PipelineVersion) => void;
+  onViewDetail: (version: PipelineVersion) => void;
+}
+
+function ProposalsTabContent({
+  pipeline,
+  versions,
+  filter,
+  onFilterChange,
+  busy,
+  onRefresh,
+  onPublish,
+  onRestore,
+  onViewDetail,
+}: ProposalsTabContentProps) {
+  const proposalVersions = useMemo(
+    () => versions.filter((version) => version.version_kind === 'proposal'),
+    [versions],
+  );
+  const latestProposalId = proposalVersions[0]?.id;
+  const visibleProposals = useMemo(() => {
+    if (filter === 'all') return proposalVersions;
+    return proposalVersions.filter(
+      (version) => proposalStateForVersion(version, latestProposalId, pipeline.proposal_state) === filter,
+    );
+  }, [proposalVersions, filter, latestProposalId, pipeline.proposal_state]);
+
+  const openCount = proposalVersions.filter(
+    (version) => proposalStateForVersion(version, latestProposalId, pipeline.proposal_state) === 'open',
+  ).length;
+  const mergedCount = proposalVersions.length - openCount;
+
+  const FILTERS: { id: ProposalFilter; label: string; count: number }[] = [
+    { id: 'all', label: 'All', count: proposalVersions.length },
+    { id: 'open', label: 'Open', count: openCount },
+    { id: 'merged', label: 'Merged', count: mergedCount },
+  ];
+
+  return (
+    <section style={{ display: 'grid', gap: 10 }}>
+      <div className="of-toolbar" style={{ justifyContent: 'space-between' }}>
+        <div role="tablist" style={{ display: 'flex', gap: 4 }}>
+          {FILTERS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              role="tab"
+              aria-selected={filter === entry.id}
+              className={`of-button${filter === entry.id ? ' of-button--primary' : ''}`}
+              style={{ fontSize: 12 }}
+              onClick={() => onFilterChange(entry.id)}
+            >
+              {entry.label} <span className="of-text-muted">({entry.count})</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button type="button" onClick={onRefresh} disabled={busy} className="of-button">
+            Refresh
+          </button>
+          {pipeline.proposal_state === 'open' && (
+            <button type="button" onClick={onPublish} disabled={busy} className="of-button of-button--primary">
+              Merge proposal
+            </button>
+          )}
+        </div>
+      </div>
+
+      {pipeline.proposal_state === 'open' && pipeline.proposal_title && (
+        <div
+          className="of-panel"
+          style={{ padding: 10, borderColor: '#15803d', background: '#f0fdf4', display: 'grid', gap: 4 }}
+        >
+          <p className="of-eyebrow" style={{ color: '#15803d' }}>Open proposal</p>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{pipeline.proposal_title}</p>
+          {pipeline.proposal_description && (
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>{pipeline.proposal_description}</p>
+          )}
+        </div>
+      )}
+
+      <table className="of-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Version</th>
+            <th>Branch</th>
+            <th>Title</th>
+            <th>Created</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {visibleProposals.map((version) => {
+            const status = proposalStateForVersion(version, latestProposalId, pipeline.proposal_state);
+            return (
+              <tr key={version.id}>
+                <td>
+                  <span
+                    className="of-chip"
+                    style={{
+                      background: status === 'open' ? '#dcfce7' : '#e5e7eb',
+                      color: status === 'open' ? '#15803d' : '#374151',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {status}
+                  </span>
+                </td>
+                <td style={{ fontFamily: 'var(--font-mono)' }}>v{version.version_number}</td>
+                <td>{version.branch_name || 'main'}</td>
+                <td>
+                  <div style={{ display: 'grid', gap: 2 }}>
+                    <span>{version.message || version.name || 'Untitled proposal'}</span>
+                    {version.description && (
+                      <span className="of-text-muted" style={{ fontSize: 11 }}>{version.description}</span>
+                    )}
+                  </div>
+                </td>
+                <td>{new Date(version.created_at).toLocaleString()}</td>
+                <td style={{ textAlign: 'right' }}>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => onViewDetail(version)}
+                      className="of-button"
+                      style={{ fontSize: 11 }}
+                    >
+                      View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onRestore(version)}
+                      disabled={busy}
+                      className="of-button"
+                      style={{ fontSize: 11 }}
+                    >
+                      Restore as draft
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+          {visibleProposals.length === 0 && (
+            <tr>
+              <td colSpan={6} className="of-text-muted">
+                {proposalVersions.length === 0
+                  ? 'No proposals yet. Use "Open proposal" on the Edit toolbar to request a merge into main.'
+                  : `No ${filter} proposals.`}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+interface VersionActionsMenuProps {
+  disabled: boolean;
+  onViewDetails: () => void;
+  onViewChanges: () => void;
+  onCreateBranch: () => void;
+  onRestoreDraft: () => void;
+  onRestorePublish: () => void;
+}
+
+function VersionActionsMenu({
+  disabled,
+  onViewDetails,
+  onViewChanges,
+  onCreateBranch,
+  onRestoreDraft,
+  onRestorePublish,
+}: VersionActionsMenuProps) {
+  const [open, setOpen] = useState(false);
+
+  function wrap(action: () => void) {
+    return () => {
+      setOpen(false);
+      action();
+    };
+  }
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((prev) => !prev)}
+        className="of-button"
+        style={{ fontSize: 11 }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        Actions <Glyph name="chevron-down" size={10} />
+      </button>
+      {open && (
+        <>
+          <div
+            aria-hidden
+            onClick={() => setOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+          />
+          <div
+            role="menu"
+            style={{
+              position: 'absolute',
+              top: '100%',
+              right: 0,
+              marginTop: 4,
+              minWidth: 200,
+              background: '#fff',
+              border: '1px solid var(--border-default)',
+              borderRadius: 4,
+              boxShadow: '0 8px 24px rgba(15, 23, 42, 0.16)',
+              padding: 4,
+              zIndex: 41,
+              display: 'grid',
+              gap: 2,
+            }}
+          >
+            <VersionMenuItem label="View details" onClick={wrap(onViewDetails)} />
+            <VersionMenuItem label="View changes" onClick={wrap(onViewChanges)} />
+            <VersionMenuItem label="Create branch from this version" onClick={wrap(onCreateBranch)} />
+            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} aria-hidden />
+            <VersionMenuItem label="Restore as draft" onClick={wrap(onRestoreDraft)} />
+            <VersionMenuItem label="Restore + publish" onClick={wrap(onRestorePublish)} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function VersionMenuItem({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="of-button"
+      style={{
+        justifyContent: 'flex-start',
+        textAlign: 'left',
+        fontSize: 12,
+        background: 'transparent',
+        border: 0,
+        padding: '6px 10px',
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
