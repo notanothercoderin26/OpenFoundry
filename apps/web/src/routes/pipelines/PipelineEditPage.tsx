@@ -43,6 +43,7 @@ import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
 import { previewDataset } from '@/lib/api/datasets';
 import { ensureExpectationChangesReviewed, guardPipelineRunWithExpectationGates } from '@/lib/api/data-expectations';
 import { virtualTableExternalReference, type VirtualTable } from '@/lib/api/virtual-tables';
+import { useUndoableState } from '@/lib/utils/useUndoableState';
 
 function parseJson<T>(value: string, fallback: T): T {
   try {
@@ -150,7 +151,15 @@ export function PipelineEditPage() {
   const [description, setDescription] = useState('');
   const [statusValue, setStatusValue] = useState('draft');
   const [branchName, setBranchName] = useState('main');
-  const [nodesJson, setNodesJson] = useState('');
+  const {
+    value: nodesJson,
+    setValue: setNodesJson,
+    replace: resetNodesJson,
+    undo: undoNodesJson,
+    redo: redoNodesJson,
+    canUndo,
+    canRedo,
+  } = useUndoableState('', { limit: 100, coalesceMs: 500 });
   const [scheduleJson, setScheduleJson] = useState('');
   const [retryJson, setRetryJson] = useState('');
 
@@ -607,7 +616,7 @@ export function PipelineEditPage() {
       setDescription(nextPipeline.description);
       setStatusValue(nextPipeline.status);
       setBranchName(nextPipeline.branch_name || 'main');
-      setNodesJson(JSON.stringify(nextPipeline.dag, null, 2));
+      resetNodesJson(JSON.stringify(nextPipeline.dag, null, 2));
       setScheduleJson(JSON.stringify(nextPipeline.schedule_config, null, 2));
       setRetryJson(JSON.stringify(nextPipeline.retry_policy, null, 2));
     } catch (cause) {
@@ -652,6 +661,28 @@ export function PipelineEditPage() {
     if (isEditSubTab(tab)) setLastEditTab(tab);
   }, [tab]);
 
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redoNodesJson();
+        else undoNodesJson();
+      } else if (key === 'y') {
+        event.preventDefault();
+        redoNodesJson();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undoNodesJson, redoNodesJson]);
+
   const topView: TopView = isEditSubTab(tab) ? 'edit' : tab;
   function setTopView(next: TopView) {
     setTab(next === 'edit' ? lastEditTab : next);
@@ -673,7 +704,7 @@ export function PipelineEditPage() {
       });
       setPipeline(updated);
       setBranchName(updated.branch_name || branchName.trim() || 'main');
-      setNodesJson(JSON.stringify(updated.dag, null, 2));
+      resetNodesJson(JSON.stringify(updated.dag, null, 2));
       setScheduleJson(JSON.stringify(updated.schedule_config, null, 2));
       setRetryJson(JSON.stringify(updated.retry_policy, null, 2));
       await loadVersions();
@@ -771,7 +802,7 @@ export function PipelineEditPage() {
     setDescription(nextPipeline.description);
     setStatusValue(nextPipeline.status);
     setBranchName(nextPipeline.branch_name || 'main');
-    setNodesJson(JSON.stringify(nextPipeline.dag, null, 2));
+    resetNodesJson(JSON.stringify(nextPipeline.dag, null, 2));
     setScheduleJson(JSON.stringify(nextPipeline.schedule_config, null, 2));
     setRetryJson(JSON.stringify(nextPipeline.retry_policy, null, 2));
   }
@@ -916,6 +947,29 @@ export function PipelineEditPage() {
             </span>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div role="group" aria-label="History" style={{ display: 'flex', gap: 2 }}>
+              <button
+                type="button"
+                onClick={undoNodesJson}
+                disabled={!canUndo}
+                className="of-button"
+                title="Undo (Ctrl+Z)"
+                aria-label="Undo"
+              >
+                <Glyph name="undo" size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={redoNodesJson}
+                disabled={!canRedo}
+                className="of-button"
+                title="Redo (Ctrl+Shift+Z)"
+                aria-label="Redo"
+                style={{ transform: 'scaleX(-1)' }}
+              >
+                <Glyph name="undo" size={12} />
+              </button>
+            </div>
             <button type="button" onClick={() => setAipOpen(true)} disabled={aipBusy} className="of-button">
               <Glyph name="sparkles" size={12} /> AIP Generate
             </button>
