@@ -33,9 +33,10 @@ import (
 // with the in-memory repo + an httptest provider; main.go builds it
 // from the resolved config.
 type Deps struct {
-	Catalog *handlers.Catalog
-	Invoke  *handlers.Invoke
-	JWT     *authmw.JWTConfig
+	Catalog        *handlers.Catalog
+	Invoke         *handlers.Invoke
+	ProviderHealth *handlers.ProviderHealth
+	JWT            *authmw.JWTConfig
 }
 
 // New constructs the production http.Server.
@@ -85,9 +86,13 @@ func buildRouter(cfg *config.Config, deps Deps, m *observability.Metrics, probes
 					adm.Post("/models", deps.Catalog.RegisterModel)
 					adm.Get("/models", deps.Catalog.ListModels)
 					adm.Get("/models/{rid}", deps.Catalog.GetModel)
+					adm.Patch("/models/{rid}", deps.Catalog.UpdateModel)
 					adm.Post("/models/{rid}/enable", deps.Catalog.EnableModel)
 					adm.Post("/models/{rid}/disable", deps.Catalog.DisableModel)
 				})
+			}
+			if deps.ProviderHealth != nil {
+				api.Get("/providers/health", deps.ProviderHealth.Snapshot)
 			}
 
 			if deps.Invoke != nil {

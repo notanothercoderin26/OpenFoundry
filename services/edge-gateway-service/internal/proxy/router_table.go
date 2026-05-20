@@ -272,7 +272,10 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 	case strings.HasPrefix(path, "/api/v1/ai/guardrails/evaluate"),
 		strings.HasPrefix(path, "/api/v1/ai/evaluations"):
 		return u.AIEvaluation
-	case strings.HasPrefix(path, "/api/v1/ai/providers"):
+	case strings.HasPrefix(path, "/api/v1/ai/providers"),
+		// B04: per-model registry, PATCH, /providers/health, /invoke
+		// live under /api/v1/llm/* in llm-catalog-service.
+		strings.HasPrefix(path, "/api/v1/llm/"):
 		return u.LLMCatalog
 	// ADR-0030: prompt-workflow-service retired → agent-runtime-service.
 	case strings.HasPrefix(path, "/api/v1/ai/prompts"),
