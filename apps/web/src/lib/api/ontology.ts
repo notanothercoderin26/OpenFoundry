@@ -2378,6 +2378,31 @@ export interface LinkType {
   owner_id: string;
   created_at: string;
   updated_at: string;
+  // Per-app metadata blob. First consumer: Vertex, via
+  // app_capabilities.vertex_edge_direction.
+  app_capabilities?: LinkAppCapabilities;
+}
+
+export interface LinkAppCapabilities {
+  vertex_edge_direction?: VertexEdgeDirectionCapability;
+  [appKey: string]: unknown;
+}
+
+// Vertex reads this to decide which arrow heads to paint on edges
+// backed by this link type. `primary_side` is only meaningful when
+// `mode === 'primary'`.
+export type VertexEdgeDirectionMode = 'primary' | 'undirected' | 'bidirectional';
+export type VertexEdgeDirectionSide = 'source' | 'target';
+
+export interface VertexEdgeDirectionCapability {
+  mode: VertexEdgeDirectionMode;
+  primary_side?: VertexEdgeDirectionSide | null;
+}
+
+export function updateLinkTypeAppCapabilities(id: string, appCapabilities: LinkAppCapabilities) {
+  return api.put<LinkType>(`/ontology/links/${id}/app-capabilities`, {
+    app_capabilities: appCapabilities,
+  });
 }
 
 export function linkTypeCardinalityLabel(cardinality: string) {

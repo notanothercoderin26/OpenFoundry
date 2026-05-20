@@ -41,6 +41,7 @@ import { UseTemplateDialog } from './template/UseTemplateDialog';
 import { listGraphTemplates, type GraphTemplate } from '@/lib/api/vertexTemplates';
 import { EventBadgeOverlay, type NodeEventBadge } from './EventBadgeOverlay';
 import { SelectionBorderOverlay, type SelectionRingSpec } from './SelectionBorderOverlay';
+import { listLinkTypes, type LinkType, type VertexEdgeDirectionCapability } from '@/lib/api/ontology';
 import { useSearchParams } from 'react-router-dom';
 
 type LayoutMode = 'cose' | 'breadthfirst' | 'grid' | 'circle' | 'concentric' | 'radial' | 'cartesian';
@@ -457,6 +458,12 @@ export function VertexPage() {
     radialDensity: 3 as number, // 1-5 spacing factor
   });
 
+  // D.6 — Link types are loaded for their app_capabilities.vertex_edge_direction
+  // capability. Each link type can override the global edgeStyling
+  // arrow toggle: undirected hides arrows, bidirectional shows them
+  // on both sides, and primary points the arrow at a fixed side.
+  const [linkTypes, setLinkTypes] = useState<LinkType[]>([]);
+
   // D.4 — Edge styling bundle. Drives cytoscape curve-style (line
   // type), per-edge width from a property (or count for aggregate
   // edges produced by D.3), arrow visibility, edge label, and label
@@ -816,6 +823,56 @@ export function VertexPage() {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(`of.vertex.edge-styling.v1:${analysisRid}`, JSON.stringify(edgeStyling));
   }, [analysisRid, edgeStyling]);
+
+  // D.6 — Load link types once so the canvas can override per-edge
+  // arrow rendering with the ontology-level vertex_edge_direction
+  // capability. We do not block the page on this — if it fails we
+  // silently fall back to the global edgeStyling.showArrows toggle.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const resp = await listLinkTypes({ per_page: 500 });
+        if (!cancelled) setLinkTypes(resp.data);
+      } catch {
+        if (!cancelled) setLinkTypes([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Index link-type direction capabilities by both id and name so
+  // we can look one up however the GraphEdge identifies its link
+  // type (the `kind` field is typically the type name).
+  const edgeDirectionByKey = useMemo(() => {
+    const map = new Map<string, VertexEdgeDirectionCapability>();
+    for (const lt of linkTypes) {
+      const direction = (lt.app_capabilities?.vertex_edge_direction ?? null) as VertexEdgeDirectionCapability | null;
+      if (!direction || !direction.mode) continue;
+      map.set(lt.id, direction);
+      if (lt.name) map.set(lt.name, direction);
+      if (lt.display_name) map.set(lt.display_name, direction);
+    }
+    return map;
+  }, [linkTypes]);
+
+  // Compute the cytoscape class string an edge should carry given
+  // its linked direction capability. Empty string means "use the
+  // canvas defaults" (global edgeStyling.showArrows).
+  function directionClassFor(edge: { kind?: string; metadata?: Record<string, unknown> }): string {
+    const metaLinkTypeId = typeof edge.metadata?.link_type_id === 'string' ? edge.metadata.link_type_id : '';
+    const direction =
+      (metaLinkTypeId && edgeDirectionByKey.get(metaLinkTypeId)) ||
+      (edge.kind ? edgeDirectionByKey.get(edge.kind) : undefined);
+    if (!direction) return '';
+    if (direction.mode === 'undirected') return 'direction-undirected';
+    if (direction.mode === 'bidirectional') return 'direction-bidirectional';
+    if (direction.mode === 'primary' && direction.primary_side === 'source') return 'direction-primary-source';
+    if (direction.mode === 'primary' && direction.primary_side === 'target') return 'direction-primary-target';
+    return '';
+  }
 
   // ---- D.1 — Saved style helpers ----
 
@@ -1534,6 +1591,9 @@ export function VertexPage() {
         const label = labelProp && edge.metadata?.[labelProp] != null
           ? String(edge.metadata[labelProp])
           : edge.label;
+        const directionClass = directionClassFor(edge);
+        const baseClass = selectedEdgeId === edge.id ? 'is-edge-selected' : '';
+        const classes = [baseClass, directionClass].filter(Boolean).join(' ');
         return {
           data: {
             id: edge.id,
@@ -1543,7 +1603,7 @@ export function VertexPage() {
             width,
             lineStyle: edgeDashEnabled || edge.metadata?.simulated === true ? 'dashed' : 'solid',
           },
-          classes: selectedEdgeId === edge.id ? 'is-edge-selected' : '',
+          classes,
         };
       });
     // Synthetic aggregate edges, one per grouping. We only add the
@@ -1601,7 +1661,7 @@ export function VertexPage() {
       });
     return [...nodeElements, ...edgeElements, ...aggregateEdges];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredGraph, subtitleField, extendedLabelField, colorByField, eventRows, pinnedPositions, nodeLabelProperty, nodeSizeProperty, nodeDisplayMode, selectedNodeIds, edgeLabelProperty, edgeDashEnabled, selectedEdgeId, edgeGroupings, layoutMode, layoutAdvanced, edgeStyling]);
+  }, [filteredGraph, subtitleField, extendedLabelField, colorByField, eventRows, pinnedPositions, nodeLabelProperty, nodeSizeProperty, nodeDisplayMode, selectedNodeIds, edgeLabelProperty, edgeDashEnabled, selectedEdgeId, edgeGroupings, layoutMode, layoutAdvanced, edgeStyling, edgeDirectionByKey]);
 
   const cyStylesheet = useMemo<StylesheetStyle[]>(() => {
     const fontSize = nodeDisplayMode === 'card' ? 11 : 10;
@@ -1681,6 +1741,37 @@ export function VertexPage() {
           'target-arrow-color': '#475569',
           'source-arrow-color': '#475569',
           'font-weight': 600,
+        },
+      },
+      // D.6 — Per-link-type arrow overrides. These selectors win
+      // over the generic `edge` rule above because cytoscape
+      // applies stylesheet entries in declaration order.
+      {
+        selector: 'edge.direction-undirected',
+        style: {
+          'target-arrow-shape': 'none',
+          'source-arrow-shape': 'none',
+        },
+      },
+      {
+        selector: 'edge.direction-bidirectional',
+        style: {
+          'target-arrow-shape': 'triangle',
+          'source-arrow-shape': 'triangle',
+        },
+      },
+      {
+        selector: 'edge.direction-primary-target',
+        style: {
+          'target-arrow-shape': 'triangle',
+          'source-arrow-shape': 'none',
+        },
+      },
+      {
+        selector: 'edge.direction-primary-source',
+        style: {
+          'target-arrow-shape': 'none',
+          'source-arrow-shape': 'triangle',
         },
       },
     ];

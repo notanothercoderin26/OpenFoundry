@@ -733,7 +733,8 @@ func scanObjectTypeGroup(r rowLikeT) (*models.ObjectTypeGroup, error) {
 // ── Link types ─────────────────────────────────────────────────────────
 
 const linkTypeColumns = `id, name, display_name, description, source_type_id, target_type_id,
-	cardinality, label, reverse_label, visibility, link_datasource_mapping, owner_id, created_at, updated_at`
+	cardinality, label, reverse_label, visibility, link_datasource_mapping, owner_id, created_at, updated_at,
+	COALESCE(app_capabilities_json, '{}'::jsonb) AS app_capabilities_json`
 
 func (r *Repo) ListLinkTypes(ctx context.Context, objectTypeID *uuid.UUID) ([]models.LinkType, error) {
 	q := `SELECT ` + linkTypeColumns + ` FROM ontology_schema.link_types`
@@ -864,10 +865,33 @@ func scanLinkType(r rowLikeT) (*models.LinkType, error) {
 	lt := &models.LinkType{}
 	if err := r.Scan(&lt.ID, &lt.Name, &lt.DisplayName, &lt.Description,
 		&lt.SourceTypeID, &lt.TargetTypeID, &lt.Cardinality, &lt.Label, &lt.ReverseLabel,
-		&lt.Visibility, &lt.LinkDatasourceMapping, &lt.OwnerID, &lt.CreatedAt, &lt.UpdatedAt); err != nil {
+		&lt.Visibility, &lt.LinkDatasourceMapping, &lt.OwnerID, &lt.CreatedAt, &lt.UpdatedAt,
+		&lt.AppCapabilities); err != nil {
 		return nil, err
 	}
 	return lt, nil
+}
+
+// UpdateLinkTypeAppCapabilities writes only the app_capabilities_json
+// column for a single link type. Used by the Vertex edge-direction
+// editor; payload is stored verbatim — callers validate the JSON
+// before invoking this.
+func (r *Repo) UpdateLinkTypeAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage) (*models.LinkType, error) {
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	tag, err := r.Pool.Exec(ctx,
+		`UPDATE ontology_schema.link_types
+		    SET app_capabilities_json = $2,
+		        updated_at = NOW()
+		    WHERE id = $1`, id, []byte(payload))
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, nil
+	}
+	return r.GetLinkType(ctx, id)
 }
 
 var _ = errors.New

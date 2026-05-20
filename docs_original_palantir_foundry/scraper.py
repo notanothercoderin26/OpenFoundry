@@ -14,6 +14,7 @@ Uso:
     python foundry_docs_scraper.py --output ./foundry-docs --no-screenshots --workers 8
     python foundry_docs_scraper.py --output ./foundry-docs --max-pages 50
     python foundry_docs_scraper.py --output ./foundry-docs --index-only
+    python foundry_docs_scraper.py --output ./foundry-docs --seed-urls ./seed-urls.txt
 """
 from __future__ import annotations
 
@@ -523,10 +524,52 @@ async def process_url(
 
 
 # ─────────────────────────────────────────────────────────
+# Carga de URLs semilla desde fichero (modo seed)
+# ─────────────────────────────────────────────────────────
+def load_seed_urls(seed_file: Path) -> List[str]:
+    """
+    Lee un fichero de texto con una URL por línea. Acepta líneas en blanco
+    y comentarios con '#'. Sólo devuelve URLs que pasan is_docs_url().
+    """
+    if not seed_file.exists():
+        log.error("seed-urls file not found: %s", seed_file)
+        sys.exit(1)
+    urls: List[str] = []
+    for raw in seed_file.read_text("utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Permitir URLs con o sin trailing slash
+        u = norm_url(line)
+        if not is_docs_url(u):
+            log.warning("  seed URL ignorada (no es docs/foundry): %s", line)
+            continue
+        urls.append(u)
+    log.info("Seed URLs cargadas: %s", len(urls))
+    return urls
+
+
+def seed_path_components(url: str) -> List[str]:
+    """
+    Deriva path_components de una URL cuando no tenemos sidebar.
+    Usa los segmentos del path después de /docs/foundry/ y los humaniza.
+    Ejemplo:
+      https://www.palantir.com/docs/foundry/workshop/overview/
+      → ["Seed URLs", "Workshop", "Overview"]
+    """
+    parts = [x for x in urlparse(url).path.replace(DOCS_PREFIX + "/", "").split("/") if x]
+    if not parts:
+        return ["Seed URLs", "root"]
+    titled = [p.replace("-", " ").title() for p in parts]
+    return ["Seed URLs"] + titled
+
+
+# ─────────────────────────────────────────────────────────
 # Crawl principal con paralelización
 # ─────────────────────────────────────────────────────────
 async def crawl(output_dir: Path, workers: int, delay: float,
-                max_pages: int, max_imgs: int, screenshots: bool):
+                max_pages: int, max_imgs: int, screenshots: bool,
+                seed_urls: Optional[List[str]] = None):
     try:
         from playwright.async_api import async_playwright
     except ImportError:
@@ -539,19 +582,30 @@ async def crawl(output_dir: Path, workers: int, delay: float,
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
 
-        # ── FASE 1: Extraer sidebars (secuencial, 1 pestaña cada vez) ──
-        log.info("=" * 60)
-        log.info("FASE 1 — Extrayendo sidebars (%s secciones)", len(SECTIONS))
-        log.info("=" * 60)
-        for section, entry in SECTIONS.items():
-            if section in state.sidebars_done:
-                log.info("  [ya extraído] %s", section)
-                continue
-            url_map = await scrape_sidebar(browser, entry, section)
-            state.merge(url_map)
-            state.sidebars_done.add(section)
+        if seed_urls:
+            # ── MODO SEED: saltarse Fase 1, inyectar URLs directamente ──
+            log.info("=" * 60)
+            log.info("MODO SEED — %s URLs explícitas (sin sidebar crawl)", len(seed_urls))
+            log.info("=" * 60)
+            for u in seed_urls:
+                if u not in state.url_map:
+                    state.url_map[u] = seed_path_components(u)
+            state.add_urls(seed_urls)
             state.save()
-            await asyncio.sleep(1.0)
+        else:
+            # ── FASE 1: Extraer sidebars (secuencial, 1 pestaña cada vez) ──
+            log.info("=" * 60)
+            log.info("FASE 1 — Extrayendo sidebars (%s secciones)", len(SECTIONS))
+            log.info("=" * 60)
+            for section, entry in SECTIONS.items():
+                if section in state.sidebars_done:
+                    log.info("  [ya extraído] %s", section)
+                    continue
+                url_map = await scrape_sidebar(browser, entry, section)
+                state.merge(url_map)
+                state.sidebars_done.add(section)
+                state.save()
+                await asyncio.sleep(1.0)
 
         log.info("URLs totales en mapa semántico: %s", len(state.url_map))
 
@@ -670,6 +724,10 @@ Ejemplos:
     ap.add_argument("--max-images-per-page", type=int, default=6, help="Máx imágenes por página")
     ap.add_argument("--no-screenshots", action="store_true", help="Sin capturas de pantalla")
     ap.add_argument("--index-only",     action="store_true", help="Solo regenerar README.md")
+    ap.add_argument("--seed-urls",      type=str, default=None,
+                    help="Fichero con URLs semilla (1 por línea, '#' comenta). "
+                         "Si se pasa, se omite la Fase 1 (sidebar crawl) y se procesan "
+                         "exclusivamente esas URLs.")
     return ap.parse_args()
 
 
@@ -677,6 +735,10 @@ def main():
     args = parse_args()
     out  = Path(args.output).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
+
+    seed_urls = None
+    if args.seed_urls:
+        seed_urls = load_seed_urls(Path(args.seed_urls).expanduser().resolve())
 
     if not args.index_only:
         asyncio.run(crawl(
@@ -686,6 +748,7 @@ def main():
             max_pages   = args.max_pages,
             max_imgs    = args.max_images_per_page,
             screenshots = not args.no_screenshots,
+            seed_urls   = seed_urls,
         ))
 
     build_index(out)

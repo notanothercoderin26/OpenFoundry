@@ -34,6 +34,7 @@ type Store interface {
 	GetLinkType(ctx context.Context, id uuid.UUID) (*models.LinkType, error)
 	CreateLinkType(ctx context.Context, body *models.CreateLinkTypeRequest, ownerID uuid.UUID) (*models.LinkType, error)
 	UpdateLinkType(ctx context.Context, id uuid.UUID, body *models.UpdateLinkTypeRequest) (*models.LinkType, error)
+	UpdateLinkTypeAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage) (*models.LinkType, error)
 	DeleteLinkType(ctx context.Context, id uuid.UUID) (bool, error)
 
 	ListObjectTypeGroups(ctx context.Context, search string, limit, offset int64) ([]models.ObjectTypeGroup, int64, error)

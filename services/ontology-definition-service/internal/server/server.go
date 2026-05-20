@@ -67,6 +67,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/links", h.CreateLinkType)
 		api.Get("/links/{id}", h.GetLinkType)
 		api.Patch("/links/{id}", h.UpdateLinkType)
+		api.Put("/links/{id}/app-capabilities", h.UpdateLinkTypeAppCapabilities)
 		api.Delete("/links/{id}", h.DeleteLinkType)
 
 		api.Get("/object-type-groups", h.ListObjectTypeGroups)

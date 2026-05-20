@@ -658,20 +658,46 @@ type UpdateObjectTypeGroupRequest struct {
 
 // LinkType mirrors `ontology_schema.link_types` rows.
 type LinkType struct {
-	ID                    uuid.UUID      `json:"id"`
-	Name                  string         `json:"name"`
-	DisplayName           string         `json:"display_name"`
-	Description           string         `json:"description"`
-	SourceTypeID          uuid.UUID      `json:"source_type_id"`
-	TargetTypeID          uuid.UUID      `json:"target_type_id"`
-	Cardinality           string         `json:"cardinality"`
-	Label                 string         `json:"label"`
-	ReverseLabel          string         `json:"reverse_label"`
-	Visibility            string         `json:"visibility"`
-	LinkDatasourceMapping map[string]any `json:"link_datasource_mapping"`
-	OwnerID               uuid.UUID      `json:"owner_id"`
-	CreatedAt             time.Time      `json:"created_at"`
-	UpdatedAt             time.Time      `json:"updated_at"`
+	ID                    uuid.UUID       `json:"id"`
+	Name                  string          `json:"name"`
+	DisplayName           string          `json:"display_name"`
+	Description           string          `json:"description"`
+	SourceTypeID          uuid.UUID       `json:"source_type_id"`
+	TargetTypeID          uuid.UUID       `json:"target_type_id"`
+	Cardinality           string          `json:"cardinality"`
+	Label                 string          `json:"label"`
+	ReverseLabel          string          `json:"reverse_label"`
+	Visibility            string          `json:"visibility"`
+	LinkDatasourceMapping map[string]any  `json:"link_datasource_mapping"`
+	OwnerID               uuid.UUID       `json:"owner_id"`
+	CreatedAt             time.Time       `json:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at"`
+	// AppCapabilities is the free-form per-app metadata blob on the
+	// link type. The first consumer is Vertex; see migration 0005
+	// and LinkAppCapabilities below for the shape Vertex reads.
+	AppCapabilities json.RawMessage `json:"app_capabilities,omitempty"`
+}
+
+// LinkAppCapabilities is the typed view over the link
+// `app_capabilities_json` JSONB column. New keys can be added
+// without a schema change as more apps wire into it.
+type LinkAppCapabilities struct {
+	VertexEdgeDirection *VertexEdgeDirectionCapability `json:"vertex_edge_direction,omitempty"`
+}
+
+// VertexEdgeDirectionCapability tells Vertex how to render arrows
+// on an edge backed by this link type. `mode` picks one of:
+//   - "primary":       single arrow on the side named by `primary_side`
+//   - "undirected":    no arrows on either side
+//   - "bidirectional": arrows on both sides
+//
+// `primary_side` is required when `mode == "primary"` and ignored
+// otherwise. When mode is missing the Vertex client falls back to
+// its default behaviour (the `edgeStyling.showArrows` /
+// `edgeStyling.showReversed` toggles in the canvas).
+type VertexEdgeDirectionCapability struct {
+	Mode        string `json:"mode"`
+	PrimarySide string `json:"primary_side,omitempty"`
 }
 
 type CreateLinkTypeRequest struct {

@@ -52,6 +52,7 @@ import { listDatasets, type Dataset } from '@/lib/api/datasets';
 import { CreateActionTypeWizard } from '@/lib/components/ontology/CreateActionTypeWizard';
 import { ObjectDetailDrawer } from '@/lib/components/ontology/ObjectDetailDrawer';
 import { VertexEventCapabilityEditor } from '@/lib/components/ontology/VertexEventCapabilityEditor';
+import { LinkTypeEdgeDirectionEditor } from '@/lib/components/ontology/LinkTypeEdgeDirectionEditor';
 import { ObjectExplorer } from '@/lib/components/ontology/ObjectExplorer';
 import { PropertyPanel } from '@/lib/components/ontology/PropertyPanel';
 import { SaveAsAppModal } from '@/lib/components/apps/SaveAsAppModal';
@@ -1233,7 +1234,22 @@ export function ObjectTypeDetailPage() {
             selectedLinkId={selectedLink?.id ?? null}
             onSelectLink={(link) => { setSelectedLinkId(link.id); setLinkDetailTab('overview'); }}
           />
-          <LinkTypeDetail link={selectedLink} typeById={typeById} activeTab={linkDetailTab} onTabChange={setLinkDetailTab} />
+          <div style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
+            <LinkTypeDetail link={selectedLink} typeById={typeById} activeTab={linkDetailTab} onTabChange={setLinkDetailTab} />
+            {selectedLink && (
+              <LinkTypeEdgeDirectionEditor
+                linkType={selectedLink}
+                objectTypeNameById={
+                  new Map(
+                    Array.from(typeById.entries()).map(([id, t]) => [id, t.display_name || t.name]),
+                  )
+                }
+                onSaved={(updated) =>
+                  setLinks((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))
+                }
+              />
+            )}
+          </div>
         </div>
       )}
 

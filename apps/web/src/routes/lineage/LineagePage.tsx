@@ -13,6 +13,7 @@ import type { Core, ElementDefinition, EventObject, StylesheetStyle } from 'cyto
 import { CytoscapeCanvas } from '@components/CytoscapeCanvas';
 import { ResourceHealthStatusBadge } from '@/lib/components/health/HealthReportsPanel';
 import { ResourceHealthChecksPanel } from '@/lib/components/health/ResourceHealthChecksPanel';
+import { NodeBadgeOverlay, type NodeBadgeSpec } from '@/lib/components/lineage/NodeBadgeOverlay';
 import { ScheduleSidebar } from '@/lib/components/lineage/ScheduleSidebar';
 import { ConfirmDialog } from '@/lib/components/ConfirmDialog';
 import { listDatasetBuildsV1, listBuildsV1, type Build, type CreateBuildResponse } from '@/lib/api/buildsV1';
@@ -40,6 +41,12 @@ import {
   type LineageImpactAnalysis,
   type LineageNode,
 } from '@/lib/api/pipelines';
+import {
+  commonAncestors,
+  commonDescendants,
+  expandFromSeeds,
+  inBetweenNodes,
+} from '@/lib/lineage/graphTraversal';
 import {
   computePipelineRollbackPlan,
   downstreamDatasetIds,
@@ -1448,6 +1455,7 @@ export function LineagePage() {
   const [savedSnapshots, setSavedSnapshots] = useState<SavedLineageGraphSnapshot[]>(() => loadSavedLineageSnapshots());
 
   const cyRef = useRef<Core | null>(null);
+  const [cyInstance, setCyInstance] = useState<Core | null>(null);
   const graphRef = useRef<LineageGraph | null>(null);
   const selectedNodeRef = useRef<LineageNode | null>(null);
   const selectedNodeIdsRef = useRef<string[]>([]);
@@ -1637,6 +1645,7 @@ export function LineagePage() {
 
   const handleCytoscapeReady = useCallback((cy: Core) => {
     cyRef.current = cy;
+    setCyInstance(cy);
     cy.removeListener('tap');
     cy.on('tap', 'node', (event: EventObject) => {
       const nodeId = String(event.target.id());
@@ -2213,7 +2222,145 @@ export function LineagePage() {
     return [...byKey.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
   }, [viewGraph, coloringMode, colorContext, hiddenColorKeys]);
 
-  const inBetweenSelectionDisabled = selectedNode === null;
+  const multiSelectActionDisabled = selectedNodeIds.length < 2;
+  const expandFromSeedsDisabled =
+    selectedNodeIds.length === 0 || expandParents + expandChildren === 0;
+
+  const nodeBadges = useMemo<Record<string, NodeBadgeSpec[]>>(() => {
+    if (!viewGraph) return {};
+    const labelByNodeId = new Map(viewGraph.nodes.map((node) => [node.id, node.label]));
+    const map: Record<string, NodeBadgeSpec[]> = {};
+    for (const node of viewGraph.nodes) {
+      const badges: NodeBadgeSpec[] = [];
+      if (node.kind === 'object_type') {
+        badges.push({ kind: 'object-type', tooltip: `Object type: ${node.label}` });
+      }
+      if (node.kind === 'dataset') {
+        const writebackSources = new Set<string>();
+        const backingTargets = new Set<string>();
+        for (const edge of viewGraph.edges) {
+          if (edge.source === node.id && edge.target_kind === 'object_type') {
+            backingTargets.add(edge.target);
+          }
+          if (edge.target === node.id && edge.source_kind === 'object_type') {
+            writebackSources.add(edge.source);
+          }
+        }
+        if (backingTargets.size > 0) {
+          const names = [...backingTargets].map((id) => labelByNodeId.get(id) ?? id).join(', ');
+          badges.push({
+            kind: 'backing',
+            tooltip: `Show ${backingTargets.size} backing dataset · ${names}`,
+          });
+        }
+        if (writebackSources.size > 0) {
+          const names = [...writebackSources].map((id) => labelByNodeId.get(id) ?? id).join(', ');
+          badges.push({
+            kind: 'writeback',
+            tooltip: `Writeback dataset for ${names}`,
+          });
+        }
+      }
+      if (badges.length > 0) map[node.id] = badges;
+    }
+    return map;
+  }, [viewGraph]);
+
+  const expandPreview = useMemo(() => {
+    if (!viewGraph) {
+      return { inBetween: 0, commonAncestors: 0, commonDescendants: 0, expandFromSeeds: 0 };
+    }
+    return {
+      inBetween: inBetweenNodes(selectedNodeIds, viewGraph).size,
+      commonAncestors: commonAncestors(selectedNodeIds, viewGraph).size,
+      commonDescendants: commonDescendants(selectedNodeIds, viewGraph).size,
+      expandFromSeeds:
+        selectedNodeIds.length === 0
+          ? 0
+          : expandFromSeeds(selectedNodeIds, viewGraph, expandParents, expandChildren).size,
+    };
+  }, [viewGraph, selectedNodeIds, expandParents, expandChildren]);
+
+  const applyExpandSelection = useCallback(
+    (newIds: Iterable<string>, label: string) => {
+      const additions = [...newIds].filter((id) => !selectedNodeIdsRef.current.includes(id));
+      if (additions.length === 0) {
+        notifications.info(`No new ${label} to add`);
+        return;
+      }
+      const nextIds = [...selectedNodeIdsRef.current, ...additions];
+      const lastId = nextIds[nextIds.length - 1];
+      const primary = graphRef.current?.nodes.find((entry) => entry.id === lastId) ?? null;
+      setSelectedNodeIds(nextIds);
+      if (primary) setSelectedNode(primary);
+      notifications.success(`Added ${additions.length} ${label}`);
+      window.setTimeout(() => {
+        const cy = cyRef.current;
+        if (!cy) return;
+        const collection = cy.collection();
+        for (const id of nextIds) collection.merge(cy.$id(id));
+        if (collection.length > 0) cy.fit(collection, 60);
+      }, 0);
+    },
+    [],
+  );
+
+  const handleAddInBetween = useCallback(() => {
+    if (!viewGraph || selectedNodeIdsRef.current.length < 2) return;
+    applyExpandSelection(inBetweenNodes(selectedNodeIdsRef.current, viewGraph), 'in-between node(s)');
+    setExpandPopoverOpen(false);
+  }, [viewGraph, applyExpandSelection]);
+
+  const handleAddCommonAncestors = useCallback(() => {
+    if (!viewGraph || selectedNodeIdsRef.current.length < 2) return;
+    applyExpandSelection(commonAncestors(selectedNodeIdsRef.current, viewGraph), 'common ancestor(s)');
+    setExpandPopoverOpen(false);
+  }, [viewGraph, applyExpandSelection]);
+
+  const handleAddCommonDescendants = useCallback(() => {
+    if (!viewGraph || selectedNodeIdsRef.current.length < 2) return;
+    applyExpandSelection(commonDescendants(selectedNodeIdsRef.current, viewGraph), 'common descendant(s)');
+    setExpandPopoverOpen(false);
+  }, [viewGraph, applyExpandSelection]);
+
+  const handleExpandFromSeeds = useCallback(() => {
+    if (!viewGraph || selectedNodeIdsRef.current.length === 0) return;
+    applyExpandSelection(
+      expandFromSeeds(selectedNodeIdsRef.current, viewGraph, expandParents, expandChildren),
+      'expansion node(s)',
+    );
+    setExpandPopoverOpen(false);
+  }, [viewGraph, expandParents, expandChildren, applyExpandSelection]);
+
+  useEffect(() => {
+    if (readOnlyMode) return undefined;
+    function onKeyDown(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === 'b') {
+        event.preventDefault();
+        handleAddInBetween();
+      } else if (key === 'j') {
+        event.preventDefault();
+        handleAddCommonAncestors();
+      } else if (key === 'k') {
+        event.preventDefault();
+        handleAddCommonDescendants();
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [readOnlyMode, handleAddInBetween, handleAddCommonAncestors, handleAddCommonDescendants]);
+
   const presentationSnapshot = linkedSnapshotId ? savedSnapshots.find((entry) => entry.id === linkedSnapshotId) ?? null : null;
 
   // ---------------------------------------------------------------------------
@@ -2265,11 +2412,13 @@ export function LineagePage() {
             expandChildren={expandChildren}
             onExpandParentsChange={setExpandParents}
             onExpandChildrenChange={setExpandChildren}
-            onExpandApply={() => {
-              setExpandPopoverOpen(false);
-              notifications.success(`Expanded ${expandParents + expandChildren} nodes`);
-            }}
-            inBetweenDisabled={inBetweenSelectionDisabled}
+            onExpandApply={handleExpandFromSeeds}
+            onAddInBetween={handleAddInBetween}
+            onAddCommonAncestors={handleAddCommonAncestors}
+            onAddCommonDescendants={handleAddCommonDescendants}
+            expandPreview={expandPreview}
+            multiSelectActionDisabled={multiSelectActionDisabled}
+            expandFromSeedsDisabled={expandFromSeedsDisabled}
             onColorClick={() => setColoringMenuOpen((v) => !v)}
             coloringMenuOpen={coloringMenuOpen}
             coloringMode={coloringMode}
@@ -2328,14 +2477,17 @@ export function LineagePage() {
           ) : !viewGraph || viewGraph.nodes.length === 0 ? (
             <div style={emptyState}>No lineage data yet. Run a pipeline or workflow to populate the graph.</div>
           ) : (
-            <CytoscapeCanvas
-              elements={elements}
-              stylesheet={STYLESHEET}
-              layout={layout}
-              height="100%"
-              onReady={handleCytoscapeReady}
-              className="lineage-canvas"
-            />
+            <>
+              <CytoscapeCanvas
+                elements={elements}
+                stylesheet={STYLESHEET}
+                layout={layout}
+                height="100%"
+                onReady={handleCytoscapeReady}
+                className="lineage-canvas"
+              />
+              <NodeBadgeOverlay cy={cyInstance} badgesByNode={nodeBadges} />
+            </>
           )}
 
           {legendOpen && legendEntries.length > 0 && (
@@ -2660,6 +2812,13 @@ function LineageHeader({
 // Ribbon
 // =============================================================================
 
+interface ExpandPreviewCounts {
+  inBetween: number;
+  commonAncestors: number;
+  commonDescendants: number;
+  expandFromSeeds: number;
+}
+
 interface RibbonProps {
   selectedNode: LineageNode | null;
   onClean: () => void;
@@ -2671,7 +2830,12 @@ interface RibbonProps {
   onExpandParentsChange: (n: number) => void;
   onExpandChildrenChange: (n: number) => void;
   onExpandApply: () => void;
-  inBetweenDisabled: boolean;
+  onAddInBetween: () => void;
+  onAddCommonAncestors: () => void;
+  onAddCommonDescendants: () => void;
+  expandPreview: ExpandPreviewCounts;
+  multiSelectActionDisabled: boolean;
+  expandFromSeedsDisabled: boolean;
   onColorClick: () => void;
   coloringMenuOpen: boolean;
   coloringMode: ColoringMode;
@@ -2701,7 +2865,12 @@ function Ribbon(props: RibbonProps) {
     onExpandParentsChange,
     onExpandChildrenChange,
     onExpandApply,
-    inBetweenDisabled,
+    onAddInBetween,
+    onAddCommonAncestors,
+    onAddCommonDescendants,
+    expandPreview,
+    multiSelectActionDisabled,
+    expandFromSeedsDisabled,
     onColorClick,
     coloringMenuOpen,
     coloringMode,
@@ -2749,16 +2918,34 @@ function Ribbon(props: RibbonProps) {
         </ToolButton>
         {expandPopoverOpen && (
           <div style={expandPopover} className="of-panel">
-            <button type="button" style={expandRow} disabled={inBetweenDisabled}>
-              <IconExpand /> Add in-between
+            <button
+              type="button"
+              style={expandRow}
+              disabled={multiSelectActionDisabled || expandPreview.inBetween === 0}
+              onClick={onAddInBetween}
+              title="Add all nodes on directed paths between the selected nodes"
+            >
+              <IconExpand /> Add in-between ({expandPreview.inBetween})
               <span style={hotkey}>⌘B</span>
             </button>
-            <button type="button" style={expandRow} disabled={inBetweenDisabled}>
-              <IconExpand /> Add common ancestors
+            <button
+              type="button"
+              style={expandRow}
+              disabled={multiSelectActionDisabled || expandPreview.commonAncestors === 0}
+              onClick={onAddCommonAncestors}
+              title="Add nodes that are ancestors of every selected node"
+            >
+              <IconExpand /> Add common ancestors ({expandPreview.commonAncestors})
               <span style={hotkey}>⌘J</span>
             </button>
-            <button type="button" style={expandRow} disabled={inBetweenDisabled}>
-              <IconExpand /> Add common descendants
+            <button
+              type="button"
+              style={expandRow}
+              disabled={multiSelectActionDisabled || expandPreview.commonDescendants === 0}
+              onClick={onAddCommonDescendants}
+              title="Add nodes that are descendants of every selected node"
+            >
+              <IconExpand /> Add common descendants ({expandPreview.commonDescendants})
               <span style={hotkey}>⌘K</span>
             </button>
             <div style={{ height: 1, background: 'var(--border-subtle)', margin: '8px 0' }} />
@@ -2779,8 +2966,9 @@ function Ribbon(props: RibbonProps) {
               className="of-btn of-btn-primary"
               style={{ marginTop: 12, width: '100%' }}
               onClick={onExpandApply}
+              disabled={expandFromSeedsDisabled || expandPreview.expandFromSeeds === 0}
             >
-              Add {expandParents + expandChildren} nodes
+              Add {expandPreview.expandFromSeeds} nodes
             </button>
           </div>
         )}

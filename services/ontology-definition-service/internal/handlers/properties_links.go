@@ -180,6 +180,45 @@ func (h *Handlers) UpdateLinkType(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+// UpdateLinkTypeAppCapabilities writes the per-app capabilities JSON
+// blob on a link type without touching the rest of the row. The
+// payload must be a JSON object; concrete shapes are documented in
+// the models package (LinkAppCapabilities / VertexEdgeDirectionCapability).
+func (h *Handlers) UpdateLinkTypeAppCapabilities(w http.ResponseWriter, r *http.Request) {
+	if _, ok := authmw.FromContext(r.Context()); !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var body models.UpdateAppCapabilitiesRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if len(body.AppCapabilities) == 0 {
+		body.AppCapabilities = json.RawMessage(`{}`)
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(body.AppCapabilities, &probe); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "app_capabilities must be a JSON object")
+		return
+	}
+	updated, err := h.Repo.UpdateLinkTypeAppCapabilities(r.Context(), id, body.AppCapabilities)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if updated == nil {
+		writeJSONErr(w, http.StatusNotFound, "link type not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (h *Handlers) DeleteLinkType(w http.ResponseWriter, r *http.Request) {
 	if _, ok := authmw.FromContext(r.Context()); !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")

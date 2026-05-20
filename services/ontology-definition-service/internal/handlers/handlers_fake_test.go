@@ -244,6 +244,19 @@ func (f *fakeStore) DeleteLinkType(_ context.Context, id uuid.UUID) (bool, error
 	return true, nil
 }
 
+func (f *fakeStore) UpdateLinkTypeAppCapabilities(_ context.Context, id uuid.UUID, payload json.RawMessage) (*models.LinkType, error) {
+	v, ok := f.linkTypes[id]
+	if !ok {
+		return nil, nil
+	}
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	v.AppCapabilities = payload
+	v.UpdatedAt = time.Now().UTC()
+	return v, nil
+}
+
 func (f *fakeStore) ListObjectTypeGroups(_ context.Context, _ string, _, _ int64) ([]models.ObjectTypeGroup, int64, error) {
 	if f.listGrpErr != nil {
 		return nil, 0, f.listGrpErr
