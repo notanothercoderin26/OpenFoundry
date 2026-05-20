@@ -79,6 +79,7 @@ import { AffordancesPanel } from './components/AffordancesPanel';
 import { ObjectPreviewPanel } from './components/ObjectPreviewPanel';
 import { SavedExplorationsPanel } from './components/SavedExplorationsPanel';
 import { SideNavGroups, type SideNavSelection } from './components/SideNavGroups';
+import { TypePreviewPopover } from './components/TypePreviewPopover';
 import { objectExplorerKeys, useObjectExplorerInitialData, useTypeProperties } from './queries';
 import {
   DEFAULT_LINKED_FILTER,
@@ -185,6 +186,8 @@ export function ObjectExplorerPage() {
   const [sideNavSelection, setSideNavSelection] = useState<SideNavSelection>({ kind: 'all' });
   const [groupsPage, setGroupsPage] = useState(0);
   const [favoriteTypeIds, setFavoriteTypeIds] = useState<Set<string>>(() => new Set(readFavoriteTypeIds()));
+  const [previewTypeId, setPreviewTypeId] = useState<string | null>(null);
+  const [scopeTypeIds, setScopeTypeIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     setRecents(readRecents());
@@ -773,18 +776,25 @@ export function ObjectExplorerPage() {
     setHasSearched(true);
     setExplorationContext(null);
     try {
+      const scopeForServer = scopeTypeIds.size === 1 ? scopeTypeIds.values().next().value : searchTypeFilter || undefined;
       const res = await searchOntology({
         query,
         kind: searchKindFilter || undefined,
-        object_type_id: searchTypeFilter || undefined,
+        object_type_id: scopeForServer,
         limit: 50,
         semantic: searchMode === 'semantic',
       });
       setSearchResults(res.data
         .filter((result) => {
-          if (result.kind === 'object_type') return visibleObjectTypeIds.has(result.id);
+          if (result.kind === 'object_type') {
+            if (!visibleObjectTypeIds.has(result.id)) return false;
+            return scopeTypeIds.size === 0 || scopeTypeIds.has(result.id);
+          }
           if (result.kind !== 'object_instance') return true;
-          return Boolean(result.object_type_id && visibleObjectTypeIds.has(result.object_type_id) && accessForType(result.object_type_id).can_view_instances);
+          if (!result.object_type_id || !visibleObjectTypeIds.has(result.object_type_id)) return false;
+          if (!accessForType(result.object_type_id).can_view_instances) return false;
+          if (scopeTypeIds.size > 0 && !scopeTypeIds.has(result.object_type_id)) return false;
+          return true;
         })
         .map((result) => {
           if (result.kind !== 'object_instance') return result;
@@ -1117,23 +1127,52 @@ export function ObjectExplorerPage() {
     }
   }
 
+  function previewType(typeId: string) {
+    setPreviewTypeId(typeId);
+  }
+
+  function startExplorationFromPreview(typeId: string) {
+    setPreviewTypeId(null);
+    setActiveTab('objects');
+    void browseType(typeId);
+  }
+
+  function handleTypeaheadType(typeId: string) {
+    setActiveTab('objects');
+    void browseType(typeId);
+  }
+
+  function handleTypeaheadSavedSet(set: ObjectSetDefinition) {
+    setActiveTab('artifacts');
+    void openSavedExploration(set);
+  }
+
+  function handleTypeaheadRecent(item: RecentItem) {
+    setActiveTab('objects');
+    void selectRecent(item);
+  }
+
   return (
     <section className="of-page" style={{ display: 'grid', gap: 12 }}>
       <HeaderToolbar
         visibleObjectTypes={visibleObjectTypes}
-        visibleObjectSetsCount={visibleObjectSets.length}
+        visibleObjectSets={visibleObjectSets}
         searchResultsCount={searchResults.length}
-        visibleRecentsCount={visibleRecents.length}
+        visibleRecents={visibleRecents}
+        groups={explorerGroups}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         searchMode={searchMode}
         setSearchMode={setSearchMode}
         searchKindFilter={searchKindFilter}
         setSearchKindFilter={setSearchKindFilter}
-        searchTypeFilter={searchTypeFilter}
-        setSearchTypeFilter={setSearchTypeFilter}
+        scopeTypeIds={scopeTypeIds}
+        setScopeTypeIds={setScopeTypeIds}
         searchLoading={searchLoading}
         onRunSearch={() => void runSearch()}
+        onSelectTypeFromTypeahead={handleTypeaheadType}
+        onSelectSavedSetFromTypeahead={handleTypeaheadSavedSet}
+        onSelectRecentFromTypeahead={handleTypeaheadRecent}
         directOpenTypeId={directOpenTypeId}
         setDirectOpenTypeId={setDirectOpenTypeId}
         directOpenObjectId={directOpenObjectId}
@@ -1181,11 +1220,13 @@ export function ObjectExplorerPage() {
                   />
                   <BrowseGroupsGrid
                     groups={explorerGroups}
+                    linkTypes={linkTypes}
                     accessForType={accessForType}
                     onBrowse={(typeId) => {
                       setActiveTab('objects');
                       void browseType(typeId);
                     }}
+                    onPreviewType={previewType}
                     favoriteTypeIds={favoriteTypeIds}
                     onToggleFavorite={toggleFavoriteType}
                     selection={sideNavSelection}
@@ -1196,11 +1237,13 @@ export function ObjectExplorerPage() {
               {activeTab === 'types' && (
                 <BrowseGroupsGrid
                   groups={explorerGroups}
+                  linkTypes={linkTypes}
                   accessForType={accessForType}
                   onBrowse={(typeId) => {
                     setActiveTab('objects');
                     void browseType(typeId);
                   }}
+                  onPreviewType={previewType}
                   favoriteTypeIds={favoriteTypeIds}
                   onToggleFavorite={toggleFavoriteType}
                   selection={sideNavSelection}
@@ -1352,6 +1395,16 @@ export function ObjectExplorerPage() {
             </div>
           </div>
         </>
+      )}
+
+      {previewTypeId && (
+        <TypePreviewPopover
+          typeId={previewTypeId}
+          typeById={typeById}
+          linkTypes={linkTypes}
+          onClose={() => setPreviewTypeId(null)}
+          onStartExploration={startExplorationFromPreview}
+        />
       )}
     </section>
   );
