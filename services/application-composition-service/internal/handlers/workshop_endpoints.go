@@ -240,6 +240,12 @@ func writeAppMutationError(w http.ResponseWriter, err error) {
 	if err == nil {
 		return
 	}
+	// Prefer the structured path/code when the cause is a ValidationError
+	// — the editor frontend uses .path to focus the failing widget node.
+	if ve := models.AsValidationError(err); ve != nil {
+		writeErrorCode(w, http.StatusBadRequest, ve.Code, ve.Message, ve.Path)
+		return
+	}
 	msg := err.Error()
 	if strings.Contains(msg, "is required") ||
 		strings.Contains(msg, "must ") ||

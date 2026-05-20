@@ -16,16 +16,70 @@ type Handlers struct {
 	Repo *repo.Repo
 }
 
+// errorEnvelope is the JSON wire format returned for every 4xx/5xx
+// response. Path is populated when the underlying cause is a
+// models.ValidationError so editor UIs can highlight the offending
+// widget / page / binding without parsing free-form text.
+type errorEnvelope struct {
+	Error errorBody `json:"error"`
+}
+
+type errorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Path    string `json:"path,omitempty"`
+}
+
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }
 
+// writeError emits a JSON error envelope. The code is derived from the
+// HTTP status when not supplied via writeErrorCode; if the wrapped error
+// is a *models.ValidationError its Path/Code propagate into the envelope
+// so the editor can map the failure back onto the widget tree.
 func writeError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	writeErrorCode(w, status, defaultErrorCode(status), msg, "")
+}
+
+func writeErrorCode(w http.ResponseWriter, status int, code, message, path string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(msg))
+	_ = json.NewEncoder(w).Encode(errorEnvelope{Error: errorBody{
+		Code:    code,
+		Message: message,
+		Path:    path,
+	}})
+}
+
+// writeValidationError flattens a models.ValidationError into the JSON
+// envelope. Falls back to a generic 400 with the bare message if the
+// error chain does not carry one.
+func writeValidationError(w http.ResponseWriter, status int, err error) {
+	if ve := models.AsValidationError(err); ve != nil {
+		writeErrorCode(w, status, ve.Code, ve.Message, ve.Path)
+		return
+	}
+	writeErrorCode(w, status, defaultErrorCode(status), err.Error(), "")
+}
+
+func defaultErrorCode(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "bad_request"
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusForbidden:
+		return "forbidden"
+	case http.StatusNotFound:
+		return "not_found"
+	case http.StatusConflict:
+		return "conflict"
+	default:
+		return "internal_error"
+	}
 }
 
 func (h *Handlers) ListItems(w http.ResponseWriter, r *http.Request) {

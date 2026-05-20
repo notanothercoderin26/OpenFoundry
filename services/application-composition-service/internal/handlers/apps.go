@@ -18,6 +18,13 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/application-composition-service/internal/repo"
 )
 
+// branchFromRequest reads the `?branch=` query parameter and normalizes
+// it through models.NormalizeBranch (defaults to "main" when absent).
+// Every handler that touches branch-scoped state should call this.
+func branchFromRequest(r *http.Request) string {
+	return models.NormalizeBranch(r.URL.Query().Get("branch"))
+}
+
 func (h *Handlers) ListApps(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAppAccess(w, r, appAccessView, nil, "app.list"); !ok {
 		return
@@ -26,7 +33,11 @@ func (h *Handlers) ListApps(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(q.Get("page"))
 	perPage, _ := strconv.Atoi(q.Get("per_page"))
 	rows, total, err := h.Repo.ListApps(r.Context(), repo.ListAppsFilter{
-		Search: q.Get("search"), Status: q.Get("status"), Page: page, PerPage: perPage,
+		Search:  q.Get("search"),
+		Status:  q.Get("status"),
+		Branch:  branchFromRequest(r),
+		Page:    page,
+		PerPage: perPage,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -69,6 +80,11 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(body.Name) == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
+	}
+	if strings.TrimSpace(body.Branch) == "" {
+		body.Branch = branchFromRequest(r)
+	} else {
+		body.Branch = models.NormalizeBranch(body.Branch)
 	}
 	creator := claims.Sub
 	app, err := h.Repo.CreateApp(r.Context(), &body, &creator)
@@ -285,14 +301,16 @@ func (h *Handlers) GetAppEmbedInfo(w http.ResponseWriter, r *http.Request) {
 
 // GetPublishedApp serves the public-facing read endpoint used by embedded /
 // runtime app surfaces. No auth required: published apps are designed to be
-// consumed by anonymous portal visitors.
+// consumed by anonymous portal visitors. Accepts an optional `?branch=` query
+// parameter; defaults to `main` for backward compatibility.
 func (h *Handlers) GetPublishedApp(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	if slug == "" {
 		writeError(w, http.StatusBadRequest, "slug is required")
 		return
 	}
-	app, err := h.Repo.GetAppBySlug(r.Context(), slug)
+	branch := branchFromRequest(r)
+	app, err := h.Repo.GetAppBySlug(r.Context(), slug, branch)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
