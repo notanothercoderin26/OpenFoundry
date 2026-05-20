@@ -42,6 +42,7 @@ import { UnionEditor } from '@/lib/components/pipeline/UnionEditor';
 import { composeUnionSql, newUnionDraft, type UnionDraft } from '@/lib/components/pipeline/unionDraft';
 import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/OutputDrawer';
 import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
+import { BuildChecksStatus } from '@/lib/components/pipeline/BuildChecksStatus';
 import { BuildSettingsButton } from '@/lib/components/pipeline/BuildSettingsButton';
 import { PipelineDetailsDrawer } from '@/lib/components/pipeline/PipelineDetailsDrawer';
 import { PipelineParametersModal } from '@/lib/components/pipeline/PipelineParametersModal';
@@ -304,6 +305,7 @@ export function PipelineEditPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [parametersOpen, setParametersOpen] = useState(false);
   const [parametersBusy, setParametersBusy] = useState(false);
+  const [liveValidation, setLiveValidation] = useState<PipelineValidationResponse | null>(null);
   const [versionViewer, setVersionViewer] = useState<{
     mode: 'details' | 'changes';
     version: PipelineVersion;
@@ -1021,6 +1023,11 @@ export function PipelineEditPage() {
             <span className="of-text-muted" style={{ alignSelf: 'center', fontSize: 11 }}>
               {runs.length} run{runs.length === 1 ? '' : 's'} | {versions.length} version{versions.length === 1 ? '' : 's'}
             </span>
+            <BuildChecksStatus
+              validation={liveValidation}
+              latestRun={runs[0] ?? null}
+              nodeCount={parsedNodes.length}
+            />
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <div role="group" aria-label="History" style={{ display: 'flex', gap: 2 }}>
@@ -1152,6 +1159,7 @@ export function PipelineEditPage() {
                 onUnionStart={(inputs) => handleStartUnion(inputs)}
                 onAddOutput={(source, kind) => handleAddOutput(source, kind)}
                 onSelect={(node) => setSelectedNodeId(node?.id ?? null)}
+                onValidate={setLiveValidation}
               />
               {isPipelineEmpty(parsedNodes) ? (
                 <PipelineWelcomePanel onAddFoundryData={() => setAddDataOpen(true)} />

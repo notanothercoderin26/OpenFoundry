@@ -348,6 +348,23 @@ export function PipelineCanvas({
     setZoom(clampZoom(Math.min(widthScale, heightScale)));
   }
 
+  function layoutAndFit() {
+    // The graph layout is recomputed from `nodes` on every render, so this
+    // button's job is to clear transient interaction state and re-center the
+    // viewport. Matches Foundry's "Layout" button which tidies pan/zoom.
+    setMarquee(null);
+    setMultiSelected(new Set());
+    setPendingSourceId(null);
+    setPendingJoinLeftId(null);
+    setPendingJoinRightId(null);
+    setPendingUnionIds([]);
+    zoomToFit();
+    const container = scrollRef.current;
+    if (container) {
+      container.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    }
+  }
+
   function clientPointToCanvas(event: { clientX: number; clientY: number }): { x: number; y: number } | null {
     const svg = svgRef.current;
     if (!svg) return null;
@@ -563,6 +580,15 @@ export function PipelineCanvas({
             Paste
           </button>
         )}
+        <button
+          type="button"
+          onClick={layoutAndFit}
+          className="of-button"
+          style={{ fontSize: 11 }}
+          title="Re-layout & fit to viewport"
+        >
+          <Glyph name="view-grid" size={11} /> Layout
+        </button>
         {!readOnly && multiSelected.size > 0 && (
           <>
             <span className="of-chip" style={{ fontSize: 11 }}>
