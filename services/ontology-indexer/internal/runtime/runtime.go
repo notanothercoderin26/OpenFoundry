@@ -187,6 +187,14 @@ func RunWithStatusTracker(ctx context.Context, cfg *config.Config, log *slog.Log
 	if err != nil {
 		return err
 	}
+	return RunWithBackendAndTracker(ctx, cfg, log, backend, tracker)
+}
+
+// RunWithBackendAndTracker is the entry point used by main.go when it
+// already has a constructed backend (typically because the schema
+// registrar cache has been seeded against it). Wires Kafka reader +
+// DLQ from cfg, then enters the projection loop.
+func RunWithBackendAndTracker(ctx context.Context, cfg *config.Config, log *slog.Logger, backend searchabstraction.SearchBackend, tracker *status.Tracker) error {
 	brokers := splitCSV(cfg.KafkaBootstrap)
 	reader := NewKafkaReader(brokers, defaultStr(cfg.ConsumerGroup, ConsumerGroup), log)
 	var dlq DLQPublisher
@@ -218,7 +226,15 @@ func NewSearchBackend(cfg *config.Config) (searchabstraction.SearchBackend, erro
 	case config.BackendOpenSearch:
 		return opensearch.NewWithOptions(cfg.SearchEndpoint, opensearch.WithAuthHeader(authHeader)), nil
 	case config.BackendVespa:
-		return vespa.NewWithOptions(cfg.SearchEndpoint, vespa.WithAuthHeader(authHeader)), nil
+		opts := []vespa.Option{vespa.WithAuthHeader(authHeader)}
+		if cfg.VespaConfigEndpoint != "" {
+			opts = append(opts,
+				vespa.WithConfigEndpoint(cfg.VespaConfigEndpoint),
+				vespa.WithVespaTenant(cfg.VespaTenant),
+				vespa.WithVespaApplication(cfg.VespaApplication),
+			)
+		}
+		return vespa.NewWithOptions(cfg.SearchEndpoint, opts...), nil
 	default:
 		return nil, repos.Invalidf("unknown SEARCH_BACKEND value: %q", cfg.BackendKind)
 	}

@@ -2,9 +2,19 @@ package searchabstraction
 
 import (
 	"context"
+	"errors"
 
 	repos "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 )
+
+// ErrMappingDeployUnconfigured is returned by RegisterTypeMapping /
+// DropTypeMapping when the backend implements the interface but is
+// not currently configured to perform a real deploy (e.g. Vespa
+// without VESPA_CONFIG_ENDPOINT). Consumers — primarily the
+// ontology-indexer's schemasync handler — should treat this as
+// "skipped, do not retry, do not error" so the Kafka offset is
+// committed and the loop keeps draining.
+var ErrMappingDeployUnconfigured = errors.New("search backend: mapping deploy not configured")
 
 // MappingFieldType is the search-backend-agnostic primitive type for
 // one indexed field. Backends translate this to their native types

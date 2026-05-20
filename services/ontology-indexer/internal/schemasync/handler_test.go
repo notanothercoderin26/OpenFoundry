@@ -173,6 +173,16 @@ func TestHandlerSurfacesRegistrarErrorForRetry(t *testing.T) {
 	assert.Contains(t, err.Error(), "vespa unavailable")
 }
 
+func TestHandlerSkipsWhenRegistrarReturnsDeployUnconfiguredSentinel(t *testing.T) {
+	t.Parallel()
+	be := &recordingBackend{registerErr: searchabstraction.ErrMappingDeployUnconfigured}
+	h := &Handler{Backend: be, Log: discardLog()}
+	value := envelope(t, EventCreated, ObjectTypePayload{APIName: "Aircraft", Properties: []PropertyPayload{{Name: "id", PropertyType: "string"}}}, false)
+	out, err := h.ProcessRecord(context.Background(), value)
+	require.NoError(t, err, "sentinel must not retry — should commit + skip")
+	assert.Equal(t, OutcomeSkippedNoOp, out)
+}
+
 func TestHandlerMalformedEnvelopeIsDecodeError(t *testing.T) {
 	t.Parallel()
 	h := &Handler{Backend: &recordingBackend{}, Log: discardLog()}

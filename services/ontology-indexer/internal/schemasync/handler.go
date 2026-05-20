@@ -3,6 +3,7 @@ package schemasync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -76,6 +77,11 @@ func (h *Handler) ProcessRecord(ctx context.Context, value []byte) (Outcome, err
 			return OutcomeSkippedNoOp, nil
 		}
 		if err := registrar.RegisterTypeMapping(ctx, mapping); err != nil {
+			if errors.Is(err, searchabstraction.ErrMappingDeployUnconfigured) {
+				log.Debug("schemasync: backend not configured for deploy; skipping",
+					slog.String("type_id", string(mapping.TypeID)))
+				return OutcomeSkippedNoOp, nil
+			}
 			return OutcomeRegistered, fmt.Errorf("RegisterTypeMapping %s: %w", mapping.TypeID, err)
 		}
 		log.Info("schemasync: registered mapping",
@@ -94,6 +100,11 @@ func (h *Handler) ProcessRecord(ctx context.Context, value []byte) (Outcome, err
 			return OutcomeSkippedNoOp, nil
 		}
 		if err := registrar.DropTypeMapping(ctx, "", typeID); err != nil {
+			if errors.Is(err, searchabstraction.ErrMappingDeployUnconfigured) {
+				log.Debug("schemasync: backend not configured for deploy; skipping drop",
+					slog.String("type_id", string(typeID)))
+				return OutcomeSkippedNoOp, nil
+			}
 			return OutcomeDropped, fmt.Errorf("DropTypeMapping %s: %w", typeID, err)
 		}
 		log.Info("schemasync: dropped mapping", slog.String("type_id", string(typeID)))
