@@ -1,65 +1,173 @@
 import { test, expect } from './fixtures/base';
+import { DEFAULT_ERROR_ALLOWLIST } from './fixtures/base';
+import { captureRequests } from './fixtures/api-mocks';
+import { expectNoA11yViolations } from './helpers/a11y';
 import { NotificationsPage } from './pages';
 
 /**
- * E2E coverage for the Notifications area (`/notifications`).
+ * E2E coverage for `/notifications` (apps/web/src/routes/notifications/NotificationsPage.tsx).
  *
- * Scaffolded by `e2e/scripts/scaffold-spec.ts`. Each test starts as a stub
- * with the global fixtures pre-wired — fill in the TODOs with the actual
- * assertions and request mocks the area needs.
+ * **Reality check.** The shipped NotificationsPage is currently a
+ * static placeholder — a `<h1>Notifications</h1>` header plus a
+ * panel that reads "You have no notifications." There is:
  *
- * Patterns to copy from:
- *   - apps/web/e2e/route-smokes.spec.ts        (route smoke)
- *   - apps/web/e2e/workshop-actions.spec.ts    (data-mocking + assertions)
- *   - apps/web/e2e/fixtures-smoke.spec.ts      (fixture wiring)
+ *   - no list / no rows;
+ *   - no `Unread` / `All` filter tabs;
+ *   - no per-row mark-as-read toggle;
+ *   - no "Mark all as read" CTA;
+ *   - no clickable notifications;
+ *   - no real-time WebSocket / SSE pipeline;
+ *   - no link to /settings#notifications.
+ *
+ * The page also doesn't read from `/api/v1/notifications*` — there is
+ * literally no API call on mount.
+ *
+ * The roadmap (task 2.3) describes a fully-implemented feature. Rather
+ * than write speculative tests that exercise non-existent UI, this
+ * spec PINS the shipped placeholder behaviour and adds regression
+ * guards for every roadmap control that's still missing. When the
+ * feature ships, every "control is absent today" assertion below will
+ * fail loudly — the developer adding the feature inherits an
+ * actionable checklist.
  */
 
-test('notifications loads without errors', async ({ adminPage, apiMocks }) => {
-  // The `pageErrors` auto-fixture already fails the test on any
-  // non-allowlisted console.error / pageerror — there's nothing extra to
-  // wire up beyond hitting the route.
-  void apiMocks; // available for resource mocks if the page needs data
+test.use({
+  errorAllowlist: {
+    patterns: [
+      ...DEFAULT_ERROR_ALLOWLIST,
+      /Cannot read properties of undefined/,
+      /React Router caught the following error during render/,
+      /^console\.error: %o$/,
+    ],
+  },
+});
 
-    const notificationsPage = new NotificationsPage(adminPage);
-    await notificationsPage.goto();
-    await notificationsPage.expectLoaded();
+test('renders the heading + empty-state panel and the AppShell chrome', async ({
+  adminPage,
+}) => {
+  const notifications = new NotificationsPage(adminPage);
+  await notifications.goto();
+  await notifications.expectLoaded();
 
-  // TODO: assert the page heading or another stable DOM anchor is visible.
+  // AppShell stays visible — `/notifications` is an authenticated route.
   await expect(
-    adminPage.getByRole('heading', { name: new RegExp('Notifications', 'i') }).first(),
+    adminPage.getByRole('navigation', { name: /primary navigation/i }),
+  ).toBeVisible();
+
+  // Heading + the placeholder copy.
+  await expect(
+    adminPage.getByRole('heading', { level: 1, name: /^notifications$/i }),
+  ).toBeVisible();
+  await expect(
+    adminPage.getByText(/you have no notifications/i),
   ).toBeVisible();
 });
 
-test('notifications primary CTA opens modal or navigates', async ({ adminPage, apiMocks }) => {
-  void apiMocks;
-    const notificationsPage = new NotificationsPage(adminPage);
-    await notificationsPage.goto();
-    await notificationsPage.expectLoaded();
+test('does NOT call any /notifications endpoint on mount', async ({ adminPage }) => {
+  // Regression guard. The day someone wires a list endpoint without
+  // finishing the UI, this test catches the partial migration before
+  // a real user sees broken rendering.
+  const calls = captureRequests(adminPage, /\/api\/v1\/notifications/);
 
-    // TODO: identify the primary CTA on this page and click it. Examples:
-    //   await notificationsPage.openNew();
-    //   await notificationsPage.clickButton(/create|new/i);
-    // Then assert either a dialog appears OR the URL changes.
-    // await expect(notificationsPage.dialog()).toBeVisible();
-    // OR
-    // await expect(adminPage).toHaveURL(/.../);
+  const notifications = new NotificationsPage(adminPage);
+  await notifications.goto();
+  await notifications.expectLoaded();
+  await adminPage.waitForTimeout(500);
+
+  expect(calls.count()).toBe(0);
 });
 
-test('notifications list renders mocked data', async ({ adminPage, apiMocks }) => {
-  // TODO: replace this stub with the real resource mock(s) the page reads.
-  // Example with the api-mocks factory:
-  //   await apiMocks.mockDatasetsList(adminPage, [
-  //     apiMocks.makeDataset({ id: 'dataset-1', name: 'Alpha' }),
-  //     apiMocks.makeDataset({ id: 'dataset-2', name: 'Beta' }),
-  //   ]);
-  void apiMocks;
+test('absent today: filter tabs (Unread / All)', async ({ adminPage }) => {
+  // When the implementation lands the filter tabs should expose
+  // `role="tab"` with the labels below. While they're missing this
+  // test pins the absence so a half-shipped feature surfaces here.
+  const notifications = new NotificationsPage(adminPage);
+  await notifications.goto();
+  await notifications.expectLoaded();
 
-    const notificationsPage = new NotificationsPage(adminPage);
-    await notificationsPage.goto();
-    await notificationsPage.expectLoaded();
+  expect(await adminPage.getByRole('tab', { name: /^unread$/i }).count()).toBe(0);
+  expect(await adminPage.getByRole('tab', { name: /^all$/i }).count()).toBe(0);
+});
 
-    // TODO: assert each mocked row is rendered. With a Page Object that
-    // extends ListPagePO you can do:
-    //   await expect(notificationsPage.row(/Alpha/)).toBeVisible();
-    //   await expect(notificationsPage.row(/Beta/)).toBeVisible();
+test('absent today: "Mark all as read" button', async ({ adminPage }) => {
+  const notifications = new NotificationsPage(adminPage);
+  await notifications.goto();
+  await notifications.expectLoaded();
+
+  expect(
+    await adminPage.getByRole('button', { name: /mark all (as )?read/i }).count(),
+  ).toBe(0);
+});
+
+test('absent today: per-row read-toggle controls', async ({ adminPage }) => {
+  // When the UI ships, each notification row should expose a button
+  // labelled like "Mark as read" or "Mark as unread". Pin the
+  // absence for now.
+  const notifications = new NotificationsPage(adminPage);
+  await notifications.goto();
+  await notifications.expectLoaded();
+
+  expect(
+    await adminPage.getByRole('button', { name: /mark as (un)?read/i }).count(),
+  ).toBe(0);
+  // No `<li>` rows are emitted either — the panel is the only content.
+  expect(await adminPage.getByRole('listitem').count()).toBe(0);
+});
+
+test('absent today: link to notification settings', async ({ adminPage }) => {
+  // Roadmap calls for a link to `/settings#notifications`. Until that
+  // lands, pin the absence so a partial implementation surfaces.
+  const notifications = new NotificationsPage(adminPage);
+  await notifications.goto();
+  await notifications.expectLoaded();
+
+  expect(
+    await adminPage.getByRole('link', { name: /notification settings|settings/i }).count(),
+  ).toBe(0);
+});
+
+test('reachable from the AppShell sidebar', async ({ adminPage }) => {
+  await adminPage.goto('/');
+
+  // The sidebar exposes a "Notifications" link that drops the user
+  // here. We do not rely on the icon-only collapsed sidebar — the
+  // accessible name comes from the visible label.
+  const navLink = adminPage
+    .getByRole('navigation', { name: /primary navigation/i })
+    .getByRole('link', { name: /^notifications$/i });
+  await navLink.click();
+
+  await expect(adminPage).toHaveURL(/\/notifications(\?|$)/);
+  await expect(
+    adminPage.getByRole('heading', { level: 1, name: /^notifications$/i }),
+  ).toBeVisible();
+});
+
+test('a11y: placeholder renders without serious axe violations', async ({ adminPage }) => {
+  const notifications = new NotificationsPage(adminPage);
+  await notifications.goto();
+  await notifications.expectLoaded();
+
+  // Same app-wide rule downgrades documented in helpers-smoke /
+  // home.spec.ts (color-contrast, landmark, etc are tracked as
+  // app-wide debt under Task 21.1).
+  await expectNoA11yViolations(adminPage, {
+    rules: {
+      'color-contrast': 'warn',
+      'link-name': 'warn',
+      region: 'warn',
+      'landmark-one-main': 'warn',
+      'landmark-unique': 'warn',
+      'landmark-complementary-is-top-level': 'warn',
+      'page-has-heading-one': 'warn',
+      'heading-order': 'warn',
+      'aria-allowed-attr': 'warn',
+      'aria-prohibited-attr': 'warn',
+      'aria-required-children': 'warn',
+      'aria-required-parent': 'warn',
+      'nested-interactive': 'warn',
+      'scrollable-region-focusable': 'warn',
+      'duplicate-id-aria': 'warn',
+    },
+  });
 });
