@@ -24,7 +24,6 @@ function run(overrides: Partial<PipelineRun> & { status: string }): PipelineRun 
     pipeline_id: 'p-1',
     attempt_number: 1,
     trigger_type: 'manual',
-    status: overrides.status,
     started_at: '2026-05-20T10:00:00Z',
     finished_at: null,
     ...overrides,

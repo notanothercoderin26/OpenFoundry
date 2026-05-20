@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { ResourceHealthChecksPanel } from '@/lib/components/health/ResourceHealthChecksPanel';
 import { previewPipelineNode, type PipelineDAG, type PipelineNode, type PipelinePreviewOutput } from '@/lib/api/pipelines';
 import type { ResourceHealthCheckKind } from '@/lib/api/resource-health-checks';
 import { VirtualizedPreviewTable } from '@/lib/components/dataset/VirtualizedPreviewTable';
 import { DataExpectationsPanel } from '@/lib/components/pipeline/DataExpectationsPanel';
+import { Glyph } from '@/lib/components/ui/Glyph';
 
 interface NodePreviewPanelProps {
   pipelineId: string;
@@ -46,6 +47,13 @@ export function NodePreviewPanel({
   const [preview, setPreview] = useState<PipelinePreviewOutput | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [columnQuery, setColumnQuery] = useState('');
+
+  useEffect(() => {
+    // Reset the filter when switching nodes so the user doesn't accidentally
+    // filter every column away on a node whose schema is unrelated.
+    setColumnQuery('');
+  }, [node?.id]);
 
   useEffect(() => {
     if (!node || !pipelineId) {
@@ -71,7 +79,12 @@ export function NodePreviewPanel({
     else freshnessLabel = `${Math.floor(elapsed / 60)}m ago`;
   }
 
-  const columns = (preview?.columns ?? []).map((name) => ({ name }));
+  const allColumns = (preview?.columns ?? []).map((name) => ({ name }));
+  const normalizedColumnQuery = columnQuery.trim().toLowerCase();
+  const columns = useMemo(() => {
+    if (!normalizedColumnQuery) return allColumns;
+    return allColumns.filter((c) => c.name.toLowerCase().includes(normalizedColumnQuery));
+  }, [allColumns, normalizedColumnQuery]);
   const rows = preview?.rows ?? [];
   const healthKinds = pipelinePreviewHealthCheckKinds(node, preview, error);
   const resourceRid = node ? `${pipelineId}:${node.id}` : '';
@@ -106,9 +119,32 @@ export function NodePreviewPanel({
             </p>
           )}
         </div>
-        <button type="button" disabled={loading || !node} onClick={() => void refresh()} className="of-button" style={{ fontSize: 12 }}>
-          {loading ? 'Refreshing…' : 'Refresh'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {preview && allColumns.length > 0 && (
+            <label
+              className="of-input"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', fontSize: 12 }}
+            >
+              <Glyph name="search" size={12} />
+              <input
+                type="search"
+                value={columnQuery}
+                onChange={(event) => setColumnQuery(event.target.value)}
+                placeholder={`Search ${allColumns.length} column${allColumns.length === 1 ? '' : 's'}`}
+                aria-label="Search columns"
+                style={{ border: 0, outline: 'none', background: 'transparent', fontSize: 12, width: 160 }}
+              />
+              {normalizedColumnQuery && (
+                <span className="of-text-muted" style={{ fontSize: 11 }}>
+                  {columns.length}/{allColumns.length}
+                </span>
+              )}
+            </label>
+          )}
+          <button type="button" disabled={loading || !node} onClick={() => void refresh()} className="of-button" style={{ fontSize: 12 }}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
       </header>
       {error || preview?.error ? (
         <div className="of-status-danger" style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', fontSize: 12 }}>
@@ -125,6 +161,10 @@ export function NodePreviewPanel({
       ) : preview && rows.length === 0 ? (
         <div className="of-text-muted" style={{ border: '1px dashed var(--border-default)', borderRadius: 'var(--radius-md)', padding: 14, fontSize: 12, textAlign: 'center' }}>
           No rows match the upstream chain at this step.
+        </div>
+      ) : preview && normalizedColumnQuery && columns.length === 0 ? (
+        <div className="of-text-muted" style={{ border: '1px dashed var(--border-default)', borderRadius: 'var(--radius-md)', padding: 14, fontSize: 12, textAlign: 'center' }}>
+          No columns match "{columnQuery}".
         </div>
       ) : preview ? (
         <div style={{ maxHeight: 280, overflow: 'auto' }}>

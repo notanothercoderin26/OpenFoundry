@@ -9,6 +9,12 @@ import {
 } from '@/lib/api/pipelines';
 import { Glyph } from '@/lib/components/ui/Glyph';
 import { mergePastedNodes, readNodesFromClipboard, writeNodesToClipboard } from './canvasClipboard';
+import {
+  NODE_COLORS,
+  applyColorToNodes,
+  getNodeColor,
+  legendEntriesForNodes,
+} from './nodeColor';
 
 interface PipelineCanvasProps {
   nodes: PipelineNode[];
@@ -134,6 +140,8 @@ export function PipelineCanvas({
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
   const [editingLabelDraft, setEditingLabelDraft] = useState('');
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -299,6 +307,15 @@ export function PipelineCanvas({
     return inserted.length > 0;
   }
 
+  function applyColorToSelection(slug: string | null) {
+    if (readOnly) return;
+    const ids = currentSelectionIds();
+    if (ids.length === 0) return;
+    onChange?.(applyColorToNodes(nodes, new Set(ids), slug));
+  }
+
+  const legendEntries = legendEntriesForNodes(nodes);
+
   function beginLabelEdit(node: PipelineNode) {
     if (readOnly) return;
     setEditingLabelId(node.id);
@@ -453,6 +470,8 @@ export function PipelineCanvas({
     if (multiSelected.has(node.id)) return '#dbeafe';
     if (selectedId === node.id) return '#e8f1ff';
     if (pendingSourceId === node.id) return '#fff3df';
+    const tag = getNodeColor(node);
+    if (tag) return tag.fill;
     return '#ffffff';
   }
 
@@ -589,6 +608,19 @@ export function PipelineCanvas({
         >
           <Glyph name="view-grid" size={11} /> Layout
         </button>
+        {!readOnly && (
+          <LegendButton
+            entries={legendEntries}
+            selectionSize={currentSelectionIds().length}
+            open={legendOpen}
+            onToggle={() => setLegendOpen((prev) => !prev)}
+            onClose={() => setLegendOpen(false)}
+            onAssign={(slug) => {
+              applyColorToSelection(slug);
+              setLegendOpen(false);
+            }}
+          />
+        )}
         {!readOnly && multiSelected.size > 0 && (
           <>
             <span className="of-chip" style={{ fontSize: 11 }}>
@@ -944,6 +976,12 @@ export function PipelineCanvas({
                 data-pipeline-node={n.id}
                 transform={`translate(${pos.x}, ${pos.y})`}
                 onClick={() => nodeClick(n.id)}
+                onContextMenu={(event) => {
+                  if (readOnly) return;
+                  event.preventDefault();
+                  if (!multiSelected.has(n.id)) selectNode(n.id);
+                  setContextMenu({ nodeId: n.id, x: event.clientX, y: event.clientY });
+                }}
                 style={{ cursor: readOnly ? 'default' : 'pointer', opacity: dimmed ? 0.25 : 1 }}
               >
                 {matched && (
@@ -1131,6 +1169,271 @@ export function PipelineCanvas({
             {validation.warnings.map((w, i) => <li key={i}>{w}</li>)}
           </ul>
         </div>
+      )}
+      {contextMenu && (() => {
+        const node = nodes.find((entry) => entry.id === contextMenu.nodeId);
+        if (!node) return null;
+        const config = (node.config as { dataset_id?: unknown } | undefined) ?? {};
+        const datasetID = typeof config.dataset_id === 'string' ? config.dataset_id : null;
+        const isMulti = multiSelected.size > 1 && multiSelected.has(node.id);
+        const closeMenu = () => setContextMenu(null);
+        return (
+          <>
+            <div
+              aria-hidden
+              onClick={closeMenu}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                closeMenu();
+              }}
+              style={{ position: 'fixed', inset: 0, zIndex: 80 }}
+            />
+            <div
+              role="menu"
+              style={{
+                position: 'fixed',
+                top: contextMenu.y,
+                left: contextMenu.x,
+                minWidth: 200,
+                background: '#fff',
+                border: '1px solid var(--border-default)',
+                borderRadius: 4,
+                boxShadow: '0 8px 24px rgba(15, 23, 42, 0.16)',
+                padding: 4,
+                zIndex: 81,
+                display: 'grid',
+                gap: 2,
+              }}
+            >
+              <ContextMenuItem
+                label="Edit transform"
+                onClick={() => {
+                  closeMenu();
+                  onTransform?.(node);
+                }}
+              />
+              <ContextMenuItem
+                label="Rename"
+                onClick={() => {
+                  closeMenu();
+                  beginLabelEdit(node);
+                }}
+              />
+              {datasetID && (
+                <ContextMenuItem
+                  label="Open dataset"
+                  onClick={() => {
+                    closeMenu();
+                    if (typeof window !== 'undefined') {
+                      window.open(`/datasets/${encodeURIComponent(datasetID)}`, '_blank', 'noopener');
+                    }
+                  }}
+                />
+              )}
+              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} aria-hidden />
+              <ContextMenuItem
+                label={isMulti ? `Copy ${multiSelected.size} nodes` : 'Copy'}
+                hint="Ctrl+C"
+                onClick={() => {
+                  closeMenu();
+                  copySelectionToClipboard();
+                }}
+              />
+              <ContextMenuItem
+                label="Duplicate"
+                hint="Ctrl+D"
+                onClick={() => {
+                  closeMenu();
+                  duplicateSelection();
+                }}
+              />
+              <ContextMenuItem
+                label="Paste"
+                hint="Ctrl+V"
+                onClick={() => {
+                  closeMenu();
+                  pasteClipboardIntoCanvas();
+                }}
+              />
+              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} aria-hidden />
+              <ContextMenuItem
+                label={isMulti ? `Delete ${multiSelected.size} nodes` : 'Delete'}
+                tone="#b91c1c"
+                onClick={() => {
+                  closeMenu();
+                  if (isMulti) removeMultiSelected();
+                  else {
+                    selectNode(node.id);
+                    onChange?.(
+                      nodes
+                        .filter((entry) => entry.id !== node.id)
+                        .map((entry) => ({ ...entry, depends_on: entry.depends_on.filter((dep) => dep !== node.id) })),
+                    );
+                    setSelectedId(null);
+                    onSelect?.(null);
+                  }
+                }}
+              />
+            </div>
+          </>
+        );
+      })()}
+    </div>
+  );
+}
+
+function ContextMenuItem({
+  label,
+  hint,
+  tone,
+  onClick,
+}: {
+  label: string;
+  hint?: string;
+  tone?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="of-button"
+      style={{
+        justifyContent: 'space-between',
+        textAlign: 'left',
+        fontSize: 12,
+        background: 'transparent',
+        border: 0,
+        padding: '6px 10px',
+        color: tone,
+      }}
+    >
+      <span>{label}</span>
+      {hint && <span className="of-text-muted" style={{ fontSize: 11, marginLeft: 12 }}>{hint}</span>}
+    </button>
+  );
+}
+
+interface LegendButtonProps {
+  entries: ReturnType<typeof legendEntriesForNodes>;
+  selectionSize: number;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onAssign: (slug: string | null) => void;
+}
+
+function LegendButton({ entries, selectionSize, open, onToggle, onClose, onAssign }: LegendButtonProps) {
+  const canAssign = selectionSize > 0;
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="of-button"
+        style={{ fontSize: 11 }}
+        title="Legend & color picker"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        Legend{entries.length > 0 && (
+          <span aria-hidden style={{ marginLeft: 6, display: 'inline-flex', gap: 2 }}>
+            {entries.slice(0, 4).map((entry) => (
+              <span
+                key={entry.color.slug}
+                style={{ width: 8, height: 8, borderRadius: '50%', background: entry.color.fill, border: '1px solid #cbd5e1' }}
+              />
+            ))}
+          </span>
+        )}
+      </button>
+      {open && (
+        <>
+          <div aria-hidden onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+          <div
+            role="menu"
+            style={{
+              position: 'absolute',
+              top: '100%',
+              right: 0,
+              marginTop: 4,
+              minWidth: 240,
+              background: '#fff',
+              border: '1px solid var(--border-default)',
+              borderRadius: 4,
+              boxShadow: '0 8px 24px rgba(15, 23, 42, 0.16)',
+              padding: 8,
+              zIndex: 41,
+              display: 'grid',
+              gap: 6,
+            }}
+          >
+            <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)', letterSpacing: 0.4 }}>
+              {canAssign
+                ? `ASSIGN COLOR · ${selectionSize} NODE${selectionSize === 1 ? '' : 'S'}`
+                : 'COLORS IN USE'}
+            </p>
+            {canAssign ? (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                  {NODE_COLORS.map((color) => (
+                    <button
+                      key={color.slug}
+                      type="button"
+                      title={`Assign ${color.label}`}
+                      onClick={() => onAssign(color.slug)}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 4,
+                        background: color.fill,
+                        border: '1px solid #cbd5e1',
+                        cursor: 'pointer',
+                      }}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onAssign(null)}
+                  className="of-button"
+                  style={{ fontSize: 11, justifyContent: 'flex-start' }}
+                >
+                  <Glyph name="x" size={11} /> Clear color
+                </button>
+                {entries.length > 0 && (
+                  <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} aria-hidden />
+                )}
+              </>
+            ) : (
+              <p className="of-text-muted" style={{ margin: 0, fontSize: 11 }}>
+                Select one or more nodes to assign a color.
+              </p>
+            )}
+            {entries.length === 0 ? (
+              <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+                No colors assigned yet.
+              </p>
+            ) : (
+              entries.map((entry) => (
+                <div
+                  key={entry.color.slug}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
+                >
+                  <span
+                    aria-hidden
+                    style={{ width: 14, height: 14, borderRadius: 3, background: entry.color.fill, border: '1px solid #cbd5e1' }}
+                  />
+                  <strong>{entry.color.label}</strong>
+                  <span className="of-text-muted" style={{ marginLeft: 'auto', fontSize: 11 }}>
+                    {entry.count} node{entry.count === 1 ? '' : 's'}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </>
       )}
     </div>
   );
