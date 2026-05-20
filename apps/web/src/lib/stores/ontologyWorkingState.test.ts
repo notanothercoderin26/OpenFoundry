@@ -10,6 +10,7 @@ import {
   findEditForResource,
   getConflictCount,
   getEditCount,
+  newClientId,
   resolveConflict,
   save,
   stage,
@@ -347,6 +348,70 @@ describe('diffStagedEdit()', () => {
       createdAt: 0,
     };
     expect(diffStagedEdit(create)).toEqual([]);
+  });
+});
+
+describe('cross-reference creates', () => {
+  // The CreateObjectTypeWizard relies on this contract: pre-assign a
+  // uuid via newClientId(), stage create-object_type with that id in
+  // the body, then stage one create-property per row using the same
+  // uuid as `object_type_id`. The backend honours pre-assigned ids on
+  // creates so the entire batch commits atomically without resolving
+  // ids round-trip.
+  it('propagates the same uuid through the wire payload for related creates', async () => {
+    const objectTypeId = newClientId();
+    expect(objectTypeId.length).toBeGreaterThan(0);
+
+    stage({
+      clientId: objectTypeId,
+      op: 'create',
+      resource: 'object_type',
+      label: 'Aircraft',
+      draft: { id: objectTypeId, name: 'aircraft', display_name: 'Aircraft' },
+    });
+    stage({
+      op: 'create',
+      resource: 'property',
+      label: 'Tail Number',
+      draft: {
+        object_type_id: objectTypeId,
+        name: 'tail_number',
+        display_name: 'Tail Number',
+        property_type: 'string',
+      },
+    });
+
+    const captured: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: unknown, init?: RequestInit) => {
+        if (init?.body) {
+          captured.push(JSON.parse(init.body as string));
+        }
+        return jsonResponse(200, {
+          batch_id: 'batch-x',
+          status: 'ok',
+          results: [
+            { client_id: objectTypeId, resource: 'object_type', op: 'create', status: 'ok' },
+            { client_id: 'p-1', resource: 'property', op: 'create', status: 'ok' },
+          ],
+        });
+      }),
+    );
+
+    await save();
+
+    expect(captured).toHaveLength(1);
+    const body = captured[0] as { edits: Array<Record<string, unknown>> };
+    const objectTypeEdit = body.edits.find((e) => e.resource === 'object_type');
+    const propertyEdit = body.edits.find((e) => e.resource === 'property');
+
+    // The object type create carries the pre-assigned uuid in both
+    // the envelope (`client_id`) and the body (`id`).
+    expect(objectTypeEdit?.client_id).toBe(objectTypeId);
+    expect((objectTypeEdit?.body as { id: string }).id).toBe(objectTypeId);
+    // The property's body references the same uuid via object_type_id.
+    expect((propertyEdit?.body as { object_type_id: string }).object_type_id).toBe(objectTypeId);
   });
 });
 

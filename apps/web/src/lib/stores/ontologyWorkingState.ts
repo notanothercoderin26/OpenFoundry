@@ -201,6 +201,21 @@ function uuid(): string {
   return "edit-" + Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
 }
 
+/**
+ * Allocate a uuid the working state can use as a cross-reference id.
+ *
+ * Use when staging multiple related creates in one batch: pre-assign
+ * a uuid for the parent resource (e.g. an object type), pass it as
+ * the create edit's `clientId` and the resource body's `id`, and
+ * reference that same uuid from sibling edits' bodies (e.g. each
+ * property's `object_type_id`). The backend honours pre-assigned ids
+ * on creates so the whole batch commits atomically without a
+ * resolve-ids round trip.
+ */
+export function newClientId(): string {
+  return uuid();
+}
+
 // ── Core mutations ───────────────────────────────────────────────────
 
 function findIndexFor(resource: BatchEditResource, resourceId: string | null): number {
