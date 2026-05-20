@@ -85,7 +85,9 @@ func NewPostgresNotepadRepository(pool *pgxpool.Pool) *PostgresNotepadRepository
 func (r *PostgresNotepadRepository) ListDocuments(ctx context.Context, params ListDocumentsParams) (ListDocumentsResult, error) {
 	page, perPage := normalizePage(params.Page, params.PerPage)
 	pattern := "%" + params.Search + "%"
-	out := ListDocumentsResult{Page: page, PerPage: perPage}
+	// Pre-allocate so an empty result serializes as [] rather than null;
+	// the frontend types data as an array and calls .filter on it.
+	out := ListDocumentsResult{Data: []models.NotepadDocument{}, Page: page, PerPage: perPage}
 	if err := r.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM notepad_documents WHERE owner_id = $1 AND (title ILIKE $2 OR description ILIKE $2)`, params.OwnerID, pattern).Scan(&out.Total); err != nil {
 		return out, err
 	}
@@ -258,7 +260,8 @@ func (r *InMemoryNotepadRepository) ListDocuments(_ context.Context, params List
 	if end > len(matches) {
 		end = len(matches)
 	}
-	return ListDocumentsResult{Data: append([]models.NotepadDocument(nil), matches[offset:end]...), Total: total, Page: page, PerPage: perPage}, nil
+	data := append([]models.NotepadDocument{}, matches[offset:end]...)
+	return ListDocumentsResult{Data: data, Total: total, Page: page, PerPage: perPage}, nil
 }
 
 func (r *InMemoryNotepadRepository) CreateDocument(_ context.Context, params CreateDocumentParams) (models.NotepadDocument, error) {
