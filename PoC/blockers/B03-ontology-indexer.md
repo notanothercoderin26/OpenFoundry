@@ -141,6 +141,39 @@ two link event types use synthetic `version=1` (upsert) and `version=2`
 future change that gives links a real version column should bump
 those to the actual values.
 
+## Integration tests (real Vespa)
+
+`make test-integration` runs the `//go:build integration` suite. The
+Vespa-backed checks skip unless both `VESPA_SEARCH_ENDPOINT` and
+`VESPA_CONFIG_ENDPOINT` are wired to a live cluster. Bring-up:
+
+```sh
+docker run --rm -d --name vespa-it -p 8080:8080 -p 19071:19071 \
+  vespaengine/vespa:8.327
+# wait ~30s for the config server to become ready
+export VESPA_SEARCH_ENDPOINT=http://localhost:8080
+export VESPA_CONFIG_ENDPOINT=http://localhost:19071
+make test-integration PKG=./libs/search-abstraction/vespa/...
+make test-integration PKG=./services/ontology-indexer/internal/schemasync/...
+```
+
+⚠️ The `prepareandactivate` REST endpoint is a replace-all deploy —
+run these tests against a dedicated Vespa instance only. A shared
+cluster would have its schemas wiped between scenarios.
+
+| Test | What it asserts |
+|---|---|
+| [`vespa/integration_test.go::TestIntegration_RegisterDeploysSchemaAndIndexesDocument`](../../libs/search-abstraction/vespa/integration_test.go) | `RegisterTypeMapping` POSTs an application package and a subsequent `Index` against the new doc-type is accepted (with retry for content-cluster propagation). |
+| `vespa/integration_test.go::TestIntegration_RegisterAccumulatesAcrossCalls` | Two sequential `RegisterTypeMapping` calls produce a Vespa application that accepts writes against both doc-types — proves the cumulative cache + redeploy. |
+| `vespa/integration_test.go::TestIntegration_DropRemovesSchemaFromCluster` | `DropTypeMapping` redeploys without the dropped doc-type; later writes against it fail. |
+| `vespa/integration_test.go::TestIntegration_SeedPreservesSchemasAcrossNewBackendInstance` | A fresh Backend instance + `SeedSchemas` + new `RegisterTypeMapping` keeps the seeded doc-types alive in Vespa — proves the wipe-on-restart mitigation flagged in §G5. |
+| [`schemasync/integration_test.go::TestIntegration_HandlerProcessRecordDeploysToRealVespa`](../../services/ontology-indexer/internal/schemasync/integration_test.go) | An `ontology.object_type.changed.v1` envelope passed to `Handler.ProcessRecord` deploys to real Vespa; the new doc-type accepts writes. End-to-end coverage of the schemasync wiring. |
+| `schemasync/integration_test.go::TestIntegration_HandlerDropEnvelopeRemovesSchema` | A `deleted` envelope drops the schema on real Vespa; subsequent writes against the dropped doc-type fail. |
+
+The Kafka-side integration coverage (`runtime/kafka_integration_test.go`)
+was already in place from Phase 1; it skips on missing
+`KAFKA_BOOTSTRAP_SERVERS`.
+
 ## Implementation notes (drift-mirrored from the kernel)
 
 `services/object-database-service/internal/handlers/outbox.go` is a
