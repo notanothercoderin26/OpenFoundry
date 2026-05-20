@@ -1,19 +1,13 @@
-import { expect, test } from '@playwright/test';
+import { test, expect } from './fixtures/base';
+import { mockAuth } from './fixtures/mocks';
+import { LoginPage } from './pages/LoginPage';
 
 test('renders the login flow entry point', async ({ page }) => {
-  await page.route('**/api/v1/users/me', async (route) => {
-    await route.fulfill({ status: 401, json: { error: 'unauthenticated' } });
-  });
-  await page.route('**/api/v1/auth/bootstrap-status', async (route) => {
-    await route.fulfill({ json: { requires_initial_admin: false } });
-  });
-  await page.route('**/api/v1/auth/sso/providers', async (route) => {
-    await route.fulfill({ json: [] });
-  });
+  await mockAuth(page, { authenticated: false });
 
-  await page.goto('/auth/login');
+  const login = new LoginPage(page);
+  await login.goto();
+  await login.expectVisible();
 
-  await expect(page.getByAltText('OpenFoundry')).toBeVisible();
-  await expect(page.locator('input[type="email"]')).toBeVisible();
-  await expect(page.locator('button[type="submit"]')).toBeVisible();
+  await expect(login.passwordInput).toBeVisible();
 });

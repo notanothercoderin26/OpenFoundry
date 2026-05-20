@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { test, expect } from './fixtures/base';
+import { mockAuth } from './fixtures/mocks';
 
 const now = '2026-05-11T00:00:00Z';
 
@@ -175,31 +176,7 @@ const appResponse = {
 test('Scenario variables update comparisons and can seed an Ontology action form', async ({ page }) => {
   const executed: unknown[] = [];
   const querySql: string[] = [];
-  await page.addInitScript(() => {
-    window.localStorage.setItem('of_access_token', 'e2e-token');
-  });
-  await page.route('**/api/v1/auth/bootstrap-status', async (route) => {
-    await route.fulfill({ json: { requires_initial_admin: false } });
-  });
-  await page.route('**/api/v1/users/me', async (route) => {
-    await route.fulfill({
-      json: {
-        id: '00000000-0000-0000-0000-000000000001',
-        email: 'runner@example.com',
-        name: 'Trail Runner',
-        is_active: true,
-        roles: ['admin'],
-        groups: [],
-        permissions: ['*'],
-        organization_id: null,
-        attributes: {},
-        mfa_enabled: false,
-        mfa_enforced: false,
-        auth_source: 'local',
-        created_at: now,
-      },
-    });
-  });
+  await mockAuth(page, { user: { name: 'Trail Runner' } });
   await page.route('**/api/v1/apps/public/scenario-demo', async (route) => {
     await route.fulfill({ json: appResponse });
   });
