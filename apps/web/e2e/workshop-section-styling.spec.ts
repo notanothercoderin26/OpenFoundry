@@ -1,210 +1,134 @@
-import { expect, test } from '@playwright/test';
+import { test, expect } from './fixtures/base';
+import { mockAuth } from './fixtures/mocks';
+import { defineWorkshopApp, mockWorkshopApp } from './fixtures/workshop';
 
-const now = '2026-05-11T00:00:00Z';
-
-const appResponse = {
-  app: {
-    id: 'section-styling-demo',
-    name: 'Section Styling Demo',
-    slug: 'section-styling-demo',
-    description: 'Exercises section style formatting (header format / borders / padding / bg).',
-    status: 'published',
-    pages: [
-      {
-        id: 'main',
-        name: 'Main',
-        path: '/',
-        description: '',
-        visible: true,
-        layout: { kind: 'grid', columns: 12, gap: '16px', max_width: '1280px' },
-        widgets: [],
-        sections: [
-          {
-            id: 'bordered-compact',
-            title: 'Bordered + compact',
-            description: '',
-            layout: { kind: 'grid', columns: 12, gap: '8px', max_width: '' },
-            widgets: [
-              {
-                id: 't1',
-                widget_type: 'text',
-                title: '',
-                description: '',
-                position: { x: 0, y: 0, width: 12, height: 1 },
-                props: { content: 'Bordered section body' },
-                binding: null,
-                events: [],
-                children: [],
-              },
-            ],
-            sections: [],
-            props: {
-              header_format: 'block',
-              border_style: 'bordered',
-              padding: 'compact',
-              background_color: 'gray-1',
+const appResponse = defineWorkshopApp({
+  id: 'section-styling-demo',
+  slug: 'section-styling-demo',
+  name: 'Section Styling Demo',
+  description: 'Exercises section style formatting (header format / borders / padding / bg).',
+  pages: [
+    {
+      id: 'main',
+      name: 'Main',
+      widgets: [],
+      sections: [
+        {
+          id: 'bordered-compact',
+          title: 'Bordered + compact',
+          description: '',
+          layout: { kind: 'grid', columns: 12, gap: '8px', max_width: '' },
+          widgets: [
+            {
+              id: 't1',
+              widget_type: 'text',
+              title: '',
+              description: '',
+              position: { x: 0, y: 0, width: 12, height: 1 },
+              props: { content: 'Bordered section body' },
+              binding: null,
+              events: [],
+              children: [],
             },
-            visible: true,
+          ],
+          sections: [],
+          props: {
+            header_format: 'block',
+            border_style: 'bordered',
+            padding: 'compact',
+            background_color: 'gray-1',
           },
-          {
-            id: 'shadow-large',
-            title: 'Shadow + large padding',
-            description: '',
-            layout: { kind: 'grid', columns: 12, gap: '8px', max_width: '' },
-            widgets: [
-              {
-                id: 't2',
-                widget_type: 'text',
-                title: '',
-                description: '',
-                position: { x: 0, y: 0, width: 12, height: 1 },
-                props: { content: 'Shadow section body' },
-                binding: null,
-                events: [],
-                children: [],
-              },
-            ],
-            sections: [],
-            props: {
-              header_format: 'floating',
-              border_style: 'outer-shadow',
-              padding: 'large',
-              background_color: '#0f172a',
+          visible: true,
+        },
+        {
+          id: 'shadow-large',
+          title: 'Shadow + large padding',
+          description: '',
+          layout: { kind: 'grid', columns: 12, gap: '8px', max_width: '' },
+          widgets: [
+            {
+              id: 't2',
+              widget_type: 'text',
+              title: '',
+              description: '',
+              position: { x: 0, y: 0, width: 12, height: 1 },
+              props: { content: 'Shadow section body' },
+              binding: null,
+              events: [],
+              children: [],
             },
-            visible: true,
+          ],
+          sections: [],
+          props: {
+            header_format: 'floating',
+            border_style: 'outer-shadow',
+            padding: 'large',
+            background_color: '#0f172a',
           },
-          {
-            id: 'contained-custom',
-            title: 'Contained header + custom padding',
-            description: '',
-            layout: { kind: 'grid', columns: 12, gap: '8px', max_width: '' },
-            widgets: [
-              {
-                id: 't3',
-                widget_type: 'text',
-                title: '',
-                description: '',
-                position: { x: 0, y: 0, width: 12, height: 1 },
-                props: { content: 'Contained section body' },
-                binding: null,
-                events: [],
-                children: [],
-              },
-            ],
-            sections: [],
-            props: {
-              header_format: 'contained',
-              padding: 'custom',
-              padding_custom: { top: 8, right: 24, bottom: 8, left: 24 },
-              background_color: 'gray-2',
+          visible: true,
+        },
+        {
+          id: 'contained-custom',
+          title: 'Contained header + custom padding',
+          description: '',
+          layout: { kind: 'grid', columns: 12, gap: '8px', max_width: '' },
+          widgets: [
+            {
+              id: 't3',
+              widget_type: 'text',
+              title: '',
+              description: '',
+              position: { x: 0, y: 0, width: 12, height: 1 },
+              props: { content: 'Contained section body' },
+              binding: null,
+              events: [],
+              children: [],
             },
-            visible: true,
+          ],
+          sections: [],
+          props: {
+            header_format: 'contained',
+            padding: 'custom',
+            padding_custom: { top: 8, right: 24, bottom: 8, left: 24 },
+            background_color: 'gray-2',
           },
-          {
-            id: 'borderless-transparent',
-            title: 'Borderless + transparent',
-            description: '',
-            layout: { kind: 'grid', columns: 12, gap: '8px', max_width: '' },
-            widgets: [
-              {
-                id: 't4',
-                widget_type: 'text',
-                title: '',
-                description: '',
-                position: { x: 0, y: 0, width: 12, height: 1 },
-                props: { content: 'Borderless section body' },
-                binding: null,
-                events: [],
-                children: [],
-              },
-            ],
-            sections: [],
-            props: {
-              border_style: 'borderless',
-              padding: 'none',
-              background_color: 'transparent',
+          visible: true,
+        },
+        {
+          id: 'borderless-transparent',
+          title: 'Borderless + transparent',
+          description: '',
+          layout: { kind: 'grid', columns: 12, gap: '8px', max_width: '' },
+          widgets: [
+            {
+              id: 't4',
+              widget_type: 'text',
+              title: '',
+              description: '',
+              position: { x: 0, y: 0, width: 12, height: 1 },
+              props: { content: 'Borderless section body' },
+              binding: null,
+              events: [],
+              children: [],
             },
-            visible: true,
+          ],
+          sections: [],
+          props: {
+            border_style: 'borderless',
+            padding: 'none',
+            background_color: 'transparent',
           },
-        ],
-        overlays: [],
-      },
-    ],
-    theme: {
-      name: 'Section Styling Demo',
-      primary_color: '#0f766e',
-      accent_color: '#c2410c',
-      background_color: '#f8fafc',
-      surface_color: '#ffffff',
-      text_color: '#0f172a',
-      heading_font: 'Inter',
-      body_font: 'Inter',
-      border_radius: 8,
-      logo_url: null,
+          visible: true,
+        },
+      ],
+      overlays: [],
     },
-    settings: {
-      home_page_id: 'main',
-      navigation_style: 'none',
-      max_width: '1280px',
-      show_branding: false,
-      custom_css: null,
-      builder_experience: 'workshop',
-      ontology_source_type_id: null,
-      object_set_variables: [],
-      workshop_variables: [],
-      consumer_mode: { enabled: false, allow_guest_access: false, portal_title: null, portal_subtitle: null, primary_cta_label: null, primary_cta_url: null },
-      interactive_workshop: { enabled: false, title: null, subtitle: null, briefing_template: null, primary_scenario_widget_id: null, primary_agent_widget_id: null, suggested_questions: [], scenario_presets: [] },
-      workshop_header: { title: null, icon: null, color: null },
-      slate: {
-        enabled: false,
-        framework: 'react',
-        package_name: '',
-        entry_file: '',
-        sdk_import: '',
-        workspace: { enabled: false, repository_id: null, layout: '', runtime: '', dev_command: '', preview_command: '', files: [] },
-        quiver_embed: { enabled: false, primary_type_id: null, secondary_type_id: null, join_field: null, secondary_join_field: null, date_field: null, metric_field: null, group_field: null, selected_group: null },
-      },
-    },
-    template_key: null,
-    created_by: 'e2e',
-    published_version_id: 'version-1',
-    created_at: now,
-    updated_at: now,
-  },
-  embed: { url: '/apps/runtime/section-styling-demo', iframe_html: '' },
-  published_version_number: 1,
-  published_at: now,
-};
+  ],
+});
 
 test('Workshop section style formatting honors header format / border style / padding presets / bg', async ({ page }) => {
-  await page.addInitScript(() => {
-    window.localStorage.setItem('of_access_token', 'e2e-token');
-  });
-  await page.route('**/api/v1/auth/bootstrap-status', async (route) => {
-    await route.fulfill({ json: { requires_initial_admin: false } });
-  });
-  await page.route('**/api/v1/users/me', async (route) => {
-    await route.fulfill({
-      json: {
-        id: '00000000-0000-0000-0000-000000000001',
-        email: 'runner@example.com',
-        name: 'Styling Tester',
-        is_active: true,
-        roles: ['admin'],
-        groups: [],
-        permissions: ['*'],
-        organization_id: null,
-        attributes: {},
-        mfa_enabled: false,
-        mfa_enforced: false,
-        auth_source: 'local',
-        created_at: now,
-      },
-    });
-  });
-  await page.route('**/api/v1/apps/public/section-styling-demo', async (route) => {
-    await route.fulfill({ json: appResponse });
-  });
+  await mockAuth(page, { user: { name: 'Styling Tester' } });
+  await mockWorkshopApp(page, 'section-styling-demo', appResponse);
 
   await page.goto('/apps/runtime/section-styling-demo');
 
