@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import {
   buildObjectCommentThread,
@@ -23,13 +24,7 @@ import {
   getObjectView,
   groupLinkedObjectsByLinkType,
   listActionTypes,
-  listLinkTypes,
-  listObjectSets,
-  listObjectTypeGroups,
-  listObjectTypes,
-  listObjectViews,
   listObjects,
-  listProperties,
   listTypeInterfaces,
   materializeObjectSet,
   searchOntology,
@@ -56,7 +51,6 @@ import {
   resolveObjectViewModeToggle,
   schemaOnlyObjectViewResponse,
   type ActionType,
-  type LinkType,
   type ObjectExplorerSavedArtifactKind,
   type ObjectExplorerSavedArtifactPrivacy,
   type ObjectExplorerActionContext,
@@ -68,9 +62,7 @@ import {
   type ObjectSetEvaluationResponse,
   type ObjectSetTraversal,
   type ObjectInstanceViewPolicy,
-  type OntologyObjectTypeGroup,
   type ObjectType,
-  type ObjectViewDefinition,
   type ObjectViewMode,
   type ObjectViewResponse,
   type OntologyPermissionPrincipal,
@@ -80,6 +72,9 @@ import {
 import { ActionExecutor } from '@/lib/components/ontology/ActionExecutor';
 import { ObjectCommentsHelper } from '@/lib/components/ontology/ObjectCommentsHelper';
 import { useAuth } from '@/lib/stores/auth';
+
+import { EmptyState, KeyValueGrid, MetricCard, PanelHeader, SearchResultRow, formatValue } from './components/atoms';
+import { objectExplorerKeys, useObjectExplorerInitialData, useTypeProperties } from './queries';
 
 type SearchMode = 'lexical' | 'semantic';
 type EvaluationMode = 'preview' | 'materialize';
@@ -175,13 +170,6 @@ function formatDate(value: string | null | undefined) {
   if (!value) return '-';
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? '-' : dateFormatter.format(parsed);
-}
-
-function formatValue(value: unknown) {
-  if (value === null || value === undefined || value === '') return '-';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return JSON.stringify(value);
 }
 
 function uniqueRecentKey(item: RecentItem) {
@@ -323,16 +311,17 @@ function objectTypeIdFromResultSet(results: SearchResult[]) {
 
 export function ObjectExplorerPage() {
   const { user } = useAuth();
-  const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
-  const [objectTypeGroups, setObjectTypeGroups] = useState<OntologyObjectTypeGroup[]>([]);
-  const [objectSets, setObjectSets] = useState<ObjectSetDefinition[]>([]);
-  const [objectViews, setObjectViews] = useState<ObjectViewDefinition[]>([]);
-  const [linkTypes, setLinkTypes] = useState<LinkType[]>([]);
-  const [actionTypes, setActionTypes] = useState<ActionType[]>([]);
-  const [typeProperties, setTypeProperties] = useState<Property[]>([]);
-  const [linkedProperties, setLinkedProperties] = useState<Property[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
+  const queryClient = useQueryClient();
+  const {
+    objectTypes,
+    objectTypeGroups,
+    objectSets,
+    objectViews,
+    linkTypes,
+    actionTypes,
+    loading,
+    error: pageError,
+  } = useObjectExplorerInitialData();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('lexical');
@@ -385,41 +374,7 @@ export function ObjectExplorerPage() {
   const [objectSetError, setObjectSetError] = useState('');
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setPageError('');
-      try {
-        const [typeRes, groupRes, setRes, linkRes, actionRes, viewRes] = await Promise.all([
-          listObjectTypes({ per_page: 200 }),
-          listObjectTypeGroups({ per_page: 200 }),
-          listObjectSets({ size: 500 }),
-          listLinkTypes({ per_page: 200 }).catch(() => ({ data: [], total: 0 })),
-          listActionTypes({ per_page: 200 }).catch(() => ({ data: [], total: 0, page: 1, per_page: 200 })),
-          listObjectViews({ per_page: 500 }).catch(() => ({ data: [] as ObjectViewDefinition[], total: 0, page: 1, per_page: 500 })),
-        ]);
-        if (cancelled) return;
-        setObjectTypes(typeRes.data);
-        setObjectTypeGroups(groupRes.data);
-        setObjectSets(setRes.data);
-        setObjectViews(viewRes.data);
-        setLinkTypes(linkRes.data);
-        setActionTypes(actionRes.data);
-        setNewSetType(typeRes.data[0]?.id ?? '');
-        setFilterTypeId(typeRes.data[0]?.id ?? '');
-        setDirectOpenTypeId(typeRes.data[0]?.id ?? '');
-        setRecents(readRecents());
-      } catch (cause) {
-        if (cancelled) return;
-        setPageError(cause instanceof Error ? cause.message : 'Failed to load object explorer');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
+    setRecents(readRecents());
   }, []);
 
   useEffect(() => {
@@ -508,7 +463,14 @@ export function ObjectExplorerPage() {
   const linkedFilterLink = linkedFilter.link_type_id ? linkById.get(linkedFilter.link_type_id) ?? null : null;
   const linkedFilterContext = linkedFilterLink ? objectExplorerLinkedTargetForType(linkedFilterLink, filterTypeId) : null;
   const linkedTargetType = linkedFilterContext ? typeById.get(linkedFilterContext.target_object_type_id) : null;
+
+  const typePropertiesQuery = useTypeProperties(filterTypeId);
+  const typeProperties = typePropertiesQuery.data ?? [];
+  const linkedTargetTypeId = linkedFilterContext?.target_object_type_id ?? '';
+  const linkedPropertiesQuery = useTypeProperties(linkedTargetTypeId);
+  const linkedProperties = linkedPropertiesQuery.data ?? [];
   const linkedFilterProperty = linkedProperties.find((property) => property.name === linkedFilter.property_name) ?? null;
+
   const pivotSourceTypeId = searchTypeFilter || filterTypeId || searchResults.find((result) => result.object_type_id)?.object_type_id || '';
   const pivotLinkType = pivotLinkTypeId ? linkById.get(pivotLinkTypeId) ?? null : null;
   const pivotContext = pivotLinkType ? objectExplorerLinkedTargetForType(pivotLinkType, pivotSourceTypeId) : null;
@@ -536,56 +498,34 @@ export function ObjectExplorerPage() {
   }, [pivotLinkTypeId, pivotLinks]);
 
   useEffect(() => {
-    if (!filterTypeId) {
-      setTypeProperties([]);
-      return;
+    if (typePropertiesQuery.error) {
+      setSearchError(typePropertiesQuery.error instanceof Error ? typePropertiesQuery.error.message : 'Failed to load properties');
     }
-    let cancelled = false;
-    listProperties(filterTypeId)
-      .then((properties) => {
-        if (cancelled) return;
-        setTypeProperties(properties);
-        setPropertyFilters((current) => current.length > 0
-          ? current.map((filter, index) => ({
-              ...filter,
-              property_name: properties.some((property) => property.name === filter.property_name)
-                ? filter.property_name
-                : index === 0 ? properties[0]?.name ?? '' : '',
-            }))
-          : [{ ...DEFAULT_PROPERTY_FILTER, property_name: properties[0]?.name ?? '' }]);
-      })
-      .catch((cause) => {
-        if (!cancelled) setSearchError(cause instanceof Error ? cause.message : 'Failed to load properties');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [filterTypeId]);
+  }, [typePropertiesQuery.error]);
 
   useEffect(() => {
-    if (!linkedFilterContext?.target_object_type_id) {
-      setLinkedProperties([]);
-      return;
-    }
-    let cancelled = false;
-    listProperties(linkedFilterContext.target_object_type_id)
-      .then((properties) => {
-        if (cancelled) return;
-        setLinkedProperties(properties);
-        setLinkedFilter((current) => ({
-          ...current,
-          property_name: properties.some((property) => property.name === current.property_name)
-            ? current.property_name
-            : properties[0]?.name ?? '',
-        }));
-      })
-      .catch(() => {
-        if (!cancelled) setLinkedProperties([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [linkedFilterContext?.target_object_type_id]);
+    if (!typePropertiesQuery.data) return;
+    const properties = typePropertiesQuery.data;
+    setPropertyFilters((current) => current.length > 0
+      ? current.map((filter, index) => ({
+          ...filter,
+          property_name: properties.some((property) => property.name === filter.property_name)
+            ? filter.property_name
+            : index === 0 ? properties[0]?.name ?? '' : '',
+        }))
+      : [{ ...DEFAULT_PROPERTY_FILTER, property_name: properties[0]?.name ?? '' }]);
+  }, [typePropertiesQuery.data]);
+
+  useEffect(() => {
+    if (!linkedPropertiesQuery.data) return;
+    const properties = linkedPropertiesQuery.data;
+    setLinkedFilter((current) => ({
+      ...current,
+      property_name: properties.some((property) => property.name === current.property_name)
+        ? current.property_name
+        : properties[0]?.name ?? '',
+    }));
+  }, [linkedPropertiesQuery.data]);
 
   useEffect(() => {
     if (!pendingShareId || loading) return;
@@ -750,8 +690,7 @@ export function ObjectExplorerPage() {
   }, [objectSetActionId, objectSetActions]);
 
   async function refreshObjectSets() {
-    const res = await listObjectSets();
-    setObjectSets(res.data);
+    await queryClient.invalidateQueries({ queryKey: objectExplorerKeys.objectSets() });
   }
 
   function accessForType(typeId: string | null | undefined): ObjectInstanceViewPolicy {
@@ -1091,9 +1030,15 @@ export function ObjectExplorerPage() {
       const view = await getObjectView(result.object_type_id, result.id);
       const [implementedInterfaces, loadedActions] = await Promise.all([
         listTypeInterfaces(result.object_type_id).catch(() => []),
-        actionTypes.length > 0 ? Promise.resolve(actionTypes) : listActionTypes({ per_page: 200 }).then((response) => response.data).catch(() => []),
+        actionTypes.length > 0
+          ? Promise.resolve(actionTypes)
+          : queryClient
+              .fetchQuery({
+                queryKey: objectExplorerKeys.actionTypes(),
+                queryFn: () => listActionTypes({ per_page: 200 }).then((response) => response.data),
+              })
+              .catch(() => [] as ActionType[]),
       ]);
-      if (actionTypes.length === 0 && loadedActions.length > 0) setActionTypes(loadedActions);
       const allActions = loadedActions.length > 0 ? loadedActions : view.applicable_actions;
       const applicableActions = mergeApplicableInterfaceActions(view.applicable_actions, allActions, implementedInterfaces);
       const nextView = redactObjectViewResponseForObjectViewPermissions({
@@ -2163,112 +2108,5 @@ export function ObjectExplorerPage() {
         </>
       )}
     </section>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="of-panel-muted" style={{ padding: 10 }}>
-      <p className="of-eyebrow">{label}</p>
-      <p style={{ marginTop: 4, color: 'var(--text-strong)', fontSize: 18, fontWeight: 600 }}>{value}</p>
-    </div>
-  );
-}
-
-function PanelHeader({ label, value }: { label: string; value?: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-      <p className="of-eyebrow">{label}</p>
-      {value && <span className="of-chip">{value}</span>}
-    </div>
-  );
-}
-
-function EmptyState({ label, compact = false }: { label: string; compact?: boolean }) {
-  return (
-    <div
-      className="of-text-muted"
-      style={{
-        padding: compact ? 10 : 24,
-        textAlign: 'center',
-        border: '1px dashed var(--border-default)',
-        borderRadius: 'var(--radius-md)',
-        fontSize: 12,
-      }}
-    >
-      {label}
-    </div>
-  );
-}
-
-function KeyValueGrid({ entries }: { entries: Array<[string, unknown]> }) {
-  if (entries.length === 0) return <EmptyState label="No values." compact />;
-  return (
-    <dl style={{ display: 'grid', gap: 6, margin: '8px 0 0' }}>
-      {entries.map(([key, value]) => (
-        <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 0.45fr) minmax(0, 1fr)', gap: 8, fontSize: 12 }}>
-          <dt className="of-text-muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {key}
-          </dt>
-          <dd style={{ margin: 0, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {formatValue(value)}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function SearchResultRow({
-  result,
-  selected,
-  typeLabel,
-  onPreview,
-}: {
-  result: SearchResult;
-  selected: boolean;
-  typeLabel?: string;
-  onPreview: () => void;
-}) {
-  return (
-    <article
-      className={selected ? 'of-panel' : 'of-panel-muted'}
-      style={{ padding: 10, display: 'grid', gap: 8, borderColor: selected ? '#2d72d2' : undefined }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-        <div style={{ minWidth: 0 }}>
-          <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {result.title || result.id}
-          </strong>
-          <p className="of-text-muted" style={{ margin: '2px 0 0', fontSize: 11 }}>
-            {typeLabel ? `${typeLabel} - ` : ''}
-            {result.subtitle ?? result.kind}
-          </p>
-        </div>
-        <span className="of-chip">{result.score.toFixed(2)}</span>
-      </div>
-      {result.snippet && (
-        <p className="of-text-muted" style={{ margin: 0, fontSize: 12, lineHeight: 1.45 }}>
-          {result.snippet}
-        </p>
-      )}
-      {result.score_breakdown && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          <span className="of-chip">lex {result.score_breakdown.lexical_score.toFixed(2)}</span>
-          <span className="of-chip">sem {result.score_breakdown.semantic_score.toFixed(2)}</span>
-          <span className="of-chip">{result.score_breakdown.fusion_strategy}</span>
-        </div>
-      )}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        <button type="button" onClick={onPreview} className={result.kind === 'object_instance' ? 'of-button of-button--primary' : 'of-button'}>
-          {result.kind === 'object_instance' ? 'Preview' : 'Select'}
-        </button>
-        {result.route && (
-          <Link to={result.route} className="of-button">
-            Open
-          </Link>
-        )}
-      </div>
-    </article>
   );
 }
