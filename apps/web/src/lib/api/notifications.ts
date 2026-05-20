@@ -83,3 +83,95 @@ export function sendNotification(body: {
 }) {
   return api.post<UserNotification>('/notifications/send', body);
 }
+
+// ── B05 subscription + event fan-out wire ────────────────────────────
+
+export type SubscriptionChannel = 'in_app' | 'email' | 'webhook' | 'slack' | 'teams';
+
+export type DeliveryStatus = 'pending' | 'retrying' | 'sent' | 'failed' | 'escalated';
+
+export interface Subscription {
+  id: string;
+  event_type: string;
+  channel: SubscriptionChannel;
+  target: string;
+  template?: Record<string, unknown>;
+  has_hmac_secret: boolean;
+  sla_seconds?: number;
+  escalation_target?: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubscriptionListResponse {
+  data: Subscription[];
+}
+
+export interface CreateSubscriptionBody {
+  event_type: string;
+  channel: SubscriptionChannel;
+  target: string;
+  template?: Record<string, unknown>;
+  hmac_secret?: string;
+  sla_seconds?: number;
+  escalation_target?: string;
+  enabled?: boolean;
+}
+
+export interface DeliveryRecord {
+  id: string;
+  event_id: string;
+  subscription_id: string;
+  channel: string;
+  target: string;
+  status: DeliveryStatus;
+  attempt: number;
+  max_attempts: number;
+  last_error?: string;
+  signature_header?: string;
+  scheduled_at: string;
+  last_attempt_at?: string;
+  response?: string;
+  sla_due_at?: string;
+  escalation_target?: string;
+  escalated_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeliveryListResponse {
+  data: DeliveryRecord[];
+}
+
+export interface SubmitEventBody {
+  event_type: string;
+  payload: Record<string, unknown>;
+  source?: string;
+}
+
+export interface SubmitEventResponse {
+  event: { id: string; event_type: string; payload: unknown; source?: string; created_at: string };
+  deliveries: DeliveryRecord[];
+}
+
+export function listNotificationSubscriptions(eventType?: string) {
+  const qs = eventType ? `?event_type=${encodeURIComponent(eventType)}` : '';
+  return api.get<SubscriptionListResponse>(`/notifications/subscriptions${qs}`);
+}
+
+export function createNotificationSubscription(body: CreateSubscriptionBody) {
+  return api.post<Subscription>('/notifications/subscriptions', body);
+}
+
+export function deleteNotificationSubscription(id: string) {
+  return api.delete<void>(`/notifications/subscriptions/${id}`);
+}
+
+export function submitNotificationEvent(body: SubmitEventBody) {
+  return api.post<SubmitEventResponse>('/notifications/events', body);
+}
+
+export function listEventDeliveries(eventId: string) {
+  return api.get<DeliveryListResponse>(`/notifications/events/${eventId}/deliveries`);
+}

@@ -448,6 +448,14 @@ func ExecuteActionWithRuntime(state *ontologykernel.AppState, fnRuntime ActionFu
 			params, body.Justification, executed); notifErr != nil {
 			logNotificationFailure(action.ID, notifErr)
 		}
+		// B05: emit a generic action.executed.v1 event so the
+		// notification service can fan it out to subscription-based
+		// channels (webhook to MRO inbox, escalation hooks, …) without
+		// per-action notification_side_effects config.
+		if evtErr := emitActionEvent(r.Context(), state, claims, action, plan.target,
+			body.Justification, executed); evtErr != nil {
+			logNotificationFailure(action.ID, evtErr)
+		}
 		runWebhookSideEffects(r.Context(), state, claims, claims.Sub, action.ID,
 			executed.targetObjectID, sideEffects, params)
 

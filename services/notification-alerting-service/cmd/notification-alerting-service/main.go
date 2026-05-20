@@ -96,13 +96,28 @@ func main() {
 		},
 	}
 
+	subsRepo := &repo.SubscriptionsRepo{Pool: pool}
+	dispatcher := service.NewDispatcher(subsRepo, notifier)
+
+	// B05 worker pulls due deliveries + escalates SLA breaches in the
+	// background. Wired here so the same process owns both producer
+	// and consumer sides of the fan-out.
+	worker := service.NewWorker(subsRepo)
+	worker.HTTP = httpClient
+	// SLA escalations re-emit `*.escalated.v1` on the same /events
+	// surface so escalation_target subscriptions pick it up.
+	worker.SLAEscalationHook = service.LoopbackEscalator(dispatcher)
+	go worker.Run(ctx)
+
 	metrics := observability.NewMetrics()
 	srv := server.New(server.Deps{
 		Config:        cfg,
 		JWT:           jwt,
 		Notifications: notifyRepo,
 		Preferences:   prefsRepo,
+		Subscriptions: subsRepo,
 		Notifier:      notifier,
+		Dispatcher:    dispatcher,
 		Bus:           bus,
 		Metrics:       metrics,
 	}, probes.Postgres("primary", pool))

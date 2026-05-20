@@ -727,6 +727,77 @@ type internalSendNotificationRequest struct {
 	Metadata any        `json:"metadata,omitempty"`
 }
 
+// emitActionEvent posts a generic `action.executed.v1` event to the
+// notification service so subscription-based fan-out (webhook, SLA
+// escalation, etc.) can react without per-action notification_side_effects
+// config. Best-effort: a failed POST is logged via the caller and does
+// not propagate to the action response.
+//
+// Closes B05 §AC#5/#6: any submit that lands in this code path now
+// produces an event that the notification service can route to e.g.
+// the MRO inbox webhook or an SLA escalator.
+func emitActionEvent(
+	ctx context.Context,
+	state *ontologykernel.AppState,
+	claims *authmw.Claims,
+	action models.ActionType,
+	target *domain.ObjectInstance,
+	justification *string,
+	executed executedAction,
+) error {
+	if strings.TrimSpace(state.NotificationServiceURL) == "" {
+		return nil
+	}
+	payload := map[string]any{
+		"action": map[string]any{
+			"id":             action.ID,
+			"name":           action.Name,
+			"display_name":   action.DisplayName,
+			"object_type_id": action.ObjectTypeID,
+			"operation_kind": action.OperationKind,
+		},
+		"actor": map[string]any{
+			"id":              claims.Sub,
+			"email":           claims.Email,
+			"organization_id": claims.OrgID,
+		},
+		"target":           objectInstanceAsAny(target),
+		"target_object_id": executed.targetObjectID,
+		"deleted":          executed.deleted,
+		"justification":    justification,
+		"title":            "Action executed: " + action.DisplayName,
+		"body":             "Action " + action.Name + " executed by " + claims.Email,
+	}
+	body, err := json.Marshal(map[string]any{
+		"event_type": "action.executed.v1",
+		"payload":    payload,
+		"source":     "ontology-actions-service",
+	})
+	if err != nil {
+		return fmt.Errorf("encode action event: %w", err)
+	}
+	url := strings.TrimRight(state.NotificationServiceURL, "/") + "/internal/events"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build action event request: %w", err)
+	}
+	req.Header.Set("content-type", "application/json")
+	client := state.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("post action event: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		respBytes := readAllLimited(resp.Body, 1<<20)
+		return fmt.Errorf("notification service returned %s: %s", resp.Status, string(respBytes))
+	}
+	return nil
+}
+
 // sendNotificationRequest mirrors `async fn send_notification_request`.
 func sendNotificationRequest(
 	ctx context.Context,
