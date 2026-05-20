@@ -60,6 +60,12 @@ type Store interface {
 	UpdateSharedPropertyType(ctx context.Context, id uuid.UUID, body *models.UpdateSharedPropertyTypeRequest, actorID uuid.UUID) (*models.SharedPropertyType, error)
 	DeleteSharedPropertyType(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error)
 
+	ListObjectViews(ctx context.Context, objectTypeID *uuid.UUID, formFactor string, page, perPage int) ([]models.ObjectView, int, error)
+	GetObjectView(ctx context.Context, id uuid.UUID) (*models.ObjectView, error)
+	CreateObjectView(ctx context.Context, body *models.CreateObjectViewRequest, ownerID uuid.UUID) (*models.ObjectView, error)
+	UpdateObjectView(ctx context.Context, id uuid.UUID, body *models.UpdateObjectViewRequest, actorID uuid.UUID) (*models.ObjectView, error)
+	DeleteObjectView(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error)
+
 	// SaveBatch applies the working-state of the Review-edits modal
 	// atomically. See repo.SaveBatch for the semantics.
 	SaveBatch(ctx context.Context, req *models.BatchSaveRequest, actorID uuid.UUID) (*models.BatchSaveResponse, error)

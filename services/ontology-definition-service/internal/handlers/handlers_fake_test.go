@@ -548,6 +548,47 @@ func (f *fakeStore) ListSharedPropertyTypes(_ context.Context, _, _ int, _ strin
 	return out, len(f.sharedProperties), nil
 }
 
+// Object Views — handler-level fake. Keeps a slice in memory so the
+// test suite can assert against List + CRUD round-trips without
+// dragging Postgres in.
+func (f *fakeStore) ListObjectViews(_ context.Context, _ *uuid.UUID, _ string, _, _ int) ([]models.ObjectView, int, error) {
+	return nil, 0, nil
+}
+
+func (f *fakeStore) GetObjectView(_ context.Context, _ uuid.UUID) (*models.ObjectView, error) {
+	return nil, nil
+}
+
+func (f *fakeStore) CreateObjectView(_ context.Context, body *models.CreateObjectViewRequest, ownerID uuid.UUID) (*models.ObjectView, error) {
+	if body == nil {
+		return nil, nil
+	}
+	now := time.Now().UTC()
+	return &models.ObjectView{
+		ID:           uuid.New(),
+		Name:         body.Name,
+		DisplayName:  body.DisplayName,
+		Description:  body.Description,
+		ObjectTypeID: body.ObjectTypeID,
+		Mode:         body.Mode,
+		FormFactor:   body.FormFactor,
+		Config:       body.Config,
+		BranchLabel:  body.BranchLabel,
+		OwnerID:      ownerID,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		Version:      1,
+	}, nil
+}
+
+func (f *fakeStore) UpdateObjectView(_ context.Context, _ uuid.UUID, _ *models.UpdateObjectViewRequest, _ uuid.UUID) (*models.ObjectView, error) {
+	return nil, nil
+}
+
+func (f *fakeStore) DeleteObjectView(_ context.Context, _ uuid.UUID, _ uuid.UUID) (bool, error) {
+	return true, nil
+}
+
 // SaveBatch is a thin stub good enough to verify the BatchSave handler
 // wiring (auth, JSON decoding, route registration). Every edit gets an
 // "ok" result with the edit's own ClientID echoed back; the full

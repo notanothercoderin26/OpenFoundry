@@ -40,6 +40,7 @@ const (
 	TopicObjectTypeGroup    = "ontology.object_type_group.changed.v1"
 	TopicInterface          = "ontology.interface.changed.v1"
 	TopicSharedPropertyType = "ontology.shared_property_type.changed.v1"
+	TopicObjectView         = "ontology.object_view.changed.v1"
 	// TopicActionType is reserved for `ontology-actions-service` once
 	// the kernel-side hook into libs/ontology-kernel/handlers/actions
 	// is wired (see PoC/blockers/B02-ontology-definition.md §Deferred).
@@ -53,6 +54,7 @@ const (
 	AggregateObjectTypeGroup    = "ontology_object_type_group"
 	AggregateInterface          = "ontology_interface"
 	AggregateSharedPropertyType = "ontology_shared_property_type"
+	AggregateObjectView         = "ontology_object_view"
 	AggregateActionType         = "ontology_action_type"
 )
 
