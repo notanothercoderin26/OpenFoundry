@@ -8,6 +8,7 @@ import {
   type PipelineValidationResponse,
 } from '@/lib/api/pipelines';
 import { Glyph } from '@/lib/components/ui/Glyph';
+import { mergePastedNodes, readNodesFromClipboard, writeNodesToClipboard } from './canvasClipboard';
 
 interface PipelineCanvasProps {
   nodes: PipelineNode[];
@@ -131,6 +132,8 @@ export function PipelineCanvas({
   const [searchQuery, setSearchQuery] = useState('');
   const [multiSelected, setMultiSelected] = useState<Set<string>>(() => new Set());
   const [marquee, setMarquee] = useState<Rect | null>(null);
+  const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
+  const [editingLabelDraft, setEditingLabelDraft] = useState('');
   const svgRef = useRef<SVGSVGElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -179,12 +182,12 @@ export function PipelineCanvas({
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey)) return;
       const target = event.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
       }
+      if (!(event.ctrlKey || event.metaKey)) return;
       if (event.key === '=' || event.key === '+') {
         event.preventDefault();
         zoomIn();
@@ -199,12 +202,24 @@ export function PipelineCanvas({
         if (readOnly) return;
         setMultiSelected(new Set(nodes.map((n) => n.id)));
         setSelectedId(null);
+      } else if (event.key.toLowerCase() === 'c') {
+        if (currentSelectionIds().length === 0) return;
+        event.preventDefault();
+        copySelectionToClipboard();
+      } else if (event.key.toLowerCase() === 'v') {
+        if (readOnly) return;
+        event.preventDefault();
+        pasteClipboardIntoCanvas();
+      } else if (event.key.toLowerCase() === 'd') {
+        if (readOnly || currentSelectionIds().length === 0) return;
+        event.preventDefault();
+        duplicateSelection();
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, readOnly]);
+  }, [nodes, readOnly, multiSelected, selectedId]);
 
   function selectNode(id: string | null) {
     if (readOnly && id !== null) return;
@@ -247,6 +262,63 @@ export function PipelineCanvas({
         .map((n) => ({ ...n, depends_on: n.depends_on.filter((d) => !removed.has(d)) })),
     );
     setMultiSelected(new Set());
+  }
+
+  function currentSelectionIds(): string[] {
+    if (multiSelected.size > 0) return Array.from(multiSelected);
+    return selectedId ? [selectedId] : [];
+  }
+
+  function copySelectionToClipboard(): boolean {
+    const ids = currentSelectionIds();
+    if (ids.length === 0) return false;
+    const subset = nodes.filter((entry) => ids.includes(entry.id));
+    return writeNodesToClipboard(subset);
+  }
+
+  function pasteClipboardIntoCanvas(): boolean {
+    if (readOnly) return false;
+    const pasted = readNodesFromClipboard();
+    if (pasted.length === 0) return false;
+    const { nodes: nextNodes, inserted } = mergePastedNodes(nodes, pasted);
+    onChange?.(nextNodes);
+    setMultiSelected(new Set(inserted.map((entry) => entry.id)));
+    setSelectedId(inserted[inserted.length - 1]?.id ?? null);
+    return inserted.length > 0;
+  }
+
+  function duplicateSelection(): boolean {
+    if (readOnly) return false;
+    const ids = currentSelectionIds();
+    if (ids.length === 0) return false;
+    const subset = nodes.filter((entry) => ids.includes(entry.id));
+    const { nodes: nextNodes, inserted } = mergePastedNodes(nodes, subset);
+    onChange?.(nextNodes);
+    setMultiSelected(new Set(inserted.map((entry) => entry.id)));
+    setSelectedId(inserted[inserted.length - 1]?.id ?? null);
+    return inserted.length > 0;
+  }
+
+  function beginLabelEdit(node: PipelineNode) {
+    if (readOnly) return;
+    setEditingLabelId(node.id);
+    setEditingLabelDraft(node.label);
+  }
+
+  function commitLabelEdit() {
+    if (!editingLabelId) return;
+    const id = editingLabelId;
+    const next = editingLabelDraft.trim();
+    setEditingLabelId(null);
+    setEditingLabelDraft('');
+    if (!next) return;
+    if (nodes.find((entry) => entry.id === id)?.label === next) return;
+    onChange?.(nodes.map((entry) => (entry.id === id ? { ...entry, label: next } : entry)));
+  }
+
+  function cancelLabelEdit() {
+    setEditingLabelId(null);
+    setEditingLabelDraft('');
   }
 
   function clampZoom(value: number) {
@@ -457,6 +529,39 @@ export function PipelineCanvas({
               Remove
             </button>
           </>
+        )}
+        {!readOnly && currentSelectionIds().length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={copySelectionToClipboard}
+              className="of-button"
+              style={{ fontSize: 11 }}
+              title="Copy selection (Ctrl+C)"
+            >
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={duplicateSelection}
+              className="of-button"
+              style={{ fontSize: 11 }}
+              title="Duplicate selection (Ctrl+D)"
+            >
+              Duplicate
+            </button>
+          </>
+        )}
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={pasteClipboardIntoCanvas}
+            className="of-button"
+            style={{ fontSize: 11 }}
+            title="Paste from clipboard (Ctrl+V)"
+          >
+            Paste
+          </button>
         )}
         {!readOnly && multiSelected.size > 0 && (
           <>
@@ -671,6 +776,12 @@ export function PipelineCanvas({
                   onClick={() => startUnion(selectedNode)}
                   glyph={<UnionGlyph />}
                 />
+                <FloatingActionButton
+                  label="Duplicate"
+                  tone="#5f6b7a"
+                  onClick={duplicateSelection}
+                  glyph={<Glyph name="duplicate" size={14} />}
+                />
                 <FloatingActionButton label="Pivot" tone="#b42318" disabled glyph={<PivotGlyph />} />
                 <FloatingActionButton label="Filter" tone="#7c5dd6" disabled glyph={<DotsGlyph />} />
                 <FloatingActionButton label="AI suggest" tone="#7c5dd6" disabled glyph={<SparkGlyph />} />
@@ -825,8 +936,21 @@ export function PipelineCanvas({
                 )}
                 <rect width={NODE_W} height={NODE_H} rx={2} ry={2} fill={nodeFill(n)} stroke={nodeStroke(n)} strokeWidth={1.5} />
                 <rect width={4} height={NODE_H} rx={2} ry={2} fill={selectedId === n.id ? '#2d72d2' : '#6f7d8c'} />
-                <text x={12} y={22} fill="#1f252d" fontSize={12} fontWeight={600}>
+                <text
+                  x={12}
+                  y={22}
+                  fill="#1f252d"
+                  fontSize={12}
+                  fontWeight={600}
+                  onDoubleClick={(event) => {
+                    if (readOnly) return;
+                    event.stopPropagation();
+                    beginLabelEdit(n);
+                  }}
+                  style={{ cursor: readOnly ? 'default' : 'text' }}
+                >
                   {n.label.length > 22 ? `${n.label.slice(0, 22)}…` : n.label}
+                  {!readOnly && <title>Double-click to rename</title>}
                 </text>
                 <text x={12} y={42} fill="#5f6b7a" fontSize={11}>
                   {n.transform_type}
@@ -865,6 +989,44 @@ export function PipelineCanvas({
             </text>
           )}
         </svg>
+        {editingLabelId && (() => {
+          const pos = positions.get(editingLabelId);
+          if (!pos) return null;
+          return (
+            <input
+              autoFocus
+              value={editingLabelDraft}
+              onChange={(event) => setEditingLabelDraft(event.target.value)}
+              onBlur={commitLabelEdit}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitLabelEdit();
+                } else if (event.key === 'Escape') {
+                  event.preventDefault();
+                  cancelLabelEdit();
+                }
+              }}
+              aria-label="Edit node label"
+              style={{
+                position: 'absolute',
+                top: (pos.y + 8) * zoom,
+                left: (pos.x + 10) * zoom,
+                width: (NODE_W - 16) * zoom,
+                height: 22 * zoom,
+                padding: '0 4px',
+                fontSize: 12 * zoom,
+                fontWeight: 600,
+                color: '#1f252d',
+                background: '#fff',
+                border: '1px solid #2d72d2',
+                borderRadius: 3,
+                outline: 'none',
+                zIndex: 7,
+              }}
+            />
+          );
+        })()}
         <div
           role="group"
           aria-label="Zoom controls"
