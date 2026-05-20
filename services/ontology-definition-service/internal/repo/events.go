@@ -161,7 +161,7 @@ func EnqueueSchemaEvent(ctx context.Context, tx pgx.Tx, opts EventOptions) error
 		WithHeader("event_type", string(opts.EventType)).
 		WithHeader("schema_version", "1").
 		WithHeader("ol-namespace", "openfoundry.ontology").
-		WithHeader("ol-job", string(opts.EventType)+"."+opts.Aggregate).
+		WithHeader("ol-job-name", string(opts.EventType)+"."+opts.Aggregate).
 		WithHeader("ol-event-time", occurred.Format(time.RFC3339Nano)).
 		WithHeader("ol-producer", "ontology-definition-service")
 

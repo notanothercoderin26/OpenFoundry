@@ -1,0 +1,683 @@
+# OpenAPI 3.1 specification for ontology-actions-service.
+#
+# Hand-authored to mirror the chi router in
+# `internal/server/server.go::mountActions` plus the kernel-mounted
+# routes from `libs/ontology-kernel/handlers/actions/actions.go::Mount`.
+# When you add or remove a route there, update this file in the same
+# commit so SDK generators (sdks/) and any AI agent driving the
+# action surface stay in sync.
+#
+# Schema-mutation routes (POST/PUT/PATCH/DELETE on /actions[/{id}])
+# are served by the local outbox-aware handlers in
+# `internal/handlers/action_types.go`; every other route is mounted
+# verbatim from the kernel. Both flavors share the same JSON shapes
+# (`libs/ontology-kernel/models/action_type.go`).
+openapi: "3.1.0"
+info:
+  title: OpenFoundry ontology-actions-service
+  version: "1.0.0"
+  description: |
+    Foundry-style action engine: CRUD on action types, plus validate /
+    execute / what-if / metrics / inline-edit / applicable-actions /
+    attachment upload.
+
+    Schema mutations (POST/PUT/PATCH/DELETE on `/actions[/{id}]`) write
+    to a transactional outbox in the same Postgres transaction
+    (ADR-0022). Debezium tails the WAL and re-emits the events on the
+    canonical Kafka topic:
+
+      - ontology.action_type.changed.v1
+
+    Topics are provisioned via
+    `infra/helm/infra/kafka-cluster/templates/topics-ontology-schema-v1.yaml`.
+
+servers:
+  - url: https://gateway.openfoundry.example.com
+    description: Gateway prefix; routes mounted on `/api/v1/ontology`.
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: action-types
+  - name: action-execution
+  - name: action-what-if
+  - name: action-inline-edit
+  - name: action-uploads
+  - name: action-metrics
+  - name: health
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      security: []
+      summary: Liveness probe.
+      responses:
+        "200":
+          description: Service is up.
+  /health:
+    get:
+      tags: [health]
+      security: []
+      summary: Liveness probe (alias).
+      responses:
+        "200":
+          description: Service is up.
+
+  /api/v1/ontology/actions:
+    get:
+      tags: [action-types]
+      summary: List action types (paged).
+      parameters:
+        - { in: query, name: object_type_id, required: false, schema: { type: string, format: uuid } }
+        - { in: query, name: page,           required: false, schema: { type: integer, minimum: 1 } }
+        - { in: query, name: per_page,       required: false, schema: { type: integer, minimum: 1, maximum: 500 } }
+        - { in: query, name: search,         required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Paged list response.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ListActionTypesResponse" }
+    post:
+      tags: [action-types]
+      summary: Create an action type.
+      description: |
+        Lifted out of the kernel into this service so the SQL write and
+        the outbox enqueue land in the same Postgres transaction
+        (ADR-0022). The referenced `object_type_id` MUST exist; the
+        `operation_kind` MUST be one of the recognised tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateActionTypeRequest" }
+      responses:
+        "201": { $ref: "#/components/responses/ActionType" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/ontology/actions/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [action-types]
+      summary: Read one action type.
+      responses:
+        "200": { $ref: "#/components/responses/ActionType" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [action-types]
+      summary: Replace an action type (full update).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateActionTypeRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/ActionType" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [action-types]
+      summary: Partially update an action type.
+      description: |
+        Same handler as PUT, kept for parity with the frontend edit
+        drawer contract. Nil fields are left unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateActionTypeRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/ActionType" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [action-types]
+      summary: Delete an action type.
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/actions/{id}/validate:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [action-execution]
+      summary: Dry-run an action and return the diff that would result.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ValidateActionRequest" }
+      responses:
+        "200":
+          description: Validation result (no state mutated).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidateActionResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/actions/{id}/execute:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [action-execution]
+      summary: Execute an action against a single target.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExecuteActionRequest" }
+      responses:
+        "200":
+          description: Execution result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecuteActionResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/actions/{id}/execute-batch:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [action-execution]
+      summary: Execute an action against multiple targets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExecuteBatchActionRequest" }
+      responses:
+        "200":
+          description: Batch execution result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecuteBatchActionResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/actions/{id}/metrics:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      - in: query
+        name: window
+        required: false
+        description: 'Rolling window for the aggregation. Examples: `1h`, `24h`, `30d`. Defaults to `30d`.'
+        schema: { type: string, default: "30d" }
+    get:
+      tags: [action-metrics]
+      summary: Success / failure / p95 aggregates pulled from the action log.
+      responses:
+        "200":
+          description: Metrics envelope.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActionMetricsResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/actions/{id}/what-if:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [action-what-if]
+      summary: List what-if branches saved against an action.
+      parameters:
+        - { in: query, name: target_object_id, required: false, schema: { type: string, format: uuid } }
+        - { in: query, name: page,             required: false, schema: { type: integer, minimum: 1 } }
+        - { in: query, name: per_page,         required: false, schema: { type: integer, minimum: 1, maximum: 500 } }
+      responses:
+        "200":
+          description: Paged list of what-if branches.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ListActionWhatIfBranchesResponse" }
+    post:
+      tags: [action-what-if]
+      summary: Create a saved what-if branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateActionWhatIfBranchRequest" }
+      responses:
+        "201":
+          description: Created branch.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActionWhatIfBranch" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/actions/{id}/what-if/{branch_id}:
+    parameters:
+      - { in: path, name: id,        required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: branch_id, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [action-what-if]
+      summary: Drop a saved what-if branch.
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/types/{type_id}/properties/{property_id}/objects/{obj_id}/inline-edit:
+    parameters:
+      - { in: path, name: type_id,     required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: property_id, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: obj_id,      required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [action-inline-edit]
+      summary: Apply a single property-level inline edit through the action engine.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InlineEditRequest" }
+      responses:
+        "200":
+          description: Inline edit applied.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecuteActionResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/types/{type_id}/inline-edit-batch:
+    parameters:
+      - { in: path, name: type_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [action-inline-edit]
+      summary: Apply a batch of inline edits in one call (same target object type).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InlineEditBatchRequest" }
+      responses:
+        "200":
+          description: Batch result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecuteBatchActionResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/ontology/types/{type_id}/applicable-actions:
+    parameters:
+      - { in: path, name: type_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [action-execution]
+      summary: List action types that target a given object type.
+      responses:
+        "200":
+          description: Applicable actions list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ActionType" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/actions/uploads:
+    post:
+      tags: [action-uploads]
+      summary: Allocate an attachment RID for an action parameter of type `attachment` / `media_reference`.
+      description: |
+        Generates an opaque `attachment_rid` that action parameters
+        thread through. Full Foundry parity (chunked uploads, signed
+        URLs, scans) is delegated to `data-asset-catalog-service`;
+        size is capped at 3 MB per edit (`MaxEditBytes`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UploadAttachmentRequest" }
+      responses:
+        "200":
+          description: Attachment allocation.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachment_rid: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "413":
+          description: Attachment exceeds the per-edit scale limit (3 MB).
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:   { description: Malformed request. }
+    Unauthorized: { description: Missing or invalid Bearer token. }
+    Forbidden:    { description: Caller lacks required permissions (e.g. ontology:manage). }
+    NotFound:     { description: Resource not found. }
+    ActionType:
+      description: Action type record.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ActionType" }
+
+  schemas:
+    Uuid:      { type: string, format: uuid }
+    Timestamp: { type: string, format: date-time }
+
+    ActionOperationKind:
+      type: string
+      enum:
+        - create_object
+        - update_object
+        - modify_object
+        - create_or_modify_object
+        - create_link
+        - delete_link
+        - delete_object
+        - invoke_function
+        - invoke_webhook
+        - create_interface
+        - modify_interface
+        - delete_interface
+        - create_interface_link
+        - delete_interface_link
+
+    ActionInputField:
+      type: object
+      required: [name, property_type]
+      properties:
+        name:          { type: string }
+        display_name:  { type: [string, "null"] }
+        description:   { type: [string, "null"] }
+        property_type:
+          type: string
+          description: |
+            Base property type token (string, integer, float, boolean,
+            timestamp, uuid, geopoint, geoshape, …). Action surfaces
+            additionally accept `object_reference`,
+            `object_reference_list`, and `object_set`.
+        required:      { type: boolean, default: false }
+        default_value: {}
+        struct_fields:
+          type: array
+          items: { $ref: "#/components/schemas/ActionInputField" }
+
+    ActionPropertyMapping:
+      type: object
+      properties:
+        property_name: { type: string }
+        input_name:    { type: [string, "null"] }
+        value:         {}
+        # Legacy fields accepted for backward compatibility.
+        kind:          { type: string }
+        static_value:  {}
+
+    ActionFormCondition:
+      type: object
+      required: [left]
+      properties:
+        left:     { type: string }
+        operator: { type: string, default: "is" }
+        right:    {}
+
+    ActionFormSectionOverride:
+      type: object
+      properties:
+        conditions:
+          type: array
+          items: { $ref: "#/components/schemas/ActionFormCondition" }
+        hidden:      { type: [boolean, "null"] }
+        columns:     { type: [integer, "null"], minimum: 1 }
+        title:       { type: [string, "null"] }
+        description: { type: [string, "null"] }
+
+    ActionFormSection:
+      type: object
+      required: [id]
+      properties:
+        id:          { type: string }
+        title:       { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        columns:     { type: integer, default: 1, minimum: 1 }
+        collapsible: { type: boolean, default: false }
+        visible:     { type: boolean, default: true }
+        parameter_names:
+          type: array
+          items: { type: string }
+        overrides:
+          type: array
+          items: { $ref: "#/components/schemas/ActionFormSectionOverride" }
+
+    ActionFormParameterOverride:
+      type: object
+      required: [parameter_name]
+      properties:
+        parameter_name: { type: string }
+        conditions:
+          type: array
+          items: { $ref: "#/components/schemas/ActionFormCondition" }
+        hidden:        { type: [boolean, "null"] }
+        required:      { type: [boolean, "null"] }
+        default_value: {}
+        display_name:  { type: [string, "null"] }
+        description:   { type: [string, "null"] }
+
+    ActionFormSchema:
+      type: object
+      properties:
+        sections:
+          type: array
+          items: { $ref: "#/components/schemas/ActionFormSection" }
+        parameter_overrides:
+          type: array
+          items: { $ref: "#/components/schemas/ActionFormParameterOverride" }
+
+    ActionAuthorizationPolicy:
+      type: object
+      properties:
+        required_permission_keys: { type: array, items: { type: string } }
+        any_role:                 { type: array, items: { type: string } }
+        all_roles:                { type: array, items: { type: string } }
+        attribute_equals:         { type: object, additionalProperties: true }
+        allowed_markings:         { type: array, items: { type: string } }
+        minimum_clearance:        { type: [string, "null"] }
+        deny_guest_sessions:      { type: boolean, default: false }
+
+    ActionType:
+      type: object
+      properties:
+        id:                    { $ref: "#/components/schemas/Uuid" }
+        name:                  { type: string }
+        display_name:          { type: string }
+        description:           { type: string }
+        object_type_id:        { $ref: "#/components/schemas/Uuid" }
+        operation_kind:        { $ref: "#/components/schemas/ActionOperationKind" }
+        input_schema:          { type: array, items: { $ref: "#/components/schemas/ActionInputField" } }
+        form_schema:           { $ref: "#/components/schemas/ActionFormSchema" }
+        config:                { type: object, additionalProperties: true }
+        confirmation_required: { type: boolean }
+        permission_key:        { type: [string, "null"] }
+        authorization_policy:  { $ref: "#/components/schemas/ActionAuthorizationPolicy" }
+        owner_id:              { $ref: "#/components/schemas/Uuid" }
+        created_at:            { $ref: "#/components/schemas/Timestamp" }
+        updated_at:            { $ref: "#/components/schemas/Timestamp" }
+
+    CreateActionTypeRequest:
+      type: object
+      required: [name, object_type_id, operation_kind]
+      properties:
+        name:                  { type: string }
+        display_name:          { type: [string, "null"] }
+        description:           { type: [string, "null"] }
+        object_type_id:        { $ref: "#/components/schemas/Uuid" }
+        operation_kind:        { $ref: "#/components/schemas/ActionOperationKind" }
+        input_schema:
+          type: array
+          items: { $ref: "#/components/schemas/ActionInputField" }
+        form_schema:           { $ref: "#/components/schemas/ActionFormSchema" }
+        config:                { type: object, additionalProperties: true }
+        confirmation_required: { type: [boolean, "null"] }
+        permission_key:        { type: [string, "null"] }
+        authorization_policy:  { $ref: "#/components/schemas/ActionAuthorizationPolicy" }
+
+    UpdateActionTypeRequest:
+      type: object
+      description: Partial update. Nil fields are left unchanged.
+      properties:
+        display_name:          { type: [string, "null"] }
+        description:           { type: [string, "null"] }
+        operation_kind:        { $ref: "#/components/schemas/ActionOperationKind" }
+        input_schema:
+          type: array
+          items: { $ref: "#/components/schemas/ActionInputField" }
+        form_schema:           { $ref: "#/components/schemas/ActionFormSchema" }
+        config:                { type: object, additionalProperties: true }
+        confirmation_required: { type: [boolean, "null"] }
+        permission_key:        { type: [string, "null"] }
+        authorization_policy:  { $ref: "#/components/schemas/ActionAuthorizationPolicy" }
+
+    ListActionTypesResponse:
+      type: object
+      required: [data, total, page, per_page]
+      properties:
+        data:     { type: array, items: { $ref: "#/components/schemas/ActionType" } }
+        total:    { type: integer }
+        page:     { type: integer }
+        per_page: { type: integer }
+
+    ValidateActionRequest:
+      type: object
+      properties:
+        target_object_id: { type: [string, "null"], format: uuid }
+        parameters:       { type: object, additionalProperties: true }
+
+    ValidateActionResponse:
+      type: object
+      required: [valid]
+      properties:
+        valid:   { type: boolean }
+        errors:  { type: array, items: { type: string } }
+        preview: { type: object, additionalProperties: true }
+
+    ExecuteActionRequest:
+      type: object
+      properties:
+        target_object_id: { type: [string, "null"], format: uuid }
+        parameters:       { type: object, additionalProperties: true }
+        justification:    { type: [string, "null"] }
+
+    ExecuteBatchActionRequest:
+      type: object
+      required: [target_object_ids]
+      properties:
+        target_object_ids:
+          type: array
+          items: { $ref: "#/components/schemas/Uuid" }
+        parameters:    { type: object, additionalProperties: true }
+        justification: { type: [string, "null"] }
+
+    ExecuteActionResponse:
+      type: object
+      properties:
+        action:           { $ref: "#/components/schemas/ActionType" }
+        target_object_id: { type: [string, "null"], format: uuid }
+        deleted:          { type: boolean }
+        preview:          { type: object, additionalProperties: true }
+        object:           { type: object, additionalProperties: true }
+        link:             { type: object, additionalProperties: true }
+        result:           { type: object, additionalProperties: true }
+
+    ExecuteBatchActionResponse:
+      type: object
+      required: [action, total, succeeded, failed, results]
+      properties:
+        action:    { $ref: "#/components/schemas/ActionType" }
+        total:     { type: integer }
+        succeeded: { type: integer }
+        failed:    { type: integer }
+        results:
+          type: array
+          items: { type: object, additionalProperties: true }
+
+    ActionWhatIfBranch:
+      type: object
+      properties:
+        id:               { $ref: "#/components/schemas/Uuid" }
+        action_id:        { $ref: "#/components/schemas/Uuid" }
+        target_object_id: { type: [string, "null"], format: uuid }
+        name:             { type: string }
+        description:      { type: string }
+        parameters:       { type: object, additionalProperties: true }
+        preview:          { type: object, additionalProperties: true }
+        before_object:    { type: object, additionalProperties: true }
+        after_object:     { type: object, additionalProperties: true }
+        deleted:          { type: boolean }
+        owner_id:         { $ref: "#/components/schemas/Uuid" }
+        created_at:       { $ref: "#/components/schemas/Timestamp" }
+        updated_at:       { $ref: "#/components/schemas/Timestamp" }
+
+    CreateActionWhatIfBranchRequest:
+      type: object
+      properties:
+        target_object_id: { type: [string, "null"], format: uuid }
+        parameters:       { type: object, additionalProperties: true }
+        name:             { type: [string, "null"] }
+        description:      { type: [string, "null"] }
+
+    ListActionWhatIfBranchesResponse:
+      type: object
+      required: [data, total, page, per_page]
+      properties:
+        data:     { type: array, items: { $ref: "#/components/schemas/ActionWhatIfBranch" } }
+        total:    { type: integer }
+        page:     { type: integer }
+        per_page: { type: integer }
+
+    ActionMetricsResponse:
+      type: object
+      required: [action_id, window, success_count, failure_count, failure_categories]
+      properties:
+        action_id:          { $ref: "#/components/schemas/Uuid" }
+        window:             { type: string }
+        success_count:      { type: integer }
+        failure_count:      { type: integer }
+        p95_duration_ms:    { type: [number, "null"] }
+        failure_categories:
+          type: object
+          additionalProperties: { type: integer }
+
+    InlineEditRequest:
+      type: object
+      properties:
+        value:         {}
+        justification: { type: [string, "null"] }
+
+    InlineEditBatchRequest:
+      type: object
+      required: [edits]
+      properties:
+        edits:
+          type: array
+          items:
+            type: object
+            required: [property_id, obj_id, value]
+            properties:
+              property_id: { $ref: "#/components/schemas/Uuid" }
+              obj_id:      { $ref: "#/components/schemas/Uuid" }
+              value:       {}
+        justification: { type: [string, "null"] }
+
+    UploadAttachmentRequest:
+      type: object
+      required: [filename, size_bytes]
+      properties:
+        filename:       { type: string }
+        content_type:   { type: [string, "null"] }
+        size_bytes:     { type: integer, minimum: 1, maximum: 3145728 }
+        content_base64: { type: [string, "null"] }
