@@ -550,6 +550,7 @@ export function createPipelineProposal(id: string, body: {
 export function restorePipelineVersion(id: string, versionId: string, body?: {
   as_draft?: boolean;
   message?: string;
+  branch_name?: string;
 }) {
   return api.post<PipelinePublishResponse>(
     `/pipelines/${id}/versions/${versionId}/restore`,

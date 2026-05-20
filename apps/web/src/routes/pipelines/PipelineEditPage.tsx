@@ -42,6 +42,7 @@ import { composeUnionSql, newUnionDraft, type UnionDraft } from '@/lib/component
 import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/OutputDrawer';
 import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
 import { PipelineDetailsDrawer } from '@/lib/components/pipeline/PipelineDetailsDrawer';
+import { PipelineVersionViewerDrawer } from '@/lib/components/pipeline/PipelineVersionViewerDrawer';
 import { previewDataset } from '@/lib/api/datasets';
 import { ensureExpectationChangesReviewed, guardPipelineRunWithExpectationGates } from '@/lib/api/data-expectations';
 import { virtualTableExternalReference, type VirtualTable } from '@/lib/api/virtual-tables';
@@ -298,6 +299,11 @@ export function PipelineEditPage() {
   const [outputNodeId, setOutputNodeId] = useState<string | null>(null);
   const [deployOpen, setDeployOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [versionViewer, setVersionViewer] = useState<{
+    mode: 'details' | 'changes';
+    version: PipelineVersion;
+    previous: PipelineVersion | null;
+  } | null>(null);
   const [aipOpen, setAipOpen] = useState(false);
   const [aipPrompt, setAipPrompt] = useState('');
   const [aipBusy, setAipBusy] = useState(false);
@@ -862,6 +868,37 @@ export function PipelineEditPage() {
     }
   }
 
+  function findPreviousVersion(target: PipelineVersion): PipelineVersion | null {
+    const lower = versions.filter((entry) => entry.version_number < target.version_number);
+    if (lower.length === 0) return null;
+    return lower.reduce((best, entry) => (entry.version_number > best.version_number ? entry : best));
+  }
+
+  async function createBranchFromVersion(version: PipelineVersion) {
+    if (!pipeline) return;
+    const defaultName = `${version.branch_name || 'main'}-from-v${version.version_number}`;
+    const branch = typeof window !== 'undefined'
+      ? window.prompt('Name for the new branch?', defaultName)
+      : defaultName;
+    if (!branch || !branch.trim()) return;
+    setHistoryBusy(true);
+    setError('');
+    try {
+      const response = await restorePipelineVersion(pipeline.id, version.id, {
+        as_draft: true,
+        message: `Created branch ${branch.trim()} from version ${version.version_number}`,
+        branch_name: branch.trim(),
+      });
+      applyLifecyclePipeline(response.pipeline);
+      await loadVersions();
+      setTab('canvas');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Create branch failed');
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
   async function restoreVersion(version: PipelineVersion, asDraft = true) {
     if (!pipeline) return;
     const target = asDraft ? 'draft' : 'published pipeline';
@@ -1245,26 +1282,14 @@ export function PipelineEditPage() {
                       </td>
                       <td>{new Date(version.created_at).toLocaleString()}</td>
                       <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                          <button
-                            type="button"
-                            onClick={() => void restoreVersion(version, true)}
-                            disabled={historyBusy}
-                            className="of-button"
-                            style={{ fontSize: 11 }}
-                          >
-                            Restore draft
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void restoreVersion(version, false)}
-                            disabled={historyBusy}
-                            className="of-button"
-                            style={{ fontSize: 11 }}
-                          >
-                            Restore + publish
-                          </button>
-                        </div>
+                        <VersionActionsMenu
+                          disabled={historyBusy}
+                          onViewDetails={() => setVersionViewer({ mode: 'details', version, previous: null })}
+                          onViewChanges={() => setVersionViewer({ mode: 'changes', version, previous: findPreviousVersion(version) })}
+                          onCreateBranch={() => void createBranchFromVersion(version)}
+                          onRestoreDraft={() => void restoreVersion(version, true)}
+                          onRestorePublish={() => void restoreVersion(version, false)}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -1379,6 +1404,14 @@ export function PipelineEditPage() {
         description={description}
         onDescriptionChange={setDescription}
         onClose={() => setShareOpen(false)}
+      />
+
+      <PipelineVersionViewerDrawer
+        open={Boolean(versionViewer)}
+        mode={versionViewer?.mode ?? 'details'}
+        version={versionViewer?.version ?? null}
+        previousVersion={versionViewer?.previous ?? null}
+        onClose={() => setVersionViewer(null)}
       />
     </section>
   );
@@ -1557,6 +1590,104 @@ function ProposalsTabContent({
         </tbody>
       </table>
     </section>
+  );
+}
+
+interface VersionActionsMenuProps {
+  disabled: boolean;
+  onViewDetails: () => void;
+  onViewChanges: () => void;
+  onCreateBranch: () => void;
+  onRestoreDraft: () => void;
+  onRestorePublish: () => void;
+}
+
+function VersionActionsMenu({
+  disabled,
+  onViewDetails,
+  onViewChanges,
+  onCreateBranch,
+  onRestoreDraft,
+  onRestorePublish,
+}: VersionActionsMenuProps) {
+  const [open, setOpen] = useState(false);
+
+  function wrap(action: () => void) {
+    return () => {
+      setOpen(false);
+      action();
+    };
+  }
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((prev) => !prev)}
+        className="of-button"
+        style={{ fontSize: 11 }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        Actions <Glyph name="chevron-down" size={10} />
+      </button>
+      {open && (
+        <>
+          <div
+            aria-hidden
+            onClick={() => setOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+          />
+          <div
+            role="menu"
+            style={{
+              position: 'absolute',
+              top: '100%',
+              right: 0,
+              marginTop: 4,
+              minWidth: 200,
+              background: '#fff',
+              border: '1px solid var(--border-default)',
+              borderRadius: 4,
+              boxShadow: '0 8px 24px rgba(15, 23, 42, 0.16)',
+              padding: 4,
+              zIndex: 41,
+              display: 'grid',
+              gap: 2,
+            }}
+          >
+            <VersionMenuItem label="View details" onClick={wrap(onViewDetails)} />
+            <VersionMenuItem label="View changes" onClick={wrap(onViewChanges)} />
+            <VersionMenuItem label="Create branch from this version" onClick={wrap(onCreateBranch)} />
+            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} aria-hidden />
+            <VersionMenuItem label="Restore as draft" onClick={wrap(onRestoreDraft)} />
+            <VersionMenuItem label="Restore + publish" onClick={wrap(onRestorePublish)} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function VersionMenuItem({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="of-button"
+      style={{
+        justifyContent: 'flex-start',
+        textAlign: 'left',
+        fontSize: 12,
+        background: 'transparent',
+        border: 0,
+        padding: '6px 10px',
+      }}
+    >
+      {label}
+    </button>
   );
 }
 

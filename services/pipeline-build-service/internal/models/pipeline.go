@@ -349,6 +349,7 @@ type CreatePipelineProposalRequest struct {
 }
 
 type RestorePipelineVersionRequest struct {
-	AsDraft bool   `json:"as_draft"`
-	Message string `json:"message,omitempty"`
+	AsDraft    bool    `json:"as_draft"`
+	Message    string  `json:"message,omitempty"`
+	BranchName *string `json:"branch_name,omitempty"`
 }

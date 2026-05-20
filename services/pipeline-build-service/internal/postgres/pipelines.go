@@ -368,6 +368,12 @@ func (r *Repository) RestorePipelineVersion(ctx context.Context, pipelineID, ver
 		return nil, err
 	}
 	message := firstNonEmptyString(req.Message, fmt.Sprintf("Restored version %d", version.VersionNumber))
+	branchName := version.BranchName
+	if req.BranchName != nil {
+		if trimmed := strings.TrimSpace(*req.BranchName); trimmed != "" {
+			branchName = trimmed
+		}
+	}
 	restoredSnapshot := *current
 	restoredSnapshot.DAG = version.DAG
 	restoredSnapshot.DraftDAG = version.DAG
@@ -375,7 +381,7 @@ func (r *Repository) RestorePipelineVersion(ctx context.Context, pipelineID, ver
 	restoredSnapshot.Description = version.Description
 	restoredSnapshot.ScheduleConfig = version.ScheduleConfig
 	restoredSnapshot.RetryPolicy = version.RetryPolicy
-	restoredSnapshot.BranchName = version.BranchName
+	restoredSnapshot.BranchName = branchName
 	restoredVersion, err := r.insertPipelineVersion(ctx, &restoredSnapshot, "restored", message, actorID, &version.ID)
 	if err != nil {
 		return nil, err
@@ -386,14 +392,14 @@ func (r *Repository) RestorePipelineVersion(ctx context.Context, pipelineID, ver
 SET name=$2, description=$3, dag=$4, draft_dag=$4, schedule_config=$5, retry_policy=$6,
     branch_name=$7, draft_updated_at=NOW(), proposal_state='none', proposal_title=NULL, proposal_description=NULL, updated_at=NOW()
 WHERE id=$1
-RETURNING `+pipelineSelectColumns, pipelineID, version.Name, version.Description, version.DAG, version.ScheduleConfig, version.RetryPolicy, version.BranchName).Scan(pipelineScanDest(&pipeline)...)
+RETURNING `+pipelineSelectColumns, pipelineID, version.Name, version.Description, version.DAG, version.ScheduleConfig, version.RetryPolicy, branchName).Scan(pipelineScanDest(&pipeline)...)
 	} else {
 		err = r.db.QueryRow(ctx, `UPDATE pipelines
 SET name=$2, description=$3, dag=$4, draft_dag=$4, published_dag=$4, schedule_config=$5, retry_policy=$6,
     branch_name=$7, active_version_id=$8, published_at=NOW(), status='active',
     proposal_state='none', proposal_title=NULL, proposal_description=NULL, draft_updated_at=NOW(), updated_at=NOW()
 WHERE id=$1
-RETURNING `+pipelineSelectColumns, pipelineID, version.Name, version.Description, version.DAG, version.ScheduleConfig, version.RetryPolicy, version.BranchName, restoredVersion.ID).Scan(pipelineScanDest(&pipeline)...)
+RETURNING `+pipelineSelectColumns, pipelineID, version.Name, version.Description, version.DAG, version.ScheduleConfig, version.RetryPolicy, branchName, restoredVersion.ID).Scan(pipelineScanDest(&pipeline)...)
 	}
 	if err != nil {
 		return nil, err
