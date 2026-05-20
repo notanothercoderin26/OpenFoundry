@@ -129,7 +129,7 @@ async function mockTrailRunningRuntime(page: Page) {
     const typeId = decodeURIComponent(segments[5] ?? '');
     const body = route.request().method() === 'POST' ? postDataJSON(route.request()) : {};
     if (route.request().method() === 'POST' && url.pathname.endsWith('/objects')) {
-      const object = createObject(typeId, body?.properties ?? {}, objectRows);
+      const object = createObject(typeId, (body?.properties as DemoRow | undefined) ?? {}, objectRows);
       await route.fulfill({ json: object });
       return;
     }
@@ -169,9 +169,9 @@ function backendGPXRow(row: DemoRow) {
   return copy;
 }
 
-function postDataJSON(request: { postDataJSON: () => unknown }) {
+function postDataJSON(request: { postDataJSON: () => unknown }): Record<string, unknown> {
   try {
-    return request.postDataJSON() ?? {};
+    return (request.postDataJSON() as Record<string, unknown>) ?? {};
   } catch {
     return {};
   }

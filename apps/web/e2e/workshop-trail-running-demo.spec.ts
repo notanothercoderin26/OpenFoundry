@@ -225,9 +225,9 @@ async function mockTrailRunningRuntime(page: Page, mocks?: TrailRunningRuntimeMo
   });
 }
 
-function postDataJSON(request: { postDataJSON: () => unknown }) {
+function postDataJSON(request: { postDataJSON: () => unknown }): Record<string, unknown> {
   try {
-    return request.postDataJSON() ?? {};
+    return (request.postDataJSON() as Record<string, unknown>) ?? {};
   } catch {
     return {};
   }
