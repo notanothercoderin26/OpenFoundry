@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"bytes"
+	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"strings"
@@ -11,15 +15,34 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/models"
+	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/repo"
 )
 
 const appendEndpointPath = "/openfoundry/iceberg/v1/append"
+
+// idempotencyHeader is the canonical name of the client-supplied dedup
+// key. We accept the lowercase form as well — Go's http.Header.Get is
+// case-insensitive so this is just documentation.
+const idempotencyHeader = "Idempotency-Key"
+
+// maxAppendBodyBytes caps the request size so an unbounded payload
+// can't OOM the catalog service. Larger appends should batch.
+const maxAppendBodyBytes = 8 << 20 // 8 MiB
 
 // AppendBatch implements the OpenFoundry HTTP table-writer adapter consumed by
 // audit-sink and ai-sink. The Go catalog service owns the HTTP contract and
 // delegates the durable Iceberg metadata commit to the existing CommitTable
 // path; production deployments can swap the store implementation underneath
 // this handler to write Parquet/manifests before CommitTable is called.
+//
+// Idempotency: when the client sends an `Idempotency-Key` header and
+// h.Repo implements AppendIdempotencyStore, a redelivery with the
+// same body returns the prior snapshot with HTTP 200 (replay); a
+// redelivery with the same key but a different body returns HTTP 409
+// (the same intent-key must not refer to two distinct payloads).
+// Without the header — or against a store that does not implement
+// the upcast — the handler keeps the legacy "always commit" behaviour
+// so existing callers and the in-memory test fakes stay green.
 func (h *Handlers) AppendBatch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
@@ -27,8 +50,14 @@ func (h *Handlers) AppendBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rawBody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxAppendBodyBytes))
+	if err != nil {
+		writeJSONErr(w, http.StatusRequestEntityTooLarge, "append body too large")
+		return
+	}
+
 	var batch models.AppendBatch
-	dec := json.NewDecoder(r.Body)
+	dec := json.NewDecoder(bytes.NewReader(rawBody))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&batch); err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid append body")
@@ -58,18 +87,119 @@ func (h *Handlers) AppendBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	idemKey := strings.TrimSpace(r.Header.Get(idempotencyHeader))
+	if len(idemKey) > 200 {
+		writeJSONErr(w, http.StatusBadRequest, "Idempotency-Key must be <= 200 chars")
+		return
+	}
+
+	idemStore, idemEnabled := h.Repo.(AppendIdempotencyStore)
+	hash := hashAppendRequest(rawBody)
+
+	if idemKey != "" && idemEnabled {
+		prior, found, err := idemStore.LookupAppendIdempotency(r.Context(), idemKey, table.ID)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if found {
+			if subtle.ConstantTimeCompare(prior.RequestHash, hash) != 1 {
+				writeJSONErr(w, http.StatusConflict,
+					"Idempotency-Key was used with a different request body")
+				return
+			}
+			// Replay: return prior commit, do not call CommitTable again.
+			writeJSON(w, http.StatusOK, models.AppendBatchResponse{
+				Namespace:        batch.Spec.Namespace,
+				Table:            batch.Spec.Table,
+				Rows:             len(batch.Rows),
+				MetadataLocation: prior.MetadataLocation,
+			})
+			return
+		}
+	}
+
 	commit := appendCommitRequest(table, batch)
 	_, location, err := h.Repo.CommitTable(r.Context(), projectRID(r), namespace, batch.Spec.Table, commit)
 	if err != nil {
 		writeJSONErr(w, statusFromErr(err), err.Error())
 		return
 	}
+
+	if idemKey != "" && idemEnabled {
+		snapshotID := extractSnapshotIDFromCommit(commit)
+		recErr := idemStore.RecordAppendIdempotency(r.Context(), repo.AppendIdempotencyRecord{
+			IdempotencyKey:   idemKey,
+			TableID:          table.ID,
+			RequestHash:      hash,
+			SnapshotID:       snapshotID,
+			MetadataLocation: location,
+		})
+		if errors.Is(recErr, repo.ErrAppendIdempotencyRace) {
+			// A concurrent submission for the same key won the insert;
+			// fold our just-committed snapshot back through the same
+			// replay/conflict semantics so the client sees a stable
+			// answer per Idempotency-Key.
+			prior, found, lookupErr := idemStore.LookupAppendIdempotency(r.Context(), idemKey, table.ID)
+			if lookupErr != nil {
+				writeJSONErr(w, http.StatusInternalServerError, lookupErr.Error())
+				return
+			}
+			if found && subtle.ConstantTimeCompare(prior.RequestHash, hash) != 1 {
+				writeJSONErr(w, http.StatusConflict,
+					"Idempotency-Key was used with a different request body")
+				return
+			}
+			if found {
+				writeJSON(w, http.StatusOK, models.AppendBatchResponse{
+					Namespace:        batch.Spec.Namespace,
+					Table:            batch.Spec.Table,
+					Rows:             len(batch.Rows),
+					MetadataLocation: prior.MetadataLocation,
+				})
+				return
+			}
+		} else if recErr != nil {
+			// Surface the storage error rather than silently leaking
+			// the snapshot — the client needs to know the dedup record
+			// did not land so it can retry safely.
+			writeJSONErr(w, http.StatusInternalServerError, recErr.Error())
+			return
+		}
+	}
+
 	writeJSON(w, http.StatusAccepted, models.AppendBatchResponse{
 		Namespace:        batch.Spec.Namespace,
 		Table:            batch.Spec.Table,
 		Rows:             len(batch.Rows),
 		MetadataLocation: location,
 	})
+}
+
+// extractSnapshotIDFromCommit pulls the snapshot-id out of the
+// add-snapshot update we just built — it's the same value the catalog
+// will persist in iceberg_snapshots once CommitTable runs. We pluck it
+// here rather than re-querying after commit because the response shape
+// of CommitTable does not expose it directly.
+func extractSnapshotIDFromCommit(commit *models.CommitTableRequest) int64 {
+	if commit == nil {
+		return 0
+	}
+	for _, update := range commit.Updates {
+		var head struct {
+			Action   string `json:"action"`
+			Snapshot struct {
+				SnapshotID int64 `json:"snapshot-id"`
+			} `json:"snapshot"`
+		}
+		if err := json.Unmarshal(update, &head); err != nil {
+			continue
+		}
+		if head.Action == "add-snapshot" && head.Snapshot.SnapshotID != 0 {
+			return head.Snapshot.SnapshotID
+		}
+	}
+	return 0
 }
 
 func validateAppendSpec(spec models.TableSpec) error {
