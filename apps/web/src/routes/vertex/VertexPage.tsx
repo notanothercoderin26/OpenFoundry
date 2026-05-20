@@ -43,7 +43,7 @@ import { EventBadgeOverlay, type NodeEventBadge } from './EventBadgeOverlay';
 import { SelectionBorderOverlay, type SelectionRingSpec } from './SelectionBorderOverlay';
 import { useSearchParams } from 'react-router-dom';
 
-type LayoutMode = 'cose' | 'breadthfirst' | 'grid' | 'circle' | 'concentric';
+type LayoutMode = 'cose' | 'breadthfirst' | 'grid' | 'circle' | 'concentric' | 'radial' | 'cartesian';
 type NodeDisplayMode = 'compact' | 'card';
 type SidebarTab = 'selection' | 'events' | 'series' | 'layers' | 'media' | 'scenarios' | 'histogram';
 
@@ -105,7 +105,8 @@ const LAYOUT_OPTIONS: Array<{ id: LayoutMode; label: string }> = [
   { id: 'grid', label: 'Grid' },
   { id: 'circle', label: 'Circular' },
   { id: 'concentric', label: 'Cluster' },
-  { id: 'breadthfirst', label: 'Hierarchical' },
+  { id: 'radial', label: 'Radial' },
+  { id: 'cartesian', label: 'Cartesian' },
 ];
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string }> = [
@@ -432,6 +433,21 @@ export function VertexPage() {
   // kept in the bucket so Ungroup can restore them.
   const [edgeGroupings, setEdgeGroupings] = useState<EdgeGrouping[]>([]);
 
+  // D.2 — Advanced settings the gear-icon companion of each layout
+  // populates. Stored as a single record so the panel can render the
+  // right controls based on the active layoutMode.
+  const [layoutAdvanced, setLayoutAdvanced] = useState({
+    hierarchyReverse: false,
+    hierarchyOrientation: 'tb' as 'tb' | 'lr',
+    hierarchyRoots: [] as string[], // node ids; empty = automatic
+    clusterByProperty: '' as string,
+    cartesianXProperty: '' as string,
+    cartesianYProperty: '' as string,
+    cartesianReverseX: false,
+    cartesianReverseY: false,
+    radialDensity: 3 as number, // 1-5 spacing factor
+  });
+
   const [subtitleField, setSubtitleField] = useState('');
   const [extendedLabelField, setExtendedLabelField] = useState('');
   const [colorByField, setColorByField] = useState('');
@@ -733,6 +749,27 @@ export function VertexPage() {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(`${STORAGE_KEYS.edgeGroupings}:${analysisRid}`, JSON.stringify(edgeGroupings));
   }, [analysisRid, edgeGroupings]);
+
+  // D.2 — Persist the layout advanced settings per analysisRid so a
+  // tuned Cartesian/Hierarchy/Cluster comes back after a reload.
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(`of.vertex.layout-advanced.v1:${analysisRid}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<typeof layoutAdvanced>;
+        setLayoutAdvanced((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch {
+      // ignore malformed payloads
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisRid]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(`of.vertex.layout-advanced.v1:${analysisRid}`, JSON.stringify(layoutAdvanced));
+  }, [analysisRid, layoutAdvanced]);
 
   // ---- D.1 — Saved style helpers ----
 
@@ -1313,26 +1350,90 @@ export function VertexPage() {
     for (const grouping of edgeGroupings) {
       for (const id of grouping.collapsedNodeIds) collapsedNodeIds.add(id);
     }
+    // D.2 — Helper: cluster-by-property hashes the value to a stable
+    // integer so cytoscape can sort nodes onto the same ring.
+    const clusterProp = layoutMode === 'concentric' ? layoutAdvanced.clusterByProperty.trim() : '';
+    const hashString = (s: string): number => {
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+      }
+      return Math.abs(h);
+    };
+    // D.2 — Cartesian: read the chosen X/Y properties, normalise them
+    // to a [-N, N] viewport-shaped range, and surface as preset
+    // positions. Skipped if any property is missing on the node.
+    const cartesianActive = layoutMode === 'cartesian';
+    const xProp = layoutAdvanced.cartesianXProperty.trim();
+    const yProp = layoutAdvanced.cartesianYProperty.trim();
+    type Bounds = { min: number; max: number };
+    const cartesianBounds: { x: Bounds; y: Bounds } = {
+      x: { min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY },
+      y: { min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY },
+    };
+    if (cartesianActive && xProp && yProp) {
+      for (const node of filteredGraph.nodes) {
+        const props = parseRecord(node.metadata?.properties);
+        const xn = Number(numericValue(props[xProp]));
+        const yn = Number(numericValue(props[yProp]));
+        if (Number.isFinite(xn)) {
+          cartesianBounds.x.min = Math.min(cartesianBounds.x.min, xn);
+          cartesianBounds.x.max = Math.max(cartesianBounds.x.max, xn);
+        }
+        if (Number.isFinite(yn)) {
+          cartesianBounds.y.min = Math.min(cartesianBounds.y.min, yn);
+          cartesianBounds.y.max = Math.max(cartesianBounds.y.max, yn);
+        }
+      }
+    }
+    const cartesianRange = 480; // pixels half-extent
+    const normalise = (v: number, b: Bounds, reverse: boolean): number | null => {
+      if (!Number.isFinite(v) || b.min === b.max) return reverse ? cartesianRange : -cartesianRange;
+      const t = (v - b.min) / (b.max - b.min);
+      const scaled = (reverse ? 1 - t : t) * cartesianRange * 2 - cartesianRange;
+      return scaled;
+    };
     const nodeElements = filteredGraph.nodes
       .filter((node) => !collapsedNodeIds.has(node.id))
-      .map((node) => ({
-        data: {
-          id: node.id,
-          label:
-            nodeLabelProperty && parseRecord(node.metadata?.properties)[nodeLabelProperty] != null
-              ? String(parseRecord(node.metadata?.properties)[nodeLabelProperty])
-              : nodeLabelFor(node),
-          color: nodeColorFor(node),
-          size:
-            nodeSizeProperty && numericValue(parseRecord(node.metadata?.properties)[nodeSizeProperty]) != null
-              ? Math.max(24, Math.min(86, Number(numericValue(parseRecord(node.metadata?.properties)[nodeSizeProperty]))))
-              : nodeDisplayMode === 'card'
-              ? 60
-              : 26,
-        },
-        classes: selectedNodeIds.includes(node.id) ? 'is-multi-selected' : '',
-        ...(pinnedPositions[node.id] ? { position: pinnedPositions[node.id] } : {}),
-      }));
+      .map((node) => {
+        const props = parseRecord(node.metadata?.properties);
+        let presetPosition: { x: number; y: number } | undefined = pinnedPositions[node.id];
+        if (cartesianActive && xProp && yProp && !presetPosition) {
+          const xn = Number(numericValue(props[xProp]));
+          const yn = Number(numericValue(props[yProp]));
+          const nx = normalise(xn, cartesianBounds.x, layoutAdvanced.cartesianReverseX);
+          const ny = normalise(yn, cartesianBounds.y, layoutAdvanced.cartesianReverseY);
+          if (nx != null && ny != null) presetPosition = { x: nx, y: ny };
+        }
+        const clusterRank = clusterProp
+          ? (() => {
+              const raw = props[clusterProp];
+              if (raw == null) return 0;
+              const num = Number(numericValue(raw));
+              if (Number.isFinite(num)) return num;
+              return hashString(String(raw)) % 100;
+            })()
+          : 0;
+        return {
+          data: {
+            id: node.id,
+            label:
+              nodeLabelProperty && props[nodeLabelProperty] != null
+                ? String(props[nodeLabelProperty])
+                : nodeLabelFor(node),
+            color: nodeColorFor(node),
+            size:
+              nodeSizeProperty && numericValue(props[nodeSizeProperty]) != null
+                ? Math.max(24, Math.min(86, Number(numericValue(props[nodeSizeProperty]))))
+                : nodeDisplayMode === 'card'
+                ? 60
+                : 26,
+            clusterRank,
+          },
+          classes: selectedNodeIds.includes(node.id) ? 'is-multi-selected' : '',
+          ...(presetPosition ? { position: presetPosition } : {}),
+        };
+      });
     const edgeElements = filteredGraph.edges
       .filter((edge) => !collapsedNodeIds.has(edge.source) && !collapsedNodeIds.has(edge.target))
       .map((edge) => ({
@@ -1369,7 +1470,7 @@ export function VertexPage() {
       }));
     return [...nodeElements, ...edgeElements, ...aggregateEdges];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredGraph, subtitleField, extendedLabelField, colorByField, eventRows, pinnedPositions, nodeLabelProperty, nodeSizeProperty, nodeDisplayMode, selectedNodeIds, edgeLabelProperty, edgeDashEnabled, selectedEdgeId, edgeGroupings]);
+  }, [filteredGraph, subtitleField, extendedLabelField, colorByField, eventRows, pinnedPositions, nodeLabelProperty, nodeSizeProperty, nodeDisplayMode, selectedNodeIds, edgeLabelProperty, edgeDashEnabled, selectedEdgeId, edgeGroupings, layoutMode, layoutAdvanced]);
 
   const cyStylesheet = useMemo<StylesheetStyle[]>(() => {
     const fontSize = nodeDisplayMode === 'card' ? 11 : 10;
@@ -1431,10 +1532,75 @@ export function VertexPage() {
     ];
   }, [nodeDisplayMode, nodeIconMode]);
 
-  const cyLayout = useMemo(
-    () => ({ name: layoutMode, animate: true, padding: 36 }) as Parameters<typeof CytoscapeCanvas>[0]['layout'],
-    [layoutMode],
-  );
+  const cyLayout = useMemo(() => {
+    const base = { animate: true, padding: 36 };
+    switch (layoutMode) {
+      case 'breadthfirst': {
+        // Hierarchy: directed BFS with optional reverse and explicit
+        // root nodes. `transform` swaps x/y for left-to-right
+        // orientation; `reverse` flips the depth axis.
+        const isLR = layoutAdvanced.hierarchyOrientation === 'lr';
+        return {
+          ...base,
+          name: 'breadthfirst',
+          directed: true,
+          roots: layoutAdvanced.hierarchyRoots.length > 0 ? layoutAdvanced.hierarchyRoots : undefined,
+          transform: (_node: unknown, pos: { x: number; y: number }) => {
+            let x = pos.x;
+            let y = pos.y;
+            if (isLR) {
+              const tmp = x;
+              x = y;
+              y = tmp;
+            }
+            if (layoutAdvanced.hierarchyReverse) {
+              if (isLR) x = -x;
+              else y = -y;
+            }
+            return { x, y };
+          },
+        } as Parameters<typeof CytoscapeCanvas>[0]['layout'];
+      }
+      case 'concentric': {
+        // Cluster by property: nodes that share the same value end up
+        // on the same ring. Empty property falls back to default
+        // concentric which clusters by degree.
+        const prop = layoutAdvanced.clusterByProperty.trim();
+        if (!prop) {
+          return { ...base, name: 'concentric' } as Parameters<typeof CytoscapeCanvas>[0]['layout'];
+        }
+        return {
+          ...base,
+          name: 'concentric',
+          concentric: (node: { data: (k: string) => unknown }) => {
+            const raw = node.data('clusterRank');
+            return typeof raw === 'number' ? raw : 0;
+          },
+          levelWidth: () => 1,
+        } as Parameters<typeof CytoscapeCanvas>[0]['layout'];
+      }
+      case 'radial': {
+        // Single-ring concentric anchored at the selected node when
+        // one is selected; otherwise just lay everything on one ring.
+        const center = selectedNodeId;
+        const density = Math.max(1, Math.min(5, layoutAdvanced.radialDensity));
+        return {
+          ...base,
+          name: 'concentric',
+          concentric: (node: { id: () => string }) => (node.id() === center ? 100 : 1),
+          levelWidth: () => 1,
+          minNodeSpacing: 10 * density,
+        } as Parameters<typeof CytoscapeCanvas>[0]['layout'];
+      }
+      case 'cartesian': {
+        // Use the positions already set on each node by cyElements
+        // (we precompute them from the X/Y property selection).
+        return { ...base, name: 'preset' } as Parameters<typeof CytoscapeCanvas>[0]['layout'];
+      }
+      default:
+        return { ...base, name: layoutMode } as Parameters<typeof CytoscapeCanvas>[0]['layout'];
+    }
+  }, [layoutMode, layoutAdvanced, selectedNodeId]);
 
   const handleCytoscapeReady = useCallback((cy: Core) => {
     cyRef.current = cy;
@@ -2176,6 +2342,134 @@ export function VertexPage() {
               ))}
             </select>
           </Field>
+          {(layoutMode === 'breadthfirst' || layoutMode === 'concentric' || layoutMode === 'radial' || layoutMode === 'cartesian') && (
+            <div className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
+              <p className="of-eyebrow" style={{ margin: 0 }}>
+                {layoutMode === 'breadthfirst' && 'Hierarchy settings'}
+                {layoutMode === 'concentric' && 'Cluster settings'}
+                {layoutMode === 'radial' && 'Radial settings'}
+                {layoutMode === 'cartesian' && 'Cartesian settings'}
+              </p>
+              {layoutMode === 'breadthfirst' && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      <input
+                        type="radio"
+                        name="hierarchy-orientation"
+                        checked={layoutAdvanced.hierarchyOrientation === 'tb'}
+                        onChange={() => setLayoutAdvanced((prev) => ({ ...prev, hierarchyOrientation: 'tb' }))}
+                      />
+                      Top → Bottom
+                    </label>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      <input
+                        type="radio"
+                        name="hierarchy-orientation"
+                        checked={layoutAdvanced.hierarchyOrientation === 'lr'}
+                        onChange={() => setLayoutAdvanced((prev) => ({ ...prev, hierarchyOrientation: 'lr' }))}
+                      />
+                      Left → Right
+                    </label>
+                  </div>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={layoutAdvanced.hierarchyReverse}
+                      onChange={(e) => setLayoutAdvanced((prev) => ({ ...prev, hierarchyReverse: e.target.checked }))}
+                    />
+                    Reverse depth axis
+                  </label>
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <span className="of-text-muted" style={{ fontSize: 11 }}>
+                      Root nodes: {layoutAdvanced.hierarchyRoots.length > 0 ? `${layoutAdvanced.hierarchyRoots.length} pinned` : 'automatic'}
+                    </span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        type="button"
+                        className="of-btn of-btn-ghost"
+                        onClick={() => setLayoutAdvanced((prev) => ({ ...prev, hierarchyRoots: selectedNodeIds }))}
+                        disabled={selectedNodeIds.length === 0}
+                        title="Use the currently selected nodes as the root layer"
+                      >
+                        Use selection
+                      </button>
+                      <button
+                        type="button"
+                        className="of-btn of-btn-ghost"
+                        onClick={() => setLayoutAdvanced((prev) => ({ ...prev, hierarchyRoots: [] }))}
+                        disabled={layoutAdvanced.hierarchyRoots.length === 0}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+              {layoutMode === 'concentric' && (
+                <Field label="Cluster by property">
+                  <input
+                    className="of-input"
+                    value={layoutAdvanced.clusterByProperty}
+                    onChange={(e) => setLayoutAdvanced((prev) => ({ ...prev, clusterByProperty: e.target.value }))}
+                    placeholder="Property name (numeric or categorical)"
+                  />
+                </Field>
+              )}
+              {layoutMode === 'radial' && (
+                <Field label={`Density (${layoutAdvanced.radialDensity})`}>
+                  <input
+                    type="range"
+                    min={1}
+                    max={5}
+                    step={1}
+                    value={layoutAdvanced.radialDensity}
+                    onChange={(e) => setLayoutAdvanced((prev) => ({ ...prev, radialDensity: Number(e.target.value) }))}
+                  />
+                </Field>
+              )}
+              {layoutMode === 'cartesian' && (
+                <>
+                  <div style={{ display: 'grid', gap: 6, gridTemplateColumns: '1fr 1fr' }}>
+                    <Field label="X property">
+                      <input
+                        className="of-input"
+                        value={layoutAdvanced.cartesianXProperty}
+                        onChange={(e) => setLayoutAdvanced((prev) => ({ ...prev, cartesianXProperty: e.target.value }))}
+                        placeholder="Numeric property"
+                      />
+                    </Field>
+                    <Field label="Y property">
+                      <input
+                        className="of-input"
+                        value={layoutAdvanced.cartesianYProperty}
+                        onChange={(e) => setLayoutAdvanced((prev) => ({ ...prev, cartesianYProperty: e.target.value }))}
+                        placeholder="Numeric property"
+                      />
+                    </Field>
+                  </div>
+                  <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={layoutAdvanced.cartesianReverseX}
+                        onChange={(e) => setLayoutAdvanced((prev) => ({ ...prev, cartesianReverseX: e.target.checked }))}
+                      />
+                      Reverse X
+                    </label>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={layoutAdvanced.cartesianReverseY}
+                        onChange={(e) => setLayoutAdvanced((prev) => ({ ...prev, cartesianReverseY: e.target.checked }))}
+                      />
+                      Reverse Y
+                    </label>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <Field label="Node mode">
             <select
               className="of-select"
