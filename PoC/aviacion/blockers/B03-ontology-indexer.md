@@ -29,20 +29,20 @@
 
 | Field | Value |
 |---|---|
-| OpenFoundry service | [services/ontology-indexer/](../../services/ontology-indexer/) |
-| Launcher app | Sub-tab **"Ontology Indexing"** inside #2 Ontology Manager (`/ontology-indexing`). Impacts **#3 Object Explorer** (`/object-explorer`) and any Workshop search/filter widget ([launcher-app-mapping.md §B](../../docs/reference/launcher-app-mapping.md)). |
+| OpenFoundry service | [services/ontology-indexer/](../../../services/ontology-indexer/) |
+| Launcher app | Sub-tab **"Ontology Indexing"** inside #2 Ontology Manager (`/ontology-indexing`). Impacts **#3 Object Explorer** (`/object-explorer`) and any Workshop search/filter widget ([launcher-app-mapping.md §B](../../../docs/reference/launcher-app-mapping.md)). |
 | Foundry product | Ontology indexing inside [Ontology Manager](https://www.palantir.com/docs/foundry/ontology-manager/overview/) + [Object Explorer](https://www.palantir.com/docs/foundry/object-explorer/overview/) |
 | PoC act(s) | **Act 2** (visible search of seeded objects), **Act 4** (Workshop filters) |
-| 1-to-1 checklist | [foundry-ontology-manager-object-views-1to1-checklist.md](../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md) |
+| 1-to-1 checklist | [foundry-ontology-manager-object-views-1to1-checklist.md](../../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md) |
 | Parity matrix module | Ontology Manager / Object Views (search/indexing slice) |
 
 ## Palantir reference (public docs)
 
 | Page | Live URL | Local scraped MD | Full-page screenshot |
 |---|---|---|---|
-| Object Explorer overview | https://www.palantir.com/docs/foundry/object-explorer/overview/ | [Seed URLs/Object Explorer/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Explorer/Overview.md) | [Seed URLs/Object Explorer/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Explorer/Overview.screenshot.png) |
-| Object indexing overview | https://www.palantir.com/docs/foundry/object-indexing/overview/ | [Seed URLs/Object Indexing/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Indexing/Overview.md) | [Seed URLs/Object Indexing/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Indexing/Overview.screenshot.png) |
-| Object Storage v2 (breaking changes) | https://www.palantir.com/docs/foundry/object-backend/object-storage-v2-breaking-changes/ | [Seed URLs/Object Backend/Object Storage V2 Breaking Changes.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Backend/Object%20Storage%20V2%20Breaking%20Changes.md) | [Seed URLs/Object Backend/Object Storage V2 Breaking Changes.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Backend/Object%20Storage%20V2%20Breaking%20Changes.screenshot.png) |
+| Object Explorer overview | https://www.palantir.com/docs/foundry/object-explorer/overview/ | [Seed URLs/Object Explorer/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Explorer/Overview.md) | [Seed URLs/Object Explorer/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Explorer/Overview.screenshot.png) |
+| Object indexing overview | https://www.palantir.com/docs/foundry/object-indexing/overview/ | [Seed URLs/Object Indexing/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Indexing/Overview.md) | [Seed URLs/Object Indexing/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Indexing/Overview.screenshot.png) |
+| Object Storage v2 (breaking changes) | https://www.palantir.com/docs/foundry/object-backend/object-storage-v2-breaking-changes/ | [Seed URLs/Object Backend/Object Storage V2 Breaking Changes.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Backend/Object%20Storage%20V2%20Breaking%20Changes.md) | [Seed URLs/Object Backend/Object Storage V2 Breaking Changes.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Backend/Object%20Storage%20V2%20Breaking%20Changes.screenshot.png) |
 
 ## Foundry behavior to replicate (summary)
 
@@ -57,10 +57,10 @@ see an indexing status (pending / live / stale).
 
 | Layer | File | State |
 |---|---|---|
-| Service main | [services/ontology-indexer/cmd/ontology-indexer/main.go](../../services/ontology-indexer/cmd/ontology-indexer/main.go) | ~66 lines, opens a Kafka consumer skeleton |
-| Internal | [services/ontology-indexer/internal/](../../services/ontology-indexer/internal/) | ~1.6k LOC; consumer present but no real projection into a search backend |
-| Search backend (infra) | [infra/compose/docker-compose.yml](../../infra/compose/docker-compose.yml) | Vespa is deployed in the compose stack |
-| Downstream consumer (UI) | [apps/web/src/routes/object-explorer/](../../apps/web/src/routes/object-explorer/) | Reads from `ontology-query-service`, which currently does naive lookups |
+| Service main | [services/ontology-indexer/cmd/ontology-indexer/main.go](../../../services/ontology-indexer/cmd/ontology-indexer/main.go) | ~66 lines, opens a Kafka consumer skeleton |
+| Internal | [services/ontology-indexer/internal/](../../../services/ontology-indexer/internal/) | ~1.6k LOC; consumer present but no real projection into a search backend |
+| Search backend (infra) | [infra/compose/docker-compose.yml](../../../infra/compose/docker-compose.yml) | Vespa is deployed in the compose stack |
+| Downstream consumer (UI) | [apps/web/src/routes/object-explorer/](../../../apps/web/src/routes/object-explorer/) | Reads from `ontology-query-service`, which currently does naive lookups |
 
 ## Gap to close
 
@@ -96,9 +96,9 @@ see an indexing status (pending / live / stale).
 
 | Gap | Status | Evidence |
 |---|---|---|
-| **G1** Topic-name drift (indexer subscribes to plural; producers emit singular) | ✅ Done | Constants in [services/ontology-indexer/internal/runtime/runtime.go](../../services/ontology-indexer/internal/runtime/runtime.go) flipped to `ontology.object.changed.v1` / `ontology.link.changed.v1`; pin test in `runtime_test.go::TestTopicsAndConsumerGroup` updated; README aligned |
-| **G2** `object-database-service.PutObject` skipped outbox | ✅ Done | New `OutboxPool *pgxpool.Pool` field on `Handlers`; new helper [internal/handlers/outbox.go](../../services/object-database-service/internal/handlers/outbox.go) wraps `libs/outbox.Enqueue` with the canonical `ontology.object.changed.v1` envelope (object_id, object_type_id, operation, properties, version, etc.) and deterministic event_id via `domain.DeriveEventID`. `PutObject` calls it on every successful `PutInserted`/`PutUpdated` outcome; `PutVersionConflict` correctly skips emission. Integration test `TestOutboxEndToEnd_PutObjectEmits` proves the INSERT lands in the WAL with the expected topic + payload + `ol-producer: object-database-service` header. |
-| **G3** Missing KafkaTopic CR for `ontology.link.changed.v1` | ✅ Done | Added to [infra/helm/infra/kafka-cluster/templates/topics-domain-v1.yaml](../../infra/helm/infra/kafka-cluster/templates/topics-domain-v1.yaml) as a sibling of the existing object topic. |
+| **G1** Topic-name drift (indexer subscribes to plural; producers emit singular) | ✅ Done | Constants in [services/ontology-indexer/internal/runtime/runtime.go](../../../services/ontology-indexer/internal/runtime/runtime.go) flipped to `ontology.object.changed.v1` / `ontology.link.changed.v1`; pin test in `runtime_test.go::TestTopicsAndConsumerGroup` updated; README aligned |
+| **G2** `object-database-service.PutObject` skipped outbox | ✅ Done | New `OutboxPool *pgxpool.Pool` field on `Handlers`; new helper [internal/handlers/outbox.go](../../../services/object-database-service/internal/handlers/outbox.go) wraps `libs/outbox.Enqueue` with the canonical `ontology.object.changed.v1` envelope (object_id, object_type_id, operation, properties, version, etc.) and deterministic event_id via `domain.DeriveEventID`. `PutObject` calls it on every successful `PutInserted`/`PutUpdated` outcome; `PutVersionConflict` correctly skips emission. Integration test `TestOutboxEndToEnd_PutObjectEmits` proves the INSERT lands in the WAL with the expected topic + payload + `ol-producer: object-database-service` header. |
+| **G3** Missing KafkaTopic CR for `ontology.link.changed.v1` | ✅ Done | Added to [infra/helm/infra/kafka-cluster/templates/topics-domain-v1.yaml](../../../infra/helm/infra/kafka-cluster/templates/topics-domain-v1.yaml) as a sibling of the existing object topic. |
 | **G4** Per-type indexing status endpoint | ⏳ Phase 2 | Requires adding a Postgres-backed `index_status` table or scraping the existing Prometheus counters via a thin /status handler. Not blocking the PoC narrative. |
 | **G5** Schema-aware mapping registration (consume `ontology.object_type.changed.v1`) | ⏳ Phase 2 | The indexer today uses a generic JSONB document shape; per-type Vespa schemas would let it leverage typed fields and full-text tokenizers. Useful for Vespa quality at scale; not blocking the PoC narrative. |
 
@@ -117,7 +117,7 @@ outbox in the same way `PutObject` does:
   handler removes the (link_type, from, to) triple and emits a
   matching deletion event (`version=2`, `deleted=true`).
 
-Helper `enqueueLinkChanged` ([internal/handlers/outbox.go](../../services/object-database-service/internal/handlers/outbox.go))
+Helper `enqueueLinkChanged` ([internal/handlers/outbox.go](../../../services/object-database-service/internal/handlers/outbox.go))
 parallels `enqueueObjectChanged`; both use `domain.DeriveEventID` so
 event_ids stay deterministic and collapse on retry via the outbox
 primary key.
@@ -163,4 +163,4 @@ shared helper to `libs/ontology-outbox` (already flagged in B02's
 5. Expose the `status` and `reindex` endpoints through
    `edge-gateway-service` so the UI can show them.
 6. Track unimplemented items in
-   [foundry-ontology-manager-object-views-1to1-checklist.md](../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md).
+   [foundry-ontology-manager-object-views-1to1-checklist.md](../../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md).

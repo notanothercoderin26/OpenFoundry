@@ -9,22 +9,22 @@
 
 | Field | Value |
 |---|---|
-| OpenFoundry components | [libs/pipeline-runtime/](../../libs/pipeline-runtime/) + [services/iceberg-catalog-service/](../../services/iceberg-catalog-service/) + [services/pipeline-runner-spark/](../../services/pipeline-runner-spark/) + [services/pipeline-build-service/](../../services/pipeline-build-service/) + [services/pipeline-runner/](../../services/pipeline-runner/) |
-| Launcher app(s) | **#5 Pipeline Builder** (`/pipelines`), Iceberg Tables tab (`/iceberg-tables`), **#7 Data Lineage** (`/lineage`), **#8 Dataset Preview** (`/datasets`), **#11 Job Engine / Machinery** (`/machinery`) ([launcher-app-mapping.md §C/D](../../docs/reference/launcher-app-mapping.md)) |
+| OpenFoundry components | [libs/pipeline-runtime/](../../../libs/pipeline-runtime/) + [services/iceberg-catalog-service/](../../../services/iceberg-catalog-service/) + [services/pipeline-runner-spark/](../../../services/pipeline-runner-spark/) + [services/pipeline-build-service/](../../../services/pipeline-build-service/) + [services/pipeline-runner/](../../../services/pipeline-runner/) |
+| Launcher app(s) | **#5 Pipeline Builder** (`/pipelines`), Iceberg Tables tab (`/iceberg-tables`), **#7 Data Lineage** (`/lineage`), **#8 Dataset Preview** (`/datasets`), **#11 Job Engine / Machinery** (`/machinery`) ([launcher-app-mapping.md §C/D](../../../docs/reference/launcher-app-mapping.md)) |
 | Foundry product | [Pipeline Builder](https://www.palantir.com/docs/foundry/pipeline-builder/overview/) + [Datasets](https://www.palantir.com/docs/foundry/data-integration/datasets/) + [Data Lineage](https://www.palantir.com/docs/foundry/data-lineage/overview/) + [Data Health](https://www.palantir.com/docs/foundry/observability/data-health/) |
 | PoC act(s) | **Act 1** (ingest OpenSky + NOAA + BTS → Iceberg datasets), **Act 3** (versioned transforms with quality + lineage) |
-| 1-to-1 checklist | [foundry-workshop-pipeline-1to1-checklist.md](../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) (pipeline slice) + [foundry-data-foundation-1to1-checklist.md](../../docs/migration/foundry-data-foundation-1to1-checklist.md) |
+| 1-to-1 checklist | [foundry-workshop-pipeline-1to1-checklist.md](../../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) (pipeline slice) + [foundry-data-foundation-1to1-checklist.md](../../../docs/migration/foundry-data-foundation-1to1-checklist.md) |
 | Parity matrix module | Pipeline Builder / Datasets (Iceberg slice) |
 
 ## Palantir reference (public docs)
 
 | Page | Live URL | Local scraped MD | Full-page screenshot |
 |---|---|---|---|
-| Pipeline Builder overview | https://www.palantir.com/docs/foundry/pipeline-builder/overview/ | [Seed URLs/Pipeline Builder/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Pipeline%20Builder/Overview.md) | [Seed URLs/Pipeline Builder/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Pipeline%20Builder/Overview.screenshot.png) |
-| Transforms overview | https://www.palantir.com/docs/foundry/pipeline-builder/transforms-overview/ | [Seed URLs/Pipeline Builder/Transforms Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Pipeline%20Builder/Transforms%20Overview.md) | [Seed URLs/Pipeline Builder/Transforms Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Pipeline%20Builder/Transforms%20Overview.screenshot.png) |
-| Datasets concepts | https://www.palantir.com/docs/foundry/data-integration/datasets/ | [Seed URLs/Data Integration/Datasets.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Data%20Integration/Datasets.md) | [Seed URLs/Data Integration/Datasets.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Data%20Integration/Datasets.screenshot.png) |
-| Data Lineage overview | https://www.palantir.com/docs/foundry/data-lineage/overview/ | [Seed URLs/Data Lineage/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Data%20Lineage/Overview.md) | [Seed URLs/Data Lineage/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Data%20Lineage/Overview.screenshot.png) |
-| Data Health | https://www.palantir.com/docs/foundry/observability/data-health/ | [Seed URLs/Observability/Data Health.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Observability/Data%20Health.md) | [Seed URLs/Observability/Data Health.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Observability/Data%20Health.screenshot.png) |
+| Pipeline Builder overview | https://www.palantir.com/docs/foundry/pipeline-builder/overview/ | [Seed URLs/Pipeline Builder/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Pipeline%20Builder/Overview.md) | [Seed URLs/Pipeline Builder/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Pipeline%20Builder/Overview.screenshot.png) |
+| Transforms overview | https://www.palantir.com/docs/foundry/pipeline-builder/transforms-overview/ | [Seed URLs/Pipeline Builder/Transforms Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Pipeline%20Builder/Transforms%20Overview.md) | [Seed URLs/Pipeline Builder/Transforms Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Pipeline%20Builder/Transforms%20Overview.screenshot.png) |
+| Datasets concepts | https://www.palantir.com/docs/foundry/data-integration/datasets/ | [Seed URLs/Data Integration/Datasets.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Data%20Integration/Datasets.md) | [Seed URLs/Data Integration/Datasets.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Data%20Integration/Datasets.screenshot.png) |
+| Data Lineage overview | https://www.palantir.com/docs/foundry/data-lineage/overview/ | [Seed URLs/Data Lineage/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Data%20Lineage/Overview.md) | [Seed URLs/Data Lineage/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Data%20Lineage/Overview.screenshot.png) |
+| Data Health | https://www.palantir.com/docs/foundry/observability/data-health/ | [Seed URLs/Observability/Data Health.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Observability/Data%20Health.md) | [Seed URLs/Observability/Data Health.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Observability/Data%20Health.screenshot.png) |
 
 ## Foundry behavior to replicate (summary)
 
@@ -40,14 +40,14 @@ consistent snapshot.
 
 | Layer | File | State |
 |---|---|---|
-| Iceberg dep | [go.mod](../../go.mod) | `github.com/apache/iceberg-go v0.5.0` present |
-| Runtime contract | [libs/pipeline-runtime/runtime.go](../../libs/pipeline-runtime/runtime.go) | Comments reference Phase A (in-process `iceberg-go` reads), Phase B (catalog service path), Phase C (production-grade) |
-| Iceberg catalog svc | [services/iceberg-catalog-service/](../../services/iceberg-catalog-service/) | ~9k LOC, 2 migrations; thin wrapper, write path `/openfoundry/iceberg/v1/append` is the Phase B sink |
-| Pipeline build svc | [services/pipeline-build-service/](../../services/pipeline-build-service/) | ~34k LOC, 25 SQL migrations — the most mature service in the tree |
-| Pipeline runner (Go) | [services/pipeline-runner/](../../services/pipeline-runner/) | ~1.3k LOC, minimal |
-| Pipeline runner (Spark/Scala) | [services/pipeline-runner-spark/](../../services/pipeline-runner-spark/) | 3 Scala files including `IcebergToObjectStoreIndexer.scala` |
-| Lineage | [services/lineage-service/](../../services/lineage-service/) | Real service, OpenLineage sink |
-| Frontend | [apps/web/src/routes/pipelines/](../../apps/web/src/routes/pipelines/), [apps/web/src/routes/lineage/](../../apps/web/src/routes/lineage/) | Working pages |
+| Iceberg dep | [go.mod](../../../go.mod) | `github.com/apache/iceberg-go v0.5.0` present |
+| Runtime contract | [libs/pipeline-runtime/runtime.go](../../../libs/pipeline-runtime/runtime.go) | Comments reference Phase A (in-process `iceberg-go` reads), Phase B (catalog service path), Phase C (production-grade) |
+| Iceberg catalog svc | [services/iceberg-catalog-service/](../../../services/iceberg-catalog-service/) | ~9k LOC, 2 migrations; thin wrapper, write path `/openfoundry/iceberg/v1/append` is the Phase B sink |
+| Pipeline build svc | [services/pipeline-build-service/](../../../services/pipeline-build-service/) | ~34k LOC, 25 SQL migrations — the most mature service in the tree |
+| Pipeline runner (Go) | [services/pipeline-runner/](../../../services/pipeline-runner/) | ~1.3k LOC, minimal |
+| Pipeline runner (Spark/Scala) | [services/pipeline-runner-spark/](../../../services/pipeline-runner-spark/) | 3 Scala files including `IcebergToObjectStoreIndexer.scala` |
+| Lineage | [services/lineage-service/](../../../services/lineage-service/) | Real service, OpenLineage sink |
+| Frontend | [apps/web/src/routes/pipelines/](../../../apps/web/src/routes/pipelines/), [apps/web/src/routes/lineage/](../../../apps/web/src/routes/lineage/) | Working pages |
 
 ## Gap to close
 
@@ -96,6 +96,6 @@ consistent snapshot.
    `GET /datasets/{id}/health` and render in the existing
    `apps/web/src/routes/datasets/` UI.
 5. Track per-item progress in
-   [foundry-workshop-pipeline-1to1-checklist.md](../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md)
+   [foundry-workshop-pipeline-1to1-checklist.md](../../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md)
    (pipeline slice) and
-   [foundry-data-foundation-1to1-checklist.md](../../docs/migration/foundry-data-foundation-1to1-checklist.md).
+   [foundry-data-foundation-1to1-checklist.md](../../../docs/migration/foundry-data-foundation-1to1-checklist.md).

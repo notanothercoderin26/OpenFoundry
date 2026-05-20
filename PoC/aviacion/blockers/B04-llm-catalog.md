@@ -8,22 +8,22 @@
 
 | Field | Value |
 |---|---|
-| OpenFoundry service | [services/llm-catalog-service/](../../services/llm-catalog-service/) |
-| Launcher app(s) | **#27 Model Catalog** (`/model-catalog`); cross-cutting dependency for **#19 AI Logic**, **#20 AI Assist**, **#21 AI Analyst**, **#22 AI Threads**, **#23 Document AI**, **#24 Chatbot Studio**, **#25 AI Evals**, **#26 AI Operator** ([launcher-app-mapping.md §E](../../docs/reference/launcher-app-mapping.md)) |
+| OpenFoundry service | [services/llm-catalog-service/](../../../services/llm-catalog-service/) |
+| Launcher app(s) | **#27 Model Catalog** (`/model-catalog`); cross-cutting dependency for **#19 AI Logic**, **#20 AI Assist**, **#21 AI Analyst**, **#22 AI Threads**, **#23 Document AI**, **#24 Chatbot Studio**, **#25 AI Evals**, **#26 AI Operator** ([launcher-app-mapping.md §E](../../../docs/reference/launcher-app-mapping.md)) |
 | Foundry product | [Model Catalog](https://www.palantir.com/docs/foundry/model-catalog/overview/) + [Model Integration](https://www.palantir.com/docs/foundry/model-integration/overview/) |
 | PoC act(s) | **Act 5** — "Copilot — AIP Chatbot with Ontology context… Tools map to Foundry tool types" ([00-contrato §Foundry-native capability mapping](../00-contrato-foundry-native.md)) |
-| 1-to-1 checklist | [foundry-aip-document-analyst-catalog-1to1-checklist.md](../../docs/migration/foundry-aip-document-analyst-catalog-1to1-checklist.md) |
-| Parity matrix module | *AIP Document Intelligence / Analyst / Model Catalog* — currently `todo`, 0% ([foundry-feature-parity-matrix.md](../../docs/migration/foundry-feature-parity-matrix.md)) |
+| 1-to-1 checklist | [foundry-aip-document-analyst-catalog-1to1-checklist.md](../../../docs/migration/foundry-aip-document-analyst-catalog-1to1-checklist.md) |
+| Parity matrix module | *AIP Document Intelligence / Analyst / Model Catalog* — currently `todo`, 0% ([foundry-feature-parity-matrix.md](../../../docs/migration/foundry-feature-parity-matrix.md)) |
 
 ## Palantir reference (public docs)
 
 | Page | Live URL | Local scraped MD | Full-page screenshot |
 |---|---|---|---|
-| Model Catalog overview | https://www.palantir.com/docs/foundry/model-catalog/overview/ | [Seed URLs/Model Catalog/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Model%20Catalog/Overview.md) | [Seed URLs/Model Catalog/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Model%20Catalog/Overview.screenshot.png) |
-| Model integration overview | https://www.palantir.com/docs/foundry/model-integration/overview/ | [Seed URLs/Model Integration/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Model%20Integration/Overview.md) | [Seed URLs/Model Integration/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Model%20Integration/Overview.screenshot.png) |
-| AIP overview (downstream) | https://www.palantir.com/docs/foundry/aip/overview/ | [Seed URLs/Aip/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Aip/Overview.md) | [Seed URLs/Aip/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Aip/Overview.screenshot.png) |
-| AIP Chatbot Studio overview | https://www.palantir.com/docs/foundry/chatbot-studio/overview/ | [Seed URLs/Chatbot Studio/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Chatbot%20Studio/Overview.md) | [Seed URLs/Chatbot Studio/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Chatbot%20Studio/Overview.screenshot.png) |
-| Agent Studio tools | https://www.palantir.com/docs/foundry/agent-studio/tools/ | [Seed URLs/Agent Studio/Tools.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Agent%20Studio/Tools.md) | [Seed URLs/Agent Studio/Tools.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Agent%20Studio/Tools.screenshot.png) |
+| Model Catalog overview | https://www.palantir.com/docs/foundry/model-catalog/overview/ | [Seed URLs/Model Catalog/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Model%20Catalog/Overview.md) | [Seed URLs/Model Catalog/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Model%20Catalog/Overview.screenshot.png) |
+| Model integration overview | https://www.palantir.com/docs/foundry/model-integration/overview/ | [Seed URLs/Model Integration/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Model%20Integration/Overview.md) | [Seed URLs/Model Integration/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Model%20Integration/Overview.screenshot.png) |
+| AIP overview (downstream) | https://www.palantir.com/docs/foundry/aip/overview/ | [Seed URLs/Aip/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Aip/Overview.md) | [Seed URLs/Aip/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Aip/Overview.screenshot.png) |
+| AIP Chatbot Studio overview | https://www.palantir.com/docs/foundry/chatbot-studio/overview/ | [Seed URLs/Chatbot Studio/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Chatbot%20Studio/Overview.md) | [Seed URLs/Chatbot Studio/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Chatbot%20Studio/Overview.screenshot.png) |
+| Agent Studio tools | https://www.palantir.com/docs/foundry/agent-studio/tools/ | [Seed URLs/Agent Studio/Tools.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Agent%20Studio/Tools.md) | [Seed URLs/Agent Studio/Tools.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Agent%20Studio/Tools.screenshot.png) |
 
 ## Foundry behavior to replicate (summary)
 
@@ -39,11 +39,11 @@ hard-coded provider name.
 
 | Layer | File | State |
 |---|---|---|
-| Service main | [services/llm-catalog-service/cmd/llm-catalog-service/main.go](../../services/llm-catalog-service/cmd/llm-catalog-service/main.go) | ~90 lines |
-| Handlers | [services/llm-catalog-service/internal/handlers/](../../services/llm-catalog-service/internal/handlers/) | 6 handlers; mostly hard-coded responses |
+| Service main | [services/llm-catalog-service/cmd/llm-catalog-service/main.go](../../../services/llm-catalog-service/cmd/llm-catalog-service/main.go) | ~90 lines |
+| Handlers | [services/llm-catalog-service/internal/handlers/](../../../services/llm-catalog-service/internal/handlers/) | 6 handlers; mostly hard-coded responses |
 | Migrations | none real | No persistence of registered models |
-| Related kernel | [libs/ai-kernel-go/](../../libs/ai-kernel-go/) | ~10.5k LOC, real provider routing exists for runtime — but it does not read from a catalog, providers are configured statically |
-| Frontend | [apps/web/src/routes/model-catalog/](../../apps/web/src/routes/model-catalog/) | Renders mock data per the launcher mapping note |
+| Related kernel | [libs/ai-kernel-go/](../../../libs/ai-kernel-go/) | ~10.5k LOC, real provider routing exists for runtime — but it does not read from a catalog, providers are configured statically |
+| Frontend | [apps/web/src/routes/model-catalog/](../../../apps/web/src/routes/model-catalog/) | Renders mock data per the launcher mapping note |
 
 ## Gap to close
 
@@ -89,5 +89,5 @@ hard-coded provider name.
 4. Seed `ollama/llama-3.1-70b` and `azure/gpt-4o` in a startup migration
    so the demo always has both visible.
 5. Track work against
-   [foundry-aip-document-analyst-catalog-1to1-checklist.md](../../docs/migration/foundry-aip-document-analyst-catalog-1to1-checklist.md);
+   [foundry-aip-document-analyst-catalog-1to1-checklist.md](../../../docs/migration/foundry-aip-document-analyst-catalog-1to1-checklist.md);
    that checklist is at 0% today, so every item is open.

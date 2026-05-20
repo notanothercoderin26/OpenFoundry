@@ -10,23 +10,23 @@
 
 | Field | Value |
 |---|---|
-| OpenFoundry service | [services/agent-runtime-service/](../../services/agent-runtime-service/) + [services/retrieval-context-service/](../../services/retrieval-context-service/) |
-| Launcher app(s) | **#20 AI Assist** (`/ai/assist`), **#21 AI Analyst** (`/ai/analyst`), **#22 AI Threads** (`/ai/threads`), **#26 AI Operator** (`/ai/operator`), **#24 Chatbot Studio** (`/ai/chatbot-studio`) — all listed as Phase-4-mock in [launcher-app-mapping.md](../../docs/reference/launcher-app-mapping.md) |
+| OpenFoundry service | [services/agent-runtime-service/](../../../services/agent-runtime-service/) + [services/retrieval-context-service/](../../../services/retrieval-context-service/) |
+| Launcher app(s) | **#20 AI Assist** (`/ai/assist`), **#21 AI Analyst** (`/ai/analyst`), **#22 AI Threads** (`/ai/threads`), **#26 AI Operator** (`/ai/operator`), **#24 Chatbot Studio** (`/ai/chatbot-studio`) — all listed as Phase-4-mock in [launcher-app-mapping.md](../../../docs/reference/launcher-app-mapping.md) |
 | Foundry product | [AIP Chatbot Studio](https://www.palantir.com/docs/foundry/chatbot-studio/overview/) + [Agent Studio tools](https://www.palantir.com/docs/foundry/agent-studio/tools/) + [Retrieval context](https://www.palantir.com/docs/foundry/agent-studio/retrieval-context/) + [AIP Assist](https://www.palantir.com/docs/foundry/assist/overview/) + [AIP Analyst](https://www.palantir.com/docs/foundry/aip-analyst/overview/) + [Threads](https://www.palantir.com/docs/foundry/threads/overview/) |
 | PoC act(s) | **Act 5** — "Tools map to Foundry tool types: Action, Object query, Function, Update application variable, Command, Request clarification" ([00-contrato §Foundry-native capability mapping](../00-contrato-foundry-native.md)) |
-| 1-to-1 checklist | [foundry-aip-agents-threads-assist-1to1-checklist.md](../../docs/migration/foundry-aip-agents-threads-assist-1to1-checklist.md) (`partial`, ~22%) |
+| 1-to-1 checklist | [foundry-aip-agents-threads-assist-1to1-checklist.md](../../../docs/migration/foundry-aip-agents-threads-assist-1to1-checklist.md) (`partial`, ~22%) |
 | Parity matrix module | *AIP Agents / Threads / Assist* — verified gaps: "No Threads resource or document upload; Assist sidebar / custom content sources absent; ReAct-style tool dispatch loop and step budgeting not wired end-to-end" |
 
 ## Palantir reference (public docs)
 
 | Page | Live URL | Local scraped MD | Full-page screenshot |
 |---|---|---|---|
-| AIP Assist overview | https://www.palantir.com/docs/foundry/assist/overview/ | [Seed URLs/Assist/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Assist/Overview.md) | [Seed URLs/Assist/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Assist/Overview.screenshot.png) |
-| AIP Analyst overview | https://www.palantir.com/docs/foundry/aip-analyst/overview/ | [Seed URLs/Aip Analyst/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Aip%20Analyst/Overview.md) | [Seed URLs/Aip Analyst/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Aip%20Analyst/Overview.screenshot.png) |
-| Threads overview | https://www.palantir.com/docs/foundry/threads/overview/ | [Seed URLs/Threads/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Threads/Overview.md) | [Seed URLs/Threads/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Threads/Overview.screenshot.png) |
-| AI FDE (AI Operator) | https://www.palantir.com/docs/foundry/ai-fde/overview/ | [Seed URLs/Ai Fde/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Ai%20Fde/Overview.md) | [Seed URLs/Ai Fde/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Ai%20Fde/Overview.screenshot.png) |
-| Retrieval context | https://www.palantir.com/docs/foundry/agent-studio/retrieval-context/ | [Seed URLs/Agent Studio/Retrieval Context.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Agent%20Studio/Retrieval%20Context.md) | [Seed URLs/Agent Studio/Retrieval Context.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Agent%20Studio/Retrieval%20Context.screenshot.png) |
-| AIP Chatbot Studio overview | https://www.palantir.com/docs/foundry/chatbot-studio/overview/ | [Seed URLs/Chatbot Studio/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Chatbot%20Studio/Overview.md) | [Seed URLs/Chatbot Studio/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Chatbot%20Studio/Overview.screenshot.png) |
+| AIP Assist overview | https://www.palantir.com/docs/foundry/assist/overview/ | [Seed URLs/Assist/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Assist/Overview.md) | [Seed URLs/Assist/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Assist/Overview.screenshot.png) |
+| AIP Analyst overview | https://www.palantir.com/docs/foundry/aip-analyst/overview/ | [Seed URLs/Aip Analyst/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Aip%20Analyst/Overview.md) | [Seed URLs/Aip Analyst/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Aip%20Analyst/Overview.screenshot.png) |
+| Threads overview | https://www.palantir.com/docs/foundry/threads/overview/ | [Seed URLs/Threads/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Threads/Overview.md) | [Seed URLs/Threads/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Threads/Overview.screenshot.png) |
+| AI FDE (AI Operator) | https://www.palantir.com/docs/foundry/ai-fde/overview/ | [Seed URLs/Ai Fde/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Ai%20Fde/Overview.md) | [Seed URLs/Ai Fde/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Ai%20Fde/Overview.screenshot.png) |
+| Retrieval context | https://www.palantir.com/docs/foundry/agent-studio/retrieval-context/ | [Seed URLs/Agent Studio/Retrieval Context.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Agent%20Studio/Retrieval%20Context.md) | [Seed URLs/Agent Studio/Retrieval Context.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Agent%20Studio/Retrieval%20Context.screenshot.png) |
+| AIP Chatbot Studio overview | https://www.palantir.com/docs/foundry/chatbot-studio/overview/ | [Seed URLs/Chatbot Studio/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Chatbot%20Studio/Overview.md) | [Seed URLs/Chatbot Studio/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Chatbot%20Studio/Overview.screenshot.png) |
 
 ## Foundry behavior to replicate (summary)
 
@@ -45,14 +45,14 @@ the calling user — the agent can never bypass Foundry permissions.
 
 | Layer | File | State |
 |---|---|---|
-| Service main | [services/agent-runtime-service/cmd/agent-runtime-service/main.go](../../services/agent-runtime-service/cmd/agent-runtime-service/main.go) | ~131 lines |
-| Handlers | [services/agent-runtime-service/internal/](../../services/agent-runtime-service/internal/) | ~7.6k LOC + 13 migrations — partial, more advanced than most peers |
-| LLM kernel | [libs/ai-kernel-go/](../../libs/ai-kernel-go/) | ~10.5k LOC, multi-provider LLM gateway, ReAct loop, tool routing |
-| Retrieval | [services/retrieval-context-service/](../../services/retrieval-context-service/) | ~1.9k LOC, thin wrapper |
-| Model source | (would be) [services/llm-catalog-service/](../../services/llm-catalog-service/) | **stub — see [B04](B04-llm-catalog.md)** |
-| Ontology query (tool target) | [services/ontology-query-service/](../../services/ontology-query-service/) | Thin (~2.9k LOC, 0 migrations) — depends on [B02](B02-ontology-definition.md)/[B03](B03-ontology-indexer.md) for real data |
-| Ontology actions (tool target) | [services/ontology-actions-service/](../../services/ontology-actions-service/) | ~1.2k LOC, explicit stub mode |
-| Frontend | [apps/web/src/routes/ai/](../../apps/web/src/routes/ai/) | Pages exist but render Phase 4 mock per launcher mapping |
+| Service main | [services/agent-runtime-service/cmd/agent-runtime-service/main.go](../../../services/agent-runtime-service/cmd/agent-runtime-service/main.go) | ~131 lines |
+| Handlers | [services/agent-runtime-service/internal/](../../../services/agent-runtime-service/internal/) | ~7.6k LOC + 13 migrations — partial, more advanced than most peers |
+| LLM kernel | [libs/ai-kernel-go/](../../../libs/ai-kernel-go/) | ~10.5k LOC, multi-provider LLM gateway, ReAct loop, tool routing |
+| Retrieval | [services/retrieval-context-service/](../../../services/retrieval-context-service/) | ~1.9k LOC, thin wrapper |
+| Model source | (would be) [services/llm-catalog-service/](../../../services/llm-catalog-service/) | **stub — see [B04](B04-llm-catalog.md)** |
+| Ontology query (tool target) | [services/ontology-query-service/](../../../services/ontology-query-service/) | Thin (~2.9k LOC, 0 migrations) — depends on [B02](B02-ontology-definition.md)/[B03](B03-ontology-indexer.md) for real data |
+| Ontology actions (tool target) | [services/ontology-actions-service/](../../../services/ontology-actions-service/) | ~1.2k LOC, explicit stub mode |
+| Frontend | [apps/web/src/routes/ai/](../../../apps/web/src/routes/ai/) | Pages exist but render Phase 4 mock per launcher mapping |
 
 ## Gap to close
 
@@ -116,4 +116,4 @@ the calling user — the agent can never bypass Foundry permissions.
    and [B04](B04-llm-catalog.md) are unblocked, the tool targets become
    real and the end-to-end demo collapses into a smoke test.
 6. Track progress against
-   [foundry-aip-agents-threads-assist-1to1-checklist.md](../../docs/migration/foundry-aip-agents-threads-assist-1to1-checklist.md).
+   [foundry-aip-agents-threads-assist-1to1-checklist.md](../../../docs/migration/foundry-aip-agents-threads-assist-1to1-checklist.md).

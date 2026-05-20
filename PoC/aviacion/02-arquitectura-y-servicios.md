@@ -1,6 +1,6 @@
 # 02 — Architecture and services to spin up
 
-> Snapshot note: this PoC document is intentionally a demo-scope snapshot, not the canonical repository inventory. The current code-first inventory is **50 service directories** under `services/`; use [`docs/reference/repository-layout.md`](../docs/reference/repository-layout.md) for the authoritative service/library list. Spinning up all services for a demo is unmanageable and, if any one of them fails, it breaks the narrative. This document defines the **minimum viable subset for the PoC (~15 services)** and explicitly leaves the rest off but "listed as available".
+> Snapshot note: this PoC document is intentionally a demo-scope snapshot, not the canonical repository inventory. The current code-first inventory is **50 service directories** under `services/`; use [`docs/reference/repository-layout.md`](../../docs/reference/repository-layout.md) for the authoritative service/library list. Spinning up all services for a demo is unmanageable and, if any one of them fails, it breaks the narrative. This document defines the **minimum viable subset for the PoC (~15 services)** and explicitly leaves the rest off but "listed as available".
 
 ---
 

@@ -8,25 +8,25 @@
 
 | Field | Value |
 |---|---|
-| OpenFoundry service | [services/application-composition-service/](../../services/application-composition-service/) |
-| Launcher app | **#28 Workshop** — internal id `workshop`, route `/apps` ([launcher-app-mapping.md §F](../../docs/reference/launcher-app-mapping.md)) |
+| OpenFoundry service | [services/application-composition-service/](../../../services/application-composition-service/) |
+| Launcher app | **#28 Workshop** — internal id `workshop`, route `/apps` ([launcher-app-mapping.md §F](../../../docs/reference/launcher-app-mapping.md)) |
 | Foundry product | [Workshop](https://www.palantir.com/docs/foundry/workshop/overview/) |
 | PoC act(s) | **Act 4** — "MRO workbench / Workshop module with Object Table, Button Group, filters, variables, Map widgets" ([00-contrato §Foundry-native capability mapping](../00-contrato-foundry-native.md)) |
-| 1-to-1 checklist | [foundry-workshop-pipeline-1to1-checklist.md](../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) |
-| Parity matrix module | Workshop slice inside *Workshop / Pipeline Builder* (see [foundry-feature-parity-matrix.json](../../docs/migration/foundry-feature-parity-matrix.json)) |
+| 1-to-1 checklist | [foundry-workshop-pipeline-1to1-checklist.md](../../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) |
+| Parity matrix module | Workshop slice inside *Workshop / Pipeline Builder* (see [foundry-feature-parity-matrix.json](../../../docs/migration/foundry-feature-parity-matrix.json)) |
 
 ## Palantir reference (public docs)
 
 | Page | Live URL | Local scraped MD | Full-page screenshot (Read-able) |
 |---|---|---|---|
-| Workshop overview | https://www.palantir.com/docs/foundry/workshop/overview/ | [Seed URLs/Workshop/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Overview.md) | [Seed URLs/Workshop/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Overview.screenshot.png) |
-| Widgets concepts | https://www.palantir.com/docs/foundry/workshop/concepts-widgets/ | [Seed URLs/Workshop/Concepts Widgets.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Concepts%20Widgets.md) | [Seed URLs/Workshop/Concepts Widgets.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Concepts%20Widgets.screenshot.png) |
-| Object Table widget | https://www.palantir.com/docs/foundry/workshop/widgets-object-table/ | [Seed URLs/Workshop/Widgets Object Table.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Object%20Table.md) | [Seed URLs/Workshop/Widgets Object Table.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Object%20Table.screenshot.png) |
-| Button Group widget | https://www.palantir.com/docs/foundry/workshop/widgets-button-group/ | [Seed URLs/Workshop/Widgets Button Group.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Button%20Group.md) | [Seed URLs/Workshop/Widgets Button Group.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Button%20Group.screenshot.png) |
-| Map widget | https://www.palantir.com/docs/foundry/workshop/widgets-map/ | [Seed URLs/Workshop/Widgets Map.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Map.md) | [Seed URLs/Workshop/Widgets Map.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Map.screenshot.png) |
-| Variables (concepts) | https://www.palantir.com/docs/foundry/workshop/concepts-variables/ | [Seed URLs/Workshop/Concepts Variables.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Concepts%20Variables.md) | [Seed URLs/Workshop/Concepts Variables.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Concepts%20Variables.screenshot.png) |
-| Branching / Rebasing | https://www.palantir.com/docs/foundry/workshop/branching-rebasing/ | [Seed URLs/Workshop/Branching Rebasing.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Branching%20Rebasing.md) | [Seed URLs/Workshop/Branching Rebasing.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Branching%20Rebasing.screenshot.png) |
-| Versions (publishing) | https://www.palantir.com/docs/foundry/workshop/versions/ | [Seed URLs/Workshop/Versions.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Versions.md) | [Seed URLs/Workshop/Versions.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Versions.screenshot.png) |
+| Workshop overview | https://www.palantir.com/docs/foundry/workshop/overview/ | [Seed URLs/Workshop/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Overview.md) | [Seed URLs/Workshop/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Overview.screenshot.png) |
+| Widgets concepts | https://www.palantir.com/docs/foundry/workshop/concepts-widgets/ | [Seed URLs/Workshop/Concepts Widgets.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Concepts%20Widgets.md) | [Seed URLs/Workshop/Concepts Widgets.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Concepts%20Widgets.screenshot.png) |
+| Object Table widget | https://www.palantir.com/docs/foundry/workshop/widgets-object-table/ | [Seed URLs/Workshop/Widgets Object Table.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Object%20Table.md) | [Seed URLs/Workshop/Widgets Object Table.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Object%20Table.screenshot.png) |
+| Button Group widget | https://www.palantir.com/docs/foundry/workshop/widgets-button-group/ | [Seed URLs/Workshop/Widgets Button Group.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Button%20Group.md) | [Seed URLs/Workshop/Widgets Button Group.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Button%20Group.screenshot.png) |
+| Map widget | https://www.palantir.com/docs/foundry/workshop/widgets-map/ | [Seed URLs/Workshop/Widgets Map.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Map.md) | [Seed URLs/Workshop/Widgets Map.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Widgets%20Map.screenshot.png) |
+| Variables (concepts) | https://www.palantir.com/docs/foundry/workshop/concepts-variables/ | [Seed URLs/Workshop/Concepts Variables.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Concepts%20Variables.md) | [Seed URLs/Workshop/Concepts Variables.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Concepts%20Variables.screenshot.png) |
+| Branching / Rebasing | https://www.palantir.com/docs/foundry/workshop/branching-rebasing/ | [Seed URLs/Workshop/Branching Rebasing.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Branching%20Rebasing.md) | [Seed URLs/Workshop/Branching Rebasing.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Branching%20Rebasing.screenshot.png) |
+| Versions (publishing) | https://www.palantir.com/docs/foundry/workshop/versions/ | [Seed URLs/Workshop/Versions.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Versions.md) | [Seed URLs/Workshop/Versions.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Workshop/Versions.screenshot.png) |
 
 > If any of the scraped paths above does not exist, re-run the scraper:
 > `python docs_original_palantir_foundry/scraper.py --output docs_original_palantir_foundry/foundry-docs --seed-urls PoC/blockers/seed-urls.txt`
@@ -45,11 +45,11 @@ The author never writes bespoke React for the common case.
 
 | Layer | File | State |
 |---|---|---|
-| Service main | [services/application-composition-service/cmd/application-composition-service/main.go](../../services/application-composition-service/cmd/application-composition-service/main.go) | 75 lines, boots a router but the persistence layer is in-memory |
-| Handlers | [services/application-composition-service/internal/handlers/](../../services/application-composition-service/internal/handlers/) | 8 handlers; create/read shapes exist but no transactional save/publish |
-| Migrations | [services/application-composition-service/internal/repo/migrations/](../../services/application-composition-service/internal/repo/migrations/) | Directory exists; no real persistence of module versions |
-| Frontend (works) | [apps/web/src/routes/apps/runtime/](../../apps/web/src/routes/apps/) (`/apps/runtime/:slug`) | ~4.7k LOC, drag-drop, 15 widget types — fully built |
-| Frontend ↔ backend bridge | [apps/web/src/lib/api/](../../apps/web/src/lib/api/) (search for module/workshop) | Calls land on stub handlers that don't persist |
+| Service main | [services/application-composition-service/cmd/application-composition-service/main.go](../../../services/application-composition-service/cmd/application-composition-service/main.go) | 75 lines, boots a router but the persistence layer is in-memory |
+| Handlers | [services/application-composition-service/internal/handlers/](../../../services/application-composition-service/internal/handlers/) | 8 handlers; create/read shapes exist but no transactional save/publish |
+| Migrations | [services/application-composition-service/internal/repo/migrations/](../../../services/application-composition-service/internal/repo/migrations/) | Directory exists; no real persistence of module versions |
+| Frontend (works) | [apps/web/src/routes/apps/runtime/](../../../apps/web/src/routes/apps/) (`/apps/runtime/:slug`) | ~4.7k LOC, drag-drop, 15 widget types — fully built |
+| Frontend ↔ backend bridge | [apps/web/src/lib/api/](../../../apps/web/src/lib/api/) (search for module/workshop) | Calls land on stub handlers that don't persist |
 
 ## Gap to close
 
@@ -100,5 +100,5 @@ The author never writes bespoke React for the common case.
 5. Wire the frontend `lib/api/workshop.ts` (or equivalent) to the new
    endpoints, keeping the existing widget editor untouched.
 6. Cross-reference unimplemented items against
-   [foundry-workshop-pipeline-1to1-checklist.md](../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md)
+   [foundry-workshop-pipeline-1to1-checklist.md](../../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md)
    and mark them as `done` only after a `_test.go` covers them.

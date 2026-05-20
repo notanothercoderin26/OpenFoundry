@@ -9,23 +9,23 @@
 
 | Field | Value |
 |---|---|
-| OpenFoundry service | [services/notification-alerting-service/](../../services/notification-alerting-service/) |
-| Launcher app(s) | Not a launcher tile of its own; transversal dependency for **#36 Operational Rules** (`/foundry-rules`), **#37 Dynamic Schedules** (`/dynamic-scheduling`), **#38 Approvals** (`/approvals`), and action-type side effects ([launcher-app-mapping.md §G/H](../../docs/reference/launcher-app-mapping.md)) |
+| OpenFoundry service | [services/notification-alerting-service/](../../../services/notification-alerting-service/) |
+| Launcher app(s) | Not a launcher tile of its own; transversal dependency for **#36 Operational Rules** (`/foundry-rules`), **#37 Dynamic Schedules** (`/dynamic-scheduling`), **#38 Approvals** (`/approvals`), and action-type side effects ([launcher-app-mapping.md §G/H](../../../docs/reference/launcher-app-mapping.md)) |
 | Foundry product | [Action notifications](https://www.palantir.com/docs/foundry/action-types/notifications/) + [Webhooks](https://www.palantir.com/docs/foundry/action-types/webhooks/) + [Approvals](https://www.palantir.com/docs/foundry/approvals/overview/) |
 | PoC act(s) | **Act 5** (action submission → notification) and **Act 6** (governance / approvals trail) |
-| 1-to-1 checklist | [foundry-automate-rules-1to1-checklist.md](../../docs/migration/foundry-automate-rules-1to1-checklist.md) (`partial`, ~20%) |
+| 1-to-1 checklist | [foundry-automate-rules-1to1-checklist.md](../../../docs/migration/foundry-automate-rules-1to1-checklist.md) (`partial`, ~20%) |
 | Parity matrix module | *Automate / Rules* (notifications slice) |
 
 ## Palantir reference (public docs)
 
 | Page | Live URL | Local scraped MD | Full-page screenshot |
 |---|---|---|---|
-| Action notifications | https://www.palantir.com/docs/foundry/action-types/notifications/ | [Seed URLs/Action Types/Notifications.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Notifications.md) | [Seed URLs/Action Types/Notifications.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Notifications.screenshot.png) |
-| Action webhooks | https://www.palantir.com/docs/foundry/action-types/webhooks/ | [Seed URLs/Action Types/Webhooks.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Webhooks.md) | [Seed URLs/Action Types/Webhooks.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Webhooks.screenshot.png) |
-| Action log | https://www.palantir.com/docs/foundry/action-types/action-log/ | [Seed URLs/Action Types/Action Log.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Action%20Log.md) | [Seed URLs/Action Types/Action Log.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Action%20Log.screenshot.png) |
-| Approvals overview | https://www.palantir.com/docs/foundry/approvals/overview/ | [Seed URLs/Approvals/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Approvals/Overview.md) | [Seed URLs/Approvals/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Approvals/Overview.screenshot.png) |
-| Foundry Rules overview | https://www.palantir.com/docs/foundry/foundry-rules/overview/ | [Seed URLs/Foundry Rules/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Foundry%20Rules/Overview.md) | [Seed URLs/Foundry Rules/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Foundry%20Rules/Overview.screenshot.png) |
-| Dynamic scheduling | https://www.palantir.com/docs/foundry/dynamic-scheduling/scheduling-overview/ | [Seed URLs/Dynamic Scheduling/Scheduling Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Dynamic%20Scheduling/Scheduling%20Overview.md) | [Seed URLs/Dynamic Scheduling/Scheduling Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Dynamic%20Scheduling/Scheduling%20Overview.screenshot.png) |
+| Action notifications | https://www.palantir.com/docs/foundry/action-types/notifications/ | [Seed URLs/Action Types/Notifications.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Notifications.md) | [Seed URLs/Action Types/Notifications.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Notifications.screenshot.png) |
+| Action webhooks | https://www.palantir.com/docs/foundry/action-types/webhooks/ | [Seed URLs/Action Types/Webhooks.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Webhooks.md) | [Seed URLs/Action Types/Webhooks.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Webhooks.screenshot.png) |
+| Action log | https://www.palantir.com/docs/foundry/action-types/action-log/ | [Seed URLs/Action Types/Action Log.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Action%20Log.md) | [Seed URLs/Action Types/Action Log.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Action%20Types/Action%20Log.screenshot.png) |
+| Approvals overview | https://www.palantir.com/docs/foundry/approvals/overview/ | [Seed URLs/Approvals/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Approvals/Overview.md) | [Seed URLs/Approvals/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Approvals/Overview.screenshot.png) |
+| Foundry Rules overview | https://www.palantir.com/docs/foundry/foundry-rules/overview/ | [Seed URLs/Foundry Rules/Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Foundry%20Rules/Overview.md) | [Seed URLs/Foundry Rules/Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Foundry%20Rules/Overview.screenshot.png) |
+| Dynamic scheduling | https://www.palantir.com/docs/foundry/dynamic-scheduling/scheduling-overview/ | [Seed URLs/Dynamic Scheduling/Scheduling Overview.md](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Dynamic%20Scheduling/Scheduling%20Overview.md) | [Seed URLs/Dynamic Scheduling/Scheduling Overview.screenshot.png](../../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Dynamic%20Scheduling/Scheduling%20Overview.screenshot.png) |
 
 ## Foundry behavior to replicate (summary)
 
@@ -40,11 +40,11 @@ as a reviewer queue with SLAs.
 
 | Layer | File | State |
 |---|---|---|
-| Service main | [services/notification-alerting-service/cmd/notification-alerting-service/main.go](../../services/notification-alerting-service/cmd/notification-alerting-service/main.go) | ~128 lines |
-| Handlers | [services/notification-alerting-service/internal/handlers/](../../services/notification-alerting-service/internal/handlers/) | 4 handlers; no real channel implementations |
-| Migrations | [services/notification-alerting-service/internal/repo/migrations/](../../services/notification-alerting-service/internal/repo/migrations/) | Directory present, no production-grade subscription / delivery tables |
+| Service main | [services/notification-alerting-service/cmd/notification-alerting-service/main.go](../../../services/notification-alerting-service/cmd/notification-alerting-service/main.go) | ~128 lines |
+| Handlers | [services/notification-alerting-service/internal/handlers/](../../../services/notification-alerting-service/internal/handlers/) | 4 handlers; no real channel implementations |
+| Migrations | [services/notification-alerting-service/internal/repo/migrations/](../../../services/notification-alerting-service/internal/repo/migrations/) | Directory present, no production-grade subscription / delivery tables |
 | Consumers | `ontology-actions-service`, `workflow-automation-service` | Both have hooks that would route to this service, currently no-ops |
-| Approvals UI | [apps/web/src/routes/approvals/](../../apps/web/src/routes/approvals/) | Renders Phase 4 mock per launcher mapping |
+| Approvals UI | [apps/web/src/routes/approvals/](../../../apps/web/src/routes/approvals/) | Renders Phase 4 mock per launcher mapping |
 
 ## Gap to close
 
@@ -87,4 +87,4 @@ as a reviewer queue with SLAs.
 4. Add a small timer worker for SLA escalation (Postgres LISTEN/NOTIFY
    or a cron column scan, your choice).
 5. Track unimplemented items in
-   [foundry-automate-rules-1to1-checklist.md](../../docs/migration/foundry-automate-rules-1to1-checklist.md).
+   [foundry-automate-rules-1to1-checklist.md](../../../docs/migration/foundry-automate-rules-1to1-checklist.md).
