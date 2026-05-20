@@ -404,6 +404,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/control-panel/RetentionPoliciesPage')).RetentionPoliciesPage }),
       },
       {
+        path: 'control-panel/restricted-views',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/RestrictedViewsPage')).RestrictedViewsPage }),
+      },
+      {
         path: 'compute-modules',
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionsPage')).FunctionsPage }),
       },
