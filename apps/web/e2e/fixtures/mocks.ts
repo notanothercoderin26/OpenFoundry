@@ -78,6 +78,29 @@ export async function mockAuth(page: Page, options: AuthMockOptions = {}): Promi
     }
     await route.fulfill({ json: buildUser(user) });
   });
+
+  // ScopedSessionBanner is mounted in the AppShell and unconditionally
+  // dereferences `options.presets` on render. Return the disabled-feature
+  // shape so the banner short-circuits to `null` instead of crashing in
+  // every authenticated spec.
+  await page.route('**/api/v1/auth/scoped-sessions', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      json: {
+        enabled: false,
+        allow_no_scoped_session: true,
+        always_show_selector: false,
+        no_scoped_session_available: true,
+        bypass_allowed: true,
+        active_scoped_session: null,
+        full_allowed_markings: [],
+        presets: [],
+      },
+    });
+  });
 }
 
 /**

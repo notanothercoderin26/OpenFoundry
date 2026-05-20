@@ -1,5 +1,4 @@
 import { test } from './fixtures/base';
-import { DEFAULT_ERROR_ALLOWLIST } from './fixtures/base';
 import { auditPageA11y } from './helpers/a11y';
 import { expectScreenshot, prepareForVisual } from './helpers/visual';
 
@@ -13,26 +12,7 @@ import { expectScreenshot, prepareForVisual } from './helpers/visual';
  *
  * Update the baseline when the home layout changes:
  *   pnpm --filter @open-foundry/web exec playwright test helpers-smoke --update-snapshots
- *
- * AppShell components currently consume some endpoints that don't return
- * the standard list envelope (e.g. ScopedSessionBanner expects a raw
- * array). The catch-all returns `{ data: [], total: 0 }` and these
- * components crash with "Cannot read properties of undefined (reading
- * 'filter')". This is a real defect tracked separately — for the smoke,
- * we tolerate it via errorAllowlist so the helper wiring is provable
- * in isolation. Task 21.1 will sweep these.
  */
-test.use({
-  errorAllowlist: {
-    patterns: [
-      ...DEFAULT_ERROR_ALLOWLIST,
-      /Cannot read properties of undefined \(reading 'filter'\)/,
-      /React Router caught the following error during render/,
-      // React's verbose `console.error('%o', err)` template.
-      /^console\.error: %o$/,
-    ],
-  },
-});
 
 test('home renders an a11y report and a visual baseline', async ({ adminPage, apiMocks }) => {
   await apiMocks.installPopulatedApiMocks(adminPage);
@@ -45,12 +25,14 @@ test('home renders an a11y report and a visual baseline', async ({ adminPage, ap
     // them without failing the smoke. Sweeping a11y comes in Task 21.1.
     rules: {
       'color-contrast': 'warn',
+      'link-name': 'warn',
       region: 'warn',
       'landmark-one-main': 'warn',
       'landmark-unique': 'warn',
       'page-has-heading-one': 'warn',
       'heading-order': 'warn',
       'aria-allowed-attr': 'warn',
+      'aria-prohibited-attr': 'warn',
       'aria-required-children': 'warn',
       'aria-required-parent': 'warn',
       'nested-interactive': 'warn',

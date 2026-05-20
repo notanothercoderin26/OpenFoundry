@@ -162,6 +162,49 @@ care about with named resource mockers (`apiMocks.mockDatasetsList(page,
 [makeDataset({ name: 'Custom' })])`) and let the rest fall through to the
 catch-all.
 
+## Scaffolding a new spec
+
+For new route areas, the fastest way to start is the scaffold script.
+It generates `apps/web/e2e/<area>.spec.ts` with the global fixtures
+pre-wired and three test stubs ready to fill in:
+
+```sh
+pnpm --filter @open-foundry/web exec tsx \
+  e2e/scripts/scaffold-spec.ts <area> <route-path> [pageObjectName]
+
+# Examples:
+pnpm --filter @open-foundry/web exec tsx \
+  e2e/scripts/scaffold-spec.ts datasets /datasets DatasetsListPage
+
+pnpm --filter @open-foundry/web exec tsx \
+  e2e/scripts/scaffold-spec.ts notifications /notifications NotificationsPage
+
+pnpm --filter @open-foundry/web exec tsx \
+  e2e/scripts/scaffold-spec.ts favorites /favorites
+```
+
+The third argument (Page Object class) is optional — when omitted, the
+generated spec falls back to inline `page.goto(...)` + `getByRole`. When
+present, it must be a TypeScript identifier that's already exported from
+`./pages` (the barrel) — the scaffold uses `new Foo(adminPage)` + `goto`
++ `expectLoaded`.
+
+What you get:
+- Three `test()` stubs: `<area> loads without errors`, `<area> primary CTA
+  opens modal or navigates`, `<area> list renders mocked data`.
+- `adminPage` + `apiMocks` destructured on every test.
+- TODO comments pointing to the patterns to copy from
+  (`route-smokes.spec.ts`, `workshop-actions.spec.ts`,
+  `fixtures-smoke.spec.ts`).
+
+Out-of-the-box, the generated spec PASSES against the default catch-all
+mocks for any route that doesn't require resource-specific data shapes.
+Fill in the TODOs with real mocks (`apiMocks.mockXList(...)`) and real
+assertions before opening the PR.
+
+Safety: the script refuses to overwrite an existing spec — delete it
+first if you really want to regenerate.
+
 ## Writing a new spec
 
 1. Import `test` and `expect` from `./fixtures/base` (NOT `@playwright/test`).
