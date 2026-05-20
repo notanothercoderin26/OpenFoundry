@@ -17,6 +17,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/search-abstraction/vespa"
 	repos "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/schemasync"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/status"
 	"github.com/segmentio/kafka-go"
 )
@@ -31,13 +32,20 @@ import (
 // silently dropped every event because no producer wrote to them —
 // see PoC/blockers/B03-ontology-indexer.md §G1 for the post-mortem.
 const (
-	TopicObjectChangedV1 = "ontology.object.changed.v1"
-	TopicLinkChangedV1   = "ontology.link.changed.v1"
-	TopicDLQ             = "ontology-indexer.dlq.v1"
+	TopicObjectChangedV1     = "ontology.object.changed.v1"
+	TopicLinkChangedV1       = "ontology.link.changed.v1"
+	TopicObjectTypeChangedV1 = "ontology.object_type.changed.v1"
+	TopicDLQ                 = "ontology-indexer.dlq.v1"
 )
 
 // SubscribeTopics pins all live topics consumed by this service.
-var SubscribeTopics = []string{TopicObjectChangedV1, TopicLinkChangedV1}
+//
+// `ontology.object_type.changed.v1` carries schema mutations from
+// `ontology-definition-service` (PoC/blockers/B03 §G5). The indexer
+// routes those records to the schema-aware mapping registrar; when
+// the configured backend does not implement MappingRegistrar the
+// envelope is skipped with a debug log.
+var SubscribeTopics = []string{TopicObjectChangedV1, TopicLinkChangedV1, TopicObjectTypeChangedV1}
 
 // ConsumerGroup pinned here so replicas don't fork rebalance state.
 const ConsumerGroup = "ontology-indexer"
@@ -157,10 +165,14 @@ type LinkChangedV1 struct {
 type RecordOutcome string
 
 const (
-	OutcomeIndexed      RecordOutcome = "indexed"
-	OutcomeDeleted      RecordOutcome = "deleted"
-	OutcomeDecodeError  RecordOutcome = "decode_error"
-	OutcomeSkippedStale RecordOutcome = "skipped_stale"
+	OutcomeIndexed             RecordOutcome = "indexed"
+	OutcomeDeleted             RecordOutcome = "deleted"
+	OutcomeDecodeError         RecordOutcome = "decode_error"
+	OutcomeSkippedStale        RecordOutcome = "skipped_stale"
+	OutcomeSchemaRegistered    RecordOutcome = "schema_registered"
+	OutcomeSchemaDropped       RecordOutcome = "schema_dropped"
+	OutcomeSchemaSkippedNoOp   RecordOutcome = "schema_skipped_no_registrar"
+	OutcomeSchemaIgnoredEvent  RecordOutcome = "schema_ignored_event"
 )
 
 func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
@@ -394,9 +406,28 @@ func ProcessMessageWithProjector(ctx context.Context, backend searchabstraction.
 		return processObjectChanged(ctx, backend, projector, msg, log)
 	case TopicLinkChangedV1:
 		return processLinkChanged(ctx, backend, projector, msg, log)
+	case TopicObjectTypeChangedV1:
+		return processObjectTypeChanged(ctx, backend, msg, log)
 	default:
 		log.Warn("ontology-indexer skipping record from unknown topic", slog.String("topic", msg.Topic))
 		return OutcomeDecodeError, nil
+	}
+}
+
+func processObjectTypeChanged(ctx context.Context, backend searchabstraction.SearchBackend, msg KafkaMessage, log *slog.Logger) (RecordOutcome, error) {
+	h := &schemasync.Handler{Backend: backend, Log: log}
+	out, err := h.ProcessRecord(ctx, msg.Value)
+	switch out {
+	case schemasync.OutcomeRegistered:
+		return OutcomeSchemaRegistered, err
+	case schemasync.OutcomeDropped:
+		return OutcomeSchemaDropped, err
+	case schemasync.OutcomeSkippedNoOp:
+		return OutcomeSchemaSkippedNoOp, err
+	case schemasync.OutcomeIgnoredEvent:
+		return OutcomeSchemaIgnoredEvent, err
+	default:
+		return OutcomeDecodeError, err
 	}
 }
 

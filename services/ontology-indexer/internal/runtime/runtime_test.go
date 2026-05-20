@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	databus "github.com/openfoundry/openfoundry-go/libs/event-bus-data"
+	searchabstraction "github.com/openfoundry/openfoundry-go/libs/search-abstraction"
 	"github.com/openfoundry/openfoundry-go/libs/search-abstraction/opensearch"
 	"github.com/openfoundry/openfoundry-go/libs/search-abstraction/vespa"
 	repos "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
@@ -343,11 +344,66 @@ func TestRunWithOptionsAndTrackerRecordsPerTypeStats(t *testing.T) {
 func TestTopicsAndConsumerGroup(t *testing.T) {
 	t.Parallel()
 	// Singular form is the kernel canon — see runtime.go for the
-	// post-mortem of the plural-spelling drift (B03 §G1).
+	// post-mortem of the plural-spelling drift (B03 §G1). The
+	// object_type topic was added for B03 §G5.
 	assert.Equal(t, "ontology.object.changed.v1", TopicObjectChangedV1)
 	assert.Equal(t, "ontology.link.changed.v1", TopicLinkChangedV1)
-	assert.Equal(t, []string{TopicObjectChangedV1, TopicLinkChangedV1}, SubscribeTopics)
+	assert.Equal(t, "ontology.object_type.changed.v1", TopicObjectTypeChangedV1)
+	assert.Equal(t, []string{TopicObjectChangedV1, TopicLinkChangedV1, TopicObjectTypeChangedV1}, SubscribeTopics)
 	assert.Equal(t, "ontology-indexer", ConsumerGroup)
+}
+
+// schemaCapturingBackend embeds fakeBackend and adds the MappingRegistrar
+// surface so we can prove the runtime routes object_type events into the
+// schemasync handler. Each call is recorded on the type.
+type schemaCapturingBackend struct {
+	fakeBackend
+	regMu      sync.Mutex
+	registered []string
+	dropped    []string
+}
+
+func (b *schemaCapturingBackend) RegisterTypeMapping(_ context.Context, m searchabstraction.TypeMapping) error {
+	b.regMu.Lock()
+	defer b.regMu.Unlock()
+	b.registered = append(b.registered, string(m.TypeID))
+	return nil
+}
+
+func (b *schemaCapturingBackend) DropTypeMapping(_ context.Context, _ repos.TenantId, typeID repos.TypeId) error {
+	b.regMu.Lock()
+	defer b.regMu.Unlock()
+	b.dropped = append(b.dropped, string(typeID))
+	return nil
+}
+
+func TestRunWithReaderRoutesObjectTypeEventsToSchemaSync(t *testing.T) {
+	cfg := testConfig()
+	envelope := mustJSON(t, map[string]any{
+		"schema_version": 1,
+		"event_type":     "created",
+		"aggregate":      "ontology_object_type",
+		"aggregate_id":   "Aircraft",
+		"after": map[string]any{
+			"api_name":    "Aircraft",
+			"primary_key": "id",
+			"properties": []map[string]any{
+				{"name": "tail_number", "property_type": "string", "searchable": true},
+			},
+		},
+	})
+	reader := &fakeReader{messages: []KafkaMessage{
+		{Topic: TopicObjectTypeChangedV1, Offset: 1, Value: envelope},
+	}}
+	backend := &schemaCapturingBackend{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- RunWithReader(ctx, cfg, discardLog(), reader, backend) }()
+	require.Eventually(t, func() bool { return len(reader.committed) == 1 }, time.Second, 10*time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	assert.Equal(t, []string{"Aircraft"}, backend.registered)
 }
 
 func testConfig() *config.Config {
