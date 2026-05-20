@@ -17,6 +17,12 @@
 > tenant headers are forwarded to HTTP-mode tools; LLM synthesis +
 > RAG + the geopolitical tool seed remain. Other blockers still
 > track the aviation set; only the per-vertical delta lives here.
+> + bulk-load smoke deferred to PoC execution). **B03 at ~25% PoC
+> readiness** — producer side of the indexer pipeline is done
+> platform-wide, but the read path (search route + Workshop pushdown
+> + indexing status) is missing and the geopolitics scale exposes it.
+> Other blockers track the aviation set; only the per-vertical delta
+> lives here.
 
 The geopolitics PoC reuses the platform-level blocker analyses already
 written for the aviation PoC under
@@ -42,6 +48,9 @@ that are not already covered by the corresponding aviation B0X file.
 | [B07](B07-agent-runtime-tool-routing.md) | Agent runtime ReAct executor wired into `POST /agents/{id}/runs` for Act 5 (Geopolitical Copilot, prompts P1-P6) — traces persist, JWT propagates, headers are allowlisted, run reaches terminal status | ✅ Yes — closes the "executor exists but is never called" regression. LLM synthesis, RAG, the 14-tool seed, and purpose-checkpoint enforcement are deferred to B07 Phase 2-5 | [`../../aviacion/blockers/B07-agent-runtime-tool-routing.md`](../../aviacion/blockers/B07-agent-runtime-tool-routing.md) |
 
 For B01, B03 the aviation files apply unchanged — no
+| [B03](B03-ontology-indexer.md) | Ontology indexer end-to-end at geopolitics scale — missing `POST /ontology/search`, Workshop pushdown and indexing-status surface | ✅ Yes — GDELT (~10⁹) + ACLED (~10⁶) + Persons/Orgs cardinality forces a real read path that aviation tolerated without | [`../../aviacion/blockers/B03-ontology-indexer.md`](../../aviacion/blockers/B03-ontology-indexer.md) |
+
+For B01, B04, B05, B06, B07 the aviation files apply unchanged — no
 geopolitics-specific override is needed today. If the geopolitical
 PoC ever requires a divergent code path (e.g. a graph-widget-only
 acceptance criterion), add a sibling B0X file here that references
