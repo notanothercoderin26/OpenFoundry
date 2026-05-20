@@ -10376,6 +10376,12 @@ export interface SharedPropertyType {
   owner_id: string;
   created_at: string;
   updated_at: string;
+  /**
+   * Optimistic-concurrency token surfaced by migration 0009. The
+   * Review-edits modal echoes it as `expected_version` so stale
+   * shared-property edits land in the Conflicts tab.
+   */
+  version?: number;
 }
 
 export interface OntologyProjectResourceBinding {

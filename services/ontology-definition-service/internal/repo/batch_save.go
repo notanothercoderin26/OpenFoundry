@@ -138,6 +138,8 @@ func (r *Repo) applyBatchEdit(ctx context.Context, tx pgx.Tx, audit *auditWriter
 		return r.applyObjectTypeGroupEdit(ctx, tx, audit, edit, actorID, batchID, source, base)
 	case models.BatchResourceProperty:
 		return r.applyPropertyEdit(ctx, tx, audit, edit, actorID, batchID, source, base)
+	case models.BatchResourceSharedPropertyType:
+		return r.applySharedPropertyTypeEdit(ctx, tx, audit, edit, actorID, batchID, source, base)
 	default:
 		return errResult(base, "unsupported_resource", "",
 			fmt.Sprintf("unsupported resource %q", edit.Resource)), nil
@@ -635,6 +637,222 @@ func (r *Repo) applyPropertyEdit(ctx context.Context, tx pgx.Tx, audit *auditWri
 type batchCreatePropertyBody struct {
 	ObjectTypeID                  uuid.UUID `json:"object_type_id"`
 	models.CreatePropertyRequest  `json:",inline"`
+}
+
+// ── Shared property types ──────────────────────────────────────────────
+
+func (r *Repo) applySharedPropertyTypeEdit(ctx context.Context, tx pgx.Tx, audit *auditWriter,
+	edit models.BatchEdit, actorID, batchID uuid.UUID, source string,
+	base models.BatchEditResult,
+) (models.BatchEditResult, error) {
+	switch edit.Op {
+	case models.BatchOpCreate:
+		var body models.CreateSharedPropertyTypeRequest
+		if err := json.Unmarshal(edit.Body, &body); err != nil {
+			return errResult(base, "invalid_body", "", err.Error()), nil
+		}
+		created, err := r.createSharedPropertyTypeTx(ctx, tx, &body, actorID, edit.ID)
+		if err != nil {
+			return errResult(base, "create_failed", "", err.Error()), nil
+		}
+		if err := audit.write(ctx, auditEntry{
+			BatchID:      &batchID,
+			ResourceKind: models.BatchResourceSharedPropertyType,
+			ResourceID:   created.ID,
+			Operation:    models.BatchOpCreate,
+			ChangedBy:    actorID,
+			NewVersion:   created.Version,
+			After:        created,
+			Source:       source,
+		}); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceSharedPropertyType, models.BatchOpCreate, created.ID, created.Version, actorID, batchID, nil, created); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		return okResult(base, created.ID, created.Version, created), nil
+
+	case models.BatchOpUpdate:
+		current, err := getSharedPropertyTypeForUpdate(ctx, tx, *edit.ID)
+		if err != nil {
+			return errResult(base, "get_failed", "", err.Error()), nil
+		}
+		if current == nil {
+			return errResult(base, "not_found", "", "shared property type not found"), nil
+		}
+		if current.Version != *edit.ExpectedVersion {
+			return conflictResult(base, current.ID, current.Version, current), nil
+		}
+		var body models.UpdateSharedPropertyTypeRequest
+		if err := json.Unmarshal(edit.Body, &body); err != nil {
+			return errResult(base, "invalid_body", "", err.Error()), nil
+		}
+		updated, err := r.updateSharedPropertyTypeTx(ctx, tx, current, &body)
+		if err != nil {
+			return errResult(base, "update_failed", "", err.Error()), nil
+		}
+		if err := audit.write(ctx, auditEntry{
+			BatchID:         &batchID,
+			ResourceKind:    models.BatchResourceSharedPropertyType,
+			ResourceID:      updated.ID,
+			Operation:       models.BatchOpUpdate,
+			ChangedBy:       actorID,
+			ExpectedVersion: edit.ExpectedVersion,
+			NewVersion:      updated.Version,
+			Before:          current,
+			After:           updated,
+			FieldDiffs:      diffObjects(current, updated),
+			Source:          source,
+		}); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceSharedPropertyType, models.BatchOpUpdate, updated.ID, updated.Version, actorID, batchID, current, updated); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		return okResult(base, updated.ID, updated.Version, updated), nil
+
+	case models.BatchOpDelete:
+		current, err := getSharedPropertyTypeForUpdate(ctx, tx, *edit.ID)
+		if err != nil {
+			return errResult(base, "get_failed", "", err.Error()), nil
+		}
+		if current == nil {
+			return errResult(base, "not_found", "", "shared property type not found"), nil
+		}
+		if current.Version != *edit.ExpectedVersion {
+			return conflictResult(base, current.ID, current.Version, current), nil
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM ontology_schema.shared_property_types WHERE id = $1`, current.ID); err != nil {
+			return errResult(base, "delete_failed", "", err.Error()), nil
+		}
+		if err := audit.write(ctx, auditEntry{
+			BatchID:         &batchID,
+			ResourceKind:    models.BatchResourceSharedPropertyType,
+			ResourceID:      current.ID,
+			Operation:       models.BatchOpDelete,
+			ChangedBy:       actorID,
+			ExpectedVersion: edit.ExpectedVersion,
+			NewVersion:      current.Version,
+			Before:          current,
+			Source:          source,
+		}); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceSharedPropertyType, models.BatchOpDelete, current.ID, current.Version, actorID, batchID, current, nil); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		base.ResourceID = &current.ID
+		base.Status = models.BatchStatusOK
+		return base, nil
+	}
+	return errResult(base, "unsupported_op", "", "unreachable"), nil
+}
+
+// createSharedPropertyTypeTx is the in-transaction counterpart of
+// Repo.CreateSharedPropertyType. The batch flow can't call the public
+// method because that one opens its own transaction; this variant
+// shares the caller's tx so the row, the audit-log entry and the
+// outbox event all commit together (or all roll back).
+//
+// `preassignedID` lets the working state hand-pick the uuid so the
+// frontend can stage related edits in the same batch without a
+// resolve-ids round trip — same contract as the other create
+// variants. nil means "let the server generate".
+func (r *Repo) createSharedPropertyTypeTx(ctx context.Context, tx pgx.Tx, body *models.CreateSharedPropertyTypeRequest, ownerID uuid.UUID, preassignedID *uuid.UUID) (*models.SharedPropertyType, error) {
+	id := uuid.New()
+	if preassignedID != nil && *preassignedID != uuid.Nil {
+		id = *preassignedID
+	}
+	dn := body.DisplayName
+	if dn == "" {
+		dn = body.Name
+	}
+	defVal, err := jsonOrNull(body.DefaultValue)
+	if err != nil {
+		return nil, fmt.Errorf("default_value: %w", err)
+	}
+	valRules, err := jsonOrNull(body.ValidationRules)
+	if err != nil {
+		return nil, fmt.Errorf("validation_rules: %w", err)
+	}
+	now := time.Now().UTC()
+	row := tx.QueryRow(ctx,
+		`INSERT INTO ontology_schema.shared_property_types
+		   (id, name, display_name, description, property_type,
+		    required, unique_constraint, time_dependent,
+		    default_value, validation_rules,
+		    owner_id, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)
+		 RETURNING `+sharedPropertyTypeColumns,
+		id, body.Name, dn, body.Description, body.PropertyType,
+		body.Required, body.UniqueConstraint, body.TimeDependent,
+		defVal, valRules, ownerID, now)
+	v := &models.SharedPropertyType{}
+	if err := row.Scan(&v.ID, &v.Name, &v.DisplayName, &v.Description, &v.PropertyType,
+		&v.Required, &v.UniqueConstraint, &v.TimeDependent,
+		&v.DefaultValue, &v.ValidationRules, &v.OwnerID, &v.CreatedAt, &v.UpdatedAt, &v.Version); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// updateSharedPropertyTypeTx applies a partial update inside the
+// batch transaction. `property_type` stays read-only — same rationale
+// as the public UpdateSharedPropertyType — because changing the
+// underlying type would break every consumer object type.
+func (r *Repo) updateSharedPropertyTypeTx(ctx context.Context, tx pgx.Tx, current *models.SharedPropertyType, body *models.UpdateSharedPropertyTypeRequest) (*models.SharedPropertyType, error) {
+	dn := current.DisplayName
+	if body.DisplayName != nil {
+		dn = *body.DisplayName
+	}
+	desc := current.Description
+	if body.Description != nil {
+		desc = *body.Description
+	}
+	required := current.Required
+	if body.Required != nil {
+		required = *body.Required
+	}
+	uniq := current.UniqueConstraint
+	if body.UniqueConstraint != nil {
+		uniq = *body.UniqueConstraint
+	}
+	td := current.TimeDependent
+	if body.TimeDependent != nil {
+		td = *body.TimeDependent
+	}
+	defVal := current.DefaultValue
+	if body.DefaultValue != nil {
+		defVal = body.DefaultValue
+	}
+	valRules := current.ValidationRules
+	if body.ValidationRules != nil {
+		valRules = body.ValidationRules
+	}
+	defValBytes, err := jsonOrNull(defVal)
+	if err != nil {
+		return nil, fmt.Errorf("default_value: %w", err)
+	}
+	valRulesBytes, err := jsonOrNull(valRules)
+	if err != nil {
+		return nil, fmt.Errorf("validation_rules: %w", err)
+	}
+	row := tx.QueryRow(ctx,
+		`UPDATE ontology_schema.shared_property_types
+		   SET display_name = $2, description = $3,
+		       required = $4, unique_constraint = $5, time_dependent = $6,
+		       default_value = $7, validation_rules = $8, updated_at = NOW(),
+		       version = version + 1
+		 WHERE id = $1
+		 RETURNING `+sharedPropertyTypeColumns,
+		current.ID, dn, desc, required, uniq, td, defValBytes, valRulesBytes)
+	updated := &models.SharedPropertyType{}
+	if err := row.Scan(&updated.ID, &updated.Name, &updated.DisplayName, &updated.Description, &updated.PropertyType,
+		&updated.Required, &updated.UniqueConstraint, &updated.TimeDependent,
+		&updated.DefaultValue, &updated.ValidationRules, &updated.OwnerID, &updated.CreatedAt, &updated.UpdatedAt, &updated.Version); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // emitOutboxForBatchEdit appends an `ontology.<resource>.changed.v1`

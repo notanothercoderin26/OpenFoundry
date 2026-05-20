@@ -21,7 +21,8 @@ export type BatchEditResource =
   | "object_type"
   | "property"
   | "link_type"
-  | "object_type_group";
+  | "object_type_group"
+  | "shared_property_type";
 
 export type BatchEditStatus = "ok" | "conflict" | "error" | "skipped";
 

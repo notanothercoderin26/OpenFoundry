@@ -17,9 +17,7 @@ import {
   buildOntologyResourceSearchIndex,
   createOntologyCleanupStagedChanges,
   createOntologyRestoreChange,
-  createSharedPropertyType,
   createValueType,
-  deleteSharedPropertyType,
   deleteValueType,
   deriveOntologyArtifact,
   getProjectWorkingState,
@@ -45,7 +43,6 @@ import {
   searchOntologyResourceIndex,
   sharedPropertyImpactWarning,
   sharedPropertyUsageSummary,
-  updateSharedPropertyType,
   updateValueType,
   validateOntologyBundle,
   valueTypeUsageSummary,
@@ -544,35 +541,50 @@ export function OntologyManagerPage() {
     setSharedDraft({ name: "", display_name: "", description: "", property_type: "string", value_type_id: "" });
   }
 
-  async function saveSharedProperty() {
+  function saveSharedProperty() {
+    // Stage onto the working state instead of hitting the API
+    // inline. The Review-edits modal in the top bar flushes through
+    // /batch-save and refresh() runs once the batch commits.
     const name = sharedDraft.name.trim() || slugifyGroupName(sharedDraft.display_name);
     if (!name) {
       setError("Shared property API name is required.");
       return;
     }
     setError("");
-    try {
-      const body = {
-        name,
-        display_name: sharedDraft.display_name.trim() || name,
-        description: sharedDraft.description,
-        property_type: sharedDraft.property_type,
-        value_type_id: sharedDraft.value_type_id || null,
-      };
-      const saved = editingSharedId
-        ? await updateSharedPropertyType(editingSharedId, body)
-        : await createSharedPropertyType(body);
-      setShared((current) => {
-        const index = current.findIndex((item) => item.id === saved.id);
-        if (index === -1) return [saved, ...current];
-        const next = [...current];
-        next[index] = saved;
-        return next;
+    const body = {
+      name,
+      display_name: sharedDraft.display_name.trim() || name,
+      description: sharedDraft.description,
+      property_type: sharedDraft.property_type,
+      value_type_id: sharedDraft.value_type_id || null,
+    };
+    const label = body.display_name || body.name;
+    if (editingSharedId) {
+      const current = shared.find((item) => item.id === editingSharedId);
+      if (!current) {
+        setError("Shared property no longer exists.");
+        return;
+      }
+      stageOntologyEdit({
+        op: "update",
+        resource: "shared_property_type",
+        resourceId: editingSharedId,
+        // version was added in migration 0009; legacy rows without a
+        // version surfaced from older snapshots default to 1.
+        expectedVersion: current.version ?? 1,
+        originalSnapshot: current,
+        label,
+        draft: body,
       });
-      resetSharedDraft();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to save shared property type");
+    } else {
+      stageOntologyEdit({
+        op: "create",
+        resource: "shared_property_type",
+        label,
+        draft: body,
+      });
     }
+    resetSharedDraft();
   }
 
   function editSharedProperty(property: SharedPropertyType) {
@@ -586,17 +598,22 @@ export function OntologyManagerPage() {
     });
   }
 
-  async function removeSharedProperty(property: SharedPropertyType) {
+  function removeSharedProperty(property: SharedPropertyType) {
+    // Stage the delete onto the working state. Confirmation flow still
+    // surfaces the usage impact warning inline so the user can back
+    // out before staging.
     const usage = sharedPropertyUsageSummary(property.id, { objectTypes, interfaces });
     const warning = sharedPropertyImpactWarning(property, usage);
-    if (typeof window !== "undefined" && !window.confirm(`${warning || `Delete ${property.display_name}?`}`)) return;
-    try {
-      await deleteSharedPropertyType(property.id);
-      setShared((current) => current.filter((item) => item.id !== property.id));
-      if (editingSharedId === property.id) resetSharedDraft();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to delete shared property type");
-    }
+    if (typeof window !== "undefined" && !window.confirm(`${warning || `Stage delete of ${property.display_name}?`}`)) return;
+    stageOntologyEdit({
+      op: "delete",
+      resource: "shared_property_type",
+      resourceId: property.id,
+      expectedVersion: property.version ?? 1,
+      originalSnapshot: property,
+      label: property.display_name || property.name,
+    });
+    if (editingSharedId === property.id) resetSharedDraft();
   }
 
   function resetValueTypeDraft() {
@@ -2007,7 +2024,7 @@ export function OntologyManagerPage() {
               </div>
               <textarea className="of-input" placeholder="Description" value={sharedDraft.description} onChange={(event) => setSharedDraft({ ...sharedDraft, description: event.target.value })} rows={2} />
               <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className="of-button of-button--primary" onClick={() => void saveSharedProperty()}>{editingSharedId ? "Save shared property" : "Create shared property"}</button>
+                <button type="button" className="of-button of-button--primary" onClick={saveSharedProperty}>{editingSharedId ? "Stage update" : "Stage create"}</button>
                 {editingSharedId ? <button type="button" className="of-button" onClick={resetSharedDraft}>Cancel</button> : null}
               </div>
               <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: "none", display: "grid", gap: 8 }}>
@@ -2026,7 +2043,7 @@ export function OntologyManagerPage() {
                       {warning ? <div className="of-status-warning" style={{ padding: 8, borderRadius: 6, fontSize: 12 }}>{warning}</div> : null}
                       <div style={{ display: "flex", gap: 6 }}>
                         <button type="button" className="of-button" onClick={() => editSharedProperty(s)}>Edit</button>
-                        <button type="button" className="of-button" onClick={() => void removeSharedProperty(s)} style={{ color: "#b91c1c" }}>Delete</button>
+                        <button type="button" className="of-button" onClick={() => removeSharedProperty(s)} style={{ color: "#b91c1c" }}>Stage delete</button>
                       </div>
                     </li>
                   );
