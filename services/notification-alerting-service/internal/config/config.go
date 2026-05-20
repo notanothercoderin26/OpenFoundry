@@ -41,6 +41,12 @@ type Config struct {
 		PlatformBaseURL  string
 	}
 
+	// WebhookSigningSecret is the shared HMAC-SHA256 key used to sign
+	// outbound slack / teams / generic webhook payloads. Empty value
+	// disables signing — receivers that do not validate (mock servers,
+	// httptest fixtures) keep working unchanged.
+	WebhookSigningSecret string
+
 	MetricsAddr  string
 	OTLPEndpoint string
 }
@@ -75,6 +81,8 @@ func FromEnv() (*Config, error) {
 	cfg.EmailRedaction.AllowlistUsers = splitCSV(os.Getenv("EMAIL_REDACTION_ALLOWLIST_USERS"))
 	cfg.EmailRedaction.RiskAcknowledged = parseBool(os.Getenv("EMAIL_REDACTION_RISK_ACKNOWLEDGED"))
 	cfg.EmailRedaction.PlatformBaseURL = os.Getenv("OPENFOUNDRY_PLATFORM_BASE_URL")
+
+	cfg.WebhookSigningSecret = os.Getenv("WEBHOOK_SIGNING_SECRET")
 
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
 	cfg.OTLPEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")

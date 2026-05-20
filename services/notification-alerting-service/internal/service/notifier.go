@@ -24,6 +24,15 @@ type Notifier struct {
 	HTTP           *http.Client
 	Bus            *NotificationBus // nil when NATS is unconfigured
 	EmailRedaction EmailRedactionConfig
+	// WebhookSigner is the optional HMAC-SHA256 signer applied to
+	// outbound slack/teams/generic webhook deliveries. Nil disables
+	// signing (matches dev/test setups where the receiver does not
+	// validate signatures).
+	WebhookSigner *WebhookSigner
+	// WebhookRetry controls the retry-with-backoff loop in PostWebhook.
+	// Zero value falls back to a single attempt — equivalent to the
+	// pre-retry behaviour.
+	WebhookRetry WebhookRetryPolicy
 }
 
 // Create persists the notification, dispatches every channel, records

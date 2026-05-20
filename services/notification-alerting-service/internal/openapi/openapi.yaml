@@ -7,6 +7,32 @@ info:
     used as the canonical input for `tools/of-sdk-gen`. Mirrors the chi
     router wiring in `internal/server/server.go` for the bearer-authenticated
     `/api/v1/notifications/*` paths.
+
+    ## Outbound webhook signing
+
+    When `WEBHOOK_SIGNING_SECRET` is configured, every outbound slack /
+    teams / generic webhook POST emitted by this service is signed with
+    HMAC-SHA256 over `<timestamp>.<body>` and carries two headers:
+
+      - `X-OpenFoundry-Signature: t=<unix>,v1=<hex>`
+      - `X-OpenFoundry-Signature-Timestamp: <unix>`
+
+    Receivers (SIEMs, Mattermost / Slack adapters) verify by replaying
+    `HMAC_SHA256(secret, "<ts>.<body>")` and comparing in constant time
+    to the `v1=` component, rejecting any request whose timestamp falls
+    outside a five-minute window. When the secret is empty, signing is
+    disabled and the unsigned POST is sent — kept this way so dev /
+    test setups against httptest servers keep working unchanged.
+
+    ## Webhook retry + DLQ
+
+    Failed deliveries (transport error or 5xx / 429) are retried with
+    exponential backoff (1s / 2s / 4s × ±20% jitter, three attempts
+    by default). 4xx other than 429 is treated as a terminal client
+    error and not retried. On final failure the corresponding row in
+    `notification_deliveries` carries `status = 'failed_after_retries'`
+    so the SOC has an at-least-once delivery audit without a separate
+    DLQ store. The list is queryable through the deliveries API.
 servers:
   - url: http://localhost:7155
     description: Local default
