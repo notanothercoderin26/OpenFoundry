@@ -22,10 +22,10 @@
 >
 > All three are closed in this commit (see "Status as of 2026-05-20"
 > below). Severity is now **Resolved** for end-to-end emission. The
-> per-type indexing status endpoint (G4 / acceptance criterion #2) is
-> also done in this branch — see the §G4 row in the status table.
-> Remaining Phase 2 items: reindex backfill (criterion #3) and
-> schema-aware mapping registration (G5).
+> per-type indexing status endpoint (G4 / acceptance criterion #2)
+> and the on-demand reindex backfill (criterion #3) are also done in
+> this branch — see the status table. The remaining Phase 2 item is
+> G5 (schema-aware mapping registration).
 
 ## Identity
 
@@ -102,6 +102,7 @@ see an indexing status (pending / live / stale).
 | **G2** `object-database-service.PutObject` skipped outbox | ✅ Done | New `OutboxPool *pgxpool.Pool` field on `Handlers`; new helper [internal/handlers/outbox.go](../../services/object-database-service/internal/handlers/outbox.go) wraps `libs/outbox.Enqueue` with the canonical `ontology.object.changed.v1` envelope (object_id, object_type_id, operation, properties, version, etc.) and deterministic event_id via `domain.DeriveEventID`. `PutObject` calls it on every successful `PutInserted`/`PutUpdated` outcome; `PutVersionConflict` correctly skips emission. Integration test `TestOutboxEndToEnd_PutObjectEmits` proves the INSERT lands in the WAL with the expected topic + payload + `ol-producer: object-database-service` header. |
 | **G3** Missing KafkaTopic CR for `ontology.link.changed.v1` | ✅ Done | Added to [infra/helm/infra/kafka-cluster/templates/topics-domain-v1.yaml](../../infra/helm/infra/kafka-cluster/templates/topics-domain-v1.yaml) as a sibling of the existing object topic. |
 | **G4** Per-type indexing status endpoint | ✅ Done | In-memory `status.Tracker` ([services/ontology-indexer/internal/status/tracker.go](../../services/ontology-indexer/internal/status/tracker.go)) increments per-(tenant, type) `indexed_count` / `deleted_count` whenever the runtime projector commits an `OutcomeIndexed` / `OutcomeDeleted` outcome (`recordStatus` in `runtime.go`). Server exposes `GET /api/v1/ontology-indexer/status?objectType=…&tenant=…` returning `{indexed_count, deleted_count, last_indexed_at, last_event_time, lag_seconds}` (lag = `last_indexed_at - last_event_time`, the wall-clock ETL delay); omitting `objectType` lists every (tenant, type) entry. Edge-gateway route added in [router_table.go](../../services/edge-gateway-service/internal/proxy/router_table.go) ahead of the catch-all `/api/v1/ontology`. Verified by `internal/status/tracker_test.go`, `internal/server/status_handler_test.go`, and `internal/runtime/runtime_test.go::TestRunWithOptionsAndTrackerRecordsPerTypeStats`. State is in-process and resets on restart — Postgres-backed persistence is a follow-up if the demo needs survivability. |
+| **AC #3** Reindex backfill from object-database-service | ✅ Done | New [`internal/reindex`](../../services/ontology-indexer/internal/reindex/) package: `Runner` pages through `object-database-service` (`GET /api/v1/ontology/types/{type_id}/objects`) and writes each row as a `searchabstraction.IndexDoc` with `Version=0` so any later Kafka event wins the version check. `HTTPSource` (with the `x-of-tenant` header) is the production source; tests use a fake. `Registry` keeps an in-memory job log (`pending → running → completed/failed` with `total_read`, `indexed`, `failed`, `duration_ms`, `error`). Endpoints: `POST /api/v1/ontology-indexer/reindex?objectType=…&tenant=…` returns 202 with `{job_id, status_url}` and spawns the backfill in a goroutine; `GET /api/v1/ontology-indexer/reindex/{job_id}` reports progress. Wired in `main.go` only when `OBJECT_DATABASE_URL` is set — otherwise the endpoints return 503 and the worker keeps running as streaming-only. Each backfilled row bumps the same `status.Tracker` used by G4 so `/status` reflects the rebuild. Verified by `runner_test.go`, `registry_test.go`, `http_source_test.go`, and `server/reindex_handler_test.go`. |
 | **G5** Schema-aware mapping registration (consume `ontology.object_type.changed.v1`) | ⏳ Phase 2 | The indexer today uses a generic JSONB document shape; per-type Vespa schemas would let it leverage typed fields and full-text tokenizers. Useful for Vespa quality at scale; not blocking the PoC narrative. |
 
 ## Phase 1b — done

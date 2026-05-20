@@ -26,7 +26,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/status"
 )
 
-func New(cfg *config.Config, m *observability.Metrics, tracker *status.Tracker, probes ...capabilities.DependencyProbe) *http.Server {
+func New(cfg *config.Config, m *observability.Metrics, tracker *status.Tracker, reindexDeps *ReindexDeps, probes ...capabilities.DependencyProbe) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(15 * time.Second))
@@ -39,6 +39,10 @@ func New(cfg *config.Config, m *observability.Metrics, tracker *status.Tracker, 
 
 	if tracker != nil {
 		r.Get("/api/v1/ontology-indexer/status", newStatusHandler(tracker))
+	}
+	if reindexDeps.configured() {
+		r.Post("/api/v1/ontology-indexer/reindex", newReindexStartHandler(reindexDeps))
+		r.Get("/api/v1/ontology-indexer/reindex/{job_id}", newReindexStatusHandler(reindexDeps))
 	}
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).

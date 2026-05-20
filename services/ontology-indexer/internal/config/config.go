@@ -50,6 +50,13 @@ type Config struct {
 	RetryMaxBackoff     time.Duration
 	DLQTopic            string
 	MetricsAddr         string
+	// ObjectDatabaseURL is the base URL (no trailing slash) for
+	// object-database-service. When set, the indexer exposes
+	// POST /api/v1/ontology-indexer/reindex which pages through the
+	// service to rebuild the search index for a (tenant, object_type)
+	// pair. When empty the endpoint returns 503 — see B03 acceptance
+	// criterion #3.
+	ObjectDatabaseURL string
 }
 
 func FromEnv() (*Config, error) {
@@ -71,6 +78,7 @@ func FromEnv() (*Config, error) {
 	cfg.RetryMaxBackoff = parseDuration(os.Getenv("INDEXER_RETRY_MAX_BACKOFF"), 2*time.Second)
 	cfg.DLQTopic = parseDLQTopic(os.Getenv("INDEXER_DLQ_TOPIC"), "ontology-indexer.dlq.v1")
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
+	cfg.ObjectDatabaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("OBJECT_DATABASE_URL")), "/")
 	if err := cfg.validateRequiredEnv(); err != nil {
 		return nil, err
 	}

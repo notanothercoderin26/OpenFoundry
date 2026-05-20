@@ -19,6 +19,7 @@ import (
 
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/reindex"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/runtime"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/server"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/status"
@@ -49,7 +50,24 @@ func main() {
 
 	metrics := observability.NewMetrics()
 	tracker := status.NewTracker()
-	srv := server.New(cfg, metrics, tracker)
+
+	// The reindex endpoints share the live tracker + search backend with
+	// the Kafka projector. They are only wired when the operator supplies
+	// OBJECT_DATABASE_URL — otherwise the indexer keeps running as a
+	// streaming-only worker and POST /reindex returns 503.
+	reindexDeps := &server.ReindexDeps{Tracker: tracker, Log: log, PageSize: 500}
+	if cfg.ObjectDatabaseURL != "" {
+		backend, err := runtime.NewSearchBackend(cfg)
+		if err != nil {
+			log.Error("reindex search backend init failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		reindexDeps.Source = reindex.NewHTTPSource(cfg.ObjectDatabaseURL)
+		reindexDeps.Backend = backend
+		reindexDeps.Registry = reindex.NewRegistry()
+	}
+
+	srv := server.New(cfg, metrics, tracker, reindexDeps)
 
 	runtimeErr := make(chan error, 1)
 	go func() {
