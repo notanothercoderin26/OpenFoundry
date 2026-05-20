@@ -209,6 +209,15 @@ function createId() {
   return crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10);
 }
 
+// Pretty-print an aggregated number for an edge label. Integers stay
+// integer, floats are clipped to two decimals so the canvas does not
+// drown in significant figures.
+function formatAggregate(value: number): string {
+  if (!Number.isFinite(value)) return String(value);
+  if (Number.isInteger(value)) return value.toLocaleString();
+  return value.toFixed(2);
+}
+
 function parseObjectId(node: GraphNode | null) {
   if (!node || !node.id.startsWith('object:')) return '';
   return node.id.slice('object:'.length);
@@ -446,6 +455,23 @@ export function VertexPage() {
     cartesianReverseX: false,
     cartesianReverseY: false,
     radialDensity: 3 as number, // 1-5 spacing factor
+  });
+
+  // D.4 — Edge styling bundle. Drives cytoscape curve-style (line
+  // type), per-edge width from a property (or count for aggregate
+  // edges produced by D.3), arrow visibility, edge label, and label
+  // aggregation across grouped edges.
+  const [edgeStyling, setEdgeStyling] = useState({
+    lineType: 'curved' as 'curved' | 'straight' | 'orthogonal',
+    widthByProperty: '' as string,
+    widthAggregate: 'sum' as 'sum' | 'count' | 'avg' | 'max',
+    widthMin: 1 as number,
+    widthMax: 8 as number,
+    widthInvert: false,
+    showArrows: true,
+    showReversed: false,
+    labelByProperty: '' as string,
+    labelAggregate: 'count' as 'sum' | 'count' | 'avg' | 'max',
   });
 
   const [subtitleField, setSubtitleField] = useState('');
@@ -770,6 +796,26 @@ export function VertexPage() {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(`of.vertex.layout-advanced.v1:${analysisRid}`, JSON.stringify(layoutAdvanced));
   }, [analysisRid, layoutAdvanced]);
+
+  // D.4 — Persist edge styling per analysisRid.
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(`of.vertex.edge-styling.v1:${analysisRid}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<typeof edgeStyling>;
+        setEdgeStyling((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch {
+      // ignore malformed payloads
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisRid]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(`of.vertex.edge-styling.v1:${analysisRid}`, JSON.stringify(edgeStyling));
+  }, [analysisRid, edgeStyling]);
 
   // ---- D.1 — Saved style helpers ----
 
@@ -1434,43 +1480,128 @@ export function VertexPage() {
           ...(presetPosition ? { position: presetPosition } : {}),
         };
       });
+    // D.4 — Per-property width scaling. Collect the global range of
+    // the chosen property across the visible edges so we can
+    // normalise each edge into the [widthMin, widthMax] band.
+    const widthProp = edgeStyling.widthByProperty.trim();
+    const widthValues: number[] = [];
+    if (widthProp) {
+      for (const edge of filteredGraph.edges) {
+        if (collapsedNodeIds.has(edge.source) || collapsedNodeIds.has(edge.target)) continue;
+        const raw = edge.metadata?.[widthProp];
+        const num = Number(numericValue(raw));
+        if (Number.isFinite(num)) widthValues.push(num);
+      }
+    }
+    const widthDomain = {
+      min: widthValues.length > 0 ? Math.min(...widthValues) : 0,
+      max: widthValues.length > 0 ? Math.max(...widthValues) : 0,
+    };
+    const scaleWidth = (value: number): number => {
+      const lo = edgeStyling.widthMin;
+      const hi = edgeStyling.widthMax;
+      if (widthDomain.max === widthDomain.min) return (lo + hi) / 2;
+      const t = (value - widthDomain.min) / (widthDomain.max - widthDomain.min);
+      const norm = edgeStyling.widthInvert ? 1 - t : t;
+      return lo + norm * (hi - lo);
+    };
+    // D.4 — Aggregate helper used both for per-edge labels and for
+    // the synthetic D.3 grouping edges. `count` ignores the value
+    // and returns the number of contributing edges.
+    const aggregate = (values: number[], kind: typeof edgeStyling.widthAggregate): number => {
+      if (values.length === 0) return 0;
+      switch (kind) {
+        case 'sum':
+          return values.reduce((a, b) => a + b, 0);
+        case 'avg':
+          return values.reduce((a, b) => a + b, 0) / values.length;
+        case 'max':
+          return Math.max(...values);
+        case 'count':
+        default:
+          return values.length;
+      }
+    };
     const edgeElements = filteredGraph.edges
       .filter((edge) => !collapsedNodeIds.has(edge.source) && !collapsedNodeIds.has(edge.target))
-      .map((edge) => ({
-        data: {
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          label:
-            edgeLabelProperty && edge.metadata?.[edgeLabelProperty] != null
-              ? String(edge.metadata[edgeLabelProperty])
-              : edge.label,
-          width: edgeWidthFor(edge) + (edge.metadata?.simulated === true ? 0.6 : 0),
-          lineStyle: edgeDashEnabled || edge.metadata?.simulated === true ? 'dashed' : 'solid',
-        },
-        classes: selectedEdgeId === edge.id ? 'is-edge-selected' : '',
-      }));
+      .map((edge) => {
+        let width = edgeWidthFor(edge) + (edge.metadata?.simulated === true ? 0.6 : 0);
+        if (widthProp) {
+          const num = Number(numericValue(edge.metadata?.[widthProp]));
+          if (Number.isFinite(num)) width = scaleWidth(num);
+        }
+        const labelProp = edgeStyling.labelByProperty.trim() || edgeLabelProperty;
+        const label = labelProp && edge.metadata?.[labelProp] != null
+          ? String(edge.metadata[labelProp])
+          : edge.label;
+        return {
+          data: {
+            id: edge.id,
+            source: edge.source,
+            target: edge.target,
+            label,
+            width,
+            lineStyle: edgeDashEnabled || edge.metadata?.simulated === true ? 'dashed' : 'solid',
+          },
+          classes: selectedEdgeId === edge.id ? 'is-edge-selected' : '',
+        };
+      });
     // Synthetic aggregate edges, one per grouping. We only add the
     // synthetic edge when both endpoints survive the node filter
     // — otherwise the grouping is dangling and we drop it from the
     // canvas this render.
     const surviving = new Set(nodeElements.map((n) => n.data.id));
+    // Pre-index the original edges by endpoint pair for the D.3
+    // aggregate lookup so we don't rescan filteredGraph.edges per
+    // grouping.
+    const edgesByEndpoints = new Map<string, typeof filteredGraph.edges>();
+    for (const edge of filteredGraph.edges) {
+      const pair = [edge.source, edge.target].sort().join('::');
+      if (!edgesByEndpoints.has(pair)) edgesByEndpoints.set(pair, []);
+      edgesByEndpoints.get(pair)!.push(edge);
+    }
     const aggregateEdges = edgeGroupings
       .filter((g) => surviving.has(g.endpointA) && surviving.has(g.endpointB))
-      .map((g) => ({
-        data: {
-          id: `grouping:${g.id}`,
-          source: g.endpointA,
-          target: g.endpointB,
-          label: g.label,
-          width: 3 + Math.min(4, Math.log2(g.collapsedNodeIds.length + 1)),
-          lineStyle: 'solid',
-        },
-        classes: 'is-aggregate-edge',
-      }));
+      .map((g) => {
+        const collapsedSet = new Set(g.collapsedNodeIds);
+        // Find every original edge incident to any collapsed node.
+        // The aggregate property is read off those edges; the
+        // count is the number of collapsed nodes that participate.
+        const incident = filteredGraph.edges.filter(
+          (e) => collapsedSet.has(e.source) || collapsedSet.has(e.target),
+        );
+        const widthValuesForGrouping = widthProp
+          ? incident
+              .map((e) => Number(numericValue(e.metadata?.[widthProp])))
+              .filter((n) => Number.isFinite(n))
+          : [];
+        const labelProp = edgeStyling.labelByProperty.trim();
+        const labelValuesForGrouping = labelProp
+          ? incident
+              .map((e) => Number(numericValue(e.metadata?.[labelProp])))
+              .filter((n) => Number.isFinite(n))
+          : [];
+        const width = widthProp && widthValuesForGrouping.length > 0
+          ? scaleWidth(aggregate(widthValuesForGrouping, edgeStyling.widthAggregate))
+          : 3 + Math.min(4, Math.log2(g.collapsedNodeIds.length + 1));
+        const label = labelProp && labelValuesForGrouping.length > 0
+          ? `${g.label} · ${edgeStyling.labelAggregate} ${labelProp} = ${formatAggregate(aggregate(labelValuesForGrouping, edgeStyling.labelAggregate))}`
+          : g.label;
+        return {
+          data: {
+            id: `grouping:${g.id}`,
+            source: g.endpointA,
+            target: g.endpointB,
+            label,
+            width,
+            lineStyle: 'solid',
+          },
+          classes: 'is-aggregate-edge',
+        };
+      });
     return [...nodeElements, ...edgeElements, ...aggregateEdges];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredGraph, subtitleField, extendedLabelField, colorByField, eventRows, pinnedPositions, nodeLabelProperty, nodeSizeProperty, nodeDisplayMode, selectedNodeIds, edgeLabelProperty, edgeDashEnabled, selectedEdgeId, edgeGroupings, layoutMode, layoutAdvanced]);
+  }, [filteredGraph, subtitleField, extendedLabelField, colorByField, eventRows, pinnedPositions, nodeLabelProperty, nodeSizeProperty, nodeDisplayMode, selectedNodeIds, edgeLabelProperty, edgeDashEnabled, selectedEdgeId, edgeGroupings, layoutMode, layoutAdvanced, edgeStyling]);
 
   const cyStylesheet = useMemo<StylesheetStyle[]>(() => {
     const fontSize = nodeDisplayMode === 'card' ? 11 : 10;
@@ -1517,8 +1648,22 @@ export function VertexPage() {
           width: 'data(width)' as unknown as number,
           'line-color': '#94a3b8',
           'target-arrow-color': '#94a3b8',
-          'target-arrow-shape': 'triangle',
-          'curve-style': 'bezier',
+          'source-arrow-color': '#94a3b8',
+          // D.4 — Arrow visibility + direction. When `showReversed`
+          // is on we paint the arrow at the source end instead of
+          // the target end.
+          'target-arrow-shape': edgeStyling.showArrows && !edgeStyling.showReversed ? 'triangle' : 'none',
+          'source-arrow-shape': edgeStyling.showArrows && edgeStyling.showReversed ? 'triangle' : 'none',
+          // D.4 — Line type maps to cytoscape's curve-style:
+          //   curved      → bezier   (default)
+          //   straight    → straight
+          //   orthogonal  → taxi     (right-angled edges)
+          'curve-style':
+            edgeStyling.lineType === 'straight'
+              ? 'straight'
+              : edgeStyling.lineType === 'orthogonal'
+              ? 'taxi'
+              : 'bezier',
           'line-style': 'data(lineStyle)' as unknown as 'solid',
           'font-size': 9,
           color: '#64748b',
@@ -1527,10 +1672,19 @@ export function VertexPage() {
       },
       {
         selector: 'edge.is-edge-selected',
-        style: { 'line-color': '#7c3aed', 'target-arrow-color': '#7c3aed', width: 4 },
+        style: { 'line-color': '#7c3aed', 'target-arrow-color': '#7c3aed', 'source-arrow-color': '#7c3aed', width: 4 },
+      },
+      {
+        selector: 'edge.is-aggregate-edge',
+        style: {
+          'line-color': '#475569',
+          'target-arrow-color': '#475569',
+          'source-arrow-color': '#475569',
+          'font-weight': 600,
+        },
       },
     ];
-  }, [nodeDisplayMode, nodeIconMode]);
+  }, [nodeDisplayMode, nodeIconMode, edgeStyling]);
 
   const cyLayout = useMemo(() => {
     const base = { animate: true, padding: 36 };
@@ -2470,6 +2624,133 @@ export function VertexPage() {
               )}
             </div>
           )}
+          <div className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
+            <p className="of-eyebrow" style={{ margin: 0 }}>Edge styling</p>
+            <Field label="Line type">
+              <select
+                className="of-select"
+                value={edgeStyling.lineType}
+                onChange={(e) =>
+                  setEdgeStyling((prev) => ({ ...prev, lineType: e.target.value as typeof prev.lineType }))
+                }
+              >
+                <option value="curved">Curved (bezier)</option>
+                <option value="straight">Straight</option>
+                <option value="orthogonal">Orthogonal (right-angled)</option>
+              </select>
+            </Field>
+            <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={edgeStyling.showArrows}
+                  onChange={(e) => setEdgeStyling((prev) => ({ ...prev, showArrows: e.target.checked }))}
+                />
+                Show arrows
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={edgeStyling.showReversed}
+                  onChange={(e) => setEdgeStyling((prev) => ({ ...prev, showReversed: e.target.checked }))}
+                  disabled={!edgeStyling.showArrows}
+                />
+                Show reversed
+              </label>
+            </div>
+            <Field label="Width by property">
+              <input
+                className="of-input"
+                value={edgeStyling.widthByProperty}
+                placeholder="Numeric edge property (e.g. weight)"
+                onChange={(e) => setEdgeStyling((prev) => ({ ...prev, widthByProperty: e.target.value }))}
+              />
+            </Field>
+            {edgeStyling.widthByProperty.trim() !== '' && (
+              <div style={{ display: 'grid', gap: 6 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                  <Field label="Min px">
+                    <input
+                      type="number"
+                      className="of-input"
+                      min={0.5}
+                      max={20}
+                      step={0.5}
+                      value={edgeStyling.widthMin}
+                      onChange={(e) =>
+                        setEdgeStyling((prev) => ({ ...prev, widthMin: Number(e.target.value) || 1 }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Max px">
+                    <input
+                      type="number"
+                      className="of-input"
+                      min={1}
+                      max={40}
+                      step={0.5}
+                      value={edgeStyling.widthMax}
+                      onChange={(e) =>
+                        setEdgeStyling((prev) => ({ ...prev, widthMax: Number(e.target.value) || 8 }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Aggregate">
+                    <select
+                      className="of-select"
+                      value={edgeStyling.widthAggregate}
+                      onChange={(e) =>
+                        setEdgeStyling((prev) => ({
+                          ...prev,
+                          widthAggregate: e.target.value as typeof prev.widthAggregate,
+                        }))
+                      }
+                    >
+                      <option value="sum">Sum</option>
+                      <option value="count">Count</option>
+                      <option value="avg">Average</option>
+                      <option value="max">Max</option>
+                    </select>
+                  </Field>
+                </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={edgeStyling.widthInvert}
+                    onChange={(e) => setEdgeStyling((prev) => ({ ...prev, widthInvert: e.target.checked }))}
+                  />
+                  Invert scale (low value → thick edge)
+                </label>
+              </div>
+            )}
+            <Field label="Label by property">
+              <input
+                className="of-input"
+                value={edgeStyling.labelByProperty}
+                placeholder="Edge property (numeric for aggregate)"
+                onChange={(e) => setEdgeStyling((prev) => ({ ...prev, labelByProperty: e.target.value }))}
+              />
+            </Field>
+            {edgeStyling.labelByProperty.trim() !== '' && (
+              <Field label="Label aggregate (for grouped edges)">
+                <select
+                  className="of-select"
+                  value={edgeStyling.labelAggregate}
+                  onChange={(e) =>
+                    setEdgeStyling((prev) => ({
+                      ...prev,
+                      labelAggregate: e.target.value as typeof prev.labelAggregate,
+                    }))
+                  }
+                >
+                  <option value="sum">Sum</option>
+                  <option value="count">Count</option>
+                  <option value="avg">Average</option>
+                  <option value="max">Max</option>
+                </select>
+              </Field>
+            )}
+          </div>
           <Field label="Node mode">
             <select
               className="of-select"
