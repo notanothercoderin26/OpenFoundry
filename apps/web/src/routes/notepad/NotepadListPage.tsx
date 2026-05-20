@@ -189,10 +189,11 @@ export function NotepadListPage() {
         search: nextSearch.trim() || undefined,
         per_page: 100,
       });
-      setDocuments(response.data);
-      setTotal(response.total ?? response.data.length);
+      const data = response.data ?? [];
+      setDocuments(data);
+      setTotal(response.total ?? data.length);
       setPresenceByDocument({});
-      void hydratePresence(response.data);
+      void hydratePresence(data);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to load notepad documents');
       setDocuments([]);
