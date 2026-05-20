@@ -193,9 +193,15 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		(strings.HasPrefix(path, "/api/v1/ontology/objects/") && strings.HasSuffix(path, "/rule-runs")):
 		return u.OntologyActions
 
+	// Quiver visual functions live in ontology-definition-service's
+	// Postgres database (table `ontology_quiver_visual_functions`),
+	// so the CRUD surface is served from there — not from
+	// ontology-query-service which is Cassandra-only.
+	case strings.HasPrefix(path, "/api/v1/ontology/quiver"):
+		return u.OntologyDefinition
+
 	case strings.HasPrefix(path, "/api/v1/ontology/search"),
 		strings.HasPrefix(path, "/api/v1/ontology/graph"),
-		strings.HasPrefix(path, "/api/v1/ontology/quiver"),
 		strings.HasPrefix(path, "/api/v1/ontology/object-sets"),
 		strings.HasPrefix(path, "/api/v1/ontology/traverse"),
 		strings.HasPrefix(path, "/api/v1/ontology/histogram"),

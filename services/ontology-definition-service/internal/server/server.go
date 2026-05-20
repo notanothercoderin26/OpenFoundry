@@ -12,16 +12,28 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
+	ontologykernel "github.com/openfoundry/openfoundry-go/libs/ontology-kernel"
+	kernelsearch "github.com/openfoundry/openfoundry-go/libs/ontology-kernel/handlers/search"
 	"github.com/openfoundry/openfoundry-go/services/ontology-definition-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/ontology-definition-service/internal/handlers"
 )
 
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, pool *pgxpool.Pool, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	// Quiver visual functions live in this service's Postgres database
+	// (`ontology_quiver_visual_functions`, see 0001_ontology_schema_consolidated.sql)
+	// so the CRUD handlers from libs/ontology-kernel/handlers/search are
+	// mounted here. Pool may be nil in tests; in that case the handlers
+	// are skipped and the routes 404 instead of panicking.
+	var quiverState *ontologykernel.AppState
+	if pool != nil {
+		quiverState = &ontologykernel.AppState{DB: pool}
+	}
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -114,6 +126,19 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		// resource_kind / resource_id / batch_id / changed_by let
 		// the per-resource History tab narrow the view.
 		api.Get("/audit-log", h.ListAuditLog)
+
+		// Quiver visual functions — saved chart configurations consumed
+		// by the Vertex graph explorer. Frontend hits
+		// `/api/v1/ontology/quiver/visual-functions[/{id}]`; the
+		// underlying handlers live in libs/ontology-kernel/handlers/search.
+		if quiverState != nil {
+			api.Get("/quiver/visual-functions", kernelsearch.ListQuiverVisualFunctions(quiverState))
+			api.Post("/quiver/visual-functions", kernelsearch.CreateQuiverVisualFunction(quiverState))
+			api.Get("/quiver/visual-functions/{id}", kernelsearch.GetQuiverVisualFunction(quiverState))
+			api.Patch("/quiver/visual-functions/{id}", kernelsearch.UpdateQuiverVisualFunction(quiverState))
+			api.Delete("/quiver/visual-functions/{id}", kernelsearch.DeleteQuiverVisualFunction(quiverState))
+			api.Post("/quiver/visual-functions/vega-spec", kernelsearch.GetQuiverVegaSpec(quiverState))
+		}
 	}
 
 	// Mount on both the legacy `/api/v1/ontology-definition` prefix
