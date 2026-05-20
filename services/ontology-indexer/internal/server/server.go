@@ -1,8 +1,10 @@
-// Package server hosts the ops-only HTTP surface for ontology-indexer.
+// Package server hosts the HTTP surface for ontology-indexer.
 //
-// ontology-indexer is a Kafka worker; the HTTP server only exposes
-// /healthz and /metrics so probes + Prometheus can scrape the binary.
-// There is no /api/v1.
+// ontology-indexer is primarily a Kafka worker. The HTTP server exposes
+// /healthz + /metrics for probes / Prometheus, plus a read-only
+// /api/v1/ontology-indexer/status surface so the Ontology Manager UI can
+// answer "is type X indexed yet?" without hitting the search backend
+// directly (B03 §G4).
 package server
 
 import (
@@ -21,9 +23,10 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/status"
 )
 
-func New(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+func New(cfg *config.Config, m *observability.Metrics, tracker *status.Tracker, probes ...capabilities.DependencyProbe) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(15 * time.Second))
@@ -33,6 +36,10 @@ func New(cfg *config.Config, m *observability.Metrics, probes ...capabilities.De
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
+
+	if tracker != nil {
+		r.Get("/api/v1/ontology-indexer/status", newStatusHandler(tracker))
+	}
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)

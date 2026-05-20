@@ -21,6 +21,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/runtime"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/server"
+	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/status"
 )
 
 var version = "dev"
@@ -47,11 +48,12 @@ func main() {
 	defer func() { _ = shutdownTracing(context.Background()) }()
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, metrics)
+	tracker := status.NewTracker()
+	srv := server.New(cfg, metrics, tracker)
 
 	runtimeErr := make(chan error, 1)
 	go func() {
-		runtimeErr <- runtime.Run(ctx, cfg, log)
+		runtimeErr <- runtime.RunWithStatusTracker(ctx, cfg, log, tracker)
 	}()
 
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {

@@ -45,6 +45,7 @@ func upstreamForDocs(t *testing.T) config.UpstreamURLs {
 		PipelineBuild:             "pipeline-build-service",
 		Lineage:                   "lineage-service",
 		OntologyActions:           "ontology-actions-service",
+		OntologyIndexer:           "ontology-indexer",
 		OntologyQuery:             "ontology-query-service",
 		ObjectDatabase:            "object-database-service",
 		OntologyDefinition:        "ontology-definition-service",

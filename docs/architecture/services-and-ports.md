@@ -116,6 +116,7 @@ from `services/edge-gateway-service/internal/proxy/router_table.go`:
 - `/api/v1/ontology/search`, `/api/v1/ontology/graph`, `/api/v1/ontology/quiver`, `/api/v1/ontology/object-sets`, `/api/v1/ontology/types/{id}/objects/knn` -> `ontology-query-service`
 - `/api/v1/ontology/links/{id}/instances`, `/api/v1/ontology/types/{id}/objects`, `/api/v1/ontology/types/{id}/objects/query` -> `object-database-service`
 - `/api/v1/ontology/interfaces`, `/api/v1/ontology/shared-property-types`, `/api/v1/ontology/links`, `/api/v1/ontology/types` -> `ontology-definition-service`
+- `/api/v1/ontology-indexer/status` -> `ontology-indexer` (B03 §G4: per-type `{indexed_count, last_indexed_at, lag_seconds}` for the Ontology Manager "Indexing" sub-tab)
 - `/api/v1/ml/experiments`, `/api/v1/ml/models` -> `model-catalog-service`
 - `/api/v1/ml/deployments`, `/api/v1/ml/batch-predictions` -> `model-deployment-service`
 - `/api/v1/ai/evaluations` -> `ai-evaluation-service`

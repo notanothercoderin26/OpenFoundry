@@ -225,6 +225,10 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		strings.HasPrefix(path, "/api/v1/ontology/links"),
 		strings.HasPrefix(path, "/api/v1/ontology/types"):
 		return u.OntologyDefinition
+	// ontology-indexer status / reindex (B03 §G4). Must precede the
+	// catch-all `/api/v1/ontology` route which would otherwise swallow it.
+	case strings.HasPrefix(path, "/api/v1/ontology-indexer"):
+		return u.OntologyIndexer
 	case strings.HasPrefix(path, "/api/v1/ontology"):
 		return u.OntologyDefinition
 

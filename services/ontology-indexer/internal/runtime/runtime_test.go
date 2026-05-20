@@ -18,6 +18,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/search-abstraction/vespa"
 	repos "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/status"
 )
 
 type fakeReader struct {
@@ -305,6 +306,38 @@ func TestRunWithReaderStopsOnContextCancel(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("RunWithReader did not return after context cancel")
 	}
+}
+
+func TestRunWithOptionsAndTrackerRecordsPerTypeStats(t *testing.T) {
+	cfg := testConfig()
+	eventTime := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	reader := &fakeReader{messages: []KafkaMessage{
+		{Topic: TopicObjectChangedV1, Offset: 1, Time: eventTime, Value: mustJSON(t, map[string]any{
+			"tenant": "acme", "id": "ac-1", "type_id": "Aircraft", "version": 1, "payload": map[string]any{"tail_number": "N12345"},
+		})},
+		{Topic: TopicObjectChangedV1, Offset: 2, Time: eventTime, Value: mustJSON(t, map[string]any{
+			"tenant": "acme", "id": "ac-2", "type_id": "Aircraft", "version": 1, "payload": map[string]any{"tail_number": "N67890"},
+		})},
+		{Topic: TopicObjectChangedV1, Offset: 3, Time: eventTime, Value: mustJSON(t, map[string]any{
+			"tenant": "acme", "id": "ac-1", "type_id": "Aircraft", "version": 2, "payload": map[string]any{}, "deleted": true,
+		})},
+	}}
+	backend := &fakeBackend{}
+	tracker := status.NewTracker()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- RunWithOptionsAndTracker(ctx, cfg, discardLog(), reader, backend, nil, tracker) }()
+	require.Eventually(t, func() bool { return len(reader.committed) == 3 }, time.Second, 10*time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+
+	snap, ok := tracker.Snapshot("acme", "Aircraft")
+	require.True(t, ok)
+	assert.Equal(t, uint64(2), snap.IndexedCount)
+	assert.Equal(t, uint64(1), snap.DeletedCount)
+	assert.False(t, snap.LastIndexedAt.IsZero())
+	assert.Equal(t, eventTime, snap.LastEventTime)
 }
 
 func TestTopicsAndConsumerGroup(t *testing.T) {
