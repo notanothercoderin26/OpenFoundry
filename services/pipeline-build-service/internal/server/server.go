@@ -157,6 +157,13 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabil
 		api.Post("/pipelines/{id}/followers", handler.FollowPipeline)
 		api.Delete("/pipelines/{id}/followers", handler.UnfollowPipeline)
 
+		api.Post("/pipelines/{id}/views", handler.RecordPipelineView)
+		api.Get("/pipelines/{id}/views/summary", handler.GetPipelineViewSummary)
+
+		api.Get("/pipelines/{id}/comments", handler.ListPipelineComments)
+		api.Post("/pipelines/{id}/comments", handler.CreatePipelineComment)
+		api.Delete("/pipelines/{id}/comments/{comment_id}", handler.DeletePipelineComment)
+
 		api.Get("/pipelines/{id}/runs", handler.ListPipelineRuns)
 		api.Post("/pipelines/{id}/runs", handler.TriggerPipelineRun)
 		api.Get("/pipelines/{id}/runs/{run_id}", handler.GetPipelineRun)

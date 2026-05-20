@@ -630,6 +630,39 @@ export function unfollowPipeline(id: string) {
   return api.delete<PipelineFollowerSummary>(`/pipelines/${id}/followers`);
 }
 
+export interface PipelineViewSummary {
+  view_count_30d: number;
+}
+
+export interface PipelineComment {
+  id: string;
+  pipeline_id: string;
+  author_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function recordPipelineView(id: string) {
+  return api.post<PipelineViewSummary>(`/pipelines/${id}/views`, {});
+}
+
+export function getPipelineViewSummary(id: string) {
+  return api.get<PipelineViewSummary>(`/pipelines/${id}/views/summary`);
+}
+
+export function listPipelineComments(id: string) {
+  return api.get<{ items: PipelineComment[] }>(`/pipelines/${id}/comments`);
+}
+
+export function createPipelineComment(id: string, body: string) {
+  return api.post<PipelineComment>(`/pipelines/${id}/comments`, { body });
+}
+
+export function deletePipelineComment(id: string, commentId: string) {
+  return api.delete(`/pipelines/${id}/comments/${commentId}`);
+}
+
 // Validation / compilation (Foundry: "Validate" and "Preview" buttons in
 // Pipeline Builder before Deploy). These accept the in-flight DAG from the
 // canvas — they do NOT require a persisted pipeline row.

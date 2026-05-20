@@ -99,3 +99,25 @@ type PipelineFollowerSummary struct {
 	Following     bool `json:"following"`
 	FollowerCount int  `json:"follower_count"`
 }
+
+// PipelineViewSummary aggregates views over the trailing 30 days, mirroring
+// Foundry's "Views: total views in the last 30 days" stat.
+type PipelineViewSummary struct {
+	ViewCount30Days int64 `json:"view_count_30d"`
+}
+
+// PipelineComment is a flat comment on a pipeline. No threading in v1.
+type PipelineComment struct {
+	ID         uuid.UUID `json:"id"`
+	PipelineID uuid.UUID `json:"pipeline_id"`
+	AuthorID   uuid.UUID `json:"author_id"`
+	Body       string    `json:"body"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// CreatePipelineCommentRequest is the body posted to
+// POST /pipelines/{id}/comments.
+type CreatePipelineCommentRequest struct {
+	Body string `json:"body"`
+}

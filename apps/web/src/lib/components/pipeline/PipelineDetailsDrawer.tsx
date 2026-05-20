@@ -2,19 +2,25 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { Glyph } from '@/lib/components/ui/Glyph';
 import {
+  createPipelineComment,
+  deletePipelineComment,
   deletePipelineGrant,
   followPipeline,
   getPipelineFollowerSummary,
   getPipelineLinkShare,
+  getPipelineViewSummary,
+  listPipelineComments,
   listPipelineGrants,
   putPipelineGrant,
   putPipelineLinkShare,
   unfollowPipeline,
   type Pipeline,
+  type PipelineComment,
   type PipelineFollowerSummary,
   type PipelineGrant,
   type PipelineLinkShare,
   type PipelineRole,
+  type PipelineViewSummary,
 } from '@/lib/api/pipelines';
 import {
   applyResourceMarking,
@@ -31,7 +37,7 @@ import { listOrganizations, type Organization } from '@/lib/api/tenancy';
 
 const PIPELINE_RESOURCE_KIND = 'pipeline';
 
-type DrawerView = 'details' | 'access' | 'check' | 'roles';
+type DrawerView = 'details' | 'access' | 'check' | 'roles' | 'comments';
 
 interface MarkingCatalog {
   categories: { id: string; display_name: string; markings: Marking[] }[];
@@ -88,6 +94,9 @@ export function PipelineDetailsDrawer({
   const [grantsBusy, setGrantsBusy] = useState(false);
   const [followerSummary, setFollowerSummary] = useState<PipelineFollowerSummary>({ following: false, follower_count: 0 });
   const [followerBusy, setFollowerBusy] = useState(false);
+  const [viewSummary, setViewSummary] = useState<PipelineViewSummary>({ view_count_30d: 0 });
+  const [comments, setComments] = useState<PipelineComment[]>([]);
+  const [commentsBusy, setCommentsBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -149,10 +158,50 @@ export function PipelineDetailsDrawer({
       .catch(() => {
         if (!cancelled) setFollowerSummary({ following: false, follower_count: 0 });
       });
+    void getPipelineViewSummary(pipeline.id)
+      .then((summary) => {
+        if (!cancelled) setViewSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setViewSummary({ view_count_30d: 0 });
+      });
+    void listPipelineComments(pipeline.id)
+      .then((response) => {
+        if (!cancelled) setComments(response.items);
+      })
+      .catch(() => {
+        if (!cancelled) setComments([]);
+      });
     return () => {
       cancelled = true;
     };
   }, [open, pipeline.id]);
+
+  async function postComment(body: string) {
+    setCommentsBusy(true);
+    setError('');
+    try {
+      const created = await createPipelineComment(pipeline.id, body);
+      setComments((current) => [created, ...current]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Comment failed');
+    } finally {
+      setCommentsBusy(false);
+    }
+  }
+
+  async function removeComment(commentId: string) {
+    setCommentsBusy(true);
+    setError('');
+    try {
+      await deletePipelineComment(pipeline.id, commentId);
+      setComments((current) => current.filter((entry) => entry.id !== commentId));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Comment removal failed');
+    } finally {
+      setCommentsBusy(false);
+    }
+  }
 
   async function toggleFollow() {
     setFollowerBusy(true);
@@ -306,7 +355,15 @@ export function PipelineDetailsDrawer({
             <div style={{ display: 'grid' }}>
               <strong style={{ fontSize: 14 }}>{pipeline.name || 'Untitled pipeline'}</strong>
               <span className="of-text-muted" style={{ fontSize: 11 }}>
-                {view === 'details' ? 'Details' : view === 'access' ? 'Details › Access' : view === 'check' ? 'Details › Access › Check' : 'Details › Roles'}
+                {view === 'details'
+                  ? 'Details'
+                  : view === 'access'
+                    ? 'Details › Access'
+                    : view === 'check'
+                      ? 'Details › Access › Check'
+                      : view === 'comments'
+                        ? 'Details › Comments'
+                        : 'Details › Roles'}
               </span>
             </div>
           </div>
@@ -332,7 +389,19 @@ export function PipelineDetailsDrawer({
               followerSummary={followerSummary}
               followerBusy={followerBusy}
               onToggleFollow={() => void toggleFollow()}
+              viewSummary={viewSummary}
+              commentCount={comments.length}
               onOpenAccess={() => setView('access')}
+              onOpenComments={() => setView('comments')}
+            />
+          )}
+          {view === 'comments' && (
+            <CommentsBody
+              pipeline={pipeline}
+              comments={comments}
+              busy={commentsBusy}
+              onPost={(body) => void postComment(body)}
+              onRemove={(commentId) => void removeComment(commentId)}
             />
           )}
           {view === 'access' && (
@@ -390,7 +459,10 @@ interface DetailsBodyProps {
   followerSummary: PipelineFollowerSummary;
   followerBusy: boolean;
   onToggleFollow: () => void;
+  viewSummary: PipelineViewSummary;
+  commentCount: number;
   onOpenAccess: () => void;
+  onOpenComments: () => void;
 }
 
 function DetailsBody({
@@ -404,7 +476,10 @@ function DetailsBody({
   followerSummary,
   followerBusy,
   onToggleFollow,
+  viewSummary,
+  commentCount,
   onOpenAccess,
+  onOpenComments,
 }: DetailsBodyProps) {
   return (
     <div style={{ padding: 16, display: 'grid', gap: 16 }}>
@@ -427,6 +502,9 @@ function DetailsBody({
           followerSummary={followerSummary}
           followerBusy={followerBusy}
           onToggleFollow={onToggleFollow}
+          viewSummary={viewSummary}
+          commentCount={commentCount}
+          onOpenComments={onOpenComments}
         />
       </section>
 
@@ -465,14 +543,27 @@ function StatRow({
   followerSummary,
   followerBusy,
   onToggleFollow,
+  viewSummary,
+  commentCount,
+  onOpenComments,
 }: {
   followerSummary: PipelineFollowerSummary;
   followerBusy: boolean;
   onToggleFollow: () => void;
+  viewSummary: PipelineViewSummary;
+  commentCount: number;
+  onOpenComments: () => void;
 }) {
   return (
     <div style={{ display: 'flex', gap: 12, padding: '4px 0', alignItems: 'center' }}>
-      <ComingSoonStat icon="eye" label="Views" />
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+        title="Views in the last 30 days"
+      >
+        <Glyph name="eye" size={12} />
+        <strong style={{ fontSize: 12 }}>{viewSummary.view_count_30d}</strong>
+        <span className="of-text-muted" style={{ fontSize: 11 }}>Views</span>
+      </div>
       <button
         type="button"
         onClick={onToggleFollow}
@@ -495,17 +586,17 @@ function StatRow({
           {followerSummary.following ? 'Following' : 'Followers'}
         </span>
       </button>
-      <ComingSoonStat icon="document" label="Comments" />
-    </div>
-  );
-}
-
-function ComingSoonStat({ icon, label }: { icon: 'eye' | 'users' | 'document'; label: string }) {
-  return (
-    <div title="Coming in Phase 2" style={{ display: 'flex', alignItems: 'center', gap: 4, opacity: 0.5 }}>
-      <Glyph name={icon} size={12} />
-      <span style={{ fontSize: 12 }}>—</span>
-      <span className="of-text-muted" style={{ fontSize: 11 }}>{label}</span>
+      <button
+        type="button"
+        onClick={onOpenComments}
+        className="of-button"
+        style={{ padding: '2px 6px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+        title="Open comments"
+      >
+        <Glyph name="document" size={12} />
+        <strong>{commentCount}</strong>
+        <span className="of-text-muted" style={{ fontSize: 11 }}>Comments</span>
+      </button>
     </div>
   );
 }
@@ -962,6 +1053,95 @@ function LinkShareSection({ share, busy, onToggle, onRotate }: LinkShareSectionP
         </>
       )}
     </section>
+  );
+}
+
+interface CommentsBodyProps {
+  pipeline: Pipeline;
+  comments: PipelineComment[];
+  busy: boolean;
+  onPost: (body: string) => void;
+  onRemove: (commentId: string) => void;
+}
+
+function CommentsBody({ pipeline, comments, busy, onPost, onRemove }: CommentsBodyProps) {
+  const [draft, setDraft] = useState('');
+  function submit() {
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    onPost(trimmed);
+    setDraft('');
+  }
+  return (
+    <div style={{ padding: 16, display: 'grid', gap: 12 }}>
+      <SidebarSectionTitle label="Comments" />
+      <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+        Discuss this pipeline. Authors and the pipeline owner can delete a comment.
+      </p>
+      <section style={{ display: 'grid', gap: 6 }}>
+        <textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          rows={3}
+          placeholder="Add a comment…"
+          style={{
+            width: '100%',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 4,
+            padding: 8,
+            fontSize: 13,
+            resize: 'vertical',
+          }}
+        />
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            className="of-button of-button--primary"
+            onClick={submit}
+            disabled={busy || draft.trim().length === 0}
+            style={{ fontSize: 12 }}
+          >
+            {busy ? 'Posting…' : 'Post comment'}
+          </button>
+        </div>
+      </section>
+      <section style={{ display: 'grid', gap: 10 }}>
+        {comments.length === 0 ? (
+          <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>No comments yet.</p>
+        ) : (
+          comments.map((entry) => (
+            <article
+              key={entry.id}
+              style={{ display: 'grid', gap: 4, padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 4 }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                    {entry.author_id.slice(0, 8)}…
+                  </span>
+                  {entry.author_id === pipeline.owner_id && <span className="of-chip" style={{ fontSize: 10 }}>owner</span>}
+                  <span className="of-text-muted" style={{ fontSize: 11 }}>
+                    {new Date(entry.created_at).toLocaleString()}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="of-button"
+                  onClick={() => onRemove(entry.id)}
+                  disabled={busy}
+                  style={{ fontSize: 11, color: '#b91c1c' }}
+                  aria-label="Delete comment"
+                  title="Author or pipeline owner can delete"
+                >
+                  Delete
+                </button>
+              </div>
+              <p style={{ margin: 0, fontSize: 13, whiteSpace: 'pre-wrap' }}>{entry.body}</p>
+            </article>
+          ))
+        )}
+      </section>
+    </div>
   );
 }
 

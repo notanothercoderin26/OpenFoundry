@@ -26,6 +26,8 @@ type fakeAccessRepo struct {
 	linkShares  map[uuid.UUID]models.PipelineLinkShare
 	grants      map[uuid.UUID][]models.PipelineGrant
 	followers   map[uuid.UUID]map[uuid.UUID]struct{}
+	views       map[uuid.UUID]int64
+	comments    map[uuid.UUID][]models.PipelineComment
 	failOwnerOf uuid.UUID
 }
 
@@ -35,6 +37,8 @@ func newFakeAccessRepo() *fakeAccessRepo {
 		linkShares: map[uuid.UUID]models.PipelineLinkShare{},
 		grants:     map[uuid.UUID][]models.PipelineGrant{},
 		followers:  map[uuid.UUID]map[uuid.UUID]struct{}{},
+		views:      map[uuid.UUID]int64{},
+		comments:   map[uuid.UUID][]models.PipelineComment{},
 	}
 }
 
@@ -183,6 +187,54 @@ func (f *fakeAccessRepo) GetPipelineFollowerSummary(_ context.Context, id, calle
 	set := f.followers[id]
 	_, following := set[caller]
 	return models.PipelineFollowerSummary{Following: following, FollowerCount: len(set)}, nil
+}
+
+func (f *fakeAccessRepo) RecordPipelineView(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.views[id] = f.views[id] + 1
+	return nil
+}
+
+func (f *fakeAccessRepo) GetPipelineViewSummary(_ context.Context, id uuid.UUID) (models.PipelineViewSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return models.PipelineViewSummary{ViewCount30Days: f.views[id]}, nil
+}
+
+func (f *fakeAccessRepo) ListPipelineComments(_ context.Context, id uuid.UUID, _ int) ([]models.PipelineComment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]models.PipelineComment(nil), f.comments[id]...), nil
+}
+
+func (f *fakeAccessRepo) CreatePipelineComment(_ context.Context, id, author uuid.UUID, body string) (*models.PipelineComment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c := models.PipelineComment{
+		ID:         uuid.New(),
+		PipelineID: id,
+		AuthorID:   author,
+		Body:       body,
+	}
+	f.comments[id] = append([]models.PipelineComment{c}, f.comments[id]...)
+	return &c, nil
+}
+
+func (f *fakeAccessRepo) DeletePipelineComment(_ context.Context, id, commentID, caller uuid.UUID, isOwner bool) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := f.comments[id][:0]
+	removed := false
+	for _, c := range f.comments[id] {
+		if c.ID == commentID && (isOwner || c.AuthorID == caller) {
+			removed = true
+			continue
+		}
+		out = append(out, c)
+	}
+	f.comments[id] = out
+	return removed, nil
 }
 
 // --- helpers ------------------------------------------------------------
@@ -344,4 +396,88 @@ func TestPipelineFollowerSummaryRequiresAuth(t *testing.T) {
 	rr := httptest.NewRecorder()
 	GetPipelineFollowerSummary(rr, requestWithURLParam(http.MethodGet, "/pipelines/"+pipelineID.String()+"/followers/summary", nil, "id", pipelineID.String()))
 	require.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestPipelineViewsAggregate(t *testing.T) {
+	repo, restore := installFakeAccessRepo(t)
+	t.Cleanup(restore)
+	pipelineID := uuid.New()
+	owner := uuid.New()
+	repo.owners[pipelineID] = owner
+
+	for i := 0; i < 3; i++ {
+		rr := httptest.NewRecorder()
+		RecordPipelineView(rr, requestWithAuth(http.MethodPost, "/pipelines/"+pipelineID.String()+"/views", nil, owner, map[string]string{"id": pipelineID.String()}))
+		require.Equal(t, http.StatusOK, rr.Code, "view %d", i)
+	}
+
+	rr := httptest.NewRecorder()
+	GetPipelineViewSummary(rr, requestWithAuth(http.MethodGet, "/pipelines/"+pipelineID.String()+"/views/summary", nil, owner, map[string]string{"id": pipelineID.String()}))
+	require.Equal(t, http.StatusOK, rr.Code)
+	var summary models.PipelineViewSummary
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&summary))
+	require.Equal(t, int64(3), summary.ViewCount30Days)
+}
+
+func TestPipelineCommentsLifecycle(t *testing.T) {
+	repo, restore := installFakeAccessRepo(t)
+	t.Cleanup(restore)
+	pipelineID := uuid.New()
+	owner := uuid.New()
+	repo.owners[pipelineID] = owner
+	contributor := uuid.New()
+
+	// Empty body is rejected.
+	rr := httptest.NewRecorder()
+	CreatePipelineComment(rr, requestWithAuth(http.MethodPost, "/pipelines/"+pipelineID.String()+"/comments", []byte(`{"body":"   "}`), contributor, map[string]string{"id": pipelineID.String()}))
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+
+	// Create a comment as contributor.
+	rr = httptest.NewRecorder()
+	CreatePipelineComment(rr, requestWithAuth(http.MethodPost, "/pipelines/"+pipelineID.String()+"/comments", []byte(`{"body":"first take"}`), contributor, map[string]string{"id": pipelineID.String()}))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var c models.PipelineComment
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&c))
+	require.Equal(t, "first take", c.Body)
+	require.Equal(t, contributor, c.AuthorID)
+
+	// Another user cannot delete the contributor's comment.
+	stranger := uuid.New()
+	rr = httptest.NewRecorder()
+	DeletePipelineComment(rr, requestWithAuth(http.MethodDelete, "/pipelines/"+pipelineID.String()+"/comments/"+c.ID.String(), nil, stranger, map[string]string{"id": pipelineID.String(), "comment_id": c.ID.String()}))
+	require.Equal(t, http.StatusNotFound, rr.Code)
+
+	// Owner can delete any comment.
+	rr = httptest.NewRecorder()
+	DeletePipelineComment(rr, requestWithAuth(http.MethodDelete, "/pipelines/"+pipelineID.String()+"/comments/"+c.ID.String(), nil, owner, map[string]string{"id": pipelineID.String(), "comment_id": c.ID.String()}))
+	require.Equal(t, http.StatusNoContent, rr.Code)
+
+	// Subsequent list is empty.
+	rr = httptest.NewRecorder()
+	ListPipelineComments(rr, requestWithAuth(http.MethodGet, "/pipelines/"+pipelineID.String()+"/comments", nil, contributor, map[string]string{"id": pipelineID.String()}))
+	require.Equal(t, http.StatusOK, rr.Code)
+	var listed struct {
+		Items []models.PipelineComment `json:"items"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&listed))
+	require.Len(t, listed.Items, 0)
+}
+
+func TestPipelineCommentAuthorCanSelfDelete(t *testing.T) {
+	repo, restore := installFakeAccessRepo(t)
+	t.Cleanup(restore)
+	pipelineID := uuid.New()
+	owner := uuid.New()
+	repo.owners[pipelineID] = owner
+	author := uuid.New()
+
+	rr := httptest.NewRecorder()
+	CreatePipelineComment(rr, requestWithAuth(http.MethodPost, "/pipelines/"+pipelineID.String()+"/comments", []byte(`{"body":"my note"}`), author, map[string]string{"id": pipelineID.String()}))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var c models.PipelineComment
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&c))
+
+	rr = httptest.NewRecorder()
+	DeletePipelineComment(rr, requestWithAuth(http.MethodDelete, "/pipelines/"+pipelineID.String()+"/comments/"+c.ID.String(), nil, author, map[string]string{"id": pipelineID.String(), "comment_id": c.ID.String()}))
+	require.Equal(t, http.StatusNoContent, rr.Code)
 }

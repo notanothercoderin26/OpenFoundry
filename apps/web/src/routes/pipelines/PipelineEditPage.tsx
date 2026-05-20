@@ -11,6 +11,7 @@ import {
   pipelineNodesFromDAG,
   pipelineSchemaGuidanceById,
   publishPipeline,
+  recordPipelineView,
   retryPipelineRun,
   restorePipelineVersion,
   triggerRun,
@@ -653,6 +654,11 @@ export function PipelineEditPage() {
     void load();
     void loadRuns();
     void loadVersions();
+    // Best-effort view recording — surface no error if the principal is
+    // unauthenticated or the endpoint is unavailable.
+    if (id) {
+      void recordPipelineView(id).catch(() => undefined);
+    }
   }, [id]);
 
   useEffect(() => {

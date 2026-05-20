@@ -279,3 +279,98 @@ func (r *Repository) GetPipelineFollowerSummary(ctx context.Context, pipelineID,
 	}
 	return summary, nil
 }
+
+// RecordPipelineView increments the daily view counter for the pipeline.
+// Bucketing by day bounds storage to (pipelines × 30 days) once older rows
+// are pruned by a separate retention job.
+func (r *Repository) RecordPipelineView(ctx context.Context, pipelineID uuid.UUID) error {
+	if _, err := r.db.Exec(ctx, `
+		INSERT INTO pipeline_views (pipeline_id, viewed_on, total_views)
+		VALUES ($1, CURRENT_DATE, 1)
+		ON CONFLICT (pipeline_id, viewed_on)
+		DO UPDATE SET total_views = pipeline_views.total_views + 1`, pipelineID); err != nil {
+		return fmt.Errorf("record pipeline view: %w", err)
+	}
+	return nil
+}
+
+// GetPipelineViewSummary returns the total view count for the trailing 30
+// days (inclusive of today).
+func (r *Repository) GetPipelineViewSummary(ctx context.Context, pipelineID uuid.UUID) (models.PipelineViewSummary, error) {
+	var summary models.PipelineViewSummary
+	err := r.db.QueryRow(ctx, `
+		SELECT COALESCE(SUM(total_views), 0)
+		FROM pipeline_views
+		WHERE pipeline_id = $1
+		  AND viewed_on >= CURRENT_DATE - INTERVAL '29 days'`, pipelineID).Scan(&summary.ViewCount30Days)
+	if err != nil {
+		return models.PipelineViewSummary{}, fmt.Errorf("view summary: %w", err)
+	}
+	return summary, nil
+}
+
+// ListPipelineComments returns the most-recent comments first, capped at the
+// supplied limit (default 100).
+func (r *Repository) ListPipelineComments(ctx context.Context, pipelineID uuid.UUID, limit int) ([]models.PipelineComment, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT id, pipeline_id, author_id, body, created_at, updated_at
+		FROM pipeline_comments
+		WHERE pipeline_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2`, pipelineID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list pipeline comments: %w", err)
+	}
+	defer rows.Close()
+	out := make([]models.PipelineComment, 0)
+	for rows.Next() {
+		var c models.PipelineComment
+		if err := rows.Scan(&c.ID, &c.PipelineID, &c.AuthorID, &c.Body, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan pipeline comment: %w", err)
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pipeline comments: %w", err)
+	}
+	return out, nil
+}
+
+// CreatePipelineComment inserts a new comment authored by the caller.
+func (r *Repository) CreatePipelineComment(ctx context.Context, pipelineID, authorID uuid.UUID, body string) (*models.PipelineComment, error) {
+	id := uuid.New()
+	var c models.PipelineComment
+	err := r.db.QueryRow(ctx, `
+		INSERT INTO pipeline_comments (id, pipeline_id, author_id, body)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, pipeline_id, author_id, body, created_at, updated_at`,
+		id, pipelineID, authorID, body).
+		Scan(&c.ID, &c.PipelineID, &c.AuthorID, &c.Body, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create pipeline comment: %w", err)
+	}
+	return &c, nil
+}
+
+// DeletePipelineComment removes the comment if the caller is the author or
+// is the owner of the pipeline (passed in by the caller). Returns whether a
+// row was removed.
+func (r *Repository) DeletePipelineComment(ctx context.Context, pipelineID, commentID, callerID uuid.UUID, isOwner bool) (bool, error) {
+	var query string
+	var args []any
+	if isOwner {
+		query = `DELETE FROM pipeline_comments WHERE id = $1 AND pipeline_id = $2`
+		args = []any{commentID, pipelineID}
+	} else {
+		query = `DELETE FROM pipeline_comments WHERE id = $1 AND pipeline_id = $2 AND author_id = $3`
+		args = []any{commentID, pipelineID, callerID}
+	}
+	tag, err := r.db.Exec(ctx, query, args...)
+	if err != nil {
+		return false, fmt.Errorf("delete pipeline comment: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
