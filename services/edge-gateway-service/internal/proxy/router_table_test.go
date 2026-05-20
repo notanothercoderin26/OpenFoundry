@@ -141,6 +141,8 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/ml/widgets", "ml"},
 		{"/api/v1/ai/evaluations/run", "ai-eval"},
 		{"/api/v1/ai/providers", "llm-catalog"},
+		{"/api/v1/llm/models", "llm-catalog"},
+		{"/api/v1/llm/invoke", "llm-catalog"},
 		{"/api/v1/ai/prompts", "agent-runtime"},
 		{"/api/v1/agent-runtime/agents", "agent-runtime"},
 		{"/api/v1/ai/knowledge-bases/abc/search", "knowledge"},

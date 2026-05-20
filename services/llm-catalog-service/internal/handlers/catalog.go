@@ -46,7 +46,7 @@ func (c *Catalog) RegisterModel(w http.ResponseWriter, r *http.Request) {
 	}
 	body.Provider = models.NormalizeProvider(string(body.Provider))
 	if !body.Provider.IsValid() {
-		writeError(w, http.StatusBadRequest, "provider must be one of ANTHROPIC, OPENAI, OLLAMA, BEDROCK")
+		writeError(w, http.StatusBadRequest, "provider must be one of ANTHROPIC, OPENAI, OLLAMA, BEDROCK, AZURE")
 		return
 	}
 	if strings.TrimSpace(body.ModelID) == "" {
@@ -74,7 +74,7 @@ func (c *Catalog) ListModels(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	provider := models.NormalizeProvider(q.Get("provider"))
 	if provider != "" && !provider.IsValid() {
-		writeError(w, http.StatusBadRequest, "provider must be one of ANTHROPIC, OPENAI, OLLAMA, BEDROCK")
+		writeError(w, http.StatusBadRequest, "provider must be one of ANTHROPIC, OPENAI, OLLAMA, BEDROCK, AZURE")
 		return
 	}
 	onlyEnabled := q.Get("only_enabled") == "true"

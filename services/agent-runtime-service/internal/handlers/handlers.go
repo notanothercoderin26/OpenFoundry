@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -202,6 +203,20 @@ func (h *Handlers) ListRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rows)
 }
 
+// StartRun persists a new run row and — when the request body carries
+// a non-empty `user_message` — invokes the ReAct executor from
+// libs/ai-kernel-go/domain/agents asynchronously. Per-step traces are
+// recorded into agent_run_steps and the run is transitioned to
+// "completed" / "failed" once the executor returns.
+//
+// The 201 response carries the run row with status="running"; the
+// client polls GET /agents/{id}/runs/{run_id} (or subscribes to the
+// run's steps endpoint) for the terminal status + final_output.
+//
+// Legacy contract preservation: when the input has no `user_message`
+// the handler skips the executor entirely. Callers that drive the run
+// loop client-side via POST /runs/{run_id}/steps keep the original
+// metadata-only flow unchanged.
 func (h *Handlers) StartRun(w http.ResponseWriter, r *http.Request) {
 	agentID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
@@ -213,11 +228,28 @@ func (h *Handlers) StartRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	agent, err := h.Repo.GetAgent(r.Context(), agentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if agent == nil {
+		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+
 	run, err := h.Repo.StartRun(r.Context(), agentID, body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// Dispatch the executor in the background so the handler returns
+	// immediately. Per-step persistence + the terminal CompleteRun
+	// land asynchronously; the client polls /runs/{id}.
+	runAgentBackground(r.Context(), h, agent, run, body, r.Header, slog.Default())
+
 	writeJSON(w, http.StatusCreated, run)
 }
 

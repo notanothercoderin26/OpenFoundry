@@ -152,6 +152,16 @@ func (r *Repo) RecordStep(ctx context.Context, runID uuid.UUID, body models.Reco
 	return scanStep(row)
 }
 
+// CompleteRun marks an agent_run row as finished. status is one of
+// "completed" / "failed" / "cancelled"; finalOutput carries the
+// wire-stable envelope returned to clients.
+func (r *Repo) CompleteRun(ctx context.Context, runID uuid.UUID, status string, finalOutput []byte) error {
+	_, err := r.Pool.Exec(ctx,
+		`UPDATE agent_runs SET status = $2, final_output = $3, updated_at = NOW() WHERE id = $1`,
+		runID, status, finalOutput)
+	return err
+}
+
 func (r *Repo) RecordHumanApproval(ctx context.Context, runID uuid.UUID, payload []byte) (models.AgentRunStep, error) {
 	row := r.Pool.QueryRow(ctx,
 		`INSERT INTO agent_run_steps (id, run_id, step_index, kind, payload)

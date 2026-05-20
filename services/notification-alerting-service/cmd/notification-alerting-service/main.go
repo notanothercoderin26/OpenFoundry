@@ -94,6 +94,8 @@ func main() {
 			RiskAcknowledged: cfg.EmailRedaction.RiskAcknowledged,
 			PlatformBaseURL:  cfg.EmailRedaction.PlatformBaseURL,
 		},
+		WebhookSigner: &service.WebhookSigner{Secret: cfg.WebhookSigningSecret},
+		WebhookRetry:  service.DefaultWebhookRetryPolicy(),
 	}
 
 	metrics := observability.NewMetrics()

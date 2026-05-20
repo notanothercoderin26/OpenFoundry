@@ -1,0 +1,323 @@
+# OpenAPI 3.1 specification for llm-catalog-service.
+#
+# Hand-authored to mirror the chi router in `internal/server/server.go`
+# (the `/api/v1/llm` group) plus the unauthenticated probes (`/healthz`,
+# `/api/v1/kernel-defaults`, `/metrics`). When you add or remove a route
+# there, update this file in the same commit so SDK generators (sdks/)
+# and any AI agent driving the catalog stay in sync.
+#
+# Wire format is hand-rolled JSON (see `internal/models/models.go`); the
+# protobuf source-of-truth lives in `proto/ai/v1/llm_catalog.proto`.
+openapi: "3.1.0"
+info:
+  title: OpenFoundry llm-catalog-service
+  version: "1.0.0"
+  description: |
+    Registry of LLM endpoints (Anthropic, OpenAI, Ollama, Bedrock, Azure
+    OpenAI) plus a unified `/invoke` surface that abstracts the upstream
+    provider behind a stable model RID.
+
+    Catalog CRUD is admin-only (`RequireAdmin` middleware after JWT
+    validation). `/invoke` is open to any authenticated caller and is
+    rate-limited per (subject, model) by a token-bucket.
+
+    Azure OpenAI uses the same JSON wire shape as OPENAI but auths via
+    the `api-key` header against a per-deployment URL
+    (`{base}/openai/deployments/{model_id}/chat/completions?api-version=...`).
+    The `model_id` carries the Azure deployment name; the api-version is
+    service-configured (`AZURE_OPENAI_API_VERSION`).
+
+servers:
+  - url: https://gateway.openfoundry.example.com
+    description: Gateway prefix; routes mounted on `/api/v1/llm` (and `/api/v1/ai/providers` as a legacy alias).
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: catalog
+  - name: invoke
+  - name: health
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      security: []
+      summary: Liveness probe.
+      responses:
+        "200":
+          description: Service is up.
+
+  /api/v1/kernel-defaults:
+    get:
+      tags: [health]
+      security: []
+      summary: Default routing + tool execution defaults baked into ai-kernel-go.
+      description: |
+        Exposes the platform's compiled-in defaults so the frontend can
+        render an accurate "what runs if nothing is configured" panel.
+        This is a read-only echo of `libs/ai-kernel-go/models` constants;
+        it does NOT reflect catalog state.
+      responses:
+        "200":
+          description: Kernel defaults envelope.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KernelDefaultsResponse" }
+
+  /api/v1/llm/models:
+    get:
+      tags: [catalog]
+      summary: List registered models (admin only).
+      parameters:
+        - in: query
+          name: provider
+          required: false
+          description: Filter by provider token (ANTHROPIC | OPENAI | OLLAMA | BEDROCK | AZURE).
+          schema: { $ref: "#/components/schemas/Provider" }
+        - in: query
+          name: only_enabled
+          required: false
+          description: When `true`, omit rows where `enabled = false`.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Paged list response (single page; no cursor in v1).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ListModelsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [catalog]
+      summary: Register a model (admin only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterModelRequest" }
+      responses:
+        "201":
+          description: Created model row.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/llm/models/{rid}:
+    parameters:
+      - { in: path, name: rid, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [catalog]
+      summary: Read one model by rid.
+      responses:
+        "200":
+          description: Model record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/llm/models/{rid}/enable:
+    parameters:
+      - { in: path, name: rid, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [catalog]
+      summary: Mark a model as enabled.
+      responses:
+        "200":
+          description: Updated model record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/llm/models/{rid}/disable:
+    parameters:
+      - { in: path, name: rid, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [catalog]
+      summary: Mark a model as disabled. `/invoke` against a disabled model returns 503.
+      responses:
+        "200":
+          description: Updated model record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/llm/invoke:
+    post:
+      tags: [invoke]
+      summary: Unified chat-completions dispatch against a registered model.
+      description: |
+        Looks up the model by rid, applies a per-(subject, model)
+        token-bucket rate-limit, and dispatches to the provider invoker.
+        The response shape is OpenAI-compatible regardless of upstream
+        provider. Request bodies are capped at 256 KB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvokeRequest" }
+      responses:
+        "200":
+          description: Provider response normalised to the unified shape.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InvokeResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413":
+          description: Request body exceeds the 256 KB cap.
+        "429":
+          description: Rate limit exceeded for (subject, model).
+        "501":
+          description: Provider is registered but not implemented (e.g. BEDROCK).
+        "502":
+          description: Upstream provider returned a non-2xx status or failed.
+        "503":
+          description: Model is registered but disabled.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:   { description: Malformed request. }
+    Unauthorized: { description: Missing or invalid Bearer token. }
+    Forbidden:    { description: Caller is not an admin. }
+    NotFound:     { description: Model not found. }
+
+  schemas:
+    Provider:
+      type: string
+      description: |
+        Upstream provider token. ANTHROPIC, OPENAI, OLLAMA and AZURE are
+        wired through the invoke handler in v1; BEDROCK is reserved
+        (registration succeeds, `/invoke` returns 501).
+      enum: [ANTHROPIC, OPENAI, OLLAMA, BEDROCK, AZURE]
+
+    Capability:
+      type: string
+      enum: [TEXT, VISION, TOOLS]
+
+    Model:
+      type: object
+      required: [rid, provider, model_id, display_name, enabled, created_at, updated_at]
+      properties:
+        rid:                 { type: string, format: uuid }
+        provider:            { $ref: "#/components/schemas/Provider" }
+        model_id:
+          type: string
+          description: |
+            Upstream model identifier (Anthropic / OpenAI / Ollama: the
+            model name; AZURE: the Azure deployment name).
+        display_name:        { type: string }
+        context_window:      { type: integer, minimum: 0 }
+        input_cost_per_1k:   { type: number,  minimum: 0 }
+        output_cost_per_1k:  { type: number,  minimum: 0 }
+        capabilities:
+          type: array
+          items: { $ref: "#/components/schemas/Capability" }
+        enabled:             { type: boolean }
+        created_at:          { type: string, format: date-time }
+        updated_at:          { type: string, format: date-time }
+
+    RegisterModelRequest:
+      type: object
+      required: [provider, model_id]
+      properties:
+        provider:           { $ref: "#/components/schemas/Provider" }
+        model_id:           { type: string }
+        display_name:       { type: string, description: "Defaults to model_id when empty." }
+        context_window:     { type: integer, minimum: 0 }
+        input_cost_per_1k:  { type: number,  minimum: 0 }
+        output_cost_per_1k: { type: number,  minimum: 0 }
+        capabilities:
+          type: array
+          items: { $ref: "#/components/schemas/Capability" }
+        enabled:            { type: boolean, default: true }
+
+    ListModelsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Model" }
+
+    Message:
+      type: object
+      required: [role, content]
+      properties:
+        role:    { type: string, description: "system | user | assistant | tool" }
+        content: { type: string }
+
+    Tool:
+      type: object
+      required: [name]
+      properties:
+        name:                    { type: string }
+        description:             { type: string }
+        parameters_json_schema:  { type: object, additionalProperties: true }
+
+    InvokeRequest:
+      type: object
+      required: [model_rid, messages]
+      properties:
+        model_rid:    { type: string, format: uuid }
+        messages:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/Message" }
+        max_tokens:   { type: integer, minimum: 1 }
+        temperature:  { type: number,  minimum: 0, maximum: 2 }
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/Tool" }
+        stream:       { type: boolean, default: false, description: "Hint only; v1 returns the full reply in one shot." }
+
+    Usage:
+      type: object
+      required: [prompt_tokens, completion_tokens, total_tokens]
+      properties:
+        prompt_tokens:     { type: integer, minimum: 0 }
+        completion_tokens: { type: integer, minimum: 0 }
+        total_tokens:      { type: integer, minimum: 0 }
+
+    InvokeResponse:
+      type: object
+      required: [messages, usage, model_rid, cost_usd]
+      properties:
+        messages:
+          type: array
+          items: { $ref: "#/components/schemas/Message" }
+        usage:      { $ref: "#/components/schemas/Usage" }
+        model_rid:  { type: string, format: uuid }
+        cost_usd:   { type: number, minimum: 0 }
+
+    KernelDefaultsResponse:
+      type: object
+      properties:
+        provider_type:        { type: string }
+        model_name:           { type: string }
+        endpoint_url:         { type: string }
+        api_mode:             { type: string }
+        route_rules:          { type: object, additionalProperties: true }
+        tool_category:        { type: string }
+        tool_execution_mode:  { type: string }
+        supported_tool_modes: { type: array, items: { type: string } }
+        prompt_category:      { type: string }
+        knowledge_status:     { type: string }
+        fallback_enabled:     { type: boolean }
+        temperature:          { type: number }
+        max_tokens:           { type: integer }

@@ -64,11 +64,14 @@ func main() {
 	metrics := observability.NewMetrics()
 	store := &repo.PgStore{Pool: pool}
 	providers := &handlers.ProviderRegistry{
-		AnthropicAPIKey:  cfg.AnthropicAPIKey,
-		AnthropicBaseURL: cfg.AnthropicBaseURL,
-		OpenAIAPIKey:     cfg.OpenAIAPIKey,
-		OpenAIBaseURL:    cfg.OpenAIBaseURL,
-		OllamaBaseURL:    cfg.OllamaBaseURL,
+		AnthropicAPIKey:       cfg.AnthropicAPIKey,
+		AnthropicBaseURL:      cfg.AnthropicBaseURL,
+		OpenAIAPIKey:          cfg.OpenAIAPIKey,
+		OpenAIBaseURL:         cfg.OpenAIBaseURL,
+		OllamaBaseURL:         cfg.OllamaBaseURL,
+		AzureOpenAIAPIKey:     cfg.AzureOpenAIAPIKey,
+		AzureOpenAIBaseURL:    cfg.AzureOpenAIBaseURL,
+		AzureOpenAIAPIVersion: cfg.AzureOpenAIAPIVersion,
 	}
 	deps := server.Deps{
 		Catalog: &handlers.Catalog{Store: store},

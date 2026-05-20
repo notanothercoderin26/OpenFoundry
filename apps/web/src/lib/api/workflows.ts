@@ -203,9 +203,9 @@ export function listWorkflowApprovals(params?: { page?: number; per_page?: numbe
   if (params?.assigned_to) query.set('assigned_to', params.assigned_to);
   if (params?.workflow_id) query.set('workflow_id', params.workflow_id);
   const qs = query.toString();
-  return api.get<WorkflowApprovalListResponse>(`/workflows/approvals${qs ? `?${qs}` : ''}`);
+  return api.get<WorkflowApprovalListResponse>(`/approvals${qs ? `?${qs}` : ''}`);
 }
 
 export function decideWorkflowApproval(id: string, body: { decision: string; comment?: string; payload?: Record<string, unknown> }) {
-  return api.post<ApprovalDecisionResponse>(`/workflows/approvals/${id}/decision`, body);
+  return api.post<ApprovalDecisionResponse>(`/approvals/${id}/decide`, body);
 }
