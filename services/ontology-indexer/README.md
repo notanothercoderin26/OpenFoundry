@@ -45,8 +45,8 @@ order: `SEARCH_BEARER_TOKEN`, then `SEARCH_API_KEY`, then
 
 On startup the worker subscribes to:
 
-- `ontology.objects.changed.v1`
-- `ontology.links.changed.v1`
+- `ontology.object.changed.v1`
+- `ontology.link.changed.v1`
 
 Records are committed only after successful projection into the SearchBackend or
 after publishing a failed record to the DLQ. Malformed payloads are treated as

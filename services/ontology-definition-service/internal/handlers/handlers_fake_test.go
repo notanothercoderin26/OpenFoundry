@@ -573,6 +573,13 @@ func (f *fakeStore) SaveBatch(_ context.Context, req *models.BatchSaveRequest, _
 	return resp, nil
 }
 
+// ListAuditLog stub for handler-level tests. The real history view is
+// driven against Postgres; in-memory fake just returns an empty slice
+// so the handler's wiring (auth, query parsing, envelope) is verified.
+func (f *fakeStore) ListAuditLog(_ context.Context, _ models.AuditLogFilter) ([]models.AuditLogEntry, error) {
+	return []models.AuditLogEntry{}, nil
+}
+
 // authed produces a request that already has Claims attached, mimicking
 // what authmw.Middleware would do on a real protected route.
 func authed(method, target string, body string) *http.Request {

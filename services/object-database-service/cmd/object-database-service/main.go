@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
@@ -63,7 +64,27 @@ func main() {
 		defer cleanup()
 	}
 
-	h := &handlers.Handlers{Objects: objects, Links: links, Backend: backend}
+	// Optional Postgres pool — backs the transactional outbox per
+	// ADR-0022 (B03 §G2 in PoC/blockers/). When DATABASE_URL is set,
+	// every successful PutObject pairs the Cassandra row with an
+	// outbox.events insert so `ontology-indexer` (and any other
+	// Debezium consumer) eventually projects the change. When empty,
+	// the service runs the legacy direct-write path with no event
+	// emission — useful for stub / in-memory tests.
+	var pgPool *pgxpool.Pool
+	if strings.TrimSpace(cfg.DatabaseURL) != "" {
+		pgPool, err = pgxpool.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			log.Error("pgx pool failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		defer pgPool.Close()
+	} else if !cfg.DevMode {
+		log.Error("DATABASE_URL is required outside dev mode for B03 outbox emission")
+		os.Exit(1)
+	}
+
+	h := &handlers.Handlers{Objects: objects, Links: links, Backend: backend, OutboxPool: pgPool}
 	if strings.TrimSpace(cfg.OntologyDefinitionURL) != "" {
 		h.ObjectTypes = handlers.NewHTTPObjectTypePolicyResolver(cfg.OntologyDefinitionURL, 5*time.Second)
 	}

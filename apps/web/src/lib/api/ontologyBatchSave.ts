@@ -115,3 +115,60 @@ export interface BatchSaveResponse {
 export function batchSave(req: BatchSaveRequest) {
   return api.post<BatchSaveResponse>("/ontology/batch-save", req);
 }
+
+// ── Audit log ────────────────────────────────────────────────────────
+
+export interface AuditDiffEntry {
+  path: string;
+  before?: unknown;
+  after?: unknown;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  batch_id?: string;
+  resource_kind: BatchEditResource;
+  resource_id: string;
+  operation: BatchEditOp;
+  changed_by: string;
+  changed_at: string;
+  expected_version?: number;
+  new_version: number;
+  before_state?: unknown;
+  after_state?: unknown;
+  field_diffs: AuditDiffEntry[];
+  source: string;
+  note?: string;
+}
+
+export interface AuditLogPage {
+  data: AuditLogEntry[];
+  limit: number;
+  offset: number;
+}
+
+export interface AuditLogQuery {
+  resource_kind?: BatchEditResource;
+  resource_id?: string;
+  batch_id?: string;
+  changed_by?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Fetch ontology_audit_log entries — backs the History view in the
+ * Ontology Manager. Entries that share a `batch_id` belong to the
+ * same Save click in the Review-edits modal.
+ */
+export function listAuditLog(query: AuditLogQuery = {}) {
+  const params = new URLSearchParams();
+  if (query.resource_kind) params.set("resource_kind", query.resource_kind);
+  if (query.resource_id) params.set("resource_id", query.resource_id);
+  if (query.batch_id) params.set("batch_id", query.batch_id);
+  if (query.changed_by) params.set("changed_by", query.changed_by);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.offset !== undefined) params.set("offset", String(query.offset));
+  const qs = params.toString();
+  return api.get<AuditLogPage>(`/ontology/audit-log${qs ? `?${qs}` : ""}`);
+}

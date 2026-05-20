@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/services/object-database-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/object-database-service/internal/storage"
@@ -33,6 +34,14 @@ type Handlers struct {
 	// ObjectTypes resolves restricted-view-backed object type metadata so
 	// object reads inherit datasource row policies without per-request hints.
 	ObjectTypes ObjectTypePolicyResolver
+
+	// OutboxPool, when non-nil, enables ADR-0022 transactional outbox
+	// emission on every successful PutObject. Mirrors the canonical
+	// kernel pattern (`libs/ontology-kernel/domain.ApplyObjectWithOutbox`)
+	// but uses this service's local `storage` types directly so we
+	// don't drag the kernel's storage-abstraction adapter through the
+	// handlers. See B03 §G2 in PoC/blockers/.
+	OutboxPool *pgxpool.Pool
 }
 
 // --- request / response wire types --------------------------------------
@@ -230,6 +239,46 @@ func (h *Handlers) PutObject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+
+	// Emit `ontology.object.changed.v1` to the outbox so
+	// `ontology-indexer` (and any other Debezium consumer) projects
+	// this write into its search backend. The deterministic event_id
+	// makes the whole sequence idempotent under retries even though
+	// Cassandra + Postgres are two independent stores. See B03 §G2.
+	switch outcome.Kind {
+	case storage.PutInserted, storage.PutUpdated:
+		committedVersion := outcome.NewVersion
+		operation := "object_updated"
+		if outcome.Kind == storage.PutInserted {
+			operation = "object_created"
+			if committedVersion == 0 {
+				committedVersion = 1
+			}
+		}
+		owner := ""
+		if obj.Owner != nil {
+			owner = string(*obj.Owner)
+		}
+		markingStr := ""
+		if len(obj.Markings) > 0 {
+			markingStr = string(obj.Markings[0])
+		}
+		if _, err := enqueueObjectChanged(r.Context(), h.OutboxPool,
+			string(obj.Tenant), string(obj.ID), string(obj.TypeID),
+			committedVersion, operation, obj.Payload, owner,
+			obj.OrganizationID, markingStr, false); err != nil {
+			// Cassandra has already committed; a 5xx here invites
+			// the caller to retry. The deterministic event_id +
+			// ON CONFLICT DO NOTHING on outbox.events collapse any
+			// duplicate WAL record.
+			writeError(w, err)
+			return
+		}
+	case storage.PutVersionConflict:
+		// Optimistic-lock failure — Cassandra did not commit, so
+		// nothing to publish.
+	}
+
 	writeOutcomeResponse(w, outcome)
 }
 

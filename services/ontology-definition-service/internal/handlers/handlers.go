@@ -63,6 +63,12 @@ type Store interface {
 	// SaveBatch applies the working-state of the Review-edits modal
 	// atomically. See repo.SaveBatch for the semantics.
 	SaveBatch(ctx context.Context, req *models.BatchSaveRequest, actorID uuid.UUID) (*models.BatchSaveResponse, error)
+
+	// ListAuditLog backs the History tab in the Ontology Manager.
+	// One entry per resource-level mutation; entries that share a
+	// batch_id belong to the same Save click in the Review-edits
+	// modal.
+	ListAuditLog(ctx context.Context, filter models.AuditLogFilter) ([]models.AuditLogEntry, error)
 }
 
 type Handlers struct{ Repo Store }

@@ -97,7 +97,11 @@ import { Glyph } from "@/lib/components/ui/Glyph";
 import { CreateObjectTypeWizard } from "@/lib/components/ontology/CreateObjectTypeWizard";
 import { LinkEditor } from "@/lib/components/ontology/LinkEditor";
 import { OntologyEditsButton } from "@/lib/components/ontology/OntologyEditsButton";
-import { stage as stageOntologyEdit } from "@/lib/stores/ontologyWorkingState";
+import { AuditLogPanel } from "@/lib/components/ontology/AuditLogPanel";
+import {
+  stage as stageOntologyEdit,
+  useOntologyWorkingState,
+} from "@/lib/stores/ontologyWorkingState";
 import { calculateLogicMetrics, type LogicRunHistoryRecord } from "@/lib/logic/blocks";
 import { useAuth } from "@/lib/stores/auth";
 
@@ -256,6 +260,12 @@ const PROPERTY_BASE_TYPE_OPTIONS = [
 
 export function OntologyManagerPage() {
   const { user } = useAuth();
+  // Bump the History panel's refetch token whenever a working-state
+  // batch commits. `lastBatchId` is set by ontologyWorkingState.save()
+  // on a successful POST /batch-save and stays stable until the next
+  // commit, so passing it straight through behaves as a one-shot
+  // signal for the AuditLogPanel effect dependency array.
+  const workingStateBatchToken = useOntologyWorkingState().lastBatchId;
   const [section, setSection] = useState<Section>("overview");
   const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
   const [actionTypes, setActionTypes] = useState<ActionType[]>([]);
@@ -281,6 +291,11 @@ export function OntologyManagerPage() {
     object_type_ids: [] as string[],
   });
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  // Multi-select state for the object types list. The bulk action bar
+  // renders when any row is checked; each action stages the matching
+  // mutation through the working state so the user can review before
+  // committing.
+  const [bulkSelection, setBulkSelection] = useState<Set<string>>(new Set());
   const [projects, setProjects] = useState<OntologyProject[]>([]);
   const [projectResources, setProjectResources] = useState<
     OntologyProjectResourceBinding[]
@@ -457,6 +472,134 @@ export function OntologyManagerPage() {
 
   function removeLinkType(id: string) {
     setLinkTypes((current) => current.filter((item) => item.id !== id));
+  }
+
+  // ── Bulk actions on the object types list ─────────────────────────
+  //
+  // The action bar appears when any row is checked. Each action
+  // stages the corresponding mutation through the working state and
+  // clears the selection; the Review-edits modal in the top bar
+  // surfaces the staged edits for the user to review before save.
+
+  function toggleBulkSelection(id: string, checked: boolean) {
+    setBulkSelection((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  function selectedObjectTypesForBulk(): ObjectType[] {
+    return objectTypes.filter((t) => bulkSelection.has(t.id));
+  }
+
+  function bulkRenameObjectType() {
+    // Rename targets a single object type — Foundry surfaces the
+    // action in the bulk header for consistency but only enables it
+    // for one-row selections.
+    const targets = selectedObjectTypesForBulk();
+    if (targets.length !== 1) {
+      setError("Rename requires exactly one object type selected.");
+      return;
+    }
+    const target = targets[0];
+    const proposed = typeof window !== "undefined"
+      ? window.prompt(`Rename object type "${target.display_name}" to:`, target.display_name)
+      : null;
+    if (!proposed || proposed === target.display_name) return;
+    stageOntologyEdit({
+      op: "update",
+      resource: "object_type",
+      resourceId: target.id,
+      expectedVersion: target.version ?? 1,
+      originalSnapshot: target,
+      label: target.display_name,
+      draft: { display_name: proposed.trim() },
+    });
+    setBulkSelection(new Set());
+  }
+
+  function bulkEditStatus() {
+    const targets = selectedObjectTypesForBulk();
+    if (targets.length === 0) return;
+    const next = typeof window !== "undefined"
+      ? window.prompt(
+          `Set status for ${targets.length} object type(s) (active, experimental, deprecated):`,
+          "active",
+        )
+      : null;
+    if (!next) return;
+    const status = next.trim().toLowerCase();
+    if (!["active", "experimental", "deprecated"].includes(status)) {
+      setError("Status must be one of: active, experimental, deprecated.");
+      return;
+    }
+    for (const target of targets) {
+      if (target.status === status) continue;
+      stageOntologyEdit({
+        op: "update",
+        resource: "object_type",
+        resourceId: target.id,
+        expectedVersion: target.version ?? 1,
+        originalSnapshot: target,
+        label: target.display_name,
+        draft: { status },
+      });
+    }
+    setBulkSelection(new Set());
+  }
+
+  function bulkEditVisibility() {
+    const targets = selectedObjectTypesForBulk();
+    if (targets.length === 0) return;
+    const next = typeof window !== "undefined"
+      ? window.prompt(
+          `Set visibility for ${targets.length} object type(s) (normal, hidden, prominent):`,
+          "normal",
+        )
+      : null;
+    if (!next) return;
+    const visibility = next.trim().toLowerCase();
+    if (!["normal", "hidden", "prominent"].includes(visibility)) {
+      setError("Visibility must be one of: normal, hidden, prominent.");
+      return;
+    }
+    for (const target of targets) {
+      if (target.visibility === visibility) continue;
+      stageOntologyEdit({
+        op: "update",
+        resource: "object_type",
+        resourceId: target.id,
+        expectedVersion: target.version ?? 1,
+        originalSnapshot: target,
+        label: target.display_name,
+        draft: { visibility },
+      });
+    }
+    setBulkSelection(new Set());
+  }
+
+  function bulkDeleteObjectTypes() {
+    const targets = selectedObjectTypesForBulk();
+    if (targets.length === 0) return;
+    if (typeof window !== "undefined" && !window.confirm(`Stage delete of ${targets.length} object type(s)?`)) {
+      return;
+    }
+    for (const target of targets) {
+      stageOntologyEdit({
+        op: "delete",
+        resource: "object_type",
+        resourceId: target.id,
+        expectedVersion: target.version ?? 1,
+        originalSnapshot: target,
+        label: target.display_name,
+      });
+    }
+    setBulkSelection(new Set());
   }
 
   function resetGroupDraft() {
@@ -1929,22 +2072,54 @@ export function OntologyManagerPage() {
 
           {section === "types" && (
             <section className="of-panel" style={{ padding: 16 }}>
-              <p className="of-eyebrow">
-                Object types ({visibleObjectTypes.length})
-              </p>
+              <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                <p className="of-eyebrow">
+                  Object types ({visibleObjectTypes.length})
+                </p>
+                {bulkSelection.size > 0 && (
+                  <span className="of-text-muted" style={{ fontSize: 11 }}>
+                    {bulkSelection.size} selected
+                  </span>
+                )}
+              </header>
+              {bulkSelection.size > 0 && (
+                <ObjectTypeBulkActions
+                  count={bulkSelection.size}
+                  onClear={() => setBulkSelection(new Set())}
+                  onRename={() => bulkRenameObjectType()}
+                  onEditStatus={() => bulkEditStatus()}
+                  onEditVisibility={() => bulkEditVisibility()}
+                  onDelete={() => bulkDeleteObjectTypes()}
+                />
+              )}
               <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: "none" }}>
-                {visibleObjectTypes.map((t) => (
-                  <li
-                    key={t.id}
-                    style={{
-                      padding: 8,
-                      borderBottom: "1px solid var(--border-subtle)",
-                    }}
-                  >
-                    <strong>{t.display_name}</strong> · {t.name} · pk:{" "}
-                    {t.primary_key_property ?? "—"}
-                  </li>
-                ))}
+                {visibleObjectTypes.map((t) => {
+                  const checked = bulkSelection.has(t.id);
+                  return (
+                    <li
+                      key={t.id}
+                      style={{
+                        padding: 8,
+                        borderBottom: "1px solid var(--border-subtle)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        background: checked ? "rgba(41, 101, 204, 0.06)" : undefined,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${t.display_name}`}
+                        checked={checked}
+                        onChange={(e) => toggleBulkSelection(t.id, e.target.checked)}
+                      />
+                      <div>
+                        <strong>{t.display_name}</strong> · {t.name} · pk:{" "}
+                        {t.primary_key_property ?? "—"}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           )}
@@ -2424,6 +2599,10 @@ export function OntologyManagerPage() {
           )}
 
           {section === "history" && (
+            <AuditLogPanel refreshToken={workingStateBatchToken} />
+          )}
+
+          {section === "history" && (
             <OntologyHistoryPanel
               registry={ontologyRegistry}
               entries={historyEntries}
@@ -2567,6 +2746,78 @@ export function OntologyManagerPage() {
         />
       ) : null}
     </section>
+  );
+}
+
+interface ObjectTypeBulkActionsProps {
+  count: number;
+  onClear: () => void;
+  onRename: () => void;
+  onEditStatus: () => void;
+  onEditVisibility: () => void;
+  onDelete: () => void;
+}
+
+function ObjectTypeBulkActions({
+  count,
+  onClear,
+  onRename,
+  onEditStatus,
+  onEditVisibility,
+  onDelete,
+}: ObjectTypeBulkActionsProps) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 12px",
+        marginTop: 8,
+        border: "1px solid var(--border-default)",
+        borderRadius: 4,
+        background: "var(--surface-muted, #f5f7fa)",
+        fontSize: 12,
+      }}
+    >
+      <button
+        type="button"
+        className="of-button"
+        onClick={onClear}
+        aria-label="Clear selection"
+        style={{ fontSize: 11 }}
+      >
+        ×
+      </button>
+      <span style={{ fontWeight: 600 }}>
+        {count} object type{count === 1 ? "" : "s"} selected
+      </span>
+      <span style={{ flex: 1 }} />
+      <button
+        type="button"
+        className="of-button"
+        onClick={onRename}
+        disabled={count !== 1}
+        title={count === 1 ? "Rename the selected object type" : "Select exactly one object type to rename"}
+        style={{ fontSize: 11 }}
+      >
+        Rename
+      </button>
+      <button type="button" className="of-button" onClick={onEditStatus} style={{ fontSize: 11 }}>
+        Edit status
+      </button>
+      <button type="button" className="of-button" onClick={onEditVisibility} style={{ fontSize: 11 }}>
+        Edit visibility
+      </button>
+      <button
+        type="button"
+        className="of-button"
+        onClick={onDelete}
+        style={{ fontSize: 11, color: "#b91c1c", borderColor: "#7f1d1d" }}
+      >
+        Stage delete
+      </button>
+    </div>
   );
 }
 

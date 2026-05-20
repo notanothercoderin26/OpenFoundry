@@ -108,6 +108,12 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		// back inside the response body so the modal can render its
 		// All / Warnings / Errors / Conflicts tabs.
 		api.Post("/batch-save", h.BatchSave)
+
+		// History feed for the Ontology Manager. Returns rows from
+		// ontology_audit_log most-recent-first; optional filters by
+		// resource_kind / resource_id / batch_id / changed_by let
+		// the per-resource History tab narrow the view.
+		api.Get("/audit-log", h.ListAuditLog)
 	}
 
 	// Mount on both the legacy `/api/v1/ontology-definition` prefix

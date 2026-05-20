@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -89,39 +88,15 @@ func marshalNullable(v any) ([]byte, error) {
 }
 
 // ── Read paths ─────────────────────────────────────────────────────────
-
-// AuditLogFilter scopes a ListAuditLog query. All fields are optional;
-// zero values mean "no filter".
-type AuditLogFilter struct {
-	ResourceKind string
-	ResourceID   *uuid.UUID
-	BatchID      *uuid.UUID
-	ChangedBy    *uuid.UUID
-	Limit        int
-	Offset       int
-}
-
-// AuditLogEntry is the read shape exposed by ListAuditLog.
-type AuditLogEntry struct {
-	ID              uuid.UUID               `json:"id"`
-	BatchID         *uuid.UUID              `json:"batch_id,omitempty"`
-	ResourceKind    string                  `json:"resource_kind"`
-	ResourceID      uuid.UUID               `json:"resource_id"`
-	Operation       string                  `json:"operation"`
-	ChangedBy       uuid.UUID               `json:"changed_by"`
-	ChangedAt       time.Time               `json:"changed_at"`
-	ExpectedVersion *int                    `json:"expected_version,omitempty"`
-	NewVersion      int                     `json:"new_version"`
-	BeforeState     json.RawMessage         `json:"before_state,omitempty"`
-	AfterState      json.RawMessage         `json:"after_state,omitempty"`
-	FieldDiffs      []models.AuditDiffEntry `json:"field_diffs"`
-	Source          string                  `json:"source"`
-	Note            string                  `json:"note,omitempty"`
-}
+//
+// `AuditLogFilter` and `AuditLogEntry` are the wire-shape types
+// consumed by the HTTP layer and the frontend History view; they
+// live in the `models` package so handlers can reference them
+// without importing repo. This file is just the reader.
 
 // ListAuditLog returns audit-log entries ordered most-recent-first.
 // Defaults: limit = 100, max 1000; offset = 0.
-func (r *Repo) ListAuditLog(ctx context.Context, filter AuditLogFilter) ([]AuditLogEntry, error) {
+func (r *Repo) ListAuditLog(ctx context.Context, filter models.AuditLogFilter) ([]models.AuditLogEntry, error) {
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 100
@@ -164,10 +139,10 @@ func (r *Repo) ListAuditLog(ctx context.Context, filter AuditLogFilter) ([]Audit
 		return nil, err
 	}
 	defer rows.Close()
-	out := make([]AuditLogEntry, 0)
+	out := make([]models.AuditLogEntry, 0)
 	for rows.Next() {
 		var (
-			entry      AuditLogEntry
+			entry      models.AuditLogEntry
 			diffsBytes []byte
 		)
 		if err := rows.Scan(&entry.ID, &entry.BatchID, &entry.ResourceKind,

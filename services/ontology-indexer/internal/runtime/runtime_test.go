@@ -309,8 +309,10 @@ func TestRunWithReaderStopsOnContextCancel(t *testing.T) {
 
 func TestTopicsAndConsumerGroup(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, "ontology.objects.changed.v1", TopicObjectChangedV1)
-	assert.Equal(t, "ontology.links.changed.v1", TopicLinkChangedV1)
+	// Singular form is the kernel canon — see runtime.go for the
+	// post-mortem of the plural-spelling drift (B03 §G1).
+	assert.Equal(t, "ontology.object.changed.v1", TopicObjectChangedV1)
+	assert.Equal(t, "ontology.link.changed.v1", TopicLinkChangedV1)
 	assert.Equal(t, []string{TopicObjectChangedV1, TopicLinkChangedV1}, SubscribeTopics)
 	assert.Equal(t, "ontology-indexer", ConsumerGroup)
 }

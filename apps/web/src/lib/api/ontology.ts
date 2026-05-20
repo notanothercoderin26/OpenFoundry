@@ -54,6 +54,12 @@ export interface ObjectType {
   owner_id: string;
   created_at: string;
   updated_at: string;
+  /**
+   * Optimistic-concurrency token from migration 0006. The Review-edits
+   * modal echoes it as `expected_version` so stale object-type edits
+   * surface as Conflicts.
+   */
+  version?: number;
   // Per-app metadata stored as a free-form JSON object keyed by app
   // name. The platform writes `vertex_event` here when an object
   // type represents an event in the data model — see

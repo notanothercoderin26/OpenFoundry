@@ -35,6 +35,13 @@ type Config struct {
 	CassandraPassword       string
 	CassandraLocalDC        string
 	OntologyDefinitionURL   string
+
+	// DatabaseURL points at the Postgres database that hosts the
+	// transactional `outbox.events` table per ADR-0022. Required for
+	// production startup; when DevMode is enabled and the URL is
+	// empty the service runs without outbox emission (useful for
+	// in-memory tests that don't exercise the WAL → Kafka path).
+	DatabaseURL string
 }
 
 func FromEnv() (*Config, error) {
@@ -52,6 +59,7 @@ func FromEnv() (*Config, error) {
 	cfg.CassandraPassword = os.Getenv("CASSANDRA_PASSWORD")
 	cfg.CassandraLocalDC = defaultStr(os.Getenv("CASSANDRA_LOCAL_DC"), "dc1")
 	cfg.OntologyDefinitionURL = strings.TrimSpace(os.Getenv("ONTOLOGY_DEFINITION_SERVICE_URL"))
+	cfg.DatabaseURL = strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	return cfg, nil
 }
 

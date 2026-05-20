@@ -1,10 +1,29 @@
-# B03 — Ontology indexer is a stub
+# B03 — Ontology indexer end-to-end (G1 + G2 + G3 closed)
 
-> Severity: **High** — breaks the "search aircraft N12345" / "filter
-> objects" interactions in Act 2 and Act 4. Without indexing, ontology
-> writes do not become searchable in Vespa (or the chosen search backend),
-> and Object Explorer / Workshop filters fall back to slow scans or
-> empty results.
+> **Scope revised 2026-05-20.** The earlier framing of this file
+> ("ontology-indexer is a stub") was wrong. The service ships 1,029
+> LOC of Go including a real Kafka consumer with dedup-by-version,
+> exponential-backoff retries, DLQ publishing, dual search backends
+> (Vespa + OpenSearch), an OSV2 row projector, and integration tests
+> behind `//go:build integration`.
+>
+> The actual gaps were narrower:
+>
+>   - **G1**: the indexer subscribed to the wrong topic names
+>     (plural `ontology.objects.changed.v1`) while every producer in
+>     the codebase emits the singular form
+>     (`ontology.object.changed.v1`). Result: 0 events reached the
+>     indexer in production.
+>   - **G2**: `object-database-service.PutObject` skipped the
+>     transactional outbox — direct HTTP writes never landed in
+>     Kafka.
+>   - **G3**: the `ontology.link.changed.v1` topic CR was missing
+>     from the Strimzi manifests.
+>
+> All three are closed in this commit (see "Status as of 2026-05-20"
+> below). Severity is now **Resolved** for end-to-end emission;
+> luxury items (per-type indexing status endpoint, reindex backfill,
+> schema-aware mapping registration) remain as Phase 2.
 
 ## Identity
 
@@ -72,6 +91,40 @@ see an indexing status (pending / live / stale).
    results for `tail_number=N12345` in under 500 ms.
 5. The Workshop Object Table widget ([B01](B01-workshop-backend.md)) can
    filter by indexed properties end-to-end.
+
+## Status as of 2026-05-20
+
+| Gap | Status | Evidence |
+|---|---|---|
+| **G1** Topic-name drift (indexer subscribes to plural; producers emit singular) | ✅ Done | Constants in [services/ontology-indexer/internal/runtime/runtime.go](../../services/ontology-indexer/internal/runtime/runtime.go) flipped to `ontology.object.changed.v1` / `ontology.link.changed.v1`; pin test in `runtime_test.go::TestTopicsAndConsumerGroup` updated; README aligned |
+| **G2** `object-database-service.PutObject` skipped outbox | ✅ Done | New `OutboxPool *pgxpool.Pool` field on `Handlers`; new helper [internal/handlers/outbox.go](../../services/object-database-service/internal/handlers/outbox.go) wraps `libs/outbox.Enqueue` with the canonical `ontology.object.changed.v1` envelope (object_id, object_type_id, operation, properties, version, etc.) and deterministic event_id via `domain.DeriveEventID`. `PutObject` calls it on every successful `PutInserted`/`PutUpdated` outcome; `PutVersionConflict` correctly skips emission. Integration test `TestOutboxEndToEnd_PutObjectEmits` proves the INSERT lands in the WAL with the expected topic + payload + `ol-producer: object-database-service` header. |
+| **G3** Missing KafkaTopic CR for `ontology.link.changed.v1` | ✅ Done | Added to [infra/helm/infra/kafka-cluster/templates/topics-domain-v1.yaml](../../infra/helm/infra/kafka-cluster/templates/topics-domain-v1.yaml) as a sibling of the existing object topic. |
+| **G4** Per-type indexing status endpoint | ⏳ Phase 2 | Requires adding a Postgres-backed `index_status` table or scraping the existing Prometheus counters via a thin /status handler. Not blocking the PoC narrative. |
+| **G5** Schema-aware mapping registration (consume `ontology.object_type.changed.v1`) | ⏳ Phase 2 | The indexer today uses a generic JSONB document shape; per-type Vespa schemas would let it leverage typed fields and full-text tokenizers. Useful for Vespa quality at scale; not blocking the PoC narrative. |
+
+## Deferred to a follow-up commit (Phase 1b)
+
+`DeleteObject` and link mutations (`PutLink`, `DeleteLink`) in
+`object-database-service` need the same outbox wiring as `PutObject`.
+The pattern is identical (just call `enqueueObjectChanged` with
+`deleted: true` for the delete case, and a parallel
+`enqueueLinkChanged` helper for links); only ~1 day of focused work,
+omitted here to keep this commit scoped and the integration test
+focused on a single golden path.
+
+## Implementation notes (drift-mirrored from the kernel)
+
+`services/object-database-service/internal/handlers/outbox.go` is a
+small, intentional duplicate of
+`libs/ontology-kernel/domain.ApplyObjectWithOutbox`. The reason: the
+kernel helper accepts a `storageabstraction.ObjectStore`, and the
+service's local `storage.ObjectStore` (in `internal/storage`) is
+field-compatible but a distinct Go type. Rather than write a
+one-method adapter, we duplicate the ~80 LOC and use
+`domain.DeriveEventID` to keep the event_id derivation in lock-step
+with the kernel canon. If a third producer ever joins, lift the
+shared helper to `libs/ontology-outbox` (already flagged in B02's
+`Deferred` section).
 
 ## Implementation pointers
 

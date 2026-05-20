@@ -21,9 +21,17 @@ import (
 )
 
 // Topics the indexer subscribes to on startup.
+//
+// Naming pinned to the singular form because that is what the kernel
+// producer (`libs/ontology-kernel/handlers/objects.ApplyObjectWrite`
+// + `libs/ontology-kernel/domain.ApplyObjectWithOutbox`) and the
+// `ontology-actions-service` action-execute path actually emit. The
+// plural spellings used in earlier drafts (`ontology.objects.…`)
+// silently dropped every event because no producer wrote to them —
+// see PoC/blockers/B03-ontology-indexer.md §G1 for the post-mortem.
 const (
-	TopicObjectChangedV1 = "ontology.objects.changed.v1"
-	TopicLinkChangedV1   = "ontology.links.changed.v1"
+	TopicObjectChangedV1 = "ontology.object.changed.v1"
+	TopicLinkChangedV1   = "ontology.link.changed.v1"
 	TopicDLQ             = "ontology-indexer.dlq.v1"
 )
 
