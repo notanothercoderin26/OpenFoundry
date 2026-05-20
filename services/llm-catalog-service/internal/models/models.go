@@ -25,12 +25,26 @@ const (
 	ProviderOpenAI      Provider = "OPENAI"
 	ProviderOllama      Provider = "OLLAMA"
 	ProviderBedrock     Provider = "BEDROCK"
+	// ProviderAzure is the Azure OpenAI flavour of the chat-completions
+	// API. Same JSON body shape as OPENAI, but auth uses the `api-key`
+	// header and the URL is per-deployment:
+	//   {base}/openai/deployments/{model_id}/chat/completions?api-version=...
+	// The api-version is service-configured (AZURE_OPENAI_API_VERSION);
+	// `model_id` carries the deployment name.
+	ProviderAzure Provider = "AZURE"
 )
+
+// ValidProviders is the canonical comma-separated list used in error
+// messages and tests. Update both this slice and the IsValid switch
+// whenever a new provider is wired through ProviderRegistry.
+var ValidProviders = []Provider{
+	ProviderAnthropic, ProviderOpenAI, ProviderOllama, ProviderBedrock, ProviderAzure,
+}
 
 // IsValid reports whether p is one of the known provider tokens.
 func (p Provider) IsValid() bool {
 	switch p {
-	case ProviderAnthropic, ProviderOpenAI, ProviderOllama, ProviderBedrock:
+	case ProviderAnthropic, ProviderOpenAI, ProviderOllama, ProviderBedrock, ProviderAzure:
 		return true
 	}
 	return false

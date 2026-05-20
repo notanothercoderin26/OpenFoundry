@@ -46,6 +46,14 @@ type ProviderRegistry struct {
 	OpenAIBaseURL string
 
 	OllamaBaseURL string
+
+	// Azure OpenAI. BaseURL is the resource endpoint
+	// (https://<resource>.openai.azure.com); APIVersion is appended as
+	// the `api-version` query string. The per-deployment URL is built
+	// at invoke time from the model's `model_id` (deployment name).
+	AzureOpenAIAPIKey     string
+	AzureOpenAIBaseURL    string
+	AzureOpenAIAPIVersion string
 }
 
 // Lookup returns the invoker for the model's declared provider. Returns
@@ -76,6 +84,13 @@ func (r *ProviderRegistry) Lookup(p models.Provider) (providerInvoker, error) {
 		return &openAICompatibleInvoker{
 			client:  client,
 			baseURL: firstNonEmpty(r.OllamaBaseURL, "http://localhost:11434/v1"),
+		}, nil
+	case models.ProviderAzure:
+		return &azureOpenAIInvoker{
+			client:     client,
+			apiKey:     r.AzureOpenAIAPIKey,
+			baseURL:    r.AzureOpenAIBaseURL,
+			apiVersion: firstNonEmpty(r.AzureOpenAIAPIVersion, "2024-08-01-preview"),
 		}, nil
 	default:
 		return nil, ErrProviderUnimplemented
@@ -264,6 +279,107 @@ func (o *openAICompatibleInvoker) Invoke(ctx context.Context, model models.Model
 	}
 	if err := json.Unmarshal(payload, &parsed); err != nil {
 		return providerResult{}, fmt.Errorf("openai parse: %w", err)
+	}
+	content := ""
+	if len(parsed.Choices) > 0 {
+		content = parsed.Choices[0].Message.Content
+	}
+	return providerResult{
+		Content:          content,
+		PromptTokens:     parsed.Usage.PromptTokens,
+		CompletionTokens: parsed.Usage.CompletionTokens,
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Azure OpenAI
+//
+// Same JSON shape as the OpenAI chat-completions API, but:
+//   - auth is via the `api-key` header (not Authorization: Bearer)
+//   - URL is per-deployment:
+//       {base}/openai/deployments/{deployment}/chat/completions?api-version=...
+//   - the deployment name is carried in models.Model.ModelID; the
+//     api-version is service-configured (AZURE_OPENAI_API_VERSION).
+// ---------------------------------------------------------------------------
+
+type azureOpenAIInvoker struct {
+	client     *http.Client
+	apiKey     string
+	baseURL    string
+	apiVersion string
+}
+
+func (a *azureOpenAIInvoker) Invoke(ctx context.Context, model models.Model, req models.InvokeRequest) (providerResult, error) {
+	if strings.TrimSpace(a.apiKey) == "" {
+		return providerResult{}, fmt.Errorf("azure: AZURE_OPENAI_API_KEY not configured")
+	}
+	if strings.TrimSpace(a.baseURL) == "" {
+		return providerResult{}, fmt.Errorf("azure: AZURE_OPENAI_BASE_URL not configured")
+	}
+	deployment := strings.TrimSpace(model.ModelID)
+	if deployment == "" {
+		return providerResult{}, fmt.Errorf("azure: model.model_id (deployment) is required")
+	}
+
+	msgs := make([]map[string]any, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		msgs = append(msgs, map[string]any{
+			"role":    strings.ToLower(m.Role),
+			"content": m.Content,
+		})
+	}
+	body := map[string]any{
+		// Azure ignores `model` in the body (deployment is in the URL)
+		// but every reference SDK sends it for parity; do the same.
+		"model":    deployment,
+		"messages": msgs,
+	}
+	if req.MaxTokens > 0 {
+		body["max_tokens"] = req.MaxTokens
+	}
+	if req.Temperature > 0 {
+		body["temperature"] = req.Temperature
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return providerResult{}, fmt.Errorf("azure encode: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/openai/deployments/%s/chat/completions?api-version=%s",
+		strings.TrimRight(a.baseURL, "/"), deployment, a.apiVersion)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
+	if err != nil {
+		return providerResult{}, fmt.Errorf("azure build request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("api-key", a.apiKey)
+
+	resp, err := a.client.Do(httpReq)
+	if err != nil {
+		return providerResult{}, fmt.Errorf("azure request: %w", err)
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return providerResult{}, fmt.Errorf("azure read: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return providerResult{}, fmt.Errorf("azure returned %d: %s", resp.StatusCode, string(payload))
+	}
+
+	var parsed struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int32 `json:"prompt_tokens"`
+			CompletionTokens int32 `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(payload, &parsed); err != nil {
+		return providerResult{}, fmt.Errorf("azure parse: %w", err)
 	}
 	content := ""
 	if len(parsed.Choices) > 0 {

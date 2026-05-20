@@ -311,6 +311,97 @@ func TestInvoke_OpenAICompatible_DispatchAndUsage(t *testing.T) {
 	assert.EqualValues(t, 3, resp.Usage.CompletionTokens)
 }
 
+func TestInvoke_AzureOpenAI_DispatchAndUsage(t *testing.T) {
+	t.Parallel()
+	store := repo.NewMemoryStore()
+	const deployment = "gpt-4o-geopolitics"
+	const apiVersion = "2024-08-01-preview"
+	azure := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// URL shape: /openai/deployments/{deployment}/chat/completions
+		assert.Equal(t,
+			"/openai/deployments/"+deployment+"/chat/completions",
+			r.URL.Path,
+		)
+		assert.Equal(t, apiVersion, r.URL.Query().Get("api-version"))
+		assert.Equal(t, "az-fake", r.Header.Get("api-key"))
+		// Azure ignores Authorization header; ensure we did not set it.
+		assert.Empty(t, r.Header.Get("Authorization"))
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"content": "hola desde Azure"}},
+			},
+			"usage": map[string]any{
+				"prompt_tokens":     11,
+				"completion_tokens": 4,
+			},
+		})
+	}))
+	defer azure.Close()
+
+	m, err := store.Register(context.Background(), models.RegisterModelRequest{
+		Provider:        models.ProviderAzure,
+		ModelID:         deployment,
+		InputCostPer1K:  0.005,
+		OutputCostPer1K: 0.015,
+	})
+	require.NoError(t, err)
+	inv := &handlers.Invoke{
+		Store: store,
+		Providers: &handlers.ProviderRegistry{
+			HTTPClient:            azure.Client(),
+			AzureOpenAIAPIKey:     "az-fake",
+			AzureOpenAIBaseURL:    azure.URL,
+			AzureOpenAIAPIVersion: apiVersion,
+		},
+		Limiter: handlers.NewRateLimiter(10, 10),
+		Metrics: handlers.NewInvokeMetrics(observability.NewMetrics()),
+		Logger:  slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	}
+	handler := withClaimsMiddleware(newAuthedClaims(), http.HandlerFunc(inv.InvokeModel))
+	body, _ := json.Marshal(models.InvokeRequest{
+		ModelRID: m.RID,
+		Messages: []models.Message{{Role: "user", Content: "ping"}},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var resp models.InvokeResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "hola desde Azure", resp.Messages[0].Content)
+	assert.EqualValues(t, 11, resp.Usage.PromptTokens)
+	assert.EqualValues(t, 4, resp.Usage.CompletionTokens)
+}
+
+func TestInvoke_AzureOpenAI_MissingAPIKey_Returns502(t *testing.T) {
+	t.Parallel()
+	store := repo.NewMemoryStore()
+	m, err := store.Register(context.Background(), models.RegisterModelRequest{
+		Provider: models.ProviderAzure,
+		ModelID:  "gpt-4o-geopolitics",
+	})
+	require.NoError(t, err)
+	inv := &handlers.Invoke{
+		Store: store,
+		Providers: &handlers.ProviderRegistry{
+			AzureOpenAIBaseURL: "https://example.openai.azure.com",
+		},
+		Limiter: handlers.NewRateLimiter(10, 10),
+		Metrics: handlers.NewInvokeMetrics(observability.NewMetrics()),
+		Logger:  slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	}
+	handler := withClaimsMiddleware(newAuthedClaims(), http.HandlerFunc(inv.InvokeModel))
+	body, _ := json.Marshal(models.InvokeRequest{
+		ModelRID: m.RID,
+		Messages: []models.Message{{Role: "user", Content: "ping"}},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+	assert.Contains(t, rec.Body.String(), "AZURE_OPENAI_API_KEY")
+}
+
 func TestInvoke_BadRequest_EmptyMessages_Returns400(t *testing.T) {
 	t.Parallel()
 	_, inv, _, _, _, modelRID := buildInvokeFixture(t, 10, 10)

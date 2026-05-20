@@ -34,6 +34,15 @@ type Config struct {
 	OpenAIBaseURL    string
 	OllamaBaseURL    string
 
+	// Azure OpenAI. BaseURL is the resource endpoint
+	// (e.g. https://my-resource.openai.azure.com); ApiVersion is the
+	// query-string version Azure requires on every call (e.g.
+	// 2024-08-01-preview). Deployment name is carried per-model in
+	// llm_models.model_id.
+	AzureOpenAIAPIKey     string
+	AzureOpenAIBaseURL    string
+	AzureOpenAIAPIVersion string
+
 	// Per-(subject, model) token-bucket settings.
 	// 0 disables rate limiting.
 	RateLimitCapacity        float64
@@ -57,6 +66,9 @@ func FromEnv() (*Config, error) {
 	cfg.OpenAIAPIKey = os.Getenv("OPENAI_API_KEY")
 	cfg.OpenAIBaseURL = os.Getenv("OPENAI_BASE_URL")
 	cfg.OllamaBaseURL = os.Getenv("OLLAMA_BASE_URL")
+	cfg.AzureOpenAIAPIKey = os.Getenv("AZURE_OPENAI_API_KEY")
+	cfg.AzureOpenAIBaseURL = os.Getenv("AZURE_OPENAI_BASE_URL")
+	cfg.AzureOpenAIAPIVersion = defaultStr(os.Getenv("AZURE_OPENAI_API_VERSION"), "2024-08-01-preview")
 
 	cfg.RateLimitCapacity = parseFloat(os.Getenv("LLM_RATE_LIMIT_CAPACITY"), 60)
 	cfg.RateLimitRefillPerSecond = parseFloat(os.Getenv("LLM_RATE_LIMIT_REFILL_PER_SECOND"), 1)

@@ -29,10 +29,17 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Provider enumeration. Anthropic and OpenAI-compatible (also covers
-// Ollama and vLLM via the chat_completions API mode) are wired in v1;
-// BEDROCK is reserved — registration succeeds, invocation returns
-// UNIMPLEMENTED.
+// Provider enumeration. Anthropic, OpenAI-compatible (also covers
+// Ollama and vLLM via the chat_completions API mode), and Azure
+// OpenAI are wired in v1; BEDROCK is reserved — registration
+// succeeds, invocation returns UNIMPLEMENTED.
+//
+// AZURE is the Azure OpenAI flavour of the OpenAI chat-completions
+// API: same JSON shape, but auth via the `api-key` header and a
+// per-deployment URL of the form
+// `{base}/openai/deployments/{model_id}/chat/completions?api-version=...`.
+// Deployment name is carried in `model_id`; the api-version is
+// service-configured (`AZURE_OPENAI_API_VERSION`).
 type Provider int32
 
 const (
@@ -41,6 +48,7 @@ const (
 	Provider_OPENAI               Provider = 2
 	Provider_OLLAMA               Provider = 3
 	Provider_BEDROCK              Provider = 4
+	Provider_AZURE                Provider = 5
 )
 
 // Enum value maps for Provider.
@@ -51,6 +59,7 @@ var (
 		2: "OPENAI",
 		3: "OLLAMA",
 		4: "BEDROCK",
+		5: "AZURE",
 	}
 	Provider_value = map[string]int32{
 		"PROVIDER_UNSPECIFIED": 0,
@@ -58,6 +67,7 @@ var (
 		"OPENAI":               2,
 		"OLLAMA":               3,
 		"BEDROCK":              4,
+		"AZURE":                5,
 	}
 )
 
@@ -1055,7 +1065,7 @@ const file_ai_v1_llm_catalog_proto_rawDesc = "" +
 	"\x11InvokeStreamChunk\x12\x14\n" +
 	"\x05delta\x18\x01 \x01(\tR\x05delta\x12\x12\n" +
 	"\x04done\x18\x02 \x01(\bR\x04done\x12/\n" +
-	"\x05usage\x18\x03 \x01(\v2\x19.open_foundry.ai.v1.UsageR\x05usage*X\n" +
+	"\x05usage\x18\x03 \x01(\v2\x19.open_foundry.ai.v1.UsageR\x05usage*c\n" +
 	"\bProvider\x12\x18\n" +
 	"\x14PROVIDER_UNSPECIFIED\x10\x00\x12\r\n" +
 	"\tANTHROPIC\x10\x01\x12\n" +
@@ -1063,7 +1073,8 @@ const file_ai_v1_llm_catalog_proto_rawDesc = "" +
 	"\x06OPENAI\x10\x02\x12\n" +
 	"\n" +
 	"\x06OLLAMA\x10\x03\x12\v\n" +
-	"\aBEDROCK\x10\x04*I\n" +
+	"\aBEDROCK\x10\x04\x12\t\n" +
+	"\x05AZURE\x10\x05*I\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12\b\n" +
