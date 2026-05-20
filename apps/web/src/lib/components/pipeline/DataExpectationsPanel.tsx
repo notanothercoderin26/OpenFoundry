@@ -164,10 +164,10 @@ export function DataExpectationsPanel({
     <section className={compact ? undefined : 'of-panel'} style={{ padding: compact ? '12px 0 0' : 16, display: 'grid', gap: 12, borderTop: compact ? '1px solid var(--border-subtle)' : undefined }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'start', flexWrap: 'wrap' }}>
         <div>
-          <p className="of-eyebrow">Data expectations</p>
-          <h3 className="of-heading-sm" style={{ marginTop: 4 }}>{node.label || node.id}</h3>
-          <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
-            Define input pre-conditions and output post-conditions. Failed expectations can abort builds or continue as warnings.
+          <h3 className="of-heading-sm" style={{ margin: 0 }}>Data expectations</h3>
+          <p className="of-text-muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+            <span style={{ fontWeight: 600, color: 'var(--text-default)' }}>{node.label || node.id}</span>
+            {' · '}Define input pre-conditions and output post-conditions. Failed expectations can abort builds or continue as warnings.
           </p>
         </div>
         <button type="button" className="of-button" onClick={evaluateNow} disabled={expectations.length === 0}>

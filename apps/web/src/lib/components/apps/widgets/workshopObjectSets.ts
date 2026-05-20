@@ -20,6 +20,7 @@ import {
   type WorkshopVariableFilter,
   type WorkshopVariableLike,
 } from './workshopVariables';
+import { fetchWorkshopObjectSetViaSearch } from './workshopObjectSetsSearch';
 
 export interface WorkshopObjectSetExecutionOptions {
   objectTypeId?: string;
@@ -27,6 +28,13 @@ export interface WorkshopObjectSetExecutionOptions {
   sort?: ObjectQuerySort[];
   aggregations?: ObjectSetAggregationSpec[];
   includeCount?: boolean;
+  // B03 G2 opt-in: when true (or when the variable's metadata sets
+  // `use_search_backend: true`), executeObjectTypeObjectSet routes
+  // the read through POST /api/v1/ontology/search instead of the
+  // Cassandra-backed object-database query. Geopolitics types
+  // (Event/Actor with ~10⁹ rows) flip this on at the Workshop JSON
+  // layer; aviation keeps the default Cassandra path.
+  useSearchBackend?: boolean;
 }
 
 export interface WorkshopObjectSetExecutionRequest extends WorkshopObjectSetExecutionOptions {
@@ -66,6 +74,7 @@ export interface WorkshopObjectSetExecutorDependencies {
   listObjects: typeof listObjects;
   queryObjects: typeof queryObjects;
   evaluateObjectSet: typeof evaluateObjectSet;
+  fetchViaSearch?: typeof fetchWorkshopObjectSetViaSearch;
 }
 
 const DEFAULT_LIMIT = 5000;
@@ -74,6 +83,7 @@ const DEFAULT_DEPS: WorkshopObjectSetExecutorDependencies = {
   listObjects,
   queryObjects,
   evaluateObjectSet,
+  fetchViaSearch: fetchWorkshopObjectSetViaSearch,
 };
 
 export async function executeWorkshopObjectSet(
@@ -167,6 +177,7 @@ async function executeObjectSetInternal(
   const sort = objectSetQuerySorts(variable, request.sort ?? engineObjectSet?.sort);
   const aggregations = objectSetQueryAggregations(variable, request.aggregations ?? engineObjectSet?.aggregations);
   const includeCount = request.includeCount ?? true;
+  const useSearchBackend = resolveUseSearchBackend(request, variable);
 
   if (variable?.kind === 'object_set_selection' || (engineObjectSet?.objects && !variable?.source_variable_id)) {
     const objects = engineObjectSet?.objects ?? (variable ? request.engine?.getSelectedObjectSet(variable.id) : undefined) ?? [];
@@ -279,7 +290,20 @@ async function executeObjectSetInternal(
     });
   }
 
-  return executeObjectTypeObjectSet(objectTypeId, allFilters, limit, sort, aggregations, includeCount, deps);
+  return executeObjectTypeObjectSet(objectTypeId, allFilters, limit, sort, aggregations, includeCount, deps, useSearchBackend);
+}
+
+function resolveUseSearchBackend(
+  request: WorkshopObjectSetExecutionRequest,
+  variable: WorkshopVariableLike | null,
+): boolean {
+  if (request.useSearchBackend === true) return true;
+  const metadata = variable?.metadata;
+  if (!metadata) return false;
+  const raw = metadata.use_search_backend ?? metadata.useSearchBackend ?? metadata.search_backend;
+  if (raw === true) return true;
+  if (typeof raw === 'string') return raw.toLowerCase().trim() === 'true';
+  return false;
 }
 
 async function executeKNNObjectSet(
@@ -349,6 +373,7 @@ async function executeObjectTypeObjectSet(
   aggregations: ObjectSetAggregationSpec[],
   includeCount: boolean,
   deps: WorkshopObjectSetExecutorDependencies,
+  useSearchBackend = false,
 ): Promise<WorkshopObjectSetExecutionResult> {
   if (!objectTypeId) {
     return objectSetResult({
@@ -361,6 +386,26 @@ async function executeObjectTypeObjectSet(
       limit,
       includeCount,
       aggregations,
+    });
+  }
+  // B03 G2 — Vespa-backed fast path. The opt-in flips on per-type so
+  // high-volume geopolitics objects (Event/Actor/NewsArticle, ~10⁹
+  // rows) compile their WorkshopVariableFilter[] straight to
+  // POST /api/v1/ontology/search; everything else stays on the
+  // Cassandra-backed object-database query the aviation PoC ships.
+  if (useSearchBackend && deps.fetchViaSearch) {
+    const { data, total } = await deps.fetchViaSearch({ objectTypeId, filters, limit });
+    return objectSetResult({
+      data,
+      total,
+      objectTypeId,
+      source: 'object_type',
+      filters,
+      sort,
+      limit,
+      includeCount,
+      aggregations,
+      aggregationRows: data,
     });
   }
   const response = await deps.queryObjects(objectTypeId, {

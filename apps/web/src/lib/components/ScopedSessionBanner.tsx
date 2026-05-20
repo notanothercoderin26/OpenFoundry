@@ -35,7 +35,7 @@ export function ScopedSessionBanner() {
   }, [user?.id, user?.session_scope]);
 
   const selectablePresets = useMemo(
-    () => options?.presets.filter((preset) => preset.selectable) ?? [],
+    () => options?.presets?.filter((preset) => preset.selectable) ?? [],
     [options],
   );
   if (!options?.enabled) return null;

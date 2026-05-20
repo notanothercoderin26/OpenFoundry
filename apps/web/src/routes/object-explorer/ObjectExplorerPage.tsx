@@ -72,6 +72,7 @@ import { ExplorationsHighlight } from './components/ExplorationsHighlight';
 import { HeaderToolbar } from './components/HeaderToolbar';
 import { PropertyFiltersPanel } from './components/PropertyFiltersPanel';
 import { LinkedFilterPanel } from './components/LinkedFilterPanel';
+import { PivotBreadcrumb } from './components/PivotBreadcrumb';
 import { PivotPanel } from './components/PivotPanel';
 import { SearchResultsList } from './components/SearchResultsList';
 import { RecentObjectsList } from './components/RecentObjectsList';
@@ -107,6 +108,12 @@ import {
   type RecentItem,
   type SearchMode,
 } from './state';
+import {
+  currentPivot,
+  pushPivot,
+  rollbackTo,
+  type PivotHistory,
+} from './pivotState';
 
 type ObjectExplorerTab = 'overview' | 'objects' | 'types' | 'artifacts';
 
@@ -145,6 +152,8 @@ export function ObjectExplorerPage() {
   const [linkedFilter, setLinkedFilter] = useState<LinkedFilterDraft>({ ...DEFAULT_LINKED_FILTER });
   const [filterLoading, setFilterLoading] = useState(false);
   const [pivotLinkTypeId, setPivotLinkTypeId] = useState('');
+  const [pivotDepth, setPivotDepth] = useState(1);
+  const [pivotHistory, setPivotHistory] = useState<PivotHistory>([]);
   const [explorationContext, setExplorationContext] = useState<ExplorationContext | null>(null);
   const [directOpenTypeId, setDirectOpenTypeId] = useState('');
   const [directOpenObjectId, setDirectOpenObjectId] = useState('');
@@ -552,6 +561,7 @@ export function ObjectExplorerPage() {
     setSearchTypeFilter(typeId);
     setFilterTypeId(typeId);
     setExplorationContext(null);
+    setPivotHistory([]);
     if (!objectType || !access.can_view_definition || !access.can_view_instances) {
       setSearchResults([]);
       setSearchError(access.reason);
@@ -578,6 +588,7 @@ export function ObjectExplorerPage() {
     setSearchKindFilter('object_instance');
     setSearchTypeFilter(filterTypeId);
     setExplorationContext(null);
+    setPivotHistory([]);
     if (!objectType || !access.can_view_definition || !access.can_view_instances) {
       setSearchResults([]);
       setSearchError(access.reason);
@@ -699,6 +710,7 @@ export function ObjectExplorerPage() {
       source_object_type_id: sourceTypeId,
       source_object_ids: sourceObjectIds,
       link_type: linkType,
+      depth: pivotDepth,
     }) : null;
     const targetType = pivot ? typeById.get(pivot.target_object_type_id) ?? null : null;
     const targetAccess = accessForType(pivot?.target_object_type_id);
@@ -731,7 +743,7 @@ export function ObjectExplorerPage() {
       setFilterTypeId(pivot.target_object_type_id);
       setNewSetType(pivot.target_object_type_id);
       setNewSetName(`${targetType.display_name || targetType.name} pivot from ${sourceType.display_name || sourceType.name}`);
-      setExplorationContext({
+      const step: ExplorationContext = {
         kind: 'pivot',
         label: `${sourceType.display_name || sourceType.name} -> ${targetType.display_name || targetType.name}`,
         source_object_type_id: sourceTypeId,
@@ -740,9 +752,48 @@ export function ObjectExplorerPage() {
         result_object_ids: results.map((result) => result.id),
         link_type_id: linkType.id,
         direction: pivot.search_around.direction || pivot.context.direction,
-      });
+      };
+      setExplorationContext(step);
+      setPivotHistory((history) => pushPivot(history, step));
     } catch (cause) {
       setSearchError(cause instanceof Error ? cause.message : 'Pivot failed');
+    } finally {
+      setFilterLoading(false);
+    }
+  }
+
+  async function rollbackPivotToIndex(index: number) {
+    const truncated = rollbackTo(pivotHistory, index);
+    setPivotHistory(truncated);
+    const target = currentPivot(truncated);
+    if (!target) {
+      setExplorationContext(null);
+      setSearchResults([]);
+      return;
+    }
+    setExplorationContext(target);
+    const targetType = typeById.get(target.result_object_type_id) ?? null;
+    if (!targetType) return;
+    const ids = target.result_object_ids;
+    setFilterLoading(true);
+    setSearchError('');
+    try {
+      if (ids.length === 0) {
+        setSearchResults([]);
+        return;
+      }
+      const response = await queryObjects(target.result_object_type_id, {
+        filters: [{ property_name: 'id', operator: 'in', value: ids }],
+        limit: Math.max(50, ids.length),
+        include_count: true,
+      });
+      const visibleRows = filterObjectsForRestrictedViewPolicy(response.data ?? [], { objectType: targetType, principal });
+      setSearchResults(objectResultsFromRows(target.result_object_type_id, visibleRows));
+      setSearchKindFilter('object_instance');
+      setSearchTypeFilter(target.result_object_type_id);
+      setFilterTypeId(target.result_object_type_id);
+    } catch (cause) {
+      setSearchError(cause instanceof Error ? cause.message : 'Pivot rollback failed');
     } finally {
       setFilterLoading(false);
     }
@@ -775,6 +826,7 @@ export function ObjectExplorerPage() {
     setSearchError('');
     setHasSearched(true);
     setExplorationContext(null);
+    setPivotHistory([]);
     try {
       const scopeForServer = scopeTypeIds.size === 1 ? scopeTypeIds.values().next().value : searchTypeFilter || undefined;
       const res = await searchOntology({
@@ -1288,12 +1340,21 @@ export function ObjectExplorerPage() {
                       typeById={typeById}
                       searchResults={searchResults}
                       filterLoading={filterLoading}
+                      pivotDepth={pivotDepth}
+                      onChangePivotDepth={setPivotDepth}
                       onPivot={() => void pivotToLinkedType()}
                     />
                   </section>
 
                   <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', alignItems: 'start' }}>
                     <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
+                      <PivotBreadcrumb
+                        history={pivotHistory}
+                        typeById={typeById}
+                        onRollback={(index) => void rollbackPivotToIndex(index)}
+                        onClear={() => void rollbackPivotToIndex(-1)}
+                        disabled={filterLoading}
+                      />
                       <SearchResultsList
                         searchResults={searchResults}
                         hasSearched={hasSearched}

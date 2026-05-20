@@ -326,7 +326,13 @@ export function FoundryRulesPage() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <label style={{ fontSize: 13 }}>
           Object type:
-          <select value={selectedTypeId} onChange={(e) => selectType(e.target.value)} className="of-input" style={{ marginLeft: 6, width: 'auto' }}>
+          <select
+            aria-label="Object type"
+            value={selectedTypeId}
+            onChange={(e) => selectType(e.target.value)}
+            className="of-input"
+            style={{ marginLeft: 6, width: 'auto' }}
+          >
             {objectTypes.length === 0 && <option value="">No object types</option>}
             {objectTypes.map((t) => (
               <option key={t.id} value={t.id}>{t.display_name}</option>
@@ -335,7 +341,13 @@ export function FoundryRulesPage() {
         </label>
         <label style={{ fontSize: 13 }}>
           Workflow:
-          <select value={selectedWorkflowId} onChange={(e) => setSelectedWorkflowId(e.target.value)} className="of-input" style={{ marginLeft: 6, width: 'auto' }}>
+          <select
+            aria-label="Workflow"
+            value={selectedWorkflowId}
+            onChange={(e) => setSelectedWorkflowId(e.target.value)}
+            className="of-input"
+            style={{ marginLeft: 6, width: 'auto' }}
+          >
             <option value="">— select —</option>
             {workflows.map((w) => (
               <option key={w.id} value={w.id}>{w.name}</option>
@@ -588,6 +600,7 @@ function FoundryRuleDrawer({
         <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
           Evaluation mode
           <select
+            aria-label="Evaluation mode"
             value={draft.evaluation_mode}
             disabled={busy}
             onChange={(event) => onDraftChange({ evaluation_mode: event.target.value as RuleDraft['evaluation_mode'] })}

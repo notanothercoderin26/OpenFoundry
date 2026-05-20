@@ -144,6 +144,18 @@ CREATE TABLE IF NOT EXISTS dataset_views (
     UNIQUE(dataset_id, branch_id, head_transaction_id)
 );
 
+-- The `dataset_views` table may pre-exist from migration
+-- 20260425173000_dataset_views_transactions.sql with a different shape
+-- (no branch_id / head_transaction_id / computed_at). CREATE TABLE
+-- IF NOT EXISTS above is a no-op in that case, so backfill the new
+-- columns here to keep this migration idempotent.
+ALTER TABLE dataset_views ADD COLUMN IF NOT EXISTS branch_id           UUID REFERENCES dataset_branches(id) ON DELETE CASCADE;
+ALTER TABLE dataset_views ADD COLUMN IF NOT EXISTS head_transaction_id UUID REFERENCES dataset_transactions(id) ON DELETE CASCADE;
+ALTER TABLE dataset_views ADD COLUMN IF NOT EXISTS computed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE dataset_views ADD COLUMN IF NOT EXISTS file_count          INT NOT NULL DEFAULT 0;
+ALTER TABLE dataset_views ADD COLUMN IF NOT EXISTS size_bytes          BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE dataset_views ADD COLUMN IF NOT EXISTS metadata            JSONB NOT NULL DEFAULT '{}';
+
 CREATE INDEX IF NOT EXISTS idx_dataset_views_dataset_branch
     ON dataset_views(dataset_id, branch_id, computed_at DESC);
 

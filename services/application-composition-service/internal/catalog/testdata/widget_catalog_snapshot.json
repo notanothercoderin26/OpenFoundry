@@ -188,10 +188,22 @@
       "category": "spatial",
       "display_icon": "object",
       "input_count": 1,
-      "output_count": 4,
-      "event_names": ["object_select", "shape_change"],
+      "output_count": 6,
+      "event_names": ["object_select", "shape_change", "time_change"],
       "permissions": ["app:read", "geospatial:read", "ontology:read"],
       "supported_bindings": ["query", "dataset", "object_set"],
+      "supports_children": false
+    },
+    {
+      "widget_type": "timeline",
+      "widget_kind": "visualization",
+      "category": "visualization",
+      "display_icon": "history",
+      "input_count": 1,
+      "output_count": 2,
+      "event_names": ["event_select"],
+      "permissions": ["app:read", "ontology:read"],
+      "supported_bindings": ["object_set"],
       "supports_children": false
     },
     {

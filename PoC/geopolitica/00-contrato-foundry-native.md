@@ -11,7 +11,7 @@
 3. **OpenFoundry service names are implementation details.** Names such as `connector-management-service`, `dataset-versioning-service`, or `agent-runtime-service` can remain in engineering runbooks, but not as the primary narrative for the customer demo.
 4. **If a Foundry capability cannot be publicly verified, mark it as an emulation.** Do not claim it is identical to Foundry unless the behavior is supported by Palantir public documentation or validated by a Palantir environment.
 5. **The acceptance test is behavioral parity.** The question is not whether the OpenFoundry architecture resembles Foundry; the question is whether a Foundry practitioner would perform the same step with an equivalent Foundry resource.
-6. **The graph view is part of the Foundry surface, not a separate product.** In Foundry terms, link analysis appears as an Object Explorer / Workshop graph visualization driven by ontology link types. We **must not** ship a parallel "Neo4j-style" UI labeled as its own product.
+6. **Link analysis follows Palantir's three-surface split, not a single Workshop widget.** Verified against public Palantir documentation (Workshop Visualization Widgets list, Object Explorer pivot, Vertex, Quiver) on 2026-05-21: Foundry does **not** ship a `graph` widget inside Workshop. Link analysis lives in a dedicated app (**OpenFoundry equivalent of Vertex**, built on the existing `apps/web/src/routes/cytoscape-demo/` canvas); **Workshop embeds it via a `vertex_graph_embed` widget**, not via a native node/edge widget. **Object Explorer additionally exposes a pivoting UI for simple multi-hop traversal**, backed by `ontology-query-service`'s existing `Traverse` / Search Around DSL. This supersedes the earlier "no parallel Neo4j-style UI" prohibition — Vertex itself is exactly such an app in Palantir's product line, so OpenFoundry shipping a Vertex-equivalent app is Foundry-native, not divergence.
 
 ---
 
@@ -26,7 +26,9 @@ Use these public pages as the baseline for the PoC vocabulary and acceptance cri
 | Pipelines | [Pipeline Builder — overview](https://www.palantir.com/docs/foundry/pipeline-builder/overview/) and [Transforms — overview](https://www.palantir.com/docs/foundry/pipeline-builder/transforms-overview/) |
 | Data quality | [Data Health](https://www.palantir.com/docs/foundry/observability/data-health/) |
 | Ontology | [Object and link types — type reference](https://www.palantir.com/docs/foundry/object-link-types/type-reference) |
-| Object Explorer (graph) | [Object Explorer — overview](https://www.palantir.com/docs/foundry/object-explorer/overview/) |
+| Object Explorer (pivoting + group graph) | [Object Explorer — overview](https://www.palantir.com/docs/foundry/object-explorer/overview/), [Pivot to explore linked objects](https://www.palantir.com/docs/foundry/object-explorer/pivot-linked/) |
+| Vertex (link-analysis app) | [Vertex — Explore object relationships](https://www.palantir.com/docs/foundry/vertex/explore-object-relationships), [Vertex — Generate graphs using Functions](https://www.palantir.com/docs/foundry/vertex/generate-graph-functions), [Vertex — Object and edge display options](https://www.palantir.com/docs/foundry/vertex/graphs-display-options) |
+| Workshop embeds (Vertex Graph / Quiver Dashboard) | [Workshop — Embed Foundry apps](https://www.palantir.com/docs/foundry/workshop/widgets-embed-foundry-apps/) |
 | Actions | [Action rules](https://www.palantir.com/docs/foundry/action-types/rules/), [use actions in the platform](https://www.palantir.com/docs/foundry/action-types/use-actions/), [action log](https://www.palantir.com/docs/foundry/action-types/action-log), [notifications](https://www.palantir.com/docs/foundry/action-types/notifications/), [webhooks](https://www.palantir.com/docs/foundry/action-types/webhooks) |
 | Workshop | [Workshop widgets](https://www.palantir.com/docs/foundry/workshop/concepts-widgets), [Object Table](https://www.palantir.com/docs/foundry/workshop/widgets-object-table), [Map widget](https://www.palantir.com/docs/foundry/workshop/widgets-map/), [Button Group](https://www.palantir.com/docs/foundry/workshop/widgets-button-group/) |
 | Quiver | [Quiver action button](https://www.palantir.com/docs/foundry/quiver/card-action-button) |
@@ -67,10 +69,13 @@ Use these public pages as the baseline for the PoC vocabulary and acceptance cri
 
 Unlike the aviation PoC, this PoC introduces two requirements that the aviation contract did not stress, and that the OpenFoundry product must **adapt to**:
 
-### Graph widget as a first-class Workshop widget
-- **Requirement:** a `graph` widget configurable in Workshop, backed by ontology link-type queries (N-hop expansion), with selection state shared with `object-table`, `map`, and `timeline` widgets.
-- **Acceptance:** the demo's "expand neighborhood of `Person:X`" step must work end-to-end without bespoke React; the widget configuration is JSON, persisted, branchable, and respects markings.
-- **Implementation note:** OpenFoundry's `apps/web` graph rendering is a frontend concern; the link-type query path lives in `ontology-query-service` and must support paginated N-hop expansion with marking filters.
+### Link analysis surfaces (Vertex-equivalent app + Workshop embed widget + Object Explorer pivoting)
+- **Requirement:** Match Palantir's three-surface split for link analysis (see [Non-negotiable §6](#non-negotiable-interpretation)).
+  1. A dedicated **OpenFoundry Vertex** app (graph canvas) backed by `ontology-query-service`'s `Traverse` / Search Around DSL. Built on the existing `apps/web/src/routes/cytoscape-demo/` canvas + `cytoscape` 3.33 + `cytoscape-fcose` already in `apps/web/package.json`. Supports node selection, Search Around expansion, edge direction per link type, save graph templates, marking-aware.
+  2. A Workshop **`vertex_graph_embed`** widget that embeds a saved Vertex graph/template into a Workshop module — analogous to Palantir's *"Vertex Graph"* embed (verified in the Workshop embed Foundry apps page). **Not** a native node/edge widget rendered inside Workshop's own canvas.
+  3. An **Object Explorer pivoting UI** that lets the analyst pivot from an active object set to a linked object type, carrying filters across the pivot — analogous to Palantir's *"Pivot to explore linked objects"* flow. Backend already exists in `ontology-query-service` as `Traverse` / Search Around DSL ([traversal.go](../../services/ontology-query-service/internal/handlers/traversal.go)).
+- **Acceptance:** the demo's "expand neighborhood of `Person:X`" step (Act 3 / UC-3) is performed in the Vertex-equivalent app and surfaced in Workshop via the embed widget. Act 2's simple pivots (UC-2 sanctioned actors → events) are performed in Object Explorer without leaving the page. All three surfaces respect markings end-to-end.
+- **Implementation note:** Workshop is **not** the right place to render the node/edge canvas; rendering lives in the Vertex-equivalent app and Workshop embeds it. The link-type query path must support paginated N-hop expansion with marking filters.
 
 ### Markings-based row/column visibility on datasets and ontology
 - **Requirement:** OpenFoundry's policy engine must enforce **dataset markings** (per-row or per-property) and propagate them into ontology objects and AIP responses.
@@ -85,7 +90,7 @@ Unlike the aviation PoC, this PoC introduces two requirements that the aviation 
 | "Call `/api/datasets/v1/.../branches`" | "Create a Global Branch; OpenFoundry exposes a compatible API internally." |
 | "Register MCP tools" | "Configure AIP Chatbot tools; internally these may be implemented as MCP-style tools." |
 | "Cedar / ABAC / RBAC" | "Foundry-style permissions, markings/policies, action permissions, and purpose/role controls; Cedar is implementation detail only." |
-| "Graph database backed by Neo4j" | "Ontology link types queried via Object Explorer / Workshop graph widget; the storage backend is an implementation detail." |
+| "Graph database backed by Neo4j" | "Ontology link types traversed via Object Explorer pivoting and the OpenFoundry Vertex app; Workshop surfaces the graph through the `vertex_graph_embed` widget. The storage backend is an implementation detail." |
 | "OpenLineage sink" | "Expose Foundry-style Data Lineage; OpenLineage can be an implementation detail." |
 
 ---

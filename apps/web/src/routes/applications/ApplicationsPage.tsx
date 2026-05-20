@@ -133,7 +133,11 @@ export function ApplicationsPage() {
           })}
         </aside>
 
-        <main style={{ flex: 1, padding: '16px 22px', overflowY: 'auto' }}>
+        <section
+          role="region"
+          aria-label="Application catalog"
+          style={{ flex: 1, padding: '16px 22px', overflowY: 'auto' }}
+        >
           {filtered.length === 0 ? (
             <p style={{ color: '#aab4c0', fontSize: 13 }}>No apps match the current filters.</p>
           ) : (
@@ -183,7 +187,7 @@ export function ApplicationsPage() {
               ))}
             </div>
           )}
-        </main>
+        </section>
       </div>
     </div>
   );

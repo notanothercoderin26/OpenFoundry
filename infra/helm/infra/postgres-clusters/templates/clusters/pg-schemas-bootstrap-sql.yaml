@@ -38,6 +38,19 @@ data:
     -- Idempotent on re-execution (CNPG only runs this once per cluster
     -- bootstrap, but we guard with IF NOT EXISTS for safety).
 
+    -- pgcrypto is required by several service migrations (gen_random_uuid()).
+    -- pg_trgm is required by vertex-service migration 0001_vertex_baseline.sql
+    -- (gin_trgm_ops index operator class).
+    -- Extensions need superuser; created here at bootstrap time.
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+    -- Shared role: granted ownership of the cluster-wide outbox table so
+    -- every svc_<bc> that is a member can execute DDL (CREATE INDEX
+    -- IF NOT EXISTS, ALTER TABLE REPLICA IDENTITY FULL, ...) on it
+    -- without each service needing to be the literal owner.
+    CREATE ROLE outbox_writers NOLOGIN;
+
     DO $$
     DECLARE
       bc TEXT;
@@ -85,6 +98,9 @@ data:
         EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I AUTHORIZATION svc_%I', bc, bc);
         EXECUTE format('REVOKE ALL ON SCHEMA %I FROM PUBLIC', bc);
         EXECUTE format('GRANT USAGE ON SCHEMA %I TO svc_%I', bc, bc);
+        -- Required so service migrations can run `CREATE SCHEMA IF NOT EXISTS`
+        -- (Postgres evaluates the privilege check BEFORE the IF NOT EXISTS).
+        EXECUTE format('GRANT CREATE ON DATABASE app TO svc_%I', bc);
         EXECUTE format(
           'ALTER DEFAULT PRIVILEGES FOR ROLE svc_%I IN SCHEMA %I '
           'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO svc_%I',
@@ -95,6 +111,56 @@ data:
           'GRANT USAGE, SELECT ON SEQUENCES TO svc_%I',
           bc, bc, bc
         );
+      END LOOP;
+    END$$;
+
+    -- Shared transactional outbox for the schemas cluster (ADR-0022).
+    -- Several pg-schemas services (global-branch, code-repository-review,
+    -- connector-management, media-sets, ontology-definition, ...) ship
+    -- per-service migrations that create `outbox.events` themselves.
+    -- Pre-creating the schema as superuser + granting access avoids the
+    -- "first service to migrate owns the schema" ownership conflict.
+    CREATE SCHEMA IF NOT EXISTS outbox;
+    REVOKE ALL ON SCHEMA outbox FROM PUBLIC;
+
+    CREATE TABLE IF NOT EXISTS outbox.events (
+      event_id     UUID PRIMARY KEY,
+      aggregate    TEXT NOT NULL,
+      aggregate_id TEXT NOT NULL,
+      payload      JSONB NOT NULL,
+      headers      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      topic        TEXT NOT NULL DEFAULT '',
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS outbox_events_created_at_idx
+      ON outbox.events (created_at);
+    ALTER TABLE outbox.events REPLICA IDENTITY FULL;
+    -- Transfer ownership to outbox_writers so member roles can issue
+    -- DDL (CREATE INDEX IF NOT EXISTS, ALTER TABLE REPLICA IDENTITY ...)
+    -- without being the literal owner of the table.
+    ALTER TABLE outbox.events OWNER TO outbox_writers;
+
+    DO $$
+    DECLARE
+      bc TEXT;
+      bcs TEXT[] := ARRAY[
+        'data_asset_catalog','dataset_versioning','lineage','cdc_metadata',
+        'model_catalog','model_adapter','model_lifecycle','connector_management',
+        'tenancy_organizations','federation_product_exchange','marketplace',
+        'nexus','sdk_generation','solution_design','code_repository_review',
+        'global_branch','knowledge_index','document_reporting','analytical_logic',
+        'event_streaming','ingestion_replication','ai_application_generation',
+        'document_intelligence','mcp_orchestration','scenario_simulation',
+        'entity_resolution','iceberg_catalog','llm_catalog','media_sets',
+        'ontology_definition','ontology_exploratory_analysis','vertex'
+      ];
+    BEGIN
+      FOREACH bc IN ARRAY bcs LOOP
+        EXECUTE format('GRANT USAGE, CREATE ON SCHEMA outbox TO svc_%I', bc);
+        EXECUTE format('GRANT INSERT, DELETE, SELECT ON outbox.events TO svc_%I', bc);
+        -- Membership in outbox_writers grants the role's privileges,
+        -- including ownership-level operations on outbox.events.
+        EXECUTE format('GRANT outbox_writers TO svc_%I WITH INHERIT TRUE', bc);
       END LOOP;
     END$$;
 {{- end }}

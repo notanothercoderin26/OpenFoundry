@@ -59,3 +59,9 @@ services:
       DATABASE_READ_URL:
         secretName: reindex-coordinator-db-dsn
         key: reader_url
+  object-database-service:
+    env:
+      # object-database has no Postgres schema in dev; OF_DEV_STUB_MODE
+      # makes DATABASE_URL optional so the outbox emitter is skipped and
+      # Cassandra remains the sole storage backend (B03 outbox is a no-op).
+      OF_DEV_STUB_MODE: "true"

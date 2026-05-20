@@ -20,6 +20,8 @@ import {
   ScenarioWidgetView,
 } from '@/routes/apps/WorkshopEditorPage';
 import { FreeFormAnalysisWidget } from './FreeFormAnalysisWidget';
+import { WorkshopTimelineWidget } from './WorkshopTimelineWidget';
+import { useRuntime } from './workshop-runtime-context';
 
 import { registerWidget, type WidgetRenderProps } from './registry';
 import { useWorkshopData } from './workshop-context';
@@ -77,6 +79,20 @@ function ScenarioAdapter({ widget }: WidgetRenderProps) {
   return <ScenarioWidgetView widget={widget} />;
 }
 
+function TimelineAdapter({ widget }: WidgetRenderProps) {
+  const { variables } = useWorkshopData();
+  const runtime = useRuntime();
+  return (
+    <WorkshopTimelineWidget
+      widget={widget}
+      variables={variables}
+      variableEngine={runtime.variableEngine}
+      onSelectObject={(variableId, object) => runtime.setActiveObject(variableId, object)}
+      onSelectObjectSet={(variableId, objects) => runtime.setSelectedObjectSet(variableId, objects)}
+    />
+  );
+}
+
 let registered = false;
 
 export function registerWorkshopWidgets(): void {
@@ -93,4 +109,5 @@ export function registerWorkshopWidgets(): void {
   registerWidget({ type: 'map', Component: MapAdapter, label: 'Map', version: '1.0.0' });
   registerWidget({ type: 'free_form_analysis', Component: FreeFormAnalysisAdapter, label: 'Free-form analysis', version: '1.0.0' });
   registerWidget({ type: 'scenario', Component: ScenarioAdapter, label: 'Scenario controls', version: '1.0.0' });
+  registerWidget({ type: 'timeline', Component: TimelineAdapter, label: 'Timeline', version: '1.0.0' });
 }

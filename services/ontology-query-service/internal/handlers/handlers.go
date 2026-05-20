@@ -26,6 +26,10 @@ type AppState struct {
 	Objects repos.ObjectStore
 	Links   repos.LinkStore
 	Schemas repos.SchemaStore
+	// Search is the optional search backend used by POST
+	// /api/v1/ontology/search (B03 G1). When nil the search route
+	// returns 503 so the rest of the read path keeps working.
+	Search repos.SearchBackend
 }
 
 type Handlers struct {

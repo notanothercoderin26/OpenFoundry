@@ -54,6 +54,12 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/objects/{tenant}/{object_id}/link-summary", h.LinkSummary)
 		api.Post("/traverse", h.Traverse)
 		api.Post("/histogram", h.Histogram)
+
+		// B03 G1 / G2 — Vespa-backed search route. Wire shape pinned by
+		// `searchOntology()` in apps/web/src/lib/api/ontology.ts; the
+		// Workshop pushdown helper compiles `WorkshopVariableFilter[]`
+		// to the same body.
+		api.Post("/search", h.Search)
 	})
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{

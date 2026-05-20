@@ -177,6 +177,7 @@ async function mockBuilds(
     // can verify the filter actually narrowed the request.
     const lvls = (levels?.split(',').filter(Boolean) ?? ['INFO']) as string[];
     const data = lvls.map((lvl, idx) => ({
+      sequence: idx + 1,
       ts: `2026-05-10T09:00:${String(10 + idx).padStart(2, '0')}Z`,
       level: lvl,
       message: `${lvl} entry ${idx + 1}`,
@@ -294,10 +295,11 @@ test('BuildsPage: renders heading, stats panel, filters form, and a row per mock
 
   // Each build renders a row whose Link is the build RID.
   for (const build of [RUNNING, COMPLETED, FAILED]) {
-    const link = adminPage.getByRole('link', {
-      name: new RegExp(`^${build.rid.slice(0, 18)}`),
-    });
-    await expect(link.first()).toHaveAttribute(
+    // The link's visible text is truncated (`formatRid` slices to 18 chars
+    // + ellipsis); the row's RID is exposed via `aria-label={build.rid}`
+    // so getByRole resolves uniquely per build.
+    const link = adminPage.getByRole('link', { name: build.rid });
+    await expect(link).toHaveAttribute(
       'href',
       `/builds/${encodeURIComponent(build.rid)}`,
     );
@@ -517,8 +519,12 @@ test('absent today: no Retry on failed builds, no Download-logs button, abort en
   // that do not ship today. Each flipped assertion is the migration signal
   // when the matching control lands.
   let websocketOpened = false;
-  adminPage.on('websocket', () => {
-    websocketOpened = true;
+  adminPage.on('websocket', (ws) => {
+    // Ignore Vite's HMR websocket (always present in dev) — we only care
+    // about app-opened WebSockets to the builds API.
+    if (/\/api\/|\/v1\//.test(ws.url())) {
+      websocketOpened = true;
+    }
   });
 
   await mockBuilds(adminPage, { builds: [FAILED, COMPLETED, RUNNING] });

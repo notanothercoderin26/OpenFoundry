@@ -29,6 +29,16 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	cassandrakernel "github.com/openfoundry/openfoundry-go/libs/cassandra-kernel"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
+	searchabstraction "github.com/openfoundry/openfoundry-go/libs/search-abstraction"
+
+	// Blank imports register the concrete search backends with
+	// search-abstraction's runtime factory; SEARCH_BACKEND selects
+	// between them at boot time. The init() functions are pure
+	// side-effects (no network), so importing both is safe even in
+	// the in-memory / dev path.
+	_ "github.com/openfoundry/openfoundry-go/libs/search-abstraction/opensearch"
+	_ "github.com/openfoundry/openfoundry-go/libs/search-abstraction/vespa"
+	repos "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 	"github.com/openfoundry/openfoundry-go/services/ontology-query-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/ontology-query-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/ontology-query-service/internal/server"
@@ -64,6 +74,16 @@ func main() {
 	}
 	if closeStores != nil {
 		defer closeStores()
+	}
+
+	if backend, err := buildSearchBackend(cfg); err != nil {
+		log.Error("search backend wiring failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	} else if backend != nil {
+		state.Search = backend
+		log.Info("search backend configured", slog.String("backend", cfg.SearchBackend), slog.String("endpoint", cfg.SearchEndpoint))
+	} else {
+		log.Warn("SEARCH_BACKEND unset — POST /ontology/search will return 503 until the operator wires a backend")
 	}
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
@@ -129,4 +149,33 @@ func buildStoreState(ctx context.Context, cfg *config.Config, log *slog.Logger) 
 		Schemas: cassandrakernel.NewSchemaStoreWithKeyspace(session, cluster.Keyspace),
 	}
 	return state, session, close, nil
+}
+
+// buildSearchBackend resolves the configured search backend for the
+// B03 G1 search route. Returns (nil, nil) when SEARCH_BACKEND is
+// unset — the search route then gates itself with a 503 so the rest
+// of the read path keeps booting.
+func buildSearchBackend(cfg *config.Config) (repos.SearchBackend, error) {
+	switch cfg.SearchBackend {
+	case "":
+		if cfg.DevMode {
+			// In-memory backend keeps local-first dev usable without
+			// a Vespa endpoint; tests inject their own backend.
+			return searchabstraction.NewInMemoryBackend(), nil
+		}
+		return nil, nil
+	case "memory", "inmem", "in-memory":
+		return searchabstraction.NewInMemoryBackend(), nil
+	case "vespa", "opensearch", "os":
+		if cfg.SearchEndpoint == "" {
+			return nil, errors.New("SEARCH_ENDPOINT is required when SEARCH_BACKEND is vespa/opensearch")
+		}
+		// Bridge through the env-driven factory so the choice
+		// flips by re-exporting SEARCH_BACKEND without recompiling.
+		os.Setenv("SEARCH_BACKEND", cfg.SearchBackend)
+		os.Setenv("SEARCH_ENDPOINT", cfg.SearchEndpoint)
+		return searchabstraction.SearchBackendFromEnv()
+	default:
+		return nil, errors.New("unknown SEARCH_BACKEND: " + cfg.SearchBackend)
+	}
 }

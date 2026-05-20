@@ -20,13 +20,18 @@ import {
   buildFeaturesFromLinkedEdges,
   buildMapTemplateRenderRequest,
   collectFeatureBounds,
+  collectFeatureTimeRange,
   createWorkshopMapStyle,
+  filterFeaturesByTimeWindow,
+  formatTimelineCursor,
   isWorkshopMapLayerVisible,
   mapTemplateIDFromProps,
   mergeMapTemplateWidgetProps,
   normalizeSavedOverlayConfig,
+  parseTimestampToMs,
   readMapLayerConfigs,
   readMapOverlayConfigs,
+  readMapTimeConfig,
   type WorkshopMapFeature,
   type WorkshopMapFeatureCollection,
   type WorkshopMapGeometry,
@@ -43,6 +48,7 @@ interface WorkshopMapWidgetProps {
   onSelectObjectSet?: (variableId: string, objects: ObjectInstance[]) => void;
   onShapeChange?: (variableId: string, shape: WorkshopMapFeatureCollection | null) => void;
   onSelectRecord?: (payload: Record<string, unknown>) => void | Promise<void>;
+  onSetTimeVariable?: (variableId: string, value: number | boolean | null) => void;
 }
 
 interface TooltipState {
@@ -87,6 +93,7 @@ export function WorkshopMapWidget({
   onSelectObjectSet,
   onShapeChange,
   onSelectRecord,
+  onSetTimeVariable,
 }: WorkshopMapWidgetProps) {
   const mapRef = useRef<MapLibreMap | null>(null);
   const drawStartRef = useRef<[number, number] | null>(null);
@@ -138,7 +145,6 @@ export function WorkshopMapWidget({
     features: [...bindingCollection.features, ...configuredFeatures, ...objectFeatures, ...tileFeatures],
   }), [bindingCollection.features, configuredFeatures, objectFeatures, tileFeatures]);
   const clusterOptions = useMemo(() => readClusterOptions(visibleLayers), [visibleLayers]);
-  const splitCollections = useMemo(() => splitClusterableFeatures(featureCollection), [featureCollection]);
 
   const style = useMemo(() => createWorkshopMapStyle(props, resolvedOverlays), [props, resolvedOverlays]);
   const mapKey = useMemo(() => JSON.stringify({ style, center_lat: props.center_lat, center_lon: props.center_lon, zoom: props.zoom, cluster: clusterOptions }), [clusterOptions, props.center_lat, props.center_lon, props.zoom, style]);
@@ -160,7 +166,88 @@ export function WorkshopMapWidget({
   const shapeCollection = useMemo<WorkshopMapFeatureCollection>(() => (
     activeShape ? { type: 'FeatureCollection', features: [activeShape] } : EMPTY_DRAWN_SHAPE_COLLECTION
   ), [activeShape]);
-  const shapeMatchedObjects = useMemo(() => objectsIntersectingShape(drawnShape, featureCollection), [drawnShape, featureCollection]);
+  const timeConfig = useMemo(() => readMapTimeConfig(props), [props]);
+  const timeFieldRange = useMemo(
+    () => (timeConfig.enabled && timeConfig.event_time_field
+      ? collectFeatureTimeRange(featureCollection, timeConfig.event_time_field)
+      : null),
+    [featureCollection, timeConfig.enabled, timeConfig.event_time_field],
+  );
+  const [timelineOpen, setTimelineOpen] = useState<boolean>(timeConfig.enabled && timeConfig.open_by_default);
+  useEffect(() => {
+    setTimelineOpen(timeConfig.enabled && timeConfig.open_by_default);
+  }, [timeConfig.enabled, timeConfig.open_by_default]);
+  const [selectedTimeMs, setSelectedTimeMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!timeConfig.enabled) {
+      setSelectedTimeMs(null);
+      return;
+    }
+    setSelectedTimeMs((previous) => {
+      if (timeConfig.selected_time_variable_id) {
+        const fromEngine = parseTimestampToMs(variableEngine?.getPrimitive?.(timeConfig.selected_time_variable_id));
+        if (fromEngine !== null) return fromEngine;
+      }
+      if (previous !== null) return previous;
+      return timeFieldRange?.maxMs ?? null;
+    });
+  }, [timeConfig.enabled, timeConfig.selected_time_variable_id, timeFieldRange?.maxMs, variableEngine]);
+  const [isPlaying, setIsPlaying] = useState(false);
+  useEffect(() => {
+    if (!timeConfig.enabled) {
+      setIsPlaying(false);
+      return;
+    }
+    if (timeConfig.playback_state_variable_id) {
+      const fromEngine = variableEngine?.getPrimitive?.(timeConfig.playback_state_variable_id);
+      if (typeof fromEngine === 'boolean') setIsPlaying(fromEngine);
+    }
+  }, [timeConfig.enabled, timeConfig.playback_state_variable_id, variableEngine]);
+  useEffect(() => {
+    if (!isPlaying || !timeFieldRange || selectedTimeMs === null) return;
+    const id = window.setInterval(() => {
+      setSelectedTimeMs((current) => {
+        if (current === null) return current;
+        const next = current + timeConfig.window_step_ms;
+        if (next > timeFieldRange.maxMs) {
+          setIsPlaying(false);
+          return timeFieldRange.maxMs;
+        }
+        return next;
+      });
+    }, timeConfig.playback_speed_ms);
+    return () => window.clearInterval(id);
+  }, [isPlaying, selectedTimeMs, timeConfig.playback_speed_ms, timeConfig.window_step_ms, timeFieldRange]);
+  const windowStartMs = useMemo(
+    () => (timeConfig.enabled && selectedTimeMs !== null ? selectedTimeMs - timeConfig.window_step_ms : null),
+    [selectedTimeMs, timeConfig.enabled, timeConfig.window_step_ms],
+  );
+  const windowEndMs = useMemo(
+    () => (timeConfig.enabled && selectedTimeMs !== null ? selectedTimeMs : null),
+    [selectedTimeMs, timeConfig.enabled],
+  );
+  useEffect(() => {
+    if (!timeConfig.enabled) return;
+    if (timeConfig.selected_time_variable_id) onSetTimeVariable?.(timeConfig.selected_time_variable_id, selectedTimeMs);
+    if (timeConfig.playback_position_variable_id) onSetTimeVariable?.(timeConfig.playback_position_variable_id, selectedTimeMs);
+  }, [onSetTimeVariable, selectedTimeMs, timeConfig.enabled, timeConfig.playback_position_variable_id, timeConfig.selected_time_variable_id]);
+  useEffect(() => {
+    if (!timeConfig.enabled || !timeConfig.playback_state_variable_id) return;
+    onSetTimeVariable?.(timeConfig.playback_state_variable_id, isPlaying);
+  }, [isPlaying, onSetTimeVariable, timeConfig.enabled, timeConfig.playback_state_variable_id]);
+  useEffect(() => {
+    if (!timeConfig.enabled) return;
+    if (timeConfig.time_window_start_variable_id) onSetTimeVariable?.(timeConfig.time_window_start_variable_id, windowStartMs);
+    if (timeConfig.time_window_end_variable_id) onSetTimeVariable?.(timeConfig.time_window_end_variable_id, windowEndMs);
+  }, [onSetTimeVariable, timeConfig.enabled, timeConfig.time_window_end_variable_id, timeConfig.time_window_start_variable_id, windowEndMs, windowStartMs]);
+  const displayedFeatureCollection = useMemo(
+    () => (timeConfig.enabled && timeConfig.event_time_field
+      ? filterFeaturesByTimeWindow(featureCollection, timeConfig.event_time_field, windowStartMs, windowEndMs)
+      : featureCollection),
+    [featureCollection, timeConfig.enabled, timeConfig.event_time_field, windowEndMs, windowStartMs],
+  );
+  const splitCollections = useMemo(() => splitClusterableFeatures(displayedFeatureCollection), [displayedFeatureCollection]);
+  const shapeMatchedObjects = useMemo(() => objectsIntersectingShape(drawnShape, displayedFeatureCollection), [drawnShape, displayedFeatureCollection]);
 
   const toggleLayer = useCallback((key: string) => {
     setHiddenLayerIds((previous) => {
@@ -527,7 +614,7 @@ export function WorkshopMapWidget({
           style={{
             position: 'absolute',
             left: 12,
-            bottom: 12,
+            bottom: timeConfig.enabled && timelineOpen ? 120 : 12,
             display: 'grid',
             gap: 6,
             maxWidth: 240,
@@ -563,7 +650,7 @@ export function WorkshopMapWidget({
             </label>
           ))}
           <span data-testid="workshop-map-feature-count" style={{ fontSize: 11, color: '#64748b' }}>
-            {featureCollection.features.length} {featureCollection.features.length === 1 ? 'feature' : 'features'}
+            {displayedFeatureCollection.features.length} {displayedFeatureCollection.features.length === 1 ? 'feature' : 'features'}
           </span>
           <span data-testid="workshop-map-visible-overlay-count" style={{ fontSize: 11, color: '#64748b' }}>
             {visibleOverlays.length} {visibleOverlays.length === 1 ? 'overlay' : 'overlays'}
@@ -616,10 +703,103 @@ export function WorkshopMapWidget({
         </div>
       ) : null}
 
-      {featureCollection.features.length === 0 && !loadError ? (
+      {displayedFeatureCollection.features.length === 0 && !loadError ? (
         <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none', color: '#64748b', fontSize: 13 }}>
-          Add point columns or a GeoJSON geometry field to this map.
+          {featureCollection.features.length === 0
+            ? 'Add point columns or a GeoJSON geometry field to this map.'
+            : 'No features match the current time window.'}
         </div>
+      ) : null}
+
+      {timeConfig.enabled ? (
+        <>
+          <button
+            type="button"
+            onClick={() => setTimelineOpen((open) => !open)}
+            data-testid="workshop-map-timeline-toggle"
+            style={{
+              position: 'absolute',
+              right: 12,
+              bottom: timelineOpen ? 108 : 12,
+              padding: '6px 10px',
+              border: '1px solid rgba(148, 163, 184, 0.55)',
+              borderRadius: 6,
+              background: 'rgba(255, 255, 255, 0.94)',
+              color: '#0f172a',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 8px 20px rgba(15, 23, 42, 0.10)',
+              zIndex: 4,
+            }}
+          >
+            {timelineOpen ? 'Hide timeline' : 'Show timeline'}
+          </button>
+          {timelineOpen && timeFieldRange && timeFieldRange.minMs < timeFieldRange.maxMs ? (
+            <div
+              data-testid="workshop-map-timeline-panel"
+              style={{
+                position: 'absolute',
+                left: 12,
+                right: 12,
+                bottom: 12,
+                padding: 10,
+                background: 'rgba(255, 255, 255, 0.96)',
+                border: '1px solid rgba(148, 163, 184, 0.55)',
+                borderRadius: 6,
+                boxShadow: '0 8px 20px rgba(15, 23, 42, 0.12)',
+                display: 'grid',
+                gap: 6,
+                zIndex: 4,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                <button
+                  type="button"
+                  data-testid="workshop-map-timeline-play"
+                  onClick={() => setIsPlaying((value) => !value)}
+                  style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #94a3b8', background: isPlaying ? '#fee2e2' : '#e0f2fe', color: '#0f172a', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  {isPlaying ? 'Pause' : 'Play'}
+                </button>
+                {timeConfig.show_live_mode_toggle ? (
+                  <button
+                    type="button"
+                    data-testid="workshop-map-timeline-live"
+                    onClick={() => {
+                      setIsPlaying(false);
+                      setSelectedTimeMs(timeFieldRange.maxMs);
+                    }}
+                    style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #94a3b8', background: '#fff', color: '#0f172a', cursor: 'pointer' }}
+                  >
+                    View latest
+                  </button>
+                ) : null}
+                <span data-testid="workshop-map-timeline-cursor" style={{ marginLeft: 'auto', color: '#475569' }}>
+                  {selectedTimeMs !== null ? formatTimelineCursor(selectedTimeMs, timeConfig.time_zone, timeConfig.time_format) : '—'}
+                </span>
+              </div>
+              <input
+                type="range"
+                data-testid="workshop-map-timeline-cursor-input"
+                min={timeFieldRange.minMs}
+                max={timeFieldRange.maxMs}
+                step={Math.max(1, Math.min(timeConfig.window_step_ms, Math.max(1, timeFieldRange.maxMs - timeFieldRange.minMs)))}
+                value={selectedTimeMs ?? timeFieldRange.maxMs}
+                onChange={(event) => {
+                  if (!timeConfig.allow_change_selected_time) return;
+                  setSelectedTimeMs(Number(event.target.value));
+                }}
+                disabled={!timeConfig.allow_change_selected_time}
+                style={{ width: '100%' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#64748b' }}>
+                <span>{formatTimelineCursor(timeFieldRange.minMs, timeConfig.time_zone, timeConfig.time_format)}</span>
+                <span>{formatTimelineCursor(timeFieldRange.maxMs, timeConfig.time_zone, timeConfig.time_format)}</span>
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

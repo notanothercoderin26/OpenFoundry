@@ -330,7 +330,13 @@ export function BuildsPage() {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, minWidth: 0, alignItems: 'flex-end' }}>
           <label style={{ display: 'grid', gap: 3, fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
             State
-            <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value as BuildState | '')} className="of-select" style={{ width: 180 }}>
+            <select
+              aria-label="State"
+              value={stateFilter}
+              onChange={(e) => setStateFilter(e.target.value as BuildState | '')}
+              className="of-select"
+              style={{ width: 180 }}
+            >
               <option value="">All states</option>
               {BUILD_STATES.map((state) => (
                 <option key={state} value={state}>{state}</option>
@@ -437,7 +443,12 @@ export function BuildsPage() {
                 {builds.map((build) => (
                   <tr key={build.rid} data-abortable={isBuildAbortable(build.state) ? 'true' : undefined}>
                     <td style={{ minWidth: 210 }}>
-                      <Link to={`/builds/${encodeURIComponent(build.rid)}`} style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }} title={build.rid}>
+                      <Link
+                        to={`/builds/${encodeURIComponent(build.rid)}`}
+                        style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}
+                        title={build.rid}
+                        aria-label={build.rid}
+                      >
                         {formatRid(build.rid)}
                       </Link>
                       <p className="of-text-muted" style={{ margin: '3px 0 0', fontSize: 11, fontFamily: 'var(--font-mono)' }}>

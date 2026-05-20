@@ -4,6 +4,7 @@ import type { ObjectInstance, ObjectQueryBody, ObjectSetEvaluationResponse } fro
 
 import { createWorkshopVariableEngine, type WorkshopVariableLike } from './workshopVariables';
 import { executeWorkshopObjectSet, type WorkshopObjectSetExecutorDependencies } from './workshopObjectSets';
+import type { fetchWorkshopObjectSetViaSearch } from './workshopObjectSetsSearch';
 
 function object(id: string, properties: Record<string, unknown>, objectTypeId = 'Trail'): ObjectInstance {
   return {
@@ -370,5 +371,108 @@ describe('Workshop object set execution', () => {
     expect(result.knnResults).toHaveLength(1);
     expect(result.contract.knn?.property_name).toBe('trail_vector');
     expect(result.contract.knn?.vector).toEqual([6, 120]);
+  });
+
+  // ──────────────────────────────────────────────────────────────────
+  // B03 G2 — search-backend opt-in
+  // ──────────────────────────────────────────────────────────────────
+
+  describe('search-backend opt-in (B03 G2)', () => {
+    it('routes through fetchViaSearch when the request flag is set', async () => {
+      const variables: WorkshopVariableLike[] = [
+        {
+          id: 'ua_material_events',
+          kind: 'object_set_definition',
+          name: 'UA material conflict events',
+          object_type_id: 'Event',
+          static_filters: [
+            { property_name: 'country_iso2', operator: 'equals', value: 'UA' },
+            { property_name: 'cameo_quad_class', operator: 'equals', value: 'MATERIAL_CONF' },
+          ],
+        },
+      ];
+      const engine = createWorkshopVariableEngine(variables);
+      const fake = deps({});
+      const fetchViaSearch = vi.fn<typeof fetchWorkshopObjectSetViaSearch>(async () => ({
+        data: [object('ev-1', { country_iso2: 'UA', cameo_quad_class: 'MATERIAL_CONF' }, 'Event')],
+        total: 1,
+        raw: [],
+        request: { query: '', object_type_id: 'Event', filters: [] },
+      }));
+
+      const result = await executeWorkshopObjectSet(
+        { variableId: 'ua_material_events', variables, engine, limit: 100, useSearchBackend: true },
+        { ...fake, fetchViaSearch },
+      );
+
+      expect(fetchViaSearch).toHaveBeenCalledTimes(1);
+      const sent = fetchViaSearch.mock.calls[0][0];
+      expect(sent.objectTypeId).toBe('Event');
+      expect(sent.limit).toBe(100);
+      expect(sent.filters).toEqual([
+        { property_name: 'country_iso2', operator: 'equals', value: 'UA' },
+        { property_name: 'cameo_quad_class', operator: 'equals', value: 'MATERIAL_CONF' },
+      ]);
+      // The Cassandra path must NOT have run — that is the whole
+      // point of the opt-in: high-volume geopolitics types skip
+      // object-database-service and read from Vespa.
+      expect(fake.queryObjects).not.toHaveBeenCalled();
+      expect(result.data).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(result.source).toBe('object_type');
+    });
+
+    it('routes through fetchViaSearch when the variable metadata opts in', async () => {
+      const variables: WorkshopVariableLike[] = [
+        {
+          id: 'geo_events',
+          kind: 'object_set_definition',
+          name: 'Geo events',
+          object_type_id: 'Event',
+          metadata: { use_search_backend: true },
+          static_filters: [{ property_name: 'country_iso2', operator: 'equals', value: 'UA' }],
+        },
+      ];
+      const engine = createWorkshopVariableEngine(variables);
+      const fake = deps({});
+      const fetchViaSearch = vi.fn<typeof fetchWorkshopObjectSetViaSearch>(async () => ({
+        data: [object('ev-1', { country_iso2: 'UA' }, 'Event')],
+        total: 1,
+        raw: [],
+        request: { query: '', object_type_id: 'Event', filters: [] },
+      }));
+
+      await executeWorkshopObjectSet(
+        { variableId: 'geo_events', variables, engine, limit: 25 },
+        { ...fake, fetchViaSearch },
+      );
+
+      expect(fetchViaSearch).toHaveBeenCalledTimes(1);
+      expect(fake.queryObjects).not.toHaveBeenCalled();
+    });
+
+    it('stays on the Cassandra path when the opt-in is absent (no regression)', async () => {
+      const variables: WorkshopVariableLike[] = [
+        {
+          id: 'aviation_trails',
+          kind: 'object_set_definition',
+          name: 'Aviation trails',
+          object_type_id: 'Trail',
+          static_filters: [{ property_name: 'difficulty', operator: 'equals', value: 'hard' }],
+        },
+      ];
+      const engine = createWorkshopVariableEngine(variables);
+      const fake = deps({ Trail: [object('trail-1', { difficulty: 'hard' })] });
+      const fetchViaSearch = vi.fn<typeof fetchWorkshopObjectSetViaSearch>();
+
+      await executeWorkshopObjectSet(
+        { variableId: 'aviation_trails', variables, engine, limit: 25 },
+        { ...fake, fetchViaSearch },
+      );
+
+      // Default path: queryObjects called, search NOT called.
+      expect(fake.queryObjects).toHaveBeenCalledTimes(1);
+      expect(fetchViaSearch).not.toHaveBeenCalled();
+    });
   });
 });

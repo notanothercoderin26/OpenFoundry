@@ -112,13 +112,6 @@ export function Topbar() {
           <Glyph name="search" size={15} />
           Search
         </Link>
-        <button type="button" className="of-topbar__action">
-          <Glyph name="users" size={15} />
-          Share
-        </button>
-        <button type="button" className="of-topbar__action of-topbar__action--primary">
-          Save
-        </button>
         <span className="of-topbar__avatar">OF</span>
       </div>
     </header>

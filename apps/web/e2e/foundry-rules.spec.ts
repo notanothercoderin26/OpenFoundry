@@ -34,7 +34,7 @@ import { captureRequests } from './fixtures/api-mocks';
  *     the workflow-scoped sidebar when a workflow is selected.
  *
  * Endpoints exercised:
- *   - GET    /api/v1/ontology/object-types?per_page=200
+ *   - GET    /api/v1/ontology/types?per_page=200
  *   - GET    /api/v1/workflows?per_page=200
  *   - GET    /api/v1/ontology/rules?object_type_id={id}&per_page=100
  *   - GET    /api/v1/ontology/rules/insights?object_type_id={id}
@@ -60,7 +60,7 @@ test.use({
 
 const E2E_NOW = '2026-05-11T00:00:00Z';
 
-const OT_LIST = /\/api\/v1\/ontology\/object-types(\?|$)/;
+const OT_LIST = /\/api\/v1\/ontology\/types(\?|$)/;
 const WORKFLOWS_LIST = /\/api\/v1\/workflows(\?|$)/;
 const RULES_LIST = /\/api\/v1\/ontology\/rules(\?|$)/;
 const RULE_INSIGHTS = /\/api\/v1\/ontology\/rules\/insights(\?|$)/;

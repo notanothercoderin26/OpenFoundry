@@ -2,7 +2,7 @@ import { useCurrentUser } from '@stores/auth';
 
 export function usePermissions() {
   const user = useCurrentUser();
-  const has = (permission: string) => user?.permissions.includes(permission) ?? false;
+  const has = (permission: string) => user?.permissions?.includes(permission) ?? false;
 
   return {
     canReadUsers: has('users:read') || has('users:write'),

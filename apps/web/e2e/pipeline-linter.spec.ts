@@ -58,7 +58,11 @@ test('renders the hero, the counts panel and all six mocked findings', async ({
     ['Info', '2'],
     ['Pipelines scanned', '5'],
   ] as const) {
-    const labelLocator = adminPage.getByText(label, { exact: true });
+    // "Critical" / "Info" also appear in the severity-filter tablist below,
+    // so anchor the locator to the eyebrow paragraph in the counts panel.
+    const labelLocator = adminPage
+      .locator('p.of-eyebrow')
+      .filter({ hasText: new RegExp(`^${label}$`) });
     await expect(labelLocator).toBeVisible();
     // The value is a sibling `<p>` in the same grid cell.
     await expect(
@@ -221,10 +225,12 @@ test('absent today: pipeline filter, detail drawer, auto-fix PATCH, rule-config 
 
   // 2. No detail drawer. Clicking an article does NOT open a `dialog`
   //    aside; the recommendation + impact are already inline in the card.
+  // (The AppShell ships a permanent `<aside>` Sidebar — scope the
+  // complementary check to the page's `<main>` so we don't catch it.)
   await adminPage.getByRole('article').first().click();
   await adminPage.waitForTimeout(150);
   expect(await adminPage.getByRole('dialog').count()).toBe(0);
-  expect(await adminPage.getByRole('complementary').count()).toBe(0);
+  expect(await adminPage.locator('main').getByRole('complementary').count()).toBe(0);
 
   // 3. No auto-fix button anywhere on the page.
   expect(

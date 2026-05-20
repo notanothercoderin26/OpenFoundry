@@ -589,6 +589,9 @@ test('History sub-tab lists versions and Restore as draft POSTs /versions/:vId/r
     ],
   });
   const cap = captureRequests(adminPage, PIPELINE_VERSION_RESTORE);
+  // The page calls window.confirm() before POSTing the restore; auto-accept
+  // so the request actually fires.
+  adminPage.on('dialog', (dialog) => void dialog.accept());
   await adminPage.goto(`/pipelines/${PIPELINE_ID}/edit`);
 
   // Top-level "History" tab.

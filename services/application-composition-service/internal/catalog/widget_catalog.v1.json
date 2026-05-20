@@ -1076,7 +1076,28 @@
           "output_object_set_variable_id": { "type": "string" },
           "output_shape_variable_id": { "type": "string" },
           "shape_search_output_variable_id": { "type": "string" },
-          "enable_shape_drawing": { "type": "boolean" }
+          "enable_shape_drawing": { "type": "boolean" },
+          "time_configuration": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "open_by_default": { "type": "boolean" },
+              "allow_change_selected_time": { "type": "boolean" },
+              "show_live_mode_toggle": { "type": "boolean" },
+              "time_zone": { "type": "string", "enum": ["local", "utc"] },
+              "time_format": { "type": "string", "enum": ["12h", "24h", "local"] },
+              "event_time_field": { "type": "string" },
+              "selected_time_variable_id": { "type": "string" },
+              "time_window_start_variable_id": { "type": "string" },
+              "time_window_end_variable_id": { "type": "string" },
+              "playback_state_variable_id": { "type": "string" },
+              "playback_position_variable_id": { "type": "string" },
+              "auto_pause_at_variable_id": { "type": "string" },
+              "playback_speed_ms": { "type": "number", "minimum": 50, "maximum": 60000 },
+              "window_step_ms": { "type": "number", "minimum": 1000 }
+            }
+          }
         }
       },
       "input_variables": [
@@ -1116,6 +1137,20 @@
           "label": "Shape search results",
           "description": "Objects intersecting the drawn shape.",
           "required": false
+        },
+        {
+          "id": "selected_time",
+          "kind": "timestamp",
+          "label": "Selected time",
+          "description": "Bidirectional timestamp cursor on the timeline panel.",
+          "required": false
+        },
+        {
+          "id": "playback_position",
+          "kind": "number",
+          "label": "Playback position",
+          "description": "Current playback time as milliseconds since epoch.",
+          "required": false
         }
       ],
       "events": [
@@ -1132,6 +1167,13 @@
           "description": "Runs when a drawn shape changes.",
           "action_kinds": ["set_variable", "refresh"],
           "payload_schema": { "type": "object", "properties": { "geojson": { "type": "object" } } }
+        },
+        {
+          "name": "time_change",
+          "label": "Time change",
+          "description": "Runs when the timeline cursor or playback position changes.",
+          "action_kinds": ["set_variable", "refresh"],
+          "payload_schema": { "type": "object", "properties": { "selected_time_ms": { "type": "number" }, "window_start_ms": { "type": "number" }, "window_end_ms": { "type": "number" } } }
         }
       ],
       "permissions": ["app:read", "geospatial:read", "ontology:read"],
@@ -1166,10 +1208,172 @@
             "color": "#2d72d2",
             "visible": true
           }
-        ]
+        ],
+        "time_configuration": {
+          "enabled": false,
+          "open_by_default": false,
+          "allow_change_selected_time": true,
+          "show_live_mode_toggle": true,
+          "time_zone": "local",
+          "time_format": "local",
+          "event_time_field": "",
+          "selected_time_variable_id": "",
+          "time_window_start_variable_id": "",
+          "time_window_end_variable_id": "",
+          "playback_state_variable_id": "",
+          "playback_position_variable_id": "",
+          "auto_pause_at_variable_id": "",
+          "playback_speed_ms": 1000,
+          "window_step_ms": 3600000
+        }
       },
       "default_size": { "width": 8, "height": 4 },
       "supported_bindings": ["query", "dataset", "object_set"],
+      "supports_children": false
+    },
+    {
+      "widget_type": "timeline",
+      "widget_kind": "visualization",
+      "label": "Timeline",
+      "description": "Visualize temporal data, rendering objects as chronologically ordered events. Supports multiple layers, vertical or horizontal orientation, and selection output.",
+      "category": "visualization",
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "source_variable_id": { "type": "string" },
+                "object_type_id": { "type": "string" },
+                "scenario_variable_id": { "type": "string" },
+                "date_property": { "type": "string" },
+                "title_mode": { "type": "string", "enum": ["object_title", "property", "custom"] },
+                "title_property": { "type": "string" },
+                "custom_title": { "type": "string" },
+                "properties_mode": { "type": "string", "enum": ["prominent", "specific"] },
+                "displayed_properties": { "type": "array", "items": { "type": "string" } },
+                "color_mode": { "type": "string", "enum": ["default", "static", "dynamic"] },
+                "color": { "type": "string" },
+                "color_rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "property_name": { "type": "string" },
+                      "operator": { "type": "string", "enum": ["equals", "in", "gte", "lte", "gt", "lt"] },
+                      "value": {},
+                      "color": { "type": "string" }
+                    }
+                  }
+                },
+                "icon_mode": { "type": "string", "enum": ["default", "none", "custom"] },
+                "icon": { "type": "string" },
+                "selection_event_override": { "type": "string" }
+              }
+            }
+          },
+          "orientation": { "type": "string", "enum": ["vertical", "horizontal"] },
+          "order": { "type": "string", "enum": ["newest_first", "oldest_first"] },
+          "show_legend": { "type": "boolean" },
+          "show_time_between_events": { "type": "boolean" },
+          "highlight_selection": { "type": "boolean" },
+          "selected_object_variable_id": { "type": "string" },
+          "selected_objects_variable_id": { "type": "string" },
+          "selected_layer_variable_id": { "type": "string" },
+          "empty_label": { "type": "string" },
+          "max_events": { "type": "number", "minimum": 1, "maximum": 5000 }
+        }
+      },
+      "input_variables": [
+        {
+          "id": "object_set",
+          "kind": "object_set",
+          "label": "Object set",
+          "description": "Primary object set whose objects are rendered as timeline events.",
+          "required": true
+        }
+      ],
+      "output_variables": [
+        {
+          "id": "active_object",
+          "kind": "object",
+          "label": "Active object",
+          "description": "Currently selected timeline event as an object set of one.",
+          "required": false
+        },
+        {
+          "id": "selection_filter",
+          "kind": "filter_output",
+          "label": "Selection filter",
+          "description": "Object set filter variable produced by event selection.",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "event_select",
+          "label": "Event select",
+          "description": "Runs when an event on the timeline is selected.",
+          "action_kinds": ["set_variable", "navigate", "apply_action", "refresh"],
+          "payload_schema": {
+            "type": "object",
+            "properties": {
+              "object_id": { "type": "string" },
+              "layer_id": { "type": "string" },
+              "event_time_ms": { "type": "number" }
+            }
+          }
+        }
+      ],
+      "permissions": ["app:read", "ontology:read"],
+      "display": {
+        "icon": "history",
+        "accent": "blue",
+        "tags": ["object-set", "temporal"],
+        "sort_order": 95,
+        "preferred_chrome": "card"
+      },
+      "default_props": {
+        "layers": [
+          {
+            "id": "layer-1",
+            "title": "Events",
+            "source_variable_id": "",
+            "object_type_id": "",
+            "date_property": "",
+            "title_mode": "object_title",
+            "title_property": "",
+            "custom_title": "",
+            "properties_mode": "specific",
+            "displayed_properties": [],
+            "color_mode": "default",
+            "color": "#2d72d2",
+            "color_rules": [],
+            "icon_mode": "default",
+            "icon": "calendar",
+            "selection_event_override": ""
+          }
+        ],
+        "orientation": "vertical",
+        "order": "newest_first",
+        "show_legend": false,
+        "show_time_between_events": true,
+        "highlight_selection": true,
+        "selected_object_variable_id": "",
+        "selected_objects_variable_id": "",
+        "selected_layer_variable_id": "",
+        "empty_label": "No timeline events to display.",
+        "max_events": 250
+      },
+      "default_size": { "width": 6, "height": 5 },
+      "supported_bindings": ["object_set"],
       "supports_children": false
     },
     {

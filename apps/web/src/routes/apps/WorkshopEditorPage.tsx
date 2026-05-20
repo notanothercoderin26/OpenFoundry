@@ -9,9 +9,11 @@ import { AppRenderer } from '@/lib/components/apps/AppRenderer';
 import { useAppHeaderCollapsed } from '@/lib/components/apps/AppHeaderCollapseContext';
 import { FreeFormAnalysisWidget } from '@/lib/components/apps/widgets/FreeFormAnalysisWidget';
 import { WorkshopMapWidget } from '@/lib/components/apps/widgets/WorkshopMapWidget';
+import { WorkshopTimelineWidget } from '@/lib/components/apps/widgets/WorkshopTimelineWidget';
+import { readTimelineWidgetConfig, type TimelineLayerConfig, type TimelineWidgetConfig } from '@/lib/components/apps/widgets/workshopTimeline';
 import { readFreeFormAnalysisProps } from '@/lib/components/apps/widgets/freeFormAnalysis';
 import { InlineEditCell } from '@/lib/components/ontology/InlineEditCell';
-import { readMapLayerConfigs, readMapOverlayConfigs, type WorkshopMapFeatureCollection, type WorkshopMapLayerConfig, type WorkshopMapOverlayLayerConfig } from '@/lib/components/apps/widgets/workshopMap';
+import { readMapLayerConfigs, readMapOverlayConfigs, readMapTimeConfig, type WorkshopMapFeatureCollection, type WorkshopMapLayerConfig, type WorkshopMapOverlayLayerConfig, type WorkshopMapTimeConfig } from '@/lib/components/apps/widgets/workshopMap';
 import { buildChartXyAggregation, chartXyEChartsOption, type ChartXySeriesMetric } from '@/lib/components/apps/widgets/chartXY';
 import { readMetricCardProps, resolveMetricCardMetrics, type MetricCardConditionalRule, type MetricCardDirection, type MetricCardFormatKind, type MetricCardLayoutStyle, type MetricCardMetric, type MetricCardSize, type MetricCardTemplate, type MetricCardValueType } from '@/lib/components/apps/widgets/metricCard';
 import { buildObjectSetTitleModel, readObjectSetTitleProps } from '@/lib/components/apps/widgets/objectSetTitle';
@@ -1089,6 +1091,8 @@ export function WorkshopEditorPage() {
                       <ChartXyWidgetView widget={widget} variables={variables} />
                     ) : widget.widget_type === 'map' ? (
                       <MapWidgetView widget={widget} variables={variables} />
+                    ) : widget.widget_type === 'timeline' ? (
+                      <TimelineWidgetView widget={widget} variables={variables} />
                     ) : widget.widget_type === 'free_form_analysis' ? (
                       <FreeFormAnalysisWidget widget={widget} variables={variables} />
                     ) : widget.widget_type === 'scenario' ? (
@@ -1536,6 +1540,16 @@ export function WorkshopEditorPage() {
                   setVariables((current) => current.map((v) => (v.id === outputId ? { ...v, object_type_id: objectTypeId } : v)));
                 }
               }}
+              onDelete={() => {
+                removeWidget(selectedWidget.section.id, selectedWidget.widget.id);
+                setSelection({ kind: 'page', id: activePage.id });
+              }}
+            />
+          ) : selectedWidget && selectedWidget.widget.widget_type === 'timeline' ? (
+            <TimelineWidgetInspector
+              widget={selectedWidget.widget}
+              variables={variables}
+              onChange={(next) => patchWidget(selectedWidget.section.id, selectedWidget.widget.id, () => next)}
               onDelete={() => {
                 removeWidget(selectedWidget.section.id, selectedWidget.widget.id);
                 setSelection({ kind: 'page', id: activePage.id });
@@ -3094,6 +3108,22 @@ export function MapWidgetView({ widget, variables }: { widget: AppWidget; variab
         onSelectObject={(variableId, object) => runtime.setActiveObject(variableId, object)}
         onSelectObjectSet={(variableId, objects) => runtime.setSelectedObjectSet(variableId, objects)}
         onShapeChange={(variableId, shape) => runtime.setShapeOutput(variableId, shape)}
+        onSetTimeVariable={(variableId, value) => runtime.setPrimitiveValue(variableId, value)}
+      />
+    </div>
+  );
+}
+
+export function TimelineWidgetView({ widget, variables }: { widget: AppWidget; variables: WorkshopVariable[] }) {
+  const runtime = useRuntime();
+  return (
+    <div style={{ padding: 12, minHeight: 280 }}>
+      <WorkshopTimelineWidget
+        widget={widget}
+        variables={variables}
+        variableEngine={runtime.variableEngine}
+        onSelectObject={(variableId, object) => runtime.setActiveObject(variableId, object)}
+        onSelectObjectSet={(variableId, objects) => runtime.setSelectedObjectSet(variableId, objects)}
       />
     </div>
   );
@@ -3569,12 +3599,352 @@ function MapWidgetInspector({
                 ))}
             </select>
           </Field>
+          <MapTimeConfigurationSection
+            timeConfig={readMapTimeConfig(widget.props)}
+            primitiveVariables={variables.filter((entry) => entry.kind === 'primitive' || entry.kind === 'boolean' || entry.kind === 'runtime_parameter')}
+            onChange={(next) => patchProps({ time_configuration: next })}
+          />
           <button type="button" className="of-button" onClick={onDelete} style={{ color: 'var(--status-danger)', borderColor: '#fecaca' }}>
             <Glyph name="trash" size={12} /> Delete widget
           </button>
         </div>
       ) : tab === 'display' ? (
         <DisplayTab widget={widget} onChange={onChange} />
+      ) : (
+        <div style={{ padding: 14 }}><p className="of-text-muted" style={{ fontSize: 12 }}>Widget metadata coming soon.</p></div>
+      )}
+    </div>
+  );
+}
+
+function MapTimeConfigurationSection({
+  timeConfig,
+  primitiveVariables,
+  onChange,
+}: {
+  timeConfig: WorkshopMapTimeConfig;
+  primitiveVariables: WorkshopVariable[];
+  onChange: (next: WorkshopMapTimeConfig) => void;
+}) {
+  function patch(next: Partial<WorkshopMapTimeConfig>) {
+    onChange({ ...timeConfig, ...next });
+  }
+  return (
+    <div style={{ display: 'grid', gap: 8, padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 6, background: '#f7f9fa' }} data-testid="map-time-configuration-section">
+      <Section title="Time configuration" />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+        <input
+          type="checkbox"
+          data-testid="map-time-enabled"
+          checked={timeConfig.enabled}
+          onChange={(event) => patch({ enabled: event.target.checked })}
+        />
+        Enable timeline panel
+      </label>
+      {timeConfig.enabled ? (
+        <>
+          <Field label="Event time field (object property)">
+            <input
+              type="text"
+              data-testid="map-time-event-field"
+              value={timeConfig.event_time_field}
+              onChange={(event) => patch({ event_time_field: event.target.value })}
+              placeholder="event_datetime_utc"
+              style={inputStyle()}
+            />
+          </Field>
+          <Field label="Time zone">
+            <select value={timeConfig.time_zone} onChange={(event) => patch({ time_zone: event.target.value === 'utc' ? 'utc' : 'local' })} style={inputStyle()}>
+              <option value="local">Local</option>
+              <option value="utc">UTC</option>
+            </select>
+          </Field>
+          <Field label="Time format">
+            <select value={timeConfig.time_format} onChange={(event) => patch({ time_format: (event.target.value as WorkshopMapTimeConfig['time_format']) })} style={inputStyle()}>
+              <option value="local">Local</option>
+              <option value="12h">12-hour</option>
+              <option value="24h">24-hour</option>
+            </select>
+          </Field>
+          <Field label="Window step (ms)">
+            <input
+              type="number"
+              data-testid="map-time-window-step"
+              value={timeConfig.window_step_ms}
+              min={1000}
+              onChange={(event) => patch({ window_step_ms: Math.max(1000, Number(event.target.value) || 1000) })}
+              style={inputStyle()}
+            />
+          </Field>
+          <Field label="Playback tick (ms)">
+            <input
+              type="number"
+              data-testid="map-time-playback-speed"
+              value={timeConfig.playback_speed_ms}
+              min={50}
+              max={60000}
+              onChange={(event) => patch({ playback_speed_ms: Math.min(60000, Math.max(50, Number(event.target.value) || 1000)) })}
+              style={inputStyle()}
+            />
+          </Field>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <input type="checkbox" checked={timeConfig.open_by_default} onChange={(event) => patch({ open_by_default: event.target.checked })} />
+            Open timeline by default
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <input type="checkbox" checked={timeConfig.allow_change_selected_time} onChange={(event) => patch({ allow_change_selected_time: event.target.checked })} />
+            Allow user to change selected time
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <input type="checkbox" checked={timeConfig.show_live_mode_toggle} onChange={(event) => patch({ show_live_mode_toggle: event.target.checked })} />
+            Show "View latest" button
+          </label>
+          <Field label="Selected time variable">
+            <select value={timeConfig.selected_time_variable_id} onChange={(event) => patch({ selected_time_variable_id: event.target.value })} style={inputStyle()}>
+              <option value="">No binding</option>
+              {primitiveVariables.map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Time window start variable">
+            <select value={timeConfig.time_window_start_variable_id} onChange={(event) => patch({ time_window_start_variable_id: event.target.value })} style={inputStyle()}>
+              <option value="">No binding</option>
+              {primitiveVariables.map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Time window end variable">
+            <select value={timeConfig.time_window_end_variable_id} onChange={(event) => patch({ time_window_end_variable_id: event.target.value })} style={inputStyle()}>
+              <option value="">No binding</option>
+              {primitiveVariables.map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Playback state variable">
+            <select value={timeConfig.playback_state_variable_id} onChange={(event) => patch({ playback_state_variable_id: event.target.value })} style={inputStyle()}>
+              <option value="">No binding</option>
+              {primitiveVariables.map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Playback position variable">
+            <select value={timeConfig.playback_position_variable_id} onChange={(event) => patch({ playback_position_variable_id: event.target.value })} style={inputStyle()}>
+              <option value="">No binding</option>
+              {primitiveVariables.map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name}</option>
+              ))}
+            </select>
+          </Field>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function TimelineWidgetInspector({
+  widget,
+  variables,
+  onChange,
+  onDelete,
+}: {
+  widget: AppWidget;
+  variables: WorkshopVariable[];
+  onChange: (next: AppWidget) => void;
+  onDelete: () => void;
+}) {
+  const [tab, setTab] = useState<'setup' | 'metadata'>('setup');
+  const config = readTimelineWidgetConfig(widget.props ?? {});
+  const objectSetVariables = variables.filter((entry) => entry.kind === 'object_set_definition' || entry.kind === 'object_set_selection');
+  const primitiveVariables = variables.filter((entry) => entry.kind === 'primitive' || entry.kind === 'boolean' || entry.kind === 'runtime_parameter');
+
+  function patchProps(next: Partial<TimelineWidgetConfig>) {
+    onChange({ ...widget, props: { ...widget.props, ...next } });
+  }
+
+  function patchLayers(layers: TimelineLayerConfig[]) {
+    patchProps({ layers });
+  }
+
+  function patchLayer(layerId: string, patch: Partial<TimelineLayerConfig>) {
+    patchLayers(config.layers.map((layer) => (layer.id === layerId ? { ...layer, ...patch } : layer)));
+  }
+
+  function addLayer() {
+    const id = `layer-${config.layers.length + 1}-${Date.now().toString(36)}`;
+    patchLayers([
+      ...config.layers,
+      {
+        id,
+        title: `Layer ${config.layers.length + 1}`,
+        source_variable_id: '',
+        object_type_id: '',
+        scenario_variable_id: '',
+        date_property: '',
+        title_mode: 'object_title',
+        title_property: '',
+        custom_title: '',
+        properties_mode: 'specific',
+        displayed_properties: [],
+        color_mode: 'default',
+        color: '#2d72d2',
+        color_rules: [],
+        icon_mode: 'default',
+        icon: 'calendar',
+        selection_event_override: '',
+      },
+    ]);
+  }
+
+  function removeLayer(layerId: string) {
+    patchLayers(config.layers.filter((layer) => layer.id !== layerId));
+  }
+
+  return (
+    <div style={inspectorStyle()}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{widget.title}</span>
+        <span className="of-text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>TIMELINE</span>
+      </div>
+      <div style={{ display: 'flex', gap: 0, padding: '0 14px', borderBottom: '1px solid var(--border-subtle)' }}>
+        {(['setup', 'metadata'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setTab(value)}
+            style={{ padding: '8px 6px', border: 0, background: 'transparent', borderBottom: tab === value ? '2px solid var(--status-info)' : '2px solid transparent', cursor: 'pointer', fontSize: 12, fontWeight: tab === value ? 600 : 500, color: tab === value ? 'var(--text-strong)' : 'var(--text-muted)', marginRight: 14 }}
+          >
+            {value === 'setup' ? 'Widget setup' : 'Metadata'}
+          </button>
+        ))}
+      </div>
+      {tab === 'setup' ? (
+        <div style={{ padding: 14, display: 'grid', gap: 12 }} data-testid="timeline-inspector-setup">
+          <Section title="Timeline layers" />
+          {config.layers.map((layer) => (
+            <div key={layer.id} style={{ display: 'grid', gap: 6, padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 6, background: '#f7f9fa' }} data-testid={`timeline-inspector-layer-${layer.id}`}>
+              <Field label="Layer label">
+                <input type="text" value={layer.title} onChange={(event) => patchLayer(layer.id, { title: event.target.value })} style={inputStyle()} />
+              </Field>
+              <Field label="Object set variable">
+                <select value={layer.source_variable_id} onChange={(event) => patchLayer(layer.id, { source_variable_id: event.target.value })} style={inputStyle()}>
+                  <option value="">Select object set variable…</option>
+                  {objectSetVariables.map((entry) => (
+                    <option key={entry.id} value={entry.id}>{entry.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Date / timestamp property">
+                <input type="text" value={layer.date_property} onChange={(event) => patchLayer(layer.id, { date_property: event.target.value })} placeholder="event_datetime_utc" style={inputStyle()} />
+              </Field>
+              <Field label="Event title">
+                <select value={layer.title_mode} onChange={(event) => patchLayer(layer.id, { title_mode: event.target.value as TimelineLayerConfig['title_mode'] })} style={inputStyle()}>
+                  <option value="object_title">Object title</option>
+                  <option value="property">Property</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </Field>
+              {layer.title_mode === 'property' ? (
+                <Field label="Title property">
+                  <input type="text" value={layer.title_property} onChange={(event) => patchLayer(layer.id, { title_property: event.target.value })} style={inputStyle()} />
+                </Field>
+              ) : null}
+              {layer.title_mode === 'custom' ? (
+                <Field label="Custom title">
+                  <input type="text" value={layer.custom_title} onChange={(event) => patchLayer(layer.id, { custom_title: event.target.value })} style={inputStyle()} />
+                </Field>
+              ) : null}
+              <Field label="Properties shown">
+                <select value={layer.properties_mode} onChange={(event) => patchLayer(layer.id, { properties_mode: event.target.value as TimelineLayerConfig['properties_mode'] })} style={inputStyle()}>
+                  <option value="specific">Specific properties</option>
+                  <option value="prominent">Prominent properties</option>
+                </select>
+              </Field>
+              {layer.properties_mode === 'specific' ? (
+                <Field label="Displayed properties (comma-separated)">
+                  <input
+                    type="text"
+                    value={layer.displayed_properties.join(', ')}
+                    onChange={(event) => patchLayer(layer.id, { displayed_properties: event.target.value.split(',').map((part) => part.trim()).filter(Boolean) })}
+                    placeholder="urgency, aircraft, status"
+                    style={inputStyle()}
+                  />
+                </Field>
+              ) : null}
+              <Field label="Event color">
+                <select value={layer.color_mode} onChange={(event) => patchLayer(layer.id, { color_mode: event.target.value as TimelineLayerConfig['color_mode'] })} style={inputStyle()}>
+                  <option value="default">Default</option>
+                  <option value="static">Static</option>
+                  <option value="dynamic">Dynamic (rules)</option>
+                </select>
+              </Field>
+              {layer.color_mode === 'static' || layer.color_mode === 'dynamic' ? (
+                <Field label="Base color">
+                  <input type="color" value={layer.color} onChange={(event) => patchLayer(layer.id, { color: event.target.value })} style={{ ...inputStyle(), padding: 2, height: 32 }} />
+                </Field>
+              ) : null}
+              <Field label="Icon">
+                <select value={layer.icon_mode} onChange={(event) => patchLayer(layer.id, { icon_mode: event.target.value as TimelineLayerConfig['icon_mode'] })} style={inputStyle()}>
+                  <option value="default">Default</option>
+                  <option value="none">None</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </Field>
+              {layer.icon_mode === 'custom' ? (
+                <Field label="Icon name">
+                  <input type="text" value={layer.icon} onChange={(event) => patchLayer(layer.id, { icon: event.target.value })} placeholder="calendar / warning / plane / star / check / cross" style={inputStyle()} />
+                </Field>
+              ) : null}
+              <button type="button" onClick={() => removeLayer(layer.id)} style={{ ...linkBtnStyle(), color: 'var(--status-danger)' }}>Remove layer</button>
+            </div>
+          ))}
+          <button type="button" className="of-button" onClick={addLayer}>+ Add layer</button>
+
+          <Section title="Timeline appearance" />
+          <Field label="Orientation">
+            <select value={config.orientation} onChange={(event) => patchProps({ orientation: event.target.value as TimelineWidgetConfig['orientation'] })} style={inputStyle()}>
+              <option value="vertical">Vertical</option>
+              <option value="horizontal">Horizontal</option>
+            </select>
+          </Field>
+          <Field label="Events order">
+            <select value={config.order} onChange={(event) => patchProps({ order: event.target.value as TimelineWidgetConfig['order'] })} style={inputStyle()}>
+              <option value="newest_first">Newest first</option>
+              <option value="oldest_first">Oldest first</option>
+            </select>
+          </Field>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <input type="checkbox" checked={config.show_legend} onChange={(event) => patchProps({ show_legend: event.target.checked })} />
+            Show legend
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <input type="checkbox" checked={config.show_time_between_events} onChange={(event) => patchProps({ show_time_between_events: event.target.checked })} />
+            Show time between events
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <input type="checkbox" checked={config.highlight_selection} onChange={(event) => patchProps({ highlight_selection: event.target.checked })} />
+            Highlight selected event
+          </label>
+          <Field label="Max events">
+            <input type="number" min={1} max={5000} value={config.max_events} onChange={(event) => patchProps({ max_events: Math.max(1, Math.min(5000, Number(event.target.value) || 250)) })} style={inputStyle()} />
+          </Field>
+
+          <Section title="Selection" />
+          <Field label="Active object output">
+            <select value={config.selected_object_variable_id} onChange={(event) => patchProps({ selected_object_variable_id: event.target.value })} style={inputStyle()}>
+              <option value="">No binding</option>
+              {primitiveVariables.concat(variables.filter((entry) => entry.kind === 'object_set_selection')).map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name}</option>
+              ))}
+            </select>
+          </Field>
+          <button type="button" className="of-button" onClick={onDelete} style={{ color: 'var(--status-danger)', borderColor: '#fecaca' }}>
+            <Glyph name="trash" size={12} /> Delete widget
+          </button>
+        </div>
       ) : (
         <div style={{ padding: 14 }}><p className="of-text-muted" style={{ fontSize: 12 }}>Widget metadata coming soon.</p></div>
       )}

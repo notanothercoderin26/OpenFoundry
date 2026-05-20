@@ -11,12 +11,18 @@ import {
   buildFeaturesFromQueryResult,
   buildMapTemplateRenderRequest,
   collectFeatureBounds,
+  collectFeatureTimeRange,
   createWorkshopMapStyle,
+  filterFeaturesByTimeWindow,
+  formatTimelineCursor,
   isWorkshopMapLayerVisible,
   mergeMapTemplateWidgetProps,
   normalizeSavedOverlayConfig,
+  parseTimestampToMs,
   readMapLayerConfigs,
   readMapOverlayConfigs,
+  readMapTimeConfig,
+  type WorkshopMapFeatureCollection,
 } from './workshopMap';
 
 describe('Workshop Map widget feature shaping', () => {
@@ -426,5 +432,107 @@ describe('Workshop Map widget feature shaping', () => {
     expect(isWorkshopMapLayerVisible(layer, engine)).toBe(false);
     expect(isWorkshopMapLayerVisible({ ...layer, visibility_variable_id: '' }, engine)).toBe(true);
     expect(isWorkshopMapLayerVisible({ ...layer, visibility_variable_id: 'missing', visible: false }, engine)).toBe(false);
+  });
+});
+
+describe('Workshop Map widget time configuration', () => {
+  it('returns disabled defaults when no time_configuration block is present', () => {
+    const config = readMapTimeConfig({});
+    expect(config.enabled).toBe(false);
+    expect(config.time_zone).toBe('local');
+    expect(config.time_format).toBe('local');
+    expect(config.playback_speed_ms).toBe(1000);
+    expect(config.window_step_ms).toBe(3_600_000);
+    expect(config.allow_change_selected_time).toBe(true);
+  });
+
+  it('parses a fully populated time_configuration block and clamps speed', () => {
+    const config = readMapTimeConfig({
+      time_configuration: {
+        enabled: true,
+        open_by_default: true,
+        allow_change_selected_time: false,
+        show_live_mode_toggle: false,
+        time_zone: 'utc',
+        time_format: '24h',
+        event_time_field: 'event_datetime_utc',
+        selected_time_variable_id: 'selectedTime',
+        time_window_start_variable_id: 'windowStart',
+        time_window_end_variable_id: 'windowEnd',
+        playback_state_variable_id: 'playing',
+        playback_position_variable_id: 'position',
+        auto_pause_at_variable_id: 'pauses',
+        playback_speed_ms: 5,
+        window_step_ms: 600,
+      },
+    });
+    expect(config.enabled).toBe(true);
+    expect(config.open_by_default).toBe(true);
+    expect(config.allow_change_selected_time).toBe(false);
+    expect(config.show_live_mode_toggle).toBe(false);
+    expect(config.time_zone).toBe('utc');
+    expect(config.time_format).toBe('24h');
+    expect(config.event_time_field).toBe('event_datetime_utc');
+    expect(config.selected_time_variable_id).toBe('selectedTime');
+    expect(config.playback_speed_ms).toBe(50);
+    expect(config.window_step_ms).toBe(1000);
+  });
+
+  it('parseTimestampToMs accepts ISO strings, ms numbers, and Date instances', () => {
+    expect(parseTimestampToMs('2026-05-20T10:00:00Z')).toBe(Date.parse('2026-05-20T10:00:00Z'));
+    expect(parseTimestampToMs(1737378000000)).toBe(1737378000000);
+    expect(parseTimestampToMs(new Date('2026-01-01Z'))).toBe(Date.parse('2026-01-01Z'));
+    expect(parseTimestampToMs('not-a-date')).toBeNull();
+    expect(parseTimestampToMs(null)).toBeNull();
+  });
+
+  it('collectFeatureTimeRange computes min/max across features', () => {
+    const collection: WorkshopMapFeatureCollection = {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', properties: { ts: '2026-05-01T00:00:00Z' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+        { type: 'Feature', properties: { ts: '2026-05-10T00:00:00Z' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+        { type: 'Feature', properties: { ts: '2026-04-15T00:00:00Z' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+        { type: 'Feature', properties: { ts: 'invalid' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+      ],
+    };
+    const range = collectFeatureTimeRange(collection, 'ts');
+    expect(range?.minMs).toBe(Date.parse('2026-04-15T00:00:00Z'));
+    expect(range?.maxMs).toBe(Date.parse('2026-05-10T00:00:00Z'));
+    expect(collectFeatureTimeRange(collection, '')).toBeNull();
+  });
+
+  it('filterFeaturesByTimeWindow keeps features with invalid timestamps and drops out-of-window ones', () => {
+    const collection: WorkshopMapFeatureCollection = {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', properties: { ts: '2026-05-01T00:00:00Z', id: 'a' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+        { type: 'Feature', properties: { ts: '2026-05-10T00:00:00Z', id: 'b' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+        { type: 'Feature', properties: { ts: '2026-05-20T00:00:00Z', id: 'c' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+        { type: 'Feature', properties: { ts: 'invalid', id: 'd' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+      ],
+    };
+    const start = Date.parse('2026-05-05T00:00:00Z');
+    const end = Date.parse('2026-05-15T00:00:00Z');
+    const filtered = filterFeaturesByTimeWindow(collection, 'ts', start, end);
+    expect(filtered.features.map((feature) => feature.properties.id)).toEqual(['b', 'd']);
+  });
+
+  it('filterFeaturesByTimeWindow returns the same collection when no field or window is set', () => {
+    const collection: WorkshopMapFeatureCollection = {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', properties: { ts: '2026-05-01' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+      ],
+    };
+    expect(filterFeaturesByTimeWindow(collection, '', 0, 1)).toBe(collection);
+    expect(filterFeaturesByTimeWindow(collection, 'ts', null, null)).toBe(collection);
+  });
+
+  it('formatTimelineCursor renders UTC in ISO-ish form and local in localized form', () => {
+    const ms = Date.parse('2026-05-20T15:30:45Z');
+    expect(formatTimelineCursor(ms, 'utc', 'local')).toBe('2026-05-20 15:30:45 UTC');
+    expect(formatTimelineCursor(ms, 'local', '24h')).toMatch(/\d{1,2}:\d{2}/);
+    expect(formatTimelineCursor(Number.NaN, 'utc', 'local')).toBe('');
   });
 });

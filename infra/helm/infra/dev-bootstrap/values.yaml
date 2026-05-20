@@ -47,6 +47,10 @@ sharedEnv:
   INGESTION_CONTROL_PLANE_URL: http://ingestion-replication-service.openfoundry.svc.cluster.local:8080
   PYTHON_SIDECAR_BINARY: ""
   OPENFOUNDRY_ENV: dev
+  # action-log-sink: DATABASE_URL is optional (Iceberg-only works), but the
+  # chart unconditionally references this key. Empty value lets the Secret
+  # mount and the runtime falls back to Iceberg.
+  action_log_sink_database_url: ""
   # identity-federation: dev serves over plain HTTP, so `Secure` cookies
   # are rejected by the browser. Re-enable in prod.
   AUTH_COOKIE_SECURE: "false"

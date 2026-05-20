@@ -1040,6 +1040,160 @@ function safeMapId(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, '-');
 }
 
+export type WorkshopMapTimeZone = 'local' | 'utc';
+export type WorkshopMapTimeFormat = '12h' | '24h' | 'local';
+
+export interface WorkshopMapTimeConfig {
+  enabled: boolean;
+  open_by_default: boolean;
+  allow_change_selected_time: boolean;
+  show_live_mode_toggle: boolean;
+  time_zone: WorkshopMapTimeZone;
+  time_format: WorkshopMapTimeFormat;
+  event_time_field: string;
+  selected_time_variable_id: string;
+  time_window_start_variable_id: string;
+  time_window_end_variable_id: string;
+  playback_state_variable_id: string;
+  playback_position_variable_id: string;
+  auto_pause_at_variable_id: string;
+  playback_speed_ms: number;
+  window_step_ms: number;
+}
+
+export interface WorkshopMapTimeRange {
+  minMs: number;
+  maxMs: number;
+}
+
+export const EMPTY_MAP_TIME_CONFIG: WorkshopMapTimeConfig = {
+  enabled: false,
+  open_by_default: false,
+  allow_change_selected_time: true,
+  show_live_mode_toggle: true,
+  time_zone: 'local',
+  time_format: 'local',
+  event_time_field: '',
+  selected_time_variable_id: '',
+  time_window_start_variable_id: '',
+  time_window_end_variable_id: '',
+  playback_state_variable_id: '',
+  playback_position_variable_id: '',
+  auto_pause_at_variable_id: '',
+  playback_speed_ms: 1000,
+  window_step_ms: 3600000,
+};
+
+export function readMapTimeConfig(props: Record<string, unknown> | null | undefined): WorkshopMapTimeConfig {
+  const raw = isRecord(props?.time_configuration) ? props.time_configuration : {};
+  return {
+    enabled: readBoolean(raw.enabled, false),
+    open_by_default: readBoolean(raw.open_by_default, false),
+    allow_change_selected_time: readBoolean(raw.allow_change_selected_time, true),
+    show_live_mode_toggle: readBoolean(raw.show_live_mode_toggle, true),
+    time_zone: normalizeTimeZone(raw.time_zone),
+    time_format: normalizeTimeFormat(raw.time_format),
+    event_time_field: readString(raw.event_time_field),
+    selected_time_variable_id: readString(raw.selected_time_variable_id),
+    time_window_start_variable_id: readString(raw.time_window_start_variable_id),
+    time_window_end_variable_id: readString(raw.time_window_end_variable_id),
+    playback_state_variable_id: readString(raw.playback_state_variable_id),
+    playback_position_variable_id: readString(raw.playback_position_variable_id),
+    auto_pause_at_variable_id: readString(raw.auto_pause_at_variable_id),
+    playback_speed_ms: clampPositive(readNumber(raw.playback_speed_ms, 1000), 50, 60_000, 1000),
+    window_step_ms: clampPositive(readNumber(raw.window_step_ms, 3_600_000), 1_000, 86_400_000 * 7, 3_600_000),
+  };
+}
+
+function normalizeTimeZone(value: unknown): WorkshopMapTimeZone {
+  return value === 'utc' ? 'utc' : 'local';
+}
+
+function normalizeTimeFormat(value: unknown): WorkshopMapTimeFormat {
+  if (value === '12h' || value === '24h' || value === 'local') return value;
+  return 'local';
+}
+
+function clampPositive(value: number, min: number, max: number, fallback: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+export function parseTimestampToMs(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric) && trimmed === String(numeric)) return numeric;
+    const parsed = Date.parse(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+export function collectFeatureTimeRange(
+  collection: WorkshopMapFeatureCollection,
+  field: string,
+): WorkshopMapTimeRange | null {
+  if (!field) return null;
+  let minMs = Number.POSITIVE_INFINITY;
+  let maxMs = Number.NEGATIVE_INFINITY;
+  for (const feature of collection.features) {
+    const ms = parseTimestampToMs(feature.properties[field]);
+    if (ms === null) continue;
+    if (ms < minMs) minMs = ms;
+    if (ms > maxMs) maxMs = ms;
+  }
+  if (!Number.isFinite(minMs) || !Number.isFinite(maxMs)) return null;
+  return { minMs, maxMs };
+}
+
+export function filterFeaturesByTimeWindow(
+  collection: WorkshopMapFeatureCollection,
+  field: string,
+  startMs: number | null,
+  endMs: number | null,
+): WorkshopMapFeatureCollection {
+  if (!field || (startMs === null && endMs === null)) return collection;
+  const features = collection.features.filter((feature) => {
+    const ms = parseTimestampToMs(feature.properties[field]);
+    if (ms === null) return true;
+    if (startMs !== null && ms < startMs) return false;
+    if (endMs !== null && ms > endMs) return false;
+    return true;
+  });
+  return { type: 'FeatureCollection', features };
+}
+
+export function formatTimelineCursor(
+  ms: number,
+  zone: WorkshopMapTimeZone,
+  format: WorkshopMapTimeFormat,
+): string {
+  if (!Number.isFinite(ms)) return '';
+  const date = new Date(ms);
+  if (zone === 'utc') {
+    return date.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  }
+  const opts: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  };
+  if (format === '12h') opts.hour12 = true;
+  else if (format === '24h') opts.hour12 = false;
+  return date.toLocaleString(undefined, opts);
+}
+
 export function makeDefaultMapWidget(): AppWidget {
   return {
     id: `map_${Date.now().toString(36)}`,

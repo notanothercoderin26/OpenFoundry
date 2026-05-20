@@ -74,7 +74,7 @@ test('lists every deployed application as a navigable card', async ({ authedPage
 
   // Every deployed app renders as a router <Link>. The card's accessible
   // name concatenates "<Name><Description>" so anchor on the name.
-  const main = authedPage.locator('main');
+  const main = authedPage.getByRole('region', { name: 'Application catalog' });
   for (const name of DEPLOYED_APP_NAMES) {
     await expect(
       main.getByRole('link', { name: new RegExp(`^${name}\\b`, 'i') }),
@@ -97,7 +97,7 @@ test('search filters the deployed apps to those matching name or description', a
   const applications = new ApplicationsPage(authedPage);
   await applications.goto();
 
-  const main = authedPage.locator('main');
+  const main = authedPage.getByRole('region', { name: 'Application catalog' });
   const searchInput = authedPage.getByPlaceholder('Search for apps...');
 
   // "Quiver" is the only entry whose description mentions "spreadsheet".
@@ -126,7 +126,7 @@ test('selecting a category restricts the deployed-apps view to that bucket', asy
   // concatenates "<label> <count>" so we anchor on that exact shape.
   await authedPage.getByRole('button', { name: /^Ontology\s+3$/i }).click();
 
-  const main = authedPage.locator('main');
+  const main = authedPage.getByRole('region', { name: 'Application catalog' });
   await expect(main.getByRole('link')).toHaveCount(3);
   await expect(main.getByRole('link', { name: /^Ontology manager\b/i })).toBeVisible();
   await expect(main.getByRole('link', { name: /^Object & link types\b/i })).toBeVisible();
@@ -150,7 +150,7 @@ test('clicking a deployed application card navigates to that app', async ({
   await applications.goto();
 
   const contour = authedPage
-    .locator('main')
+    .getByRole('region', { name: 'Application catalog' })
     .getByRole('link', { name: /^Contour\b/i });
   // The card's href points at the app's route before navigation.
   await expect(contour).toHaveAttribute('href', '/contour');

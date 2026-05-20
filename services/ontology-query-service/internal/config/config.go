@@ -26,6 +26,12 @@ type Config struct {
 	DevMode                bool
 	NATSURL                string
 	MetricsAddr            string
+	// Search backend (B03 G1). SearchBackend selects vespa / opensearch
+	// / in-memory. SearchEndpoint is the backend URL when not in-memory.
+	// When SearchBackend is empty the service boots without a search
+	// route (POST /ontology/search returns 503).
+	SearchBackend  string
+	SearchEndpoint string
 }
 
 func FromEnv() (*Config, error) {
@@ -44,6 +50,8 @@ func FromEnv() (*Config, error) {
 	cfg.DevMode = parseBool(os.Getenv("OF_DEV_STUB_MODE"), false)
 	cfg.NATSURL = os.Getenv("NATS_URL")
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
+	cfg.SearchBackend = strings.ToLower(strings.TrimSpace(os.Getenv("SEARCH_BACKEND")))
+	cfg.SearchEndpoint = strings.TrimSpace(os.Getenv("SEARCH_ENDPOINT"))
 	return cfg, nil
 }
 
