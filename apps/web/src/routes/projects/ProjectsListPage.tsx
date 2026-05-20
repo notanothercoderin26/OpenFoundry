@@ -395,12 +395,9 @@ export function ProjectsListPage() {
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
           gap: 16,
-          padding: '8px 18px',
-          borderBottom: '1px solid var(--border-subtle)',
+          padding: '8px 22px',
           background: '#fff',
-          position: 'relative',
         }}
       >
         <nav
@@ -452,83 +449,31 @@ export function ProjectsListPage() {
             );
           })}
         </nav>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }} ref={manageRef}>
-          <button
-            type="button"
-            className="of-button"
-            onClick={() => setManageOpen((open) => !open)}
-            aria-haspopup="menu"
-            aria-expanded={manageOpen}
-            style={{ paddingRight: 10 }}
-          >
-            Manage spaces
-            <GearIcon />
-          </button>
-          {manageOpen ? (
-            <div
-              role="menu"
-              style={{
-                position: 'absolute',
-                top: '100%',
-                right: 0,
-                marginTop: 6,
-                zIndex: 30,
-                minWidth: 220,
-                background: '#fff',
-                border: '1px solid var(--border-default)',
-                borderRadius: 4,
-                boxShadow: 'var(--shadow-popover)',
-                padding: 4,
-              }}
-            >
-              <MenuItem onClick={openTrashOverlay}>Open trash</MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setManageOpen(false);
-                  navigate('/settings');
-                }}
-              >
-                Workspace settings
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setManageOpen(false);
-                  if (section === 'trash') void loadTrash();
-                  else void refreshSection(section);
-                }}
-              >
-                Refresh
-              </MenuItem>
-            </div>
-          ) : null}
-        </div>
       </div>
 
-      {/* ── Section header (title + sub-tabs + actions) ───────────────── */}
-      <div style={{ padding: '18px 22px 0', background: '#fff' }}>
+      {/* ── Section header (title + actions + manage spaces) ──────────── */}
+      <div style={{ padding: '8px 22px 0', background: '#fff' }}>
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'flex-end',
+            alignItems: 'center',
             gap: 12,
             flexWrap: 'wrap',
           }}
         >
-          <div style={{ display: 'grid', gap: 4 }}>
-            <h1
-              style={{
-                margin: 0,
-                fontSize: 22,
-                fontWeight: 700,
-                color: 'var(--text-strong)',
-                letterSpacing: 0,
-              }}
-            >
-              {sectionTitle}
-            </h1>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 22,
+              fontWeight: 700,
+              color: 'var(--text-strong)',
+              letterSpacing: 0,
+            }}
+          >
+            {sectionTitle}
+          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }} ref={manageRef}>
             <button type="button" className="of-button" onClick={() => setRequestOpen(true)}>
               Request data
             </button>
@@ -540,6 +485,54 @@ export function ProjectsListPage() {
             >
               <PlusIcon color="#fff" /> New
             </button>
+            <button
+              type="button"
+              className="of-button"
+              onClick={() => setManageOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={manageOpen}
+              style={{ paddingRight: 10 }}
+            >
+              Manage spaces
+              <GearIcon />
+            </button>
+            {manageOpen ? (
+              <div
+                role="menu"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: 6,
+                  zIndex: 30,
+                  minWidth: 220,
+                  background: '#fff',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 4,
+                  boxShadow: 'var(--shadow-popover)',
+                  padding: 4,
+                }}
+              >
+                <MenuItem onClick={openTrashOverlay}>Open trash</MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setManageOpen(false);
+                    navigate('/settings');
+                  }}
+                >
+                  Workspace settings
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setManageOpen(false);
+                    if (section === 'trash') void loadTrash();
+                    else void refreshSection(section);
+                  }}
+                >
+                  Refresh
+                </MenuItem>
+              </div>
+            ) : null}
           </div>
         </div>
         <div
