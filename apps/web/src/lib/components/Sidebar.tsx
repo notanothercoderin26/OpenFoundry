@@ -39,7 +39,6 @@ const PRIMARY_NAV: NavItem[] = [
   { to: '/', label: 'Home', icon: 'home', end: true },
   { to: '/search', label: 'Search', icon: 'search', shortcut: 'ctrl + J' },
   { to: '/notifications', label: 'Notifications', icon: 'bell', dot: true },
-  { to: '/whats-new', label: "What's New", icon: 'sparkles', dot: true },
 ];
 
 const SECONDARY_NAV: NavItem[] = [
