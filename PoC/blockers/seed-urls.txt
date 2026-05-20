@@ -1,0 +1,64 @@
+# PoC blockers — Palantir Foundry seed URLs
+#
+# This file is consumed by docs_original_palantir_foundry/scraper.py with
+# `--seed-urls PoC/blockers/seed-urls.txt`. One URL per line, '#' comments.
+# Only URLs under https://www.palantir.com/docs/foundry/ are accepted.
+#
+# Grouped by blocker. Adding a URL here AND a reference in the matching
+# B0X-*.md file is the contract: the scraper output then matches the paths
+# referenced inside the B0X files.
+
+# ─── B01 — Workshop backend (application-composition-service) ──────────────
+https://www.palantir.com/docs/foundry/workshop/overview/
+https://www.palantir.com/docs/foundry/workshop/concepts-widgets/
+https://www.palantir.com/docs/foundry/workshop/widgets-object-table/
+https://www.palantir.com/docs/foundry/workshop/widgets-button-group/
+https://www.palantir.com/docs/foundry/workshop/widgets-map/
+https://www.palantir.com/docs/foundry/workshop/branching-rebasing/
+https://www.palantir.com/docs/foundry/workshop/variables/
+https://www.palantir.com/docs/foundry/workshop/publishing/
+
+# ─── B02 — Ontology definition (ontology-definition-service) ───────────────
+https://www.palantir.com/docs/foundry/ontology-manager/overview/
+https://www.palantir.com/docs/foundry/ontology/overview/
+https://www.palantir.com/docs/foundry/object-link-types/type-reference/
+https://www.palantir.com/docs/foundry/object-link-types/object-types/
+https://www.palantir.com/docs/foundry/object-link-types/link-types/
+https://www.palantir.com/docs/foundry/action-types/overview/
+https://www.palantir.com/docs/foundry/action-types/rules/
+https://www.palantir.com/docs/foundry/action-types/use-actions/
+
+# ─── B03 — Ontology indexer (search/indexing) ──────────────────────────────
+https://www.palantir.com/docs/foundry/object-explorer/overview/
+https://www.palantir.com/docs/foundry/ontology-manager/ontology-indexing/
+https://www.palantir.com/docs/foundry/object-link-types/object-storage-v2/
+
+# ─── B04 — LLM catalog (llm-catalog-service) ───────────────────────────────
+https://www.palantir.com/docs/foundry/model-catalog/overview/
+https://www.palantir.com/docs/foundry/model-integration/overview/
+https://www.palantir.com/docs/foundry/aip/overview/
+https://www.palantir.com/docs/foundry/chatbot-studio/overview/
+https://www.palantir.com/docs/foundry/agent-studio/tools/
+
+# ─── B05 — Notifications & alerting (notification-alerting-service) ────────
+https://www.palantir.com/docs/foundry/action-types/notifications/
+https://www.palantir.com/docs/foundry/action-types/webhooks/
+https://www.palantir.com/docs/foundry/action-types/action-log/
+https://www.palantir.com/docs/foundry/approvals/overview/
+https://www.palantir.com/docs/foundry/foundry-rules/overview/
+https://www.palantir.com/docs/foundry/dynamic-scheduling/scheduling-overview/
+
+# ─── B06 — Iceberg end-to-end (pipeline-runtime + iceberg-catalog) ─────────
+https://www.palantir.com/docs/foundry/pipeline-builder/overview/
+https://www.palantir.com/docs/foundry/pipeline-builder/transforms-overview/
+https://www.palantir.com/docs/foundry/data-integration/datasets/
+https://www.palantir.com/docs/foundry/data-lineage/overview/
+https://www.palantir.com/docs/foundry/observability/data-health/
+
+# ─── B07 — Agent runtime + ontology tool routing ───────────────────────────
+https://www.palantir.com/docs/foundry/assist/overview/
+https://www.palantir.com/docs/foundry/aip-analyst/overview/
+https://www.palantir.com/docs/foundry/threads/overview/
+https://www.palantir.com/docs/foundry/ai-fde/overview/
+https://www.palantir.com/docs/foundry/agent-studio/retrieval-context/
+https://www.palantir.com/docs/foundry/chatbot-studio/overview/

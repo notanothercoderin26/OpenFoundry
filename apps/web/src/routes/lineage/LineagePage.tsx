@@ -1182,10 +1182,22 @@ function Icon({ size = 18, children }: IconProps & { children: ReactNode }) {
     </svg>
   );
 }
-const IconTools = () => (
+const IconPan = () => (
   <Icon>
-    <path d="M5 5l4 4M5 19l4-4M19 5l-4 4M19 19l-4-4" />
-    <circle cx="12" cy="12" r="3" />
+    <path d="M12 4v6M12 14v6M4 12h6M14 12h6" />
+    <path d="M9 7l3-3 3 3M9 17l3 3 3-3M7 9l-3 3 3 3M17 9l3 3-3 3" />
+  </Icon>
+);
+const IconDragSelect = () => (
+  <Icon>
+    <path d="M4 4h4M16 4h4M4 20h4M16 20h4M4 8v4M4 14v4M20 8v4M20 14v4" strokeDasharray="2 2" />
+    <path d="M11 11l4 4M15 15l-1 0M15 15l0-1" />
+  </Icon>
+);
+const IconFlow = () => (
+  <Icon>
+    <path d="M4 6h8a4 4 0 0 1 0 8h-4a4 4 0 0 0 0 8h8" />
+    <path d="M16 22l4-4M16 22l4 4" />
   </Icon>
 );
 const IconLayout = () => (
@@ -1428,6 +1440,7 @@ export function LineagePage() {
   const [saveMenuOpen, setSaveMenuOpen] = useState(false);
   const [layoutByColor, setLayoutByColor] = useState(false);
   const [groupByColor, setGroupByColor] = useState(false);
+  const [panSelectMode, setPanSelectMode] = useState<'pan' | 'select'>('pan');
   const [bottomTab, setBottomTab] = useState<BottomTabId>('preview');
   const [bottomCollapsed, setBottomCollapsed] = useState(false);
   const [bottomFullscreen, setBottomFullscreen] = useState(false);
@@ -2226,6 +2239,23 @@ export function LineagePage() {
   const expandFromSeedsDisabled =
     selectedNodeIds.length === 0 || expandParents + expandChildren === 0;
 
+  const branchOptions = useMemo<string[]>(() => {
+    const defaults = ['master', 'main', 'develop', 'staging'];
+    const found = new Set<string>(defaults);
+    found.add(branch);
+    if (viewGraph) {
+      for (const node of viewGraph.nodes) {
+        const value = node.metadata?.['branch'];
+        if (typeof value === 'string' && value.length > 0) found.add(value);
+      }
+      for (const edge of viewGraph.edges) {
+        const value = edge.metadata?.['branch'];
+        if (typeof value === 'string' && value.length > 0) found.add(value);
+      }
+    }
+    return [...found];
+  }, [viewGraph, branch]);
+
   const nodeBadges = useMemo<Record<string, NodeBadgeSpec[]>>(() => {
     if (!viewGraph) return {};
     const labelByNodeId = new Map(viewGraph.nodes.map((node) => [node.id, node.label]));
@@ -2333,6 +2363,13 @@ export function LineagePage() {
   }, [viewGraph, expandParents, expandChildren, applyExpandSelection]);
 
   useEffect(() => {
+    const cy = cyInstance;
+    if (!cy) return;
+    cy.boxSelectionEnabled(panSelectMode === 'select');
+    cy.userPanningEnabled(panSelectMode === 'pan');
+  }, [cyInstance, panSelectMode]);
+
+  useEffect(() => {
     if (readOnlyMode) return undefined;
     function onKeyDown(event: KeyboardEvent) {
       if (!(event.metaKey || event.ctrlKey)) return;
@@ -2373,6 +2410,7 @@ export function LineagePage() {
         <>
           <LineageHeader
             branch={branch}
+            branchOptions={branchOptions}
             branchMenuOpen={branchMenuOpen}
             onBranchClick={() => setBranchMenuOpen((v) => !v)}
             onBranchSelect={(b) => {
@@ -2396,6 +2434,8 @@ export function LineagePage() {
 
           <Ribbon
             selectedNode={selectedNode}
+            panSelectMode={panSelectMode}
+            onPanSelectModeChange={setPanSelectMode}
             onClean={() => {
               clearSelection();
               setFindQuery('');
@@ -2717,6 +2757,7 @@ export function LineagePage() {
 
 interface LineageHeaderProps {
   branch: string;
+  branchOptions: string[];
   branchMenuOpen: boolean;
   onBranchClick: () => void;
   onBranchSelect: (b: string) => void;
@@ -2728,6 +2769,7 @@ interface LineageHeaderProps {
 }
 function LineageHeader({
   branch,
+  branchOptions,
   branchMenuOpen,
   onBranchClick,
   onBranchSelect,
@@ -2737,6 +2779,7 @@ function LineageHeader({
   onSaveAs,
   onOpenGraph,
 }: LineageHeaderProps) {
+  const [customBranch, setCustomBranch] = useState('');
   return (
     <header style={headerRow}>
       <div style={headerLeft}>
@@ -2759,7 +2802,7 @@ function LineageHeader({
           </button>
           {branchMenuOpen && (
             <div style={branchMenu} className="of-panel">
-              {['master', 'main', 'develop', 'staging'].map((b) => (
+              {branchOptions.map((b) => (
                 <button
                   key={b}
                   type="button"
@@ -2770,6 +2813,42 @@ function LineageHeader({
                   <span>{b}</span>
                 </button>
               ))}
+              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '6px 0' }} />
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const next = customBranch.trim();
+                  if (!next) return;
+                  setCustomBranch('');
+                  onBranchSelect(next);
+                }}
+                style={{ display: 'flex', gap: 6, padding: '4px 6px' }}
+              >
+                <input
+                  type="text"
+                  value={customBranch}
+                  onChange={(event) => setCustomBranch(event.target.value)}
+                  placeholder="Enter branch name…"
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    padding: '4px 6px',
+                    fontSize: 12,
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--bg-input)',
+                    color: 'var(--text-default)',
+                  }}
+                />
+                <button
+                  type="submit"
+                  className="of-btn"
+                  style={{ fontSize: 11, padding: '2px 8px' }}
+                  disabled={customBranch.trim().length === 0}
+                >
+                  Use
+                </button>
+              </form>
             </div>
           )}
         </div>
@@ -2821,6 +2900,8 @@ interface ExpandPreviewCounts {
 
 interface RibbonProps {
   selectedNode: LineageNode | null;
+  panSelectMode: 'pan' | 'select';
+  onPanSelectModeChange: (mode: 'pan' | 'select') => void;
   onClean: () => void;
   onSelectFocus: () => void;
   expandPopoverOpen: boolean;
@@ -2856,6 +2937,8 @@ interface RibbonProps {
 }
 function Ribbon(props: RibbonProps) {
   const {
+    panSelectMode,
+    onPanSelectModeChange,
     onClean,
     onSelectFocus,
     expandPopoverOpen,
@@ -2892,9 +2975,27 @@ function Ribbon(props: RibbonProps) {
 
   return (
     <div style={ribbonRow}>
-      <ToolButton label="Tools" onClick={() => undefined}>
-        <IconTools />
-      </ToolButton>
+      <div style={toolGroupWrap}>
+        <div style={toolGroupRow}>
+          <button
+            type="button"
+            title="Panning mode (drag the canvas to pan)"
+            onClick={() => onPanSelectModeChange('pan')}
+            style={{ ...toolSubBtn, ...(panSelectMode === 'pan' ? toolBtnActive : {}) }}
+          >
+            <IconPan />
+          </button>
+          <button
+            type="button"
+            title="Drag select mode (hold 'shift' and click + drag)"
+            onClick={() => onPanSelectModeChange('select')}
+            style={{ ...toolSubBtn, ...(panSelectMode === 'select' ? toolBtnActive : {}) }}
+          >
+            <IconDragSelect />
+          </button>
+        </div>
+        <span style={toolBtnLabel}>Tools</span>
+      </div>
       <ToolButton label="Layout" onClick={() => undefined}>
         <IconLayout />
       </ToolButton>
@@ -3015,6 +3116,13 @@ function Ribbon(props: RibbonProps) {
       <ToolButton label="Align" onClick={onAlignClick}>
         <IconAlign />
       </ToolButton>
+      <ToolButton
+        label="Flow"
+        title="Flow direction (left-to-right by default)"
+        onClick={onAlignClick}
+      >
+        <IconFlow />
+      </ToolButton>
 
       <div style={{ flex: 1 }} />
 
@@ -3048,14 +3156,16 @@ interface ToolButtonProps {
   onClick: () => void;
   active?: boolean;
   disabled?: boolean;
+  title?: string;
   children: ReactNode;
 }
-function ToolButton({ label, onClick, active = false, disabled = false, children }: ToolButtonProps) {
+function ToolButton({ label, onClick, active = false, disabled = false, title, children }: ToolButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       style={{
         ...toolBtn,
         ...(active ? toolBtnActive : {}),
@@ -4713,6 +4823,30 @@ const toolBtnActive: CSSProperties = {
   color: 'var(--text-link)',
 };
 const toolBtnDisabled: CSSProperties = { opacity: 0.4, cursor: 'not-allowed' };
+const toolGroupWrap: CSSProperties = {
+  display: 'inline-flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 2,
+  padding: '4px 6px',
+};
+const toolGroupRow: CSSProperties = {
+  display: 'inline-flex',
+  gap: 4,
+};
+const toolSubBtn: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 26,
+  height: 22,
+  padding: 2,
+  border: '1px solid transparent',
+  background: 'transparent',
+  color: 'var(--text-default)',
+  borderRadius: 'var(--radius-sm)',
+  cursor: 'pointer',
+};
 const toolBtnIcon: CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center' };
 const toolBtnLabel: CSSProperties = {
   fontSize: 10,
