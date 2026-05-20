@@ -102,15 +102,39 @@ see an indexing status (pending / live / stale).
 | **G4** Per-type indexing status endpoint | ⏳ Phase 2 | Requires adding a Postgres-backed `index_status` table or scraping the existing Prometheus counters via a thin /status handler. Not blocking the PoC narrative. |
 | **G5** Schema-aware mapping registration (consume `ontology.object_type.changed.v1`) | ⏳ Phase 2 | The indexer today uses a generic JSONB document shape; per-type Vespa schemas would let it leverage typed fields and full-text tokenizers. Useful for Vespa quality at scale; not blocking the PoC narrative. |
 
-## Deferred to a follow-up commit (Phase 1b)
+## Phase 1b — done
 
-`DeleteObject` and link mutations (`PutLink`, `DeleteLink`) in
-`object-database-service` need the same outbox wiring as `PutObject`.
-The pattern is identical (just call `enqueueObjectChanged` with
-`deleted: true` for the delete case, and a parallel
-`enqueueLinkChanged` helper for links); only ~1 day of focused work,
-omitted here to keep this commit scoped and the integration test
-focused on a single golden path.
+`DeleteObject` and link mutations (`PutLink` + the brand-new
+`DeleteLink`) in `object-database-service` now route through the
+outbox in the same way `PutObject` does:
+
+- `DeleteObject` GETs the row before deletion so the emitted event
+  carries the type_id + the post-deletion version (`current+1`) plus
+  `deleted: true`.
+- `PutLink` emits an `ontology.link.changed.v1` upsert event (`version=1`,
+  `deleted=false`) with the link's payload.
+- New `DELETE /api/v1/object-database/links/{tenant}/{link_type}?from=…&to=…`
+  handler removes the (link_type, from, to) triple and emits a
+  matching deletion event (`version=2`, `deleted=true`).
+
+Helper `enqueueLinkChanged` ([internal/handlers/outbox.go](../../services/object-database-service/internal/handlers/outbox.go))
+parallels `enqueueObjectChanged`; both use `domain.DeriveEventID` so
+event_ids stay deterministic and collapse on retry via the outbox
+primary key.
+
+Verification: two new integration tests prove the WAL emission for
+both flows.
+
+| Test | What it asserts |
+|---|---|
+| `TestOutboxEndToEnd_DeleteObjectEmits` | PutObject + DeleteObject produce two outbox INSERTs: `object_created` and `object_deleted` (with `deleted: true` in the payload) on `ontology.object.changed.v1` |
+| `TestOutboxEndToEnd_LinkLifecycleEmits` | PutLink + DeleteLink produce two outbox INSERTs on `ontology.link.changed.v1` for the same `aggregate_id` (`link:<linkType>:<from>:<to>`) with version=1 / version=2 respectively |
+
+Versioning note: `storage.LinkStore` does not track versions, so the
+two link event types use synthetic `version=1` (upsert) and `version=2`
+(delete) to keep the deterministic event_id namespaces disjoint. A
+future change that gives links a real version column should bump
+those to the actual values.
 
 ## Implementation notes (drift-mirrored from the kernel)
 

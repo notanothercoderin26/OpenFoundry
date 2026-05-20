@@ -254,6 +254,205 @@ func drainSlot(ctx context.Context, pool *pgxpool.Pool, slot string) ([]string, 
 	return out, rows.Err()
 }
 
+// TestOutboxEndToEnd_DeleteObjectEmits verifies B03 §G2 Phase 1b
+// for object deletions: GET → DELETE → outbox event with deleted=true
+// and the post-deletion version (current+1) so the indexer can drop
+// the search-backend document by (tenant, id).
+func TestOutboxEndToEnd_DeleteObjectEmits(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	pool, stop := bootPostgresWithLogical(ctx, t)
+	defer stop()
+	if err := applyDefinitionMigrations(ctx, pool); err != nil {
+		t.Fatalf("apply definition migrations: %v", err)
+	}
+
+	const slot = "object_database_delete_outbox_test"
+	if _, err := pool.Exec(ctx,
+		`SELECT pg_create_logical_replication_slot($1, 'test_decoding')`, slot,
+	); err != nil {
+		t.Fatalf("create slot: %v", err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `SELECT pg_drop_replication_slot($1)`, slot)
+	}()
+
+	h := &objdbhandlers.Handlers{
+		Objects:    storage.NewInMemoryObjectStore(),
+		Links:      storage.NewInMemoryLinkStore(),
+		OutboxPool: pool,
+	}
+	router := chi.NewRouter()
+	router.Put("/objects/{tenant}/{object_id}", h.PutObject)
+	router.Delete("/objects/{tenant}/{object_id}", h.DeleteObject)
+
+	tenant := "of-tenant-poc"
+	objectID := uuid.NewString()
+	typeID := uuid.NewString()
+	putBody, _ := json.Marshal(map[string]any{
+		"type_id":  typeID,
+		"version":  1,
+		"payload":  map[string]any{"tail_number": "N12345"},
+		"markings": []string{"public"},
+	})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec,
+		httptest.NewRequest(http.MethodPut, "/objects/"+tenant+"/"+objectID,
+			bytes.NewReader(putBody)))
+	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
+		t.Fatalf("seed PutObject HTTP %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec,
+		httptest.NewRequest(http.MethodDelete, "/objects/"+tenant+"/"+objectID, nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DeleteObject HTTP %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := pool.Exec(ctx, `SELECT pg_switch_wal()`); err != nil {
+		t.Fatalf("switch wal: %v", err)
+	}
+	changes, err := drainSlot(ctx, pool, slot)
+	if err != nil {
+		t.Fatalf("drain slot: %v", err)
+	}
+
+	// Two INSERTs on outbox.events: one for the seed PutObject
+	// (operation=object_created, deleted=false) and one for the
+	// DELETE (operation=object_deleted, deleted=true).
+	matched := 0
+	sawCreated, sawDeleted := false, false
+	for _, change := range changes {
+		if !strings.Contains(change, `table outbox.events: INSERT:`) {
+			continue
+		}
+		matched++
+		if !strings.Contains(change, `topic[text]:'ontology.object.changed.v1'`) {
+			t.Errorf("change %q wrong topic", change)
+		}
+		if strings.Contains(change, `"operation": "object_created"`) {
+			sawCreated = true
+		}
+		if strings.Contains(change, `"operation": "object_deleted"`) {
+			sawDeleted = true
+			if !strings.Contains(change, `"deleted": true`) {
+				t.Errorf("object_deleted change missing deleted=true: %q", change)
+			}
+		}
+	}
+	if matched != 2 {
+		t.Fatalf("expected 2 INSERTs on outbox.events (created + deleted), got %d",
+			matched)
+	}
+	if !sawCreated || !sawDeleted {
+		t.Fatalf("missing event: sawCreated=%t sawDeleted=%t", sawCreated, sawDeleted)
+	}
+}
+
+// TestOutboxEndToEnd_LinkLifecycleEmits verifies B03 §G2 Phase 1b
+// for link mutations: PutLink emits an upsert event (version=1,
+// deleted=false) and the new DeleteLink emits a deletion event
+// (version=2, deleted=true) so the indexer can drop the link
+// document by its canonical id (`link:<linkType>:<from>:<to>`).
+func TestOutboxEndToEnd_LinkLifecycleEmits(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	pool, stop := bootPostgresWithLogical(ctx, t)
+	defer stop()
+	if err := applyDefinitionMigrations(ctx, pool); err != nil {
+		t.Fatalf("apply definition migrations: %v", err)
+	}
+
+	const slot = "object_database_link_outbox_test"
+	if _, err := pool.Exec(ctx,
+		`SELECT pg_create_logical_replication_slot($1, 'test_decoding')`, slot,
+	); err != nil {
+		t.Fatalf("create slot: %v", err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `SELECT pg_drop_replication_slot($1)`, slot)
+	}()
+
+	h := &objdbhandlers.Handlers{
+		Objects:    storage.NewInMemoryObjectStore(),
+		Links:      storage.NewInMemoryLinkStore(),
+		OutboxPool: pool,
+	}
+	router := chi.NewRouter()
+	router.Post("/links/{tenant}/{link_type}", h.PutLink)
+	router.Delete("/links/{tenant}/{link_type}", h.DeleteLink)
+
+	tenant := "of-tenant-poc"
+	linkType := "operates"
+	from := uuid.NewString()
+	to := uuid.NewString()
+
+	putBody, _ := json.Marshal(map[string]any{
+		"from":    from,
+		"to":      to,
+		"payload": map[string]any{"role": "owner"},
+	})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec,
+		httptest.NewRequest(http.MethodPost, "/links/"+tenant+"/"+linkType,
+			bytes.NewReader(putBody)))
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("PutLink HTTP %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec,
+		httptest.NewRequest(http.MethodDelete,
+			"/links/"+tenant+"/"+linkType+"?from="+from+"&to="+to, nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DeleteLink HTTP %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := pool.Exec(ctx, `SELECT pg_switch_wal()`); err != nil {
+		t.Fatalf("switch wal: %v", err)
+	}
+	changes, err := drainSlot(ctx, pool, slot)
+	if err != nil {
+		t.Fatalf("drain slot: %v", err)
+	}
+
+	wantDocID := "link:" + linkType + ":" + from + ":" + to
+	matched := 0
+	sawUpserted, sawDeleted := false, false
+	for _, change := range changes {
+		if !strings.Contains(change, `table outbox.events: INSERT:`) {
+			continue
+		}
+		matched++
+		if !strings.Contains(change, `topic[text]:'ontology.link.changed.v1'`) {
+			t.Errorf("link change %q wrong topic", change)
+		}
+		if !strings.Contains(change, fmt.Sprintf(`aggregate_id[text]:'%s'`, wantDocID)) {
+			t.Errorf("link change %q wrong aggregate_id (expected %s)", change, wantDocID)
+		}
+		if strings.Contains(change, `"event_type": "link_upserted"`) ||
+			strings.Contains(change, `"deleted": false`) ||
+			(strings.Contains(change, `"version": 1`) && !strings.Contains(change, `"deleted": true`)) {
+			sawUpserted = true
+		}
+		if strings.Contains(change, `"deleted": true`) &&
+			strings.Contains(change, `"version": 2`) {
+			sawDeleted = true
+		}
+	}
+	if matched != 2 {
+		t.Fatalf("expected 2 INSERTs on outbox.events (upsert + delete), got %d",
+			matched)
+	}
+	if !sawUpserted || !sawDeleted {
+		t.Fatalf("missing event: sawUpserted=%t sawDeleted=%t\nfull:\n%s",
+			sawUpserted, sawDeleted, strings.Join(changes, "\n---\n"))
+	}
+}
+
 // applyDefinitionMigrations runs every `*.sql` file under
 // `definitionMigrationsDir` in lexical order. Mirrors the loop in
 // `definitionrepo.Migrate` without importing the sibling service's

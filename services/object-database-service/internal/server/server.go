@@ -85,6 +85,7 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 		api.Get("/objects/{tenant}/by-owner/{owner_id}", h.ListByOwner)
 		api.Get("/objects/{tenant}/by-marking/{marking_id}", h.ListByMarking)
 		api.Post("/links/{tenant}/{link_type}", h.PutLink)
+		api.Delete("/links/{tenant}/{link_type}", h.DeleteLink)
 		api.Get("/links/{tenant}/{link_type}/outgoing/{from}", h.ListOutgoingLinks)
 		api.Get("/links/{tenant}/{link_type}/incoming/{to}", h.ListIncomingLinks)
 	})

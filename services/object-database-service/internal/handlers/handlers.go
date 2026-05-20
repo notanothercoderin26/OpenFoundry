@@ -285,6 +285,19 @@ func (h *Handlers) PutObject(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	tenant := storage.TenantId(chi.URLParam(r, "tenant"))
 	id := storage.ObjectId(chi.URLParam(r, "object_id"))
+
+	// Capture the row before deletion so the outbox event carries
+	// the type_id + the post-deletion version (current + 1). The
+	// indexer needs `type_id` only for routing — a missing type
+	// would still delete by (tenant, id), but having it keeps
+	// downstream sinks (action-log-sink, retention pipelines)
+	// uniform with the upsert path.
+	before, getErr := h.Objects.Get(r.Context(), tenant, id, storage.ReadStrong)
+	if getErr != nil {
+		writeError(w, getErr)
+		return
+	}
+
 	deleted, err := h.Objects.Delete(r.Context(), tenant, id)
 	if err != nil {
 		writeError(w, err)
@@ -295,7 +308,38 @@ func (h *Handlers) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.bustObjectIDFromCache(tenant, string(id))
+
+	// Emit `ontology.object.changed.v1` with deleted=true. Skipped
+	// when the GET before the DELETE returned nil (race: another
+	// caller deleted between GET and DELETE).
+	if before != nil {
+		typeID := string(before.TypeID)
+		nextVersion := before.Version + 1
+		if _, err := enqueueObjectChanged(r.Context(), h.OutboxPool,
+			string(tenant), string(id), typeID, nextVersion,
+			"object_deleted", before.Payload,
+			ownerString(before.Owner), before.OrganizationID,
+			firstMarking(before.Markings), true); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func ownerString(p *storage.OwnerId) string {
+	if p == nil {
+		return ""
+	}
+	return string(*p)
+}
+
+func firstMarking(ms []storage.MarkingId) string {
+	if len(ms) == 0 {
+		return ""
+	}
+	return string(ms[0])
 }
 
 func (h *Handlers) ListByType(w http.ResponseWriter, r *http.Request) {
@@ -370,7 +414,59 @@ func (h *Handlers) PutLink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+
+	// Emit `ontology.link.changed.v1` so the indexer projects this
+	// link into its search backend. Version=1 for upserts; matching
+	// DeleteLink uses version=2 so the two event-id namespaces stay
+	// disjoint even though storage.LinkStore has no version column.
+	// See enqueueLinkChanged for the versioning rationale.
+	var rawPayload json.RawMessage
+	if payload != nil {
+		rawPayload = *payload
+	}
+	if _, err := enqueueLinkChanged(r.Context(), h.OutboxPool,
+		string(tenant), string(lt), string(link.From), string(link.To),
+		1, rawPayload, false); err != nil {
+		writeError(w, err)
+		return
+	}
+
 	writeJSON(w, http.StatusCreated, link)
+}
+
+// DeleteLink removes one (link_type, from, to) triple. New endpoint
+// added together with the outbox wiring in B03 §G2 Phase 1b — the
+// HTTP surface had no delete verb on links before, so the indexer
+// could never see deletions made through `object-database-service`.
+// The route is `DELETE /api/v1/object-database/links/{tenant}/{link_type}?from=…&to=…`;
+// from/to are query params because chi doesn't accept two `/` path
+// segments cleanly under one resource.
+func (h *Handlers) DeleteLink(w http.ResponseWriter, r *http.Request) {
+	tenant := storage.TenantId(chi.URLParam(r, "tenant"))
+	lt := storage.LinkTypeId(chi.URLParam(r, "link_type"))
+	from := storage.ObjectId(strings.TrimSpace(r.URL.Query().Get("from")))
+	to := storage.ObjectId(strings.TrimSpace(r.URL.Query().Get("to")))
+	if from == "" || to == "" {
+		http.Error(w, "from and to query parameters required", http.StatusBadRequest)
+		return
+	}
+	deleted, err := h.Links.Delete(r.Context(), tenant, lt, from, to)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !deleted {
+		http.NotFound(w, r)
+		return
+	}
+
+	if _, err := enqueueLinkChanged(r.Context(), h.OutboxPool,
+		string(tenant), string(lt), string(from), string(to),
+		2, nil, true); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handlers) ListOutgoingLinks(w http.ResponseWriter, r *http.Request) {

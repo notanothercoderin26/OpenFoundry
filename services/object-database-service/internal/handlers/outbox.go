@@ -35,10 +35,14 @@ import (
 
 // Topic + aggregate constants pinned to the kernel canon. The indexer
 // (services/ontology-indexer) subscribes to `ontology.object.changed.v1`
-// — see B03 §G1 for why the plural spelling was wrong.
+// + `ontology.link.changed.v1` — see B03 §G1 for why the plural
+// spelling was wrong.
 const (
 	TopicObjectChangedV1 = "ontology.object.changed.v1"
-	AggregateObject      = "object"
+	TopicLinkChangedV1   = "ontology.link.changed.v1"
+
+	AggregateObject = "object"
+	AggregateLink   = "link"
 )
 
 // objectChangedPayload is the canonical Kafka payload for object
@@ -126,6 +130,100 @@ func enqueueObjectChanged(
 	}()
 	if err := outbox.Enqueue(ctx, tx, evt); err != nil {
 		return eventID, fmt.Errorf("enqueue object event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return eventID, fmt.Errorf("commit outbox tx: %w", err)
+	}
+	committed = true
+	return eventID, nil
+}
+
+// linkChangedPayload is the canonical wire shape for link mutations.
+// Mirrors `services/ontology-indexer/internal/runtime.LinkChangedV1`
+// — the indexer's projection reads exactly these fields and accepts
+// the alternate spellings (type_id, source_id, target_id) seen during
+// migration, so we emit only the canonical (link_type / from / to)
+// set.
+type linkChangedPayload struct {
+	LinkType string          `json:"link_type"`
+	From     string          `json:"from"`
+	To       string          `json:"to"`
+	Version  uint64          `json:"version"`
+	Payload  json.RawMessage `json:"payload,omitempty"`
+	Tenant   string          `json:"tenant"`
+	Deleted  bool            `json:"deleted,omitempty"`
+}
+
+// linkDocumentID derives the canonical "link:<linkType>:<from>:<to>"
+// id that the indexer uses as the document key. Kept identical to
+// the indexer's `linkDocumentID` so producer and consumer agree on
+// dedup keys.
+func linkDocumentID(linkType, from, to string) string {
+	return "link:" + linkType + ":" + from + ":" + to
+}
+
+// enqueueLinkChanged appends an `ontology.link.changed.v1` event to
+// the outbox. The deterministic event_id binds the (tenant, link_doc_id,
+// version) tuple so retries collapse via the outbox primary key.
+//
+// Note on versioning: `storage.LinkStore` does not track versions —
+// links are insert-or-replace by (link_type, from, to). We use
+// `version=1` for upserts and `version=2` for deletes so the two
+// event types do not collide on event_id. A future change that makes
+// links versioned should bump these numbers to the actual versions.
+func enqueueLinkChanged(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	tenant, linkType, from, to string,
+	version uint64,
+	payload json.RawMessage,
+	deleted bool,
+) (uuid.UUID, error) {
+	docID := linkDocumentID(linkType, from, to)
+	eventID := domain.DeriveEventID(tenant, AggregateLink, docID, version)
+	if pool == nil {
+		return eventID, nil
+	}
+
+	body, err := json.Marshal(linkChangedPayload{
+		LinkType: linkType,
+		From:     from,
+		To:       to,
+		Version:  version,
+		Payload:  payload,
+		Tenant:   tenant,
+		Deleted:  deleted,
+	})
+	if err != nil {
+		return eventID, fmt.Errorf("encode link event payload: %w", err)
+	}
+	operation := "link_upserted"
+	if deleted {
+		operation = "link_deleted"
+	}
+
+	evt := outbox.New(eventID, AggregateLink, docID, TopicLinkChangedV1, body).
+		WithHeader("event_type", operation).
+		WithHeader("schema_version", "1").
+		WithHeader("ol-namespace", "openfoundry.ontology").
+		WithHeader("ol-job", operation+"."+AggregateLink).
+		WithHeader("ol-producer", "object-database-service")
+	if tenant != "" {
+		evt.WithHeader("tenant", tenant)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return eventID, fmt.Errorf("begin outbox tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+	if err := outbox.Enqueue(ctx, tx, evt); err != nil {
+		return eventID, fmt.Errorf("enqueue link event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return eventID, fmt.Errorf("commit outbox tx: %w", err)
