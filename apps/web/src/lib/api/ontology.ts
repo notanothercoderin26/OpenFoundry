@@ -1988,6 +1988,12 @@ export interface OntologyObjectTypeGroupSummary {
   owner_id?: string;
   created_at?: string;
   updated_at?: string;
+  /**
+   * Optimistic-concurrency token. Echoed back as `expected_version`
+   * on batch-save updates so the backend can detect stale edits
+   * against the Review-edits modal's Conflicts tab.
+   */
+  version?: number;
   object_type_ids?: string[];
   object_type_count?: number;
   project_id?: string | null;

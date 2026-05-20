@@ -19,7 +19,6 @@ import {
   createOntologyRestoreChange,
   createSharedPropertyType,
   createValueType,
-  createObjectTypeGroup,
   deleteObjectTypeGroup,
   deleteSharedPropertyType,
   deleteValueType,
@@ -47,7 +46,6 @@ import {
   searchOntologyResourceIndex,
   sharedPropertyImpactWarning,
   sharedPropertyUsageSummary,
-  updateObjectTypeGroup,
   updateSharedPropertyType,
   updateValueType,
   validateOntologyBundle,
@@ -103,6 +101,7 @@ import { Glyph } from "@/lib/components/ui/Glyph";
 import { CreateObjectTypeWizard } from "@/lib/components/ontology/CreateObjectTypeWizard";
 import { LinkEditor } from "@/lib/components/ontology/LinkEditor";
 import { OntologyEditsButton } from "@/lib/components/ontology/OntologyEditsButton";
+import { stage as stageOntologyEdit } from "@/lib/stores/ontologyWorkingState";
 import { calculateLogicMetrics, type LogicRunHistoryRecord } from "@/lib/logic/blocks";
 import { useAuth } from "@/lib/stores/auth";
 
@@ -492,52 +491,54 @@ export function OntologyManagerPage() {
     });
   }
 
-  async function saveGroup() {
+  function saveGroup() {
+    // Stage the create/update on the working state instead of hitting
+    // the API directly. The top-bar OntologyEditsButton flushes every
+    // staged edit through the atomic /batch-save endpoint when the
+    // user clicks Save in the Review-edits modal.
     const name = groupDraft.name.trim() || slugifyGroupName(groupDraft.display_name);
     if (!name) {
       setError("Object type group API name is required.");
       return;
     }
-    setGroupSaving(true);
     setError("");
-    try {
-      const body = {
-        name,
-        display_name: groupDraft.display_name.trim() || name,
-        description: groupDraft.description,
-        visibility: groupDraft.visibility,
-        status: groupDraft.status,
-        project_id: groupDraft.project_id || null,
-        object_type_ids: groupDraft.object_type_ids,
-      };
-      const previousGroup = editingGroupId
-        ? objectTypeGroups.find((group) => group.id === editingGroupId)
-        : null;
-      const saved = editingGroupId
-        ? await updateObjectTypeGroup(editingGroupId, body)
-        : await createObjectTypeGroup(body);
-      setObjectTypeGroups((current) => {
-        const index = current.findIndex((group) => group.id === saved.id);
-        if (index === -1) return [saved, ...current];
-        const next = [...current];
-        next[index] = saved;
-        return next;
+    const body = {
+      name,
+      display_name: groupDraft.display_name.trim() || name,
+      description: groupDraft.description,
+      visibility: groupDraft.visibility,
+      status: groupDraft.status,
+      project_id: groupDraft.project_id || null,
+      object_type_ids: groupDraft.object_type_ids,
+    };
+    const label = body.display_name || body.name;
+    if (editingGroupId) {
+      const current = objectTypeGroups.find((group) => group.id === editingGroupId);
+      if (!current) {
+        setError("Group no longer exists.");
+        return;
+      }
+      stageOntologyEdit({
+        op: "update",
+        resource: "object_type_group",
+        resourceId: editingGroupId,
+        // version was added by migration 0006; older snapshots default
+        // to 1 so re-staging legacy rows still hits the optimistic-
+        // lock path on the backend.
+        expectedVersion: current.version ?? 1,
+        originalSnapshot: current,
+        label,
+        draft: body,
       });
-      setObjectTypes((current) =>
-        current.map((type) => {
-          const groupNames = new Set(type.group_names || []);
-          if (previousGroup?.name) groupNames.delete(previousGroup.name);
-          groupNames.delete(saved.name);
-          if (saved.object_type_ids.includes(type.id)) groupNames.add(saved.name);
-          return { ...type, group_names: Array.from(groupNames) };
-        }),
-      );
-      resetGroupDraft();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to save object type group");
-    } finally {
-      setGroupSaving(false);
+    } else {
+      stageOntologyEdit({
+        op: "create",
+        resource: "object_type_group",
+        label,
+        draft: body,
+      });
     }
+    resetGroupDraft();
   }
 
 
@@ -1350,8 +1351,11 @@ export function OntologyManagerPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* Working-state edit counter + Review-edits modal opener.
               Hidden when there are zero staged edits, so the top bar
-              keeps the read-only layout intact in the common case. */}
-          <OntologyEditsButton />
+              keeps the read-only layout intact in the common case.
+              After a successful batch save we re-fetch the ontology
+              so the list / detail panels reflect the new server
+              state without reloading the page. */}
+          <OntologyEditsButton onSaved={() => void refresh()} />
           <Link
             to="/ontology-manager/bindings"
             className="of-button"
@@ -2291,8 +2295,8 @@ export function OntologyManagerPage() {
                   </div>
                 </fieldset>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button type="button" className="of-button of-button--primary" onClick={() => void saveGroup()} disabled={groupSaving}>
-                    {groupSaving ? "Saving…" : editingGroupId ? "Update group" : "Create group"}
+                  <button type="button" className="of-button of-button--primary" onClick={saveGroup} disabled={groupSaving}>
+                    {editingGroupId ? "Stage update" : "Stage create"}
                   </button>
                   {editingGroupId ? (
                     <button type="button" className="of-button" onClick={resetGroupDraft} disabled={groupSaving}>Cancel</button>
