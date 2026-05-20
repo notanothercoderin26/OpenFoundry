@@ -147,6 +147,15 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 			strings.HasSuffix(path, "/lint")):
 		return u.DatasetVersioning
 
+	// B06 §AC#5 — check-evaluation history is owned by
+	// pipeline-build-service. The singular `/health` endpoint stays on
+	// dataset-versioning-service (snapshot view); only `/health/events`
+	// routes here so the two surfaces coexist without conflict.
+	case strings.HasPrefix(path, "/api/v1/datasets/") &&
+		(strings.HasSuffix(path, "/health/events") ||
+			strings.Contains(path, "/health/events/")):
+		return u.PipelineBuild
+
 	// ── iceberg catalog (admin + spec endpoints) ──
 	case strings.HasPrefix(path, "/api/v1/iceberg-tables"),
 		strings.HasPrefix(path, "/iceberg/v1/"),
@@ -231,6 +240,10 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		strings.HasPrefix(path, "/api/v1/ontology/links"),
 		strings.HasPrefix(path, "/api/v1/ontology/types"):
 		return u.OntologyDefinition
+	// ontology-indexer status / reindex (B03 §G4). Must precede the
+	// catch-all `/api/v1/ontology` route which would otherwise swallow it.
+	case strings.HasPrefix(path, "/api/v1/ontology-indexer"):
+		return u.OntologyIndexer
 	case strings.HasPrefix(path, "/api/v1/ontology"):
 		return u.OntologyDefinition
 
@@ -282,7 +295,10 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 	case strings.HasPrefix(path, "/api/v1/ai/guardrails/evaluate"),
 		strings.HasPrefix(path, "/api/v1/ai/evaluations"):
 		return u.AIEvaluation
-	case strings.HasPrefix(path, "/api/v1/ai/providers"):
+	case strings.HasPrefix(path, "/api/v1/ai/providers"),
+		// B04: per-model registry, PATCH, /providers/health, /invoke
+		// live under /api/v1/llm/* in llm-catalog-service.
+		strings.HasPrefix(path, "/api/v1/llm/"):
 		return u.LLMCatalog
 	// ADR-0030: prompt-workflow-service retired → agent-runtime-service.
 	case strings.HasPrefix(path, "/api/v1/ai/prompts"),
@@ -295,6 +311,10 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 	// ADR-0030: conversation-state-service retired into agent-runtime-service.
 	case strings.HasPrefix(path, "/api/v1/ai/conversations"):
 		return u.AgentRuntime
+	// B07 §AC#4 — document upload + retrieval search.
+	case strings.HasPrefix(path, "/api/v1/retrieval/"),
+		strings.HasPrefix(path, "/api/v1/document-intelligence/"):
+		return u.RetrievalContext
 	case strings.HasPrefix(path, "/api/v1/ai/tools"):
 		return u.AI
 	case strings.HasPrefix(path, "/api/v1/ai"):

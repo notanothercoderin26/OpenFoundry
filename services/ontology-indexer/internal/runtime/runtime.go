@@ -17,6 +17,8 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/search-abstraction/vespa"
 	repos "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/schemasync"
+	"github.com/openfoundry/openfoundry-go/services/ontology-indexer/internal/status"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -30,13 +32,20 @@ import (
 // silently dropped every event because no producer wrote to them —
 // see PoC/blockers/B03-ontology-indexer.md §G1 for the post-mortem.
 const (
-	TopicObjectChangedV1 = "ontology.object.changed.v1"
-	TopicLinkChangedV1   = "ontology.link.changed.v1"
-	TopicDLQ             = "ontology-indexer.dlq.v1"
+	TopicObjectChangedV1     = "ontology.object.changed.v1"
+	TopicLinkChangedV1       = "ontology.link.changed.v1"
+	TopicObjectTypeChangedV1 = "ontology.object_type.changed.v1"
+	TopicDLQ                 = "ontology-indexer.dlq.v1"
 )
 
 // SubscribeTopics pins all live topics consumed by this service.
-var SubscribeTopics = []string{TopicObjectChangedV1, TopicLinkChangedV1}
+//
+// `ontology.object_type.changed.v1` carries schema mutations from
+// `ontology-definition-service` (PoC/blockers/B03 §G5). The indexer
+// routes those records to the schema-aware mapping registrar; when
+// the configured backend does not implement MappingRegistrar the
+// envelope is skipped with a debug log.
+var SubscribeTopics = []string{TopicObjectChangedV1, TopicLinkChangedV1, TopicObjectTypeChangedV1}
 
 // ConsumerGroup pinned here so replicas don't fork rebalance state.
 const ConsumerGroup = "ontology-indexer"
@@ -156,17 +165,36 @@ type LinkChangedV1 struct {
 type RecordOutcome string
 
 const (
-	OutcomeIndexed      RecordOutcome = "indexed"
-	OutcomeDeleted      RecordOutcome = "deleted"
-	OutcomeDecodeError  RecordOutcome = "decode_error"
-	OutcomeSkippedStale RecordOutcome = "skipped_stale"
+	OutcomeIndexed             RecordOutcome = "indexed"
+	OutcomeDeleted             RecordOutcome = "deleted"
+	OutcomeDecodeError         RecordOutcome = "decode_error"
+	OutcomeSkippedStale        RecordOutcome = "skipped_stale"
+	OutcomeSchemaRegistered    RecordOutcome = "schema_registered"
+	OutcomeSchemaDropped       RecordOutcome = "schema_dropped"
+	OutcomeSchemaSkippedNoOp   RecordOutcome = "schema_skipped_no_registrar"
+	OutcomeSchemaIgnoredEvent  RecordOutcome = "schema_ignored_event"
 )
 
 func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	return RunWithStatusTracker(ctx, cfg, log, nil)
+}
+
+// RunWithStatusTracker behaves like Run but threads the supplied tracker
+// through the projection path so the HTTP status endpoint can read live
+// per-type counters.
+func RunWithStatusTracker(ctx context.Context, cfg *config.Config, log *slog.Logger, tracker *status.Tracker) error {
 	backend, err := NewSearchBackend(cfg)
 	if err != nil {
 		return err
 	}
+	return RunWithBackendAndTracker(ctx, cfg, log, backend, tracker)
+}
+
+// RunWithBackendAndTracker is the entry point used by main.go when it
+// already has a constructed backend (typically because the schema
+// registrar cache has been seeded against it). Wires Kafka reader +
+// DLQ from cfg, then enters the projection loop.
+func RunWithBackendAndTracker(ctx context.Context, cfg *config.Config, log *slog.Logger, backend searchabstraction.SearchBackend, tracker *status.Tracker) error {
 	brokers := splitCSV(cfg.KafkaBootstrap)
 	reader := NewKafkaReader(brokers, defaultStr(cfg.ConsumerGroup, ConsumerGroup), log)
 	var dlq DLQPublisher
@@ -178,14 +206,14 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		defer publisher.Close()
 		dlq = publisher
 	}
-	return RunWithOptions(ctx, cfg, log, reader, backend, dlq)
+	return runWithProjector(ctx, cfg, log, reader, backend, StorageProjector{}, dlq, tracker)
 }
 
 // RunWithStores consumes Kafka records and writes both OSV2 row projections and
 // search projections. Offsets are committed only after both configured sinks
 // succeed or after a failed record is sent to the DLQ.
 func RunWithStores(ctx context.Context, cfg *config.Config, log *slog.Logger, reader KafkaReader, backend searchabstraction.SearchBackend, stores StorageProjector, dlq DLQPublisher) error {
-	return runWithProjector(ctx, cfg, log, reader, backend, stores, dlq)
+	return runWithProjector(ctx, cfg, log, reader, backend, stores, dlq, nil)
 }
 
 // NewSearchBackend builds the concrete search backend selected by service config.
@@ -198,7 +226,15 @@ func NewSearchBackend(cfg *config.Config) (searchabstraction.SearchBackend, erro
 	case config.BackendOpenSearch:
 		return opensearch.NewWithOptions(cfg.SearchEndpoint, opensearch.WithAuthHeader(authHeader)), nil
 	case config.BackendVespa:
-		return vespa.NewWithOptions(cfg.SearchEndpoint, vespa.WithAuthHeader(authHeader)), nil
+		opts := []vespa.Option{vespa.WithAuthHeader(authHeader)}
+		if cfg.VespaConfigEndpoint != "" {
+			opts = append(opts,
+				vespa.WithConfigEndpoint(cfg.VespaConfigEndpoint),
+				vespa.WithVespaTenant(cfg.VespaTenant),
+				vespa.WithVespaApplication(cfg.VespaApplication),
+			)
+		}
+		return vespa.NewWithOptions(cfg.SearchEndpoint, opts...), nil
 	default:
 		return nil, repos.Invalidf("unknown SEARCH_BACKEND value: %q", cfg.BackendKind)
 	}
@@ -271,10 +307,16 @@ func RunWithReader(ctx context.Context, cfg *config.Config, log *slog.Logger, re
 }
 
 func RunWithOptions(ctx context.Context, cfg *config.Config, log *slog.Logger, reader KafkaReader, backend searchabstraction.SearchBackend, dlq DLQPublisher) error {
-	return runWithProjector(ctx, cfg, log, reader, backend, StorageProjector{}, dlq)
+	return runWithProjector(ctx, cfg, log, reader, backend, StorageProjector{}, dlq, nil)
 }
 
-func runWithProjector(ctx context.Context, cfg *config.Config, log *slog.Logger, reader KafkaReader, backend searchabstraction.SearchBackend, stores StorageProjector, dlq DLQPublisher) error {
+// RunWithOptionsAndTracker is RunWithOptions with an explicit status tracker
+// — used by main.go and the status-handler integration tests.
+func RunWithOptionsAndTracker(ctx context.Context, cfg *config.Config, log *slog.Logger, reader KafkaReader, backend searchabstraction.SearchBackend, dlq DLQPublisher, tracker *status.Tracker) error {
+	return runWithProjector(ctx, cfg, log, reader, backend, StorageProjector{}, dlq, tracker)
+}
+
+func runWithProjector(ctx context.Context, cfg *config.Config, log *slog.Logger, reader KafkaReader, backend searchabstraction.SearchBackend, stores StorageProjector, dlq DLQPublisher, tracker *status.Tracker) error {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -306,7 +348,7 @@ func runWithProjector(ctx context.Context, cfg *config.Config, log *slog.Logger,
 			}
 			return err
 		}
-		outcome, err := processWithRetryAndStores(ctx, backend, stores, projector, msg, log, cfg.RetryMaxAttempts, cfg.RetryInitialBackoff, cfg.RetryMaxBackoff)
+		outcome, err := processWithRetryAndStores(ctx, backend, stores, projector, msg, log, cfg.RetryMaxAttempts, cfg.RetryInitialBackoff, cfg.RetryMaxBackoff, tracker)
 		if err != nil {
 			if dlq == nil || cfg.DLQTopic == "" {
 				return err
@@ -324,10 +366,10 @@ func runWithProjector(ctx context.Context, cfg *config.Config, log *slog.Logger,
 }
 
 func processWithRetry(ctx context.Context, backend searchabstraction.SearchBackend, projector *ProjectionIndex, msg KafkaMessage, log *slog.Logger, attempts int, initial, max time.Duration) (RecordOutcome, error) {
-	return processWithRetryAndStores(ctx, backend, StorageProjector{}, projector, msg, log, attempts, initial, max)
+	return processWithRetryAndStores(ctx, backend, StorageProjector{}, projector, msg, log, attempts, initial, max, nil)
 }
 
-func processWithRetryAndStores(ctx context.Context, backend searchabstraction.SearchBackend, stores StorageProjector, projector *ProjectionIndex, msg KafkaMessage, log *slog.Logger, attempts int, initial, max time.Duration) (RecordOutcome, error) {
+func processWithRetryAndStores(ctx context.Context, backend searchabstraction.SearchBackend, stores StorageProjector, projector *ProjectionIndex, msg KafkaMessage, log *slog.Logger, attempts int, initial, max time.Duration, tracker *status.Tracker) (RecordOutcome, error) {
 	if attempts < 1 {
 		attempts = 1
 	}
@@ -347,6 +389,7 @@ func processWithRetryAndStores(ctx context.Context, backend searchabstraction.Se
 			outcome, err = ProcessMessageWithProjector(ctx, backend, projector, msg, log)
 		}
 		if err == nil {
+			recordStatus(tracker, msg, outcome)
 			return outcome, nil
 		}
 		if attempt == attempts {
@@ -379,9 +422,28 @@ func ProcessMessageWithProjector(ctx context.Context, backend searchabstraction.
 		return processObjectChanged(ctx, backend, projector, msg, log)
 	case TopicLinkChangedV1:
 		return processLinkChanged(ctx, backend, projector, msg, log)
+	case TopicObjectTypeChangedV1:
+		return processObjectTypeChanged(ctx, backend, msg, log)
 	default:
 		log.Warn("ontology-indexer skipping record from unknown topic", slog.String("topic", msg.Topic))
 		return OutcomeDecodeError, nil
+	}
+}
+
+func processObjectTypeChanged(ctx context.Context, backend searchabstraction.SearchBackend, msg KafkaMessage, log *slog.Logger) (RecordOutcome, error) {
+	h := &schemasync.Handler{Backend: backend, Log: log}
+	out, err := h.ProcessRecord(ctx, msg.Value)
+	switch out {
+	case schemasync.OutcomeRegistered:
+		return OutcomeSchemaRegistered, err
+	case schemasync.OutcomeDropped:
+		return OutcomeSchemaDropped, err
+	case schemasync.OutcomeSkippedNoOp:
+		return OutcomeSchemaSkippedNoOp, err
+	case schemasync.OutcomeIgnoredEvent:
+		return OutcomeSchemaIgnoredEvent, err
+	default:
+		return OutcomeDecodeError, err
 	}
 }
 
@@ -482,6 +544,49 @@ func linkPayload(evt LinkChangedV1) json.RawMessage {
 }
 
 func cloneRaw(v json.RawMessage) json.RawMessage { return append(json.RawMessage(nil), v...) }
+
+// recordStatus updates the per-type tracker for events the indexer
+// projected (or deleted) successfully. Stale/decode-error outcomes are
+// intentionally ignored — the endpoint is "what was last applied per
+// type", not "every Kafka offset we've seen".
+func recordStatus(tracker *status.Tracker, msg KafkaMessage, outcome RecordOutcome) {
+	if tracker == nil {
+		return
+	}
+	if outcome != OutcomeIndexed && outcome != OutcomeDeleted {
+		return
+	}
+	switch msg.Topic {
+	case TopicObjectChangedV1:
+		var evt ObjectChangedV1
+		if err := json.Unmarshal(msg.Value, &evt); err != nil {
+			return
+		}
+		if evt.Tenant == "" || evt.TypeID == "" {
+			return
+		}
+		if outcome == OutcomeDeleted {
+			tracker.RecordDeleted(evt.Tenant, evt.TypeID, msg.Time)
+		} else {
+			tracker.RecordIndexed(evt.Tenant, evt.TypeID, msg.Time)
+		}
+	case TopicLinkChangedV1:
+		var evt LinkChangedV1
+		if err := json.Unmarshal(msg.Value, &evt); err != nil {
+			return
+		}
+		normalizeLinkEvent(&evt)
+		if evt.Tenant == "" || evt.LinkType == "" {
+			return
+		}
+		typeID := linkDocType(evt.LinkType)
+		if outcome == OutcomeDeleted {
+			tracker.RecordDeleted(evt.Tenant, typeID, msg.Time)
+		} else {
+			tracker.RecordIndexed(evt.Tenant, typeID, msg.Time)
+		}
+	}
+}
 
 func splitCSV(s string) []string {
 	parts := strings.Split(s, ",")

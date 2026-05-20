@@ -38,6 +38,21 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, errorBody{Error: msg})
 }
 
+const providersHint = "provider must be one of ANTHROPIC, OPENAI, AZURE, OLLAMA, BEDROCK"
+const capabilitiesHint = "capability must be one of CHAT, TEXT, VISION, TOOLS"
+
+func normalizeCapabilities(in []models.Capability) ([]models.Capability, string) {
+	out := make([]models.Capability, len(in))
+	for i, c := range in {
+		norm := models.NormalizeCapability(string(c))
+		if !norm.IsValid() {
+			return nil, capabilitiesHint
+		}
+		out[i] = norm
+	}
+	return out, ""
+}
+
 func (c *Catalog) RegisterModel(w http.ResponseWriter, r *http.Request) {
 	var body models.RegisterModelRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -46,7 +61,7 @@ func (c *Catalog) RegisterModel(w http.ResponseWriter, r *http.Request) {
 	}
 	body.Provider = models.NormalizeProvider(string(body.Provider))
 	if !body.Provider.IsValid() {
-		writeError(w, http.StatusBadRequest, "provider must be one of ANTHROPIC, OPENAI, OLLAMA, BEDROCK")
+		writeError(w, http.StatusBadRequest, providersHint)
 		return
 	}
 	if strings.TrimSpace(body.ModelID) == "" {
@@ -56,11 +71,11 @@ func (c *Catalog) RegisterModel(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(body.DisplayName) == "" {
 		body.DisplayName = body.ModelID
 	}
-	for _, cap := range body.Capabilities {
-		if !cap.IsValid() {
-			writeError(w, http.StatusBadRequest, "capability must be one of TEXT, VISION, TOOLS")
-			return
-		}
+	if caps, hint := normalizeCapabilities(body.Capabilities); hint != "" {
+		writeError(w, http.StatusBadRequest, hint)
+		return
+	} else {
+		body.Capabilities = caps
 	}
 	m, err := c.Store.Register(r.Context(), body)
 	if err != nil {
@@ -74,16 +89,61 @@ func (c *Catalog) ListModels(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	provider := models.NormalizeProvider(q.Get("provider"))
 	if provider != "" && !provider.IsValid() {
-		writeError(w, http.StatusBadRequest, "provider must be one of ANTHROPIC, OPENAI, OLLAMA, BEDROCK")
+		writeError(w, http.StatusBadRequest, providersHint)
 		return
 	}
-	onlyEnabled := q.Get("only_enabled") == "true"
-	out, err := c.Store.List(r.Context(), provider, onlyEnabled)
+	capability := models.NormalizeCapability(q.Get("capability"))
+	if capability != "" && !capability.IsValid() {
+		writeError(w, http.StatusBadRequest, capabilitiesHint)
+		return
+	}
+	feature := strings.TrimSpace(q.Get("feature"))
+	out, err := c.Store.List(r.Context(), repo.ListFilter{
+		Provider:    provider,
+		Capability:  capability,
+		Feature:     feature,
+		OnlyEnabled: q.Get("only_enabled") == "true",
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, models.ListModelsResponse{Data: out})
+}
+
+// UpdateModel handles PATCH /api/v1/llm/models/{rid}. All body fields
+// are optional; absent fields keep their current value. Closes B04
+// acceptance #4: PATCH /models/{id} {enabled: false} hides the model
+// from the dropdown without a service restart.
+func (c *Catalog) UpdateModel(w http.ResponseWriter, r *http.Request) {
+	rid, err := uuid.Parse(chi.URLParam(r, "rid"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "rid must be a uuid")
+		return
+	}
+	var body models.UpdateModelRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	if body.Capabilities != nil {
+		caps, hint := normalizeCapabilities(body.Capabilities)
+		if hint != "" {
+			writeError(w, http.StatusBadRequest, hint)
+			return
+		}
+		body.Capabilities = caps
+	}
+	m, err := c.Store.Update(r.Context(), rid, body)
+	if errors.Is(err, repo.ErrModelNotFound) {
+		writeError(w, http.StatusNotFound, "model not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
 }
 
 func (c *Catalog) GetModel(w http.ResponseWriter, r *http.Request) {

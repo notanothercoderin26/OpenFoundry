@@ -21,8 +21,19 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/handlers"
 )
 
+// Deps bundles optional collaborators wired by main.go. nil-safe:
+// handlers that need a collaborator simply remain unmounted when it
+// is missing.
+type Deps struct {
+	Threads *handlers.Threads
+}
+
 func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
-	r := buildRouter(cfg, jwt, h, m, probes...)
+	return NewWithDeps(cfg, jwt, h, Deps{}, m, probes...)
+}
+
+func NewWithDeps(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, deps Deps, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, jwt, h, deps, m, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -32,10 +43,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 }
 
 func BuildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
-	return buildRouter(cfg, jwt, h, m, probes...)
+	return buildRouter(cfg, jwt, h, Deps{}, m, probes...)
 }
 
-func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) chi.Router {
+func BuildRouterWithDeps(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, deps Deps, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, jwt, h, deps, m, probes...)
+}
+
+func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, deps Deps, m *observability.Metrics, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(60 * time.Second))
@@ -97,6 +112,17 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 
 		api.Post("/chat/completions", h.CreateChatCompletion)
 		api.Post("/copilot/ask", h.AskCopilot)
+
+		// B07 Threads + ReAct trace.
+		if deps.Threads != nil {
+			api.Get("/threads", deps.Threads.List)
+			api.Post("/threads", deps.Threads.Create)
+			api.Get("/threads/{id}", deps.Threads.Get)
+			api.Delete("/threads/{id}", deps.Threads.Delete)
+			api.Get("/threads/{id}/messages", deps.Threads.ListMessages)
+			api.Post("/threads/{id}/messages", deps.Threads.PostMessage)
+			api.Get("/threads/{id}/trace", deps.Threads.Trace)
+		}
 	})
 
 	// ADR-0030: prompt-workflow-service retired into this binary; mount the

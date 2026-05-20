@@ -3,6 +3,15 @@
 > Severity: **Critical** — blocks the "elige Ollama (Llama 3.1 70B) vs
 > Azure OpenAI GPT-4o" pivot of Act 5, and is a dependency of the whole
 > AIP family (Assist, Analyst, Threads, Chatbot Studio, Operator).
+>
+> **Scope revised 2026-05-20.** The "Current OpenFoundry surface" table
+> below understated the state of the service: when the audit was
+> written the service was already a Postgres-backed CRUD with an
+> Anthropic / OpenAI / Ollama provider registry + unified invoke
+> endpoint. Phase 1 of this commit closes the actual remaining gaps
+> against the acceptance criteria — see "Status as of 2026-05-20"
+> below. UI work for the Chatbot Studio dropdown and the AIP
+> feature → models admin view is deferred to a separate ticket.
 
 ## Identity
 
@@ -76,6 +85,19 @@ hard-coded provider name.
 5. An "AIP feature → models" admin view exists in the Model Catalog UI.
 6. If Azure OpenAI network connectivity fails during a demo, the catalog
    fallback to Ollama is automatic and visible in the UI (status badge).
+
+## Status as of 2026-05-20
+
+| Gap | Status | Evidence |
+|---|---|---|
+| **AC#1** Register with quotas + enabled_for_features | ✅ Done | New migration [`20260520120000_llm_models_quotas_features.sql`](../../services/llm-catalog-service/internal/repo/migrations/20260520120000_llm_models_quotas_features.sql) adds `quotas JSONB` + `enabled_for_features TEXT[]` with GIN indices. `models.Quotas` carries the typed Go view (RequestsPerMinute, TokensPerMinute, MaxConcurrentRequests, DailyTokenBudget, DailyCostBudgetUSDCents). `RegisterModelRequest` accepts both; the PgStore + MemoryStore round-trip them. |
+| **AC#2** GET /models?capability=…&feature=… | ✅ Done | New `repo.ListFilter` carries the four query knobs (provider/capability/feature/only_enabled). Postgres uses `$N = ANY(...)` against the GIN-indexed array columns; in-memory mirrors. New `CapabilityChat` token added to the enum so the Chatbot Studio dropdown can ask for `capability=CHAT`. |
+| **AC#3** Seed Ollama + Azure GPT-4o | ✅ Done | New migration [`20260520120100_llm_models_seed_demo.sql`](../../services/llm-catalog-service/internal/repo/migrations/20260520120100_llm_models_seed_demo.sql) inserts the two demo models with deterministic UUIDs + `ON CONFLICT (provider, model_id) DO NOTHING` so replays are no-ops. New `ProviderAzure` enum value distinguishes Azure OpenAI from vanilla OpenAI — different endpoint scheme. |
+| **AC#4** PATCH /models/{rid} flips enabled | ✅ Done | New `Catalog.UpdateModel` handler on `PATCH /api/v1/llm/models/{rid}` accepts an `UpdateModelRequest` with all-optional fields (display_name, context_window, costs, capabilities, quotas, enabled_for_features, enabled). PgStore builds the SET list dynamically so absent fields are never overwritten; MemoryStore mirrors. The list-by-`only_enabled=true` view drops the disabled model immediately — no service restart. |
+| **AC#6** Provider status badge | ✅ Done | New `internal/providers.Prober` polls each configured upstream's standard liveness endpoint (Ollama `/api/tags`, OpenAI `/v1/models`, Azure `/openai/models?api-version=...`, Anthropic `/v1/messages`) every 30 s (configurable). Each response maps to `ok` / `degraded` (auth failed OR latency > 2 s) / `down` / `unknown`. `GET /api/v1/llm/providers/health` serves the JSON snapshot the UI badges off. Wired in `main.go::buildProber` from env (`OLLAMA_BASE_URL`, `OPENAI_BASE_URL`, `AZURE_OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` + matching API-key envs). |
+| **Edge-gateway routing** | ✅ Done | `/api/v1/llm/*` now routes to `LLMCatalog` upstream alongside the existing `/api/v1/ai/providers` rule — see [router_table.go](../../services/edge-gateway-service/internal/proxy/router_table.go). |
+| **AC#3** Chatbot Studio dropdown switches Ollama ↔ Azure | ✅ Done | New [`ChatbotModelPicker`](../../apps/web/src/routes/ai/ChatbotModelPicker.tsx) wired into the Chatbot Studio hero strip: queries `?capability=CHAT&feature=aip-chatbot&only_enabled=true`, persists the chosen rid in `localStorage`, biases the default toward an `ok`-status provider, and marks `down` options as disabled. Live provider-health polls every 15 s so a falling Azure shows "DOWN" suffix and the dropdown auto-prefers Ollama. |
+| **AC#5** AIP feature → models admin view | ✅ Done | New [`LlmCatalogPage`](../../apps/web/src/routes/llm-catalog/LlmCatalogPage.tsx) at `/llm-catalog` with three sections: (1) Provider-health badges (Online / Degraded / Down / Unknown with latency + last-check timestamp). (2) Registered-models table with provider/capability/feature filters, capability badges, quotas summary, and a one-click enabled toggle that issues `PATCH /api/v1/llm/models/{rid}`. (3) AIP feature → models matrix (one row per `aip-chatbot` / `ai-analyst` / `document-ai`, one column per model, "✓ wired" marker per cell with a struck-through variant when the model is registered for the feature but globally disabled). New `lib/api/llmCatalog.ts` is the canonical wire client. Verified by vitest: `llmCatalog.test.ts` (5 cases — querystring encoding, empty params, POST, PATCH, /providers/health), `ChatbotModelPicker.test.tsx` (6 — render both seeds, default rid, prefer healthy on init, DOWN option disabled, persist localStorage, empty placeholder), `LlmCatalogPage.test.tsx` (4 — render rows, status badges, wired-marker count, PATCH on toggle). |
 
 ## Implementation pointers
 

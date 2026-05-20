@@ -6,6 +6,7 @@ import { HistoryTimeline } from '@/lib/components/dataset/HistoryTimeline';
 import { QualityDashboard } from '@/lib/components/dataset/QualityDashboard';
 import { RetentionPoliciesTab } from '@/lib/components/dataset/RetentionPoliciesTab';
 import { VirtualizedPreviewTable } from '@/lib/components/dataset/VirtualizedPreviewTable';
+import { CheckEventsPanel } from '@/lib/components/health/CheckEventsPanel';
 import { ResourceHealthStatusBadge } from '@/lib/components/health/HealthReportsPanel';
 import { ResourceHealthChecksPanel } from '@/lib/components/health/ResourceHealthChecksPanel';
 import { ConfirmDialog } from '@/lib/components/ConfirmDialog';
@@ -2103,6 +2104,7 @@ function HealthTab({
         </div>
         <ResourceHealthStatusBadge resourceRid={resourceRid} />
       </section>
+      {resourceRid ? <CheckEventsPanel datasetRid={resourceRid} /> : null}
       <QualityDashboard
         datasetRid={datasetRid}
         quality={quality}

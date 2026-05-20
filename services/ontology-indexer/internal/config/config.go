@@ -50,6 +50,41 @@ type Config struct {
 	RetryMaxBackoff     time.Duration
 	DLQTopic            string
 	MetricsAddr         string
+	// ObjectDatabaseURL is the base URL (no trailing slash) for
+	// object-database-service. When set, the indexer exposes
+	// POST /api/v1/ontology-indexer/reindex which pages through the
+	// service to rebuild the search index for a (tenant, object_type)
+	// pair. When empty the endpoint returns 503 — see B03 acceptance
+	// criterion #3.
+	ObjectDatabaseURL string
+
+	// OntologyDefinitionURL is the base URL (no trailing slash) for
+	// ontology-definition-service. The indexer queries it at startup
+	// to seed the Vespa schema cache so the first
+	// `object_type.changed.v1` envelope after restart does not redeploy
+	// a package with only the new schema (which would wipe the rest).
+	// Empty disables seeding; the indexer keeps running and the cache
+	// grows from Kafka events alone.
+	OntologyDefinitionURL string
+
+	// OntologyDefinitionBearerToken is the service-account JWT used
+	// to call ontology-definition-service. Empty = anonymous (will
+	// 401 unless the service-account check is disabled in dev).
+	OntologyDefinitionBearerToken string
+
+	// VespaConfigEndpoint is the base URL of the Vespa Config Server
+	// (typically port 19071, distinct from the search endpoint on
+	// 8080). When set, the indexer wires the MappingRegistrar so
+	// `ontology.object_type.changed.v1` envelopes deploy schemas
+	// dynamically. Empty = no-op MappingRegistrar; documents still
+	// land via the streaming projector but Vespa runs with whatever
+	// schema was deployed at bring-up.
+	VespaConfigEndpoint string
+
+	// VespaTenant + VespaApplication scope the Config Server deploys.
+	// Defaults to "default" for both.
+	VespaTenant      string
+	VespaApplication string
 }
 
 func FromEnv() (*Config, error) {
@@ -71,6 +106,12 @@ func FromEnv() (*Config, error) {
 	cfg.RetryMaxBackoff = parseDuration(os.Getenv("INDEXER_RETRY_MAX_BACKOFF"), 2*time.Second)
 	cfg.DLQTopic = parseDLQTopic(os.Getenv("INDEXER_DLQ_TOPIC"), "ontology-indexer.dlq.v1")
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
+	cfg.ObjectDatabaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("OBJECT_DATABASE_URL")), "/")
+	cfg.OntologyDefinitionURL = strings.TrimRight(strings.TrimSpace(os.Getenv("ONTOLOGY_DEFINITION_URL")), "/")
+	cfg.OntologyDefinitionBearerToken = strings.TrimSpace(os.Getenv("ONTOLOGY_DEFINITION_BEARER_TOKEN"))
+	cfg.VespaConfigEndpoint = strings.TrimRight(strings.TrimSpace(os.Getenv("VESPA_CONFIG_ENDPOINT")), "/")
+	cfg.VespaTenant = defaultStr(strings.TrimSpace(os.Getenv("VESPA_TENANT")), "default")
+	cfg.VespaApplication = defaultStr(strings.TrimSpace(os.Getenv("VESPA_APPLICATION")), "default")
 	if err := cfg.validateRequiredEnv(); err != nil {
 		return nil, err
 	}

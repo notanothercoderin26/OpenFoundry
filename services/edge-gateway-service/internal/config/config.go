@@ -107,6 +107,7 @@ type UpstreamURLs struct {
 	ObjectDatabase         string `koanf:"object_database_service_url"`
 	OntologyQuery          string `koanf:"ontology_query_service_url"`
 	OntologyActions        string `koanf:"ontology_actions_service_url"`
+	OntologyIndexer        string `koanf:"ontology_indexer_service_url"`
 	Ontology               string `koanf:"ontology_service_url"`
 	Workflow               string `koanf:"workflow_service_url"`
 	Notebook               string `koanf:"notebook_service_url"`
@@ -191,6 +192,7 @@ func DefaultUpstreams() UpstreamURLs {
 		ObjectDatabase:            "http://localhost:50104",
 		OntologyQuery:             "http://localhost:50105",
 		OntologyActions:           "http://localhost:50106",
+		OntologyIndexer:           "http://localhost:50124",
 		Ontology:                  "http://localhost:50103",
 		Workflow:                  "http://localhost:50137",
 		Notebook:                  "http://localhost:50134",
@@ -361,6 +363,7 @@ func upstreamMap(u UpstreamURLs) map[string]any {
 		"object_database_service_url":             u.ObjectDatabase,
 		"ontology_query_service_url":              u.OntologyQuery,
 		"ontology_actions_service_url":            u.OntologyActions,
+		"ontology_indexer_service_url":            u.OntologyIndexer,
 		"ontology_service_url":                    u.Ontology,
 		"workflow_service_url":                    u.Workflow,
 		"notebook_service_url":                    u.Notebook,

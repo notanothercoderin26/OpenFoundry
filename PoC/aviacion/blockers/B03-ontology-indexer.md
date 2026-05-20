@@ -21,9 +21,13 @@
 >     from the Strimzi manifests.
 >
 > All three are closed in this commit (see "Status as of 2026-05-20"
-> below). Severity is now **Resolved** for end-to-end emission;
-> luxury items (per-type indexing status endpoint, reindex backfill,
-> schema-aware mapping registration) remain as Phase 2.
+> below). Severity is now **Resolved** for end-to-end emission. The
+> per-type indexing status endpoint (G4 / acceptance criterion #2),
+> the on-demand reindex backfill (criterion #3), and the schema-aware
+> mapping registrar (G5) are all done in this branch. The indexer
+> now subscribes to all three live topics (`object.changed.v1`,
+> `link.changed.v1`, `object_type.changed.v1`) and exposes the
+> status + reindex HTTP surface end-to-end.
 
 ## Identity
 
@@ -99,8 +103,9 @@ see an indexing status (pending / live / stale).
 | **G1** Topic-name drift (indexer subscribes to plural; producers emit singular) | ✅ Done | Constants in [services/ontology-indexer/internal/runtime/runtime.go](../../../services/ontology-indexer/internal/runtime/runtime.go) flipped to `ontology.object.changed.v1` / `ontology.link.changed.v1`; pin test in `runtime_test.go::TestTopicsAndConsumerGroup` updated; README aligned |
 | **G2** `object-database-service.PutObject` skipped outbox | ✅ Done | New `OutboxPool *pgxpool.Pool` field on `Handlers`; new helper [internal/handlers/outbox.go](../../../services/object-database-service/internal/handlers/outbox.go) wraps `libs/outbox.Enqueue` with the canonical `ontology.object.changed.v1` envelope (object_id, object_type_id, operation, properties, version, etc.) and deterministic event_id via `domain.DeriveEventID`. `PutObject` calls it on every successful `PutInserted`/`PutUpdated` outcome; `PutVersionConflict` correctly skips emission. Integration test `TestOutboxEndToEnd_PutObjectEmits` proves the INSERT lands in the WAL with the expected topic + payload + `ol-producer: object-database-service` header. |
 | **G3** Missing KafkaTopic CR for `ontology.link.changed.v1` | ✅ Done | Added to [infra/helm/infra/kafka-cluster/templates/topics-domain-v1.yaml](../../../infra/helm/infra/kafka-cluster/templates/topics-domain-v1.yaml) as a sibling of the existing object topic. |
-| **G4** Per-type indexing status endpoint | ⏳ Phase 2 | Requires adding a Postgres-backed `index_status` table or scraping the existing Prometheus counters via a thin /status handler. Not blocking the PoC narrative. |
-| **G5** Schema-aware mapping registration (consume `ontology.object_type.changed.v1`) | ⏳ Phase 2 | The indexer today uses a generic JSONB document shape; per-type Vespa schemas would let it leverage typed fields and full-text tokenizers. Useful for Vespa quality at scale; not blocking the PoC narrative. |
+| **G4** Per-type indexing status endpoint | ✅ Done | In-memory `status.Tracker` ([services/ontology-indexer/internal/status/tracker.go](../../../services/ontology-indexer/internal/status/tracker.go)) increments per-(tenant, type) `indexed_count` / `deleted_count` whenever the runtime projector commits an `OutcomeIndexed` / `OutcomeDeleted` outcome (`recordStatus` in `runtime.go`). Server exposes `GET /api/v1/ontology-indexer/status?objectType=…&tenant=…` returning `{indexed_count, deleted_count, last_indexed_at, last_event_time, lag_seconds}` (lag = `last_indexed_at - last_event_time`, the wall-clock ETL delay); omitting `objectType` lists every (tenant, type) entry. Edge-gateway route added in [router_table.go](../../../services/edge-gateway-service/internal/proxy/router_table.go) ahead of the catch-all `/api/v1/ontology`. Verified by `internal/status/tracker_test.go`, `internal/server/status_handler_test.go`, and `internal/runtime/runtime_test.go::TestRunWithOptionsAndTrackerRecordsPerTypeStats`. State is in-process and resets on restart — Postgres-backed persistence is a follow-up if the demo needs survivability. |
+| **AC #3** Reindex backfill from object-database-service | ✅ Done | New [`internal/reindex`](../../../services/ontology-indexer/internal/reindex/) package: `Runner` pages through `object-database-service` (`GET /api/v1/ontology/types/{type_id}/objects`) and writes each row as a `searchabstraction.IndexDoc` with `Version=0` so any later Kafka event wins the version check. `HTTPSource` (with the `x-of-tenant` header) is the production source; tests use a fake. `Registry` keeps an in-memory job log (`pending → running → completed/failed` with `total_read`, `indexed`, `failed`, `duration_ms`, `error`). Endpoints: `POST /api/v1/ontology-indexer/reindex?objectType=…&tenant=…` returns 202 with `{job_id, status_url}` and spawns the backfill in a goroutine; `GET /api/v1/ontology-indexer/reindex/{job_id}` reports progress. Wired in `main.go` only when `OBJECT_DATABASE_URL` is set — otherwise the endpoints return 503 and the worker keeps running as streaming-only. Each backfilled row bumps the same `status.Tracker` used by G4 so `/status` reflects the rebuild. Verified by `runner_test.go`, `registry_test.go`, `http_source_test.go`, and `server/reindex_handler_test.go`. |
+| **G5** Schema-aware mapping registration (consume `ontology.object_type.changed.v1`) | ✅ Done | **Indexer side:** `searchabstraction.MappingRegistrar` interface ([libs/search-abstraction/mapping.go](../../../libs/search-abstraction/mapping.go)) with neutral `TypeMapping` / `MappingField` shape (string, text, integer, long, double, boolean, date, geo, unknown) and a `ErrMappingDeployUnconfigured` sentinel for honest no-op reporting. `internal/schemasync` package owns: the envelope subset (deliberate duplicate of the producer's wire shape to keep services decoupled), `MappingFromPayload` (property_type → MappingFieldType with base_type/type_family fallbacks), `Handler` (created/updated → Register, deleted → Drop), and `HTTPSeedSource` + `SeedMappingsFrom` to hydrate the schema cache from `ontology-definition-service` at startup. Wired into `runtime.ProcessMessageWithProjector` via `TopicObjectTypeChangedV1` (added to `SubscribeTopics`); `osv2_projection.apply` passes schema topics through to the search side. **Vespa side:** `vespa.Backend` now implements `MappingRegistrar` end-to-end. `schema.go` generates `.sd` files (per-type, with the builtin id/tenant/type_id/version fields, BM25 on searchable strings, native rank fallback) plus `services.xml` and `hosts.xml`, then zips them into the canonical Vespa application package. `mapping.go` keeps an in-memory `map[type_id]TypeMapping` cumulative cache, deploys via `POST {config_endpoint}/application/v2/tenant/{tenant}/prepareandactivate` with `Content-Type: application/zip`, and exposes `SeedSchemas([]TypeMapping)` so the indexer can hydrate the cache from `ontology-definition-service` before the first Kafka event arrives — without this, a restart with an empty cache would redeploy with only the new schema and wipe the rest. Opt-in via `WithConfigEndpoint`/`WithVespaTenant`/`WithVespaApplication`; un-configured backends surface `ErrMappingDeployUnconfigured` so the schemasync handler reports `OutcomeSkippedNoOp` honestly. **main.go** builds the backend once, seeds it best-effort from `ONTOLOGY_DEFINITION_URL` (5s deadline, warn-and-continue on failure), and shares the single instance between the streaming loop and the reindex endpoints. Verified by `libs/search-abstraction/vespa/schema_test.go` (.sd / services.xml / zip contents, builtin fields, BM25 hints, unknown-type drop), `libs/search-abstraction/vespa/mapping_test.go` (deploy POST, accumulation across calls, drop reduces the package, Seed populates without deploy, sentinel on missing config, propagates deploy 5xx), `services/ontology-indexer/internal/schemasync/seed_test.go` (HTTP seed source + translate + sink), and the previously-existing handler/translate/runtime tests with the new sentinel path. |
 
 ## Phase 1b — done
 
@@ -135,6 +140,39 @@ two link event types use synthetic `version=1` (upsert) and `version=2`
 (delete) to keep the deterministic event_id namespaces disjoint. A
 future change that gives links a real version column should bump
 those to the actual values.
+
+## Integration tests (real Vespa)
+
+`make test-integration` runs the `//go:build integration` suite. The
+Vespa-backed checks skip unless both `VESPA_SEARCH_ENDPOINT` and
+`VESPA_CONFIG_ENDPOINT` are wired to a live cluster. Bring-up:
+
+```sh
+docker run --rm -d --name vespa-it -p 8080:8080 -p 19071:19071 \
+  vespaengine/vespa:8.327
+# wait ~30s for the config server to become ready
+export VESPA_SEARCH_ENDPOINT=http://localhost:8080
+export VESPA_CONFIG_ENDPOINT=http://localhost:19071
+make test-integration PKG=./libs/search-abstraction/vespa/...
+make test-integration PKG=./services/ontology-indexer/internal/schemasync/...
+```
+
+⚠️ The `prepareandactivate` REST endpoint is a replace-all deploy —
+run these tests against a dedicated Vespa instance only. A shared
+cluster would have its schemas wiped between scenarios.
+
+| Test | What it asserts |
+|---|---|
+| [`vespa/integration_test.go::TestIntegration_RegisterDeploysSchemaAndIndexesDocument`](../../libs/search-abstraction/vespa/integration_test.go) | `RegisterTypeMapping` POSTs an application package and a subsequent `Index` against the new doc-type is accepted (with retry for content-cluster propagation). |
+| `vespa/integration_test.go::TestIntegration_RegisterAccumulatesAcrossCalls` | Two sequential `RegisterTypeMapping` calls produce a Vespa application that accepts writes against both doc-types — proves the cumulative cache + redeploy. |
+| `vespa/integration_test.go::TestIntegration_DropRemovesSchemaFromCluster` | `DropTypeMapping` redeploys without the dropped doc-type; later writes against it fail. |
+| `vespa/integration_test.go::TestIntegration_SeedPreservesSchemasAcrossNewBackendInstance` | A fresh Backend instance + `SeedSchemas` + new `RegisterTypeMapping` keeps the seeded doc-types alive in Vespa — proves the wipe-on-restart mitigation flagged in §G5. |
+| [`schemasync/integration_test.go::TestIntegration_HandlerProcessRecordDeploysToRealVespa`](../../services/ontology-indexer/internal/schemasync/integration_test.go) | An `ontology.object_type.changed.v1` envelope passed to `Handler.ProcessRecord` deploys to real Vespa; the new doc-type accepts writes. End-to-end coverage of the schemasync wiring. |
+| `schemasync/integration_test.go::TestIntegration_HandlerDropEnvelopeRemovesSchema` | A `deleted` envelope drops the schema on real Vespa; subsequent writes against the dropped doc-type fail. |
+
+The Kafka-side integration coverage (`runtime/kafka_integration_test.go`)
+was already in place from Phase 1; it skips on missing
+`KAFKA_BOOTSTRAP_SERVERS`.
 
 ## Implementation notes (drift-mirrored from the kernel)
 

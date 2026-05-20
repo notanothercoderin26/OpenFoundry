@@ -21,6 +21,9 @@ import (
 	"syscall"
 
 	"github.com/google/uuid"
+	"net/http"
+	"time"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/llm"
@@ -31,6 +34,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/react"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/server"
 )
@@ -85,7 +89,29 @@ func main() {
 	wireLLMRuntime(h, log)
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, h, metrics, probes.Postgres("primary", pool))
+	// B07: Threads + ReAct wiring. nil-safe — handler is omitted from
+	// the route table when its repo isn't wired (e.g. dev without a
+	// catalog URL).
+	threadsRepo := &repo.ThreadsRepo{Pool: pool}
+	var threadsHandler *handlers.Threads
+	if cfg.LLMCatalogURL != "" {
+		runner := &react.Runner{
+			LLM: react.NewHTTPLLMClient(cfg.LLMCatalogURL),
+			Tools: &react.HTTPToolRouter{
+				ObjectDatabaseURL:  cfg.ObjectDatabaseURL,
+				OntologyActionsURL: cfg.OntologyActionsURL,
+				RetrievalURL:       cfg.RetrievalURL,
+				HTTP:               &http.Client{Timeout: 30 * time.Second},
+			},
+			Traces: handlers.NewTraceSink(threadsRepo),
+		}
+		threadsHandler = &handlers.Threads{Repo: threadsRepo, Runner: runner}
+	} else {
+		log.Warn("LLM_CATALOG_SERVICE_URL unset — /threads ReAct loop disabled; CRUD only")
+		threadsHandler = &handlers.Threads{Repo: threadsRepo}
+	}
+
+	srv := server.NewWithDeps(cfg, jwt, h, server.Deps{Threads: threadsHandler}, metrics, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

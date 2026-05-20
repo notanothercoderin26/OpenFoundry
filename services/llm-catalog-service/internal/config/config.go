@@ -33,6 +33,14 @@ type Config struct {
 	OpenAIAPIKey     string
 	OpenAIBaseURL    string
 	OllamaBaseURL    string
+	// Azure OpenAI Service is distinct from OPENAI because the endpoint
+	// scheme differs. See B04 §AC#3 for the demo pivot.
+	AzureAPIKey  string
+	AzureBaseURL string
+
+	// Provider-health probe (B04 §AC#6).
+	ProviderHealthIntervalSeconds int
+	ProviderHealthDegradeAfterMS  int
 
 	// Per-(subject, model) token-bucket settings.
 	// 0 disables rate limiting.
@@ -57,6 +65,10 @@ func FromEnv() (*Config, error) {
 	cfg.OpenAIAPIKey = os.Getenv("OPENAI_API_KEY")
 	cfg.OpenAIBaseURL = os.Getenv("OPENAI_BASE_URL")
 	cfg.OllamaBaseURL = os.Getenv("OLLAMA_BASE_URL")
+	cfg.AzureAPIKey = os.Getenv("AZURE_OPENAI_API_KEY")
+	cfg.AzureBaseURL = os.Getenv("AZURE_OPENAI_BASE_URL")
+	cfg.ProviderHealthIntervalSeconds = parseInt(os.Getenv("LLM_PROVIDER_HEALTH_INTERVAL_SECONDS"), 30)
+	cfg.ProviderHealthDegradeAfterMS = parseInt(os.Getenv("LLM_PROVIDER_HEALTH_DEGRADE_AFTER_MS"), 2000)
 
 	cfg.RateLimitCapacity = parseFloat(os.Getenv("LLM_RATE_LIMIT_CAPACITY"), 60)
 	cfg.RateLimitRefillPerSecond = parseFloat(os.Getenv("LLM_RATE_LIMIT_REFILL_PER_SECOND"), 1)
@@ -100,4 +112,15 @@ func parseFloat(v string, fallback float64) float64 {
 		return fallback
 	}
 	return f
+}
+
+func parseInt(v string, fallback int) int {
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return fallback
+	}
+	return n
 }

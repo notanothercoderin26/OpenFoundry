@@ -61,6 +61,7 @@ var upstreamServiceMapping = []struct {
 	{"ObjectDatabase", "object-database-service", "object-database-service"},
 	{"OntologyQuery", "ontology-query-service", "ontology-query-service"},
 	{"OntologyActions", "ontology-actions-service", "ontology-actions-service"},
+	{"OntologyIndexer", "ontology-indexer", "ontology-indexer"},
 	{"Workflow", "workflow-automation-service", "workflow-automation-service"},
 	{"Notebook", "notebook-runtime-service", "notebook-runtime-service"},
 	{"Notification", "notification-alerting-service", "notification-alerting-service"},

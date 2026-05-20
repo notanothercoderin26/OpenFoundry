@@ -242,11 +242,11 @@ export const router = createBrowserRouter([
       { path: 'nexus', loader: redirectTo('/ai/threads') },
       {
         path: 'approvals',
-        lazy: async () => ({ Component: (await import('./routes/audit/AuditPage')).AuditPage }),
+        lazy: async () => ({ Component: (await import('./routes/approvals/ApprovalsPage')).ApprovalsPage }),
       },
       {
         path: 'audit',
-        loader: redirectTo('/approvals'),
+        lazy: async () => ({ Component: (await import('./routes/audit/AuditPage')).AuditPage }),
       },
       {
         path: 'code-repos',
@@ -438,6 +438,10 @@ export const router = createBrowserRouter([
       {
         path: 'model-catalog',
         lazy: async () => ({ Component: (await import('./routes/ml/MlPage')).MlPage }),
+      },
+      {
+        path: 'llm-catalog',
+        lazy: async () => ({ Component: (await import('./routes/llm-catalog/LlmCatalogPage')).LlmCatalogPage }),
       },
       {
         path: 'ml',

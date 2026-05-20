@@ -46,11 +46,15 @@ func init() {
 
 // Backend is the Vespa HTTP client. Construct with the cluster's
 // HTTP endpoint (typically `https://vespa.search.svc.cluster.local:8080`).
+//
+// MappingRegistrar support is opt-in via WithConfigEndpoint; see
+// mapping.go for the application-package deploy flow.
 type Backend struct {
 	endpoint   string
 	namespace  string
 	http       *http.Client
 	authHeader string
+	cfg        *configFields
 }
 
 // Option customises a Backend.

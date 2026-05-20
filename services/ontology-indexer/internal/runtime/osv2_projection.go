@@ -47,6 +47,10 @@ func (p StorageProjector) apply(ctx context.Context, projector *ProjectionIndex,
 		return p.applyObject(ctx, projector, msg)
 	case TopicLinkChangedV1:
 		return p.applyLink(ctx, projector, msg)
+	case TopicObjectTypeChangedV1:
+		// Schema mutations don't produce OSV2 rows; fall through to
+		// the search projection (which routes to schemasync).
+		return OutcomeIndexed, nil
 	default:
 		return OutcomeDecodeError, nil
 	}

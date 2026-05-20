@@ -28,7 +28,9 @@ type Deps struct {
 	JWT           *authmw.JWTConfig
 	Notifications *repo.NotificationsRepo
 	Preferences   *repo.PreferencesRepo
+	Subscriptions *repo.SubscriptionsRepo
 	Notifier      *service.Notifier
+	Dispatcher    *service.Dispatcher
 	Bus           *service.NotificationBus // nil when NATS is unconfigured
 	Metrics       *observability.Metrics
 }
@@ -39,6 +41,7 @@ func New(d Deps, probes ...capabilities.DependencyProbe) *http.Server {
 	prefsH := &handlers.Preferences{Repo: d.Preferences}
 	sendH := &handlers.Send{Notifier: d.Notifier}
 	wsH := &handlers.WS{JWT: d.JWT, Notifications: d.Notifications, Bus: d.Bus}
+	subsH := &handlers.Subscriptions{Repo: d.Subscriptions, Dispatcher: d.Dispatcher}
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
@@ -72,11 +75,25 @@ func New(d Deps, probes ...capabilities.DependencyProbe) *http.Server {
 			authed.Put("/notifications/preferences", prefsH.Update)
 			authed.Post("/notifications/ws-ticket", wsH.IssueTicket)
 			authed.Post("/notifications/send", sendH.Authenticated)
+
+			// B05 fan-out surface.
+			if subsH.Repo != nil && subsH.Dispatcher != nil {
+				authed.Get("/notifications/subscriptions", subsH.List)
+				authed.Post("/notifications/subscriptions", subsH.Create)
+				authed.Delete("/notifications/subscriptions/{id}", subsH.Delete)
+				authed.Post("/notifications/events", subsH.SubmitEvent)
+				authed.Get("/notifications/events/{id}/deliveries", subsH.ListDeliveries)
+			}
 		})
 	})
 
 	// /internal — no auth; restrict at network layer.
 	r.Post("/internal/notifications", sendH.Internal)
+	if subsH.Repo != nil && subsH.Dispatcher != nil {
+		// B05 producer surface for internal services (ontology-actions,
+		// workflow-automation) that don't carry a user JWT.
+		r.Post("/internal/events", subsH.SubmitEvent)
+	}
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "notification",

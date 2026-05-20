@@ -57,20 +57,39 @@ import (
 	probespkg "github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/handler"
 )
 
+// Deps bundles optional dependencies the router can use. nil is fine
+// — handlers that need a pool simply remain unmounted.
+type Deps struct {
+	// Pool backs the dataset-health handlers (B06 §AC#5). nil disables
+	// the /datasets/{rid}/health surface; everything else mounts.
+	Pool *pgxpool.Pool
+}
+
 func New(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	return NewWithDeps(cfg, m, Deps{}, probes...)
+}
+
+// NewWithDeps is the dependency-injected variant used by main.go.
+func NewWithDeps(cfg *config.Config, m *observability.Metrics, deps Deps, probes ...capabilities.DependencyProbe) *http.Server {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	return &http.Server{
 		Addr:              addr,
-		Handler:           BuildRouter(cfg, m, probes...),
+		Handler:           BuildRouterWithDeps(cfg, m, deps, probes...),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }
 
 func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return BuildRouterWithDeps(cfg, m, Deps{}, probes...)
+}
+
+func BuildRouterWithDeps(cfg *config.Config, m *observability.Metrics, deps Deps, probes ...capabilities.DependencyProbe) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(60 * time.Second))
@@ -229,6 +248,23 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabil
 		v1.Get("/jobs/{rid}/logs/stream", handler.StreamJobLogsV1)
 		v1.Get("/jobs/{rid}/logs/ws", handler.WSJobLogsV1)
 	})
+
+	// B06 §AC#5 — per-dataset check-evaluation history. The
+	// `/health` (singular) endpoint stays on dataset-versioning-service
+	// and renders the snapshot view; this surface adds the timeline
+	// the UI Health tab needs to show trend + latest failures.
+	if deps.Pool != nil {
+		health := &handler.DatasetHealthHandlers{Repo: &handler.HealthRepo{Pool: deps.Pool}}
+		r.Route("/api/v1/datasets", func(api chi.Router) {
+			api.Use(authmw.Middleware(jwt))
+			api.Get("/{rid}/health/events", health.Get)
+		})
+		// /internal/datasets/{rid}/health/events — no auth; producer
+		// surface for pipeline-expression and the pipeline runners,
+		// restricted at the network layer like other /internal/
+		// endpoints.
+		r.Post("/internal/datasets/{rid}/health/events", health.Record)
+	}
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "pipeline-build",

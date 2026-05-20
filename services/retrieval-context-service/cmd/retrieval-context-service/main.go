@@ -66,8 +66,9 @@ func main() {
 	metrics := observability.NewMetrics()
 	store := repo.NewPgStore(pool)
 	deps := server.Deps{
-		Jobs: &handlers.Jobs{Store: store, Logger: log},
-		JWT:  authmw.NewJWTConfig(cfg.JWTSecret),
+		Jobs:      &handlers.Jobs{Store: store, Logger: log},
+		Knowledge: &handlers.Knowledge{Pool: pool},
+		JWT:       authmw.NewJWTConfig(cfg.JWTSecret),
 	}
 
 	srv := server.New(cfg, deps, metrics, probes.Postgres("primary", pool))

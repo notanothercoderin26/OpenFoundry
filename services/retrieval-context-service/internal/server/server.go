@@ -34,8 +34,9 @@ import (
 // Deps groups the dependencies the router consumes. Tests build it with
 // the in-memory store; main.go builds it from the pgx pool.
 type Deps struct {
-	Jobs *handlers.Jobs
-	JWT  *authmw.JWTConfig
+	Jobs      *handlers.Jobs
+	Knowledge *handlers.Knowledge
+	JWT       *authmw.JWTConfig
 }
 
 // New constructs the production http.Server.
@@ -93,6 +94,12 @@ func buildRouter(cfg *config.Config, deps Deps, m *observability.Metrics, probes
 			api.Route("/document-intelligence", func(di chi.Router) {
 				deps.Jobs.Mount(di)
 			})
+		}
+		// B07 §AC#4 — Document upload + search used by the agent's
+		// `retrieval` tool kind.
+		if deps.Knowledge != nil {
+			api.Post("/retrieval/documents", deps.Knowledge.UploadDocument)
+			api.Post("/retrieval/search", deps.Knowledge.Search)
 		}
 	})
 

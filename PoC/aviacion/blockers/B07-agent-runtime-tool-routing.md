@@ -102,6 +102,52 @@ the calling user — the agent can never bypass Foundry permissions.
    asks for confirmation, submits it, and the resulting notification
    ([B05](B05-notifications.md)) lands in the MRO inbox.
 
+## Status as of 2026-05-20
+
+| Gap | Status | Evidence |
+|---|---|---|
+| **AC#1** Threads + per-message persistence + listing | ✅ Done | New migration [`20260520150000_threads.sql`](../../services/agent-runtime-service/internal/repo/migrations/20260520150000_threads.sql) adds `threads`, `thread_messages`, `thread_traces`. `internal/repo/threads.go` exposes CRUD + `AppendMessage` (atomic MAX(position)+1 inside a tx) + `AppendTraceStep`. Endpoints: `POST/GET/DELETE /api/v1/agent-runtime/threads[/{id}]`, `GET/POST /api/v1/agent-runtime/threads/{id}/messages`, `GET /api/v1/agent-runtime/threads/{id}/trace`. |
+| **AC#2** Three-tool ReAct loop + trace surface | ✅ Done | New `internal/react/runner.go`: budget-aware loop with `Plan/ToolCall/Observation/Final/Error/BudgetExhausted` trace kinds persisted into `thread_traces`. Tool registry covers `object_query` / `action` / `function` / `retrieval` / `command` / `request_clarification`. `internal/react/clients.go` wires the LLM seam to llm-catalog-service `/api/v1/llm/invoke` and the tool router to object-database / ontology-actions / retrieval-context via per-kind URLs. `GET /threads/{id}/trace` returns the step-by-step audit. |
+| **AC#3** Step + token budgets | ✅ Done | `threads.max_tool_calls` (default 6) + `threads.max_prompt_tokens` (default 16000) configurable on POST /threads. Runner checks the token budget before each LLM call and the tool-call counter on every iteration; overshoot produces a `budget_exhausted` trace step + a graceful assistant message. Verified by `runner_test.go::TestRunner_RespectsStepBudget` and `TestRunner_RespectsPromptTokenBudget`. |
+| **AC#4** Document upload + embedding + RAG | ✅ Done | New migration [`0002_knowledge_documents.sql`](../../services/retrieval-context-service/internal/repo/migrations/0002_knowledge_documents.sql) adds `knowledge_documents` + `knowledge_document_chunks`. `POST /api/v1/retrieval/documents` chunks the upload (≤1200 chars on whitespace boundaries) and computes a 15-dim BoW hash signature per chunk. `POST /api/v1/retrieval/search` runs cosine + lexical-overlap boost across the requested KB. The agent's `retrieval` tool kind is wired to this surface so the LLM can call `SearchManuals` end-to-end. PoC embedder; the shape is right and the production swap to `libs/ai-kernel-go/embeddings` is a localized change. |
+| **AC#5** Provider selection from llm-catalog-service | ✅ Done | `Threads.model_rid` references an `llm_models.rid` from the catalog (B04). The runner's `LLMInvocation.ModelRID` is what `HTTPLLMClient` POSTs to `/api/v1/llm/invoke`; switching the catalog row's `enabled` flag or selecting a different model on thread creation changes the next message without an agent-runtime restart. |
+| **AC#6** Caller JWT propagation to tools | ✅ Done | `Threads.PostMessage` extracts the bearer token from the inbound request and threads it into `RunInput.CallerJWT`. Both `HTTPLLMClient.Invoke` and every `HTTPToolRouter.invoke*` set `Authorization: Bearer <token>` on the downstream call. Forbidden / unauthorized responses bubble back as observations (`{"error":"permission denied (403)"}`) so the LLM can phrase a "I cannot view that data" reply rather than hallucinate. Verified by `clients_test.go::TestHTTPLLMClient_ParsesFinalAnswer` (auth header echoed) and `TestHTTPToolRouter_PropagatesForbiddenAsObservation`. |
+| **AC#7** End-to-end demo | ✅ Plumbed | "Schedule a B-check on N12345 next Tuesday" closes once B01 (Workshop), B02/B03 (ontology), B05 (notifications) — all on this branch — and the demo seed data are wired. The agent runtime now has every seam in place: ReAct loop, real tool router, JWT pass-through, model selection, document upload. |
+
+## UI (apps/web)
+
+The previously-mocked `apps/web/src/routes/ai/ThreadsPage.tsx` is
+replaced by a three-pane page wired to the real APIs:
+
+- **Left:** thread list (auto-selects most recent, refetches every 30 s).
+- **Center:** message stream + composer; sending POSTs to
+  `/threads/{id}/messages` and re-renders with the user, tool, and
+  assistant turns the ReAct loop produced.
+- **Right:** ReAct trace panel (5 s polling) + document uploader that
+  POSTs to `/api/v1/retrieval/documents` against the `ops-manuals`
+  knowledge base so the agent's `SearchManuals` tool can find it.
+
+New `lib/api/threads.ts` mirrors the Go wire shapes.
+
+## Tests
+
+- `internal/react/runner_test.go`: 6 cases — final-no-tool, tool-call-then-final
+  (with JWT propagation assertion), step-budget cap, prompt-token cap,
+  unknown-tool fallthrough, LLM transport error.
+- `internal/react/clients_test.go`: 7 cases — final parsing, tool-call
+  JSON detection, non-2xx surfacing, object-query path/auth, action
+  path/auth, forbidden-as-observation, unconfigured-endpoint
+  friendly observation.
+- `services/retrieval-context-service/internal/handlers/knowledge_test.go`:
+  7 cases — chunk splitting on whitespace, deterministic + unit
+  embedding, cosine identity, cosine separation, lexical boost,
+  score sort.
+- `apps/web/src/lib/api/threads.test.ts`: 7 cases mirroring every
+  helper method.
+- `apps/web/src/routes/ai/ThreadsPage.test.tsx`: 4 UI cases — render
+  list + budget summary, trace pane shows steps, empty state, "+ New"
+  invokes POST.
+
 ## Implementation pointers
 
 1. Add `threads`, `thread_messages`, `thread_traces` Postgres tables to

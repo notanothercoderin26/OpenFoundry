@@ -1,4 +1,7 @@
+import { useState } from 'react';
+
 import { Glyph } from '@/lib/components/ui/Glyph';
+import { ChatbotModelPicker, readStoredModelRid } from './ChatbotModelPicker';
 
 type DeploymentStatus = 'draft' | 'staging' | 'production';
 
@@ -97,6 +100,7 @@ function formatNumber(n: number) {
 export function ChatbotStudioPage() {
   const totalChats = MOCK_CHATBOTS.reduce((sum, c) => sum + c.monthlyConversations, 0);
   const inProduction = MOCK_CHATBOTS.filter((c) => c.status === 'production').length;
+  const [selectedModelRid, setSelectedModelRid] = useState<string>(readStoredModelRid);
 
   return (
     <section className="of-page" style={{ display: 'grid', gap: 16 }}>
@@ -110,9 +114,12 @@ export function ChatbotStudioPage() {
               internally, through the SDK, or as a public API.
             </p>
           </div>
-          <button type="button" className="of-btn of-btn-primary" disabled title="Builder UI ships in Phase 4.x">
-            <Glyph name="plus" size={14} /> New chatbot
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <ChatbotModelPicker value={selectedModelRid} onChange={setSelectedModelRid} />
+            <button type="button" className="of-btn of-btn-primary" disabled title="Builder UI ships in Phase 4.x">
+              <Glyph name="plus" size={14} /> New chatbot
+            </button>
+          </div>
         </div>
       </header>
 
