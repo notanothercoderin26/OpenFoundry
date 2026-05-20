@@ -1,13 +1,13 @@
 # Launcher app mapping — Foundry ↔ OpenFoundry
 
-Date: 2026-05-19
-Status: **live** — all 47 apps are registered in the launcher catalog, route
+Date: 2026-05-20
+Status: **live** — all 48 apps are registered in the launcher catalog, route
 bindings ship behind the canonical paths in the tables below, and the backend
 `application-access/evaluate` allowlist accepts every internal ID. 18 of the
 roadmap apps render a minimal Phase 4 landing (mock data, no backend) — they
 are real routes, not placeholders.
 
-This document freezes the **1:1 equivalence** between the 47 Palantir Foundry
+This document freezes the **1:1 equivalence** between the 48 Palantir Foundry
 applications listed in our compatibility scope and the names OpenFoundry uses
 in the sidebar launcher.
 
@@ -64,7 +64,7 @@ generic ones unchanged.** Concretely:
 
 Sub-concepts (Action Types, Object Link Types, Interfaces, Ontology Indexing) are not separate launcher tiles — they live as tabs inside Ontology Manager.
 
-## C. Data Integration (7)
+## C. Data Integration (8)
 
 | # | Foundry name | OpenFoundry display name | Internal ID | Route | Reason for alias |
 |---|---|---|---|---|---|
@@ -75,8 +75,9 @@ Sub-concepts (Action Types, Object Link Types, Interfaces, Ontology Indexing) ar
 | 9 | [Linter](https://www.palantir.com/docs/foundry/linter/overview/) | **Pipeline Linter** | `linter` | `/pipelines/linter` | "Linter" alone is ambiguous; the Foundry product targets pipelines specifically |
 | 10 | [Peer Manager](https://www.palantir.com/docs/foundry/peer-manager/overview/) | = | `peer-manager` | `/peer-manager` | generic |
 | 11 | [Machinery](https://www.palantir.com/docs/foundry/machinery/overview/) | **Job Engine** | `machinery` | `/machinery` | "Machinery" is a Palantir brand; the function is running long-lived jobs/workers |
+| 12 | [Data Connection](https://www.palantir.com/docs/foundry/data-connection/overview/) | = | `data-connection` | `/data-connection` | generic — first-class app for sources, syncs, exports, webhooks, virtual tables, and agents |
 
-Sub-concepts (Data Connection, Builds, Streaming, Media Sets, Iceberg Tables, Virtual Tables, Object Databases) are tabs inside Pipeline Builder or Dataset Preview.
+Sub-concepts (Builds, Streaming, Media Sets, Iceberg Tables, Virtual Tables, Object Databases) are tabs inside Pipeline Builder or Dataset Preview.
 
 ## D. Analytics & Operations (7)
 
@@ -170,7 +171,6 @@ as sub-pages of a canonical app.
 | Ontologies | folded into Ontology Manager | `/ontologies` → redirect `/ontology-manager` |
 | Nexus | folded into AI Threads | `/nexus` → redirect `/ai/threads` |
 | Data Catalog | folded into Dataset Preview | tile removed; `/datasets` is canonical |
-| Data Connection | tab inside Pipeline Builder | `/data-connection` route preserved |
 | Builds | tab inside Pipeline Builder | `/builds` route preserved |
 | Streaming | tab inside Pipeline Builder | `/streaming` route preserved |
 | Media Sets | tab inside Dataset Preview | `/media-sets` route preserved |
@@ -204,7 +204,7 @@ as sub-pages of a canonical app.
 - Sub-concepts that are not launcher tiles (Action Types, Streaming, etc.)
   are **not** governed by this document — they live in the navigation of
   their parent app.
-- 18 of the 47 apps currently render the Phase 4 landing in
+- 18 of the 48 apps currently render the Phase 4 landing in
   [`apps/web/src/routes/<app>/<App>Page.tsx`](../../apps/web/src/routes/)
   with mock data only — Slate, Pilot, the AIP family, Investigator,
   Pipeline Linter, Peer Manager, Custom Widgets, OSDK Apps, Custom APIs,
