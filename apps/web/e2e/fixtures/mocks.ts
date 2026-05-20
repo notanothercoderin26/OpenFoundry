@@ -52,8 +52,14 @@ export async function mockAuth(page: Page, options: AuthMockOptions = {}): Promi
 
   if (authenticated) {
     await page.addInitScript(() => {
-      window.localStorage.setItem('of_access_token', 'e2e-token');
-      window.localStorage.setItem('of_refresh_token', 'e2e-refresh');
+      // `about:blank` denies localStorage access in modern Chromium, so the
+      // init script needs to be tolerant of pre-navigation document states.
+      try {
+        window.localStorage.setItem('of_access_token', 'e2e-token');
+        window.localStorage.setItem('of_refresh_token', 'e2e-refresh');
+      } catch {
+        // Storage will be re-set on the first real navigation.
+      }
     });
   }
 
