@@ -23,7 +23,7 @@ interface RootItem {
 }
 
 const ROOT_ITEMS: RootItem[] = [
-  { id: 'data-catalog', label: 'Data Catalog', icon: 'badge-check', iconTone: '#7c3aed', enabled: false, hint: 'Read-only' },
+  { id: 'data-catalog', label: 'Dataset Preview', icon: 'badge-check', iconTone: '#7c3aed', enabled: false, hint: 'Read-only' },
   { id: 'all-projects', label: 'All projects', icon: 'project', enabled: true },
   { id: 'recent-files', label: 'Recent files', icon: 'history', enabled: false, hint: 'No recents' },
   { id: 'favorites', label: 'Favorites', icon: 'star', enabled: false, hint: 'No favorites' },

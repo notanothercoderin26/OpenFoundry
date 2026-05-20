@@ -76,7 +76,7 @@ export function RequestDataDialog({ open, onClose, onSubmit }: RequestDataDialog
           }}
         >
           <div>
-            <p className="of-eyebrow" style={{ margin: 0 }}>Data Catalog</p>
+            <p className="of-eyebrow" style={{ margin: 0 }}>Dataset Preview</p>
             <h2 id="request-data-title" className="of-heading-md" style={{ marginTop: 4 }}>
               Request data
             </h2>

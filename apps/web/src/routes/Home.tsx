@@ -19,7 +19,7 @@ interface SpaceDef {
 }
 
 const SPACES: SpaceDef[] = [
-  { id: 'data-catalog', label: 'Data Catalog', icon: 'check-circle' },
+  { id: 'data-catalog', label: 'Dataset Preview', icon: 'check-circle' },
   { id: 'portfolios', label: 'Portfolios', icon: 'bookmark' },
   { id: 'projects', label: 'Projects', icon: 'folder' },
   { id: 'your-files', label: 'Your files', icon: 'document' },
@@ -258,7 +258,7 @@ function DataCatalogView({
       <header style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1 className="of-heading-xl" style={{ marginTop: 0, marginBottom: 4 }}>
-            Data Catalog
+            Dataset Preview
           </h1>
           <div className="of-tabbar" style={{ marginTop: 6, gap: 4, paddingBottom: 0, border: 0 }}>
             {(['collections', 'files'] as SubTab[]).map((tab) => (
