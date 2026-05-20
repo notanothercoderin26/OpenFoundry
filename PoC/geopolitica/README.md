@@ -44,6 +44,7 @@ The **single message** for the customer: *"in two weeks I modeled an ontology th
 | 11 | [`11-guion-demo.md`](11-guion-demo.md) | Minute-by-minute script for the customer session |
 | 12 | [`12-checklist-preparacion.md`](12-checklist-preparacion.md) | Actionable checklist at T-30, T-7, T-1, T-0 |
 | 13 | [`13-riesgos-y-plan-b.md`](13-riesgos-y-plan-b.md) | Risks, possible failures, recorded plan B |
+| — | [`blockers/`](blockers/) | Per-vertical delta on the platform-level blockers tracked under [`../aviacion/blockers/`](../aviacion/blockers/). Currently: [B02 — ontology definition + outbox](blockers/B02-ontology-definition.md). |
 
 ---
 
