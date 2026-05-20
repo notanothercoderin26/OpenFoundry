@@ -60,6 +60,11 @@ type ObjectType struct {
 	OwnerID                               uuid.UUID                        `json:"owner_id"`
 	CreatedAt                             time.Time                        `json:"created_at"`
 	UpdatedAt                             time.Time                        `json:"updated_at"`
+	// Version is the optimistic-concurrency token for this row. The
+	// ontology-manager Review-edits modal sends it back as
+	// `expected_version` on save; a mismatch surfaces in the Conflicts
+	// tab. Bumped by every successful UPDATE in the repo layer.
+	Version int `json:"version"`
 	// AppCapabilities carries per-application metadata as a free-form
 	// JSON object keyed by app name. See migration 0004; concrete
 	// helpers for known keys live in app_capabilities.go.
@@ -398,6 +403,7 @@ type Property struct {
 	InlineEditConfig any       `json:"inline_edit_config"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+	Version          int       `json:"version"`
 }
 
 type PropertyTypeMetadata struct {
@@ -618,6 +624,20 @@ type CreatePropertyRequest struct {
 	InlineEditConfig any    `json:"inline_edit_config,omitempty"`
 }
 
+// UpdatePropertyRequest is the payload for property updates via the
+// batch-save flow. Every field is optional; nil means "leave as-is".
+type UpdatePropertyRequest struct {
+	DisplayName      *string `json:"display_name,omitempty"`
+	Description      *string `json:"description,omitempty"`
+	PropertyType     *string `json:"property_type,omitempty"`
+	Required         *bool   `json:"required,omitempty"`
+	UniqueConstraint *bool   `json:"unique_constraint,omitempty"`
+	TimeDependent    *bool   `json:"time_dependent,omitempty"`
+	DefaultValue     any     `json:"default_value,omitempty"`
+	ValidationRules  any     `json:"validation_rules,omitempty"`
+	InlineEditConfig any     `json:"inline_edit_config,omitempty"`
+}
+
 // ObjectTypeGroup mirrors `ontology_schema.object_type_groups` rows and
 // derives membership from object_types.group_names.
 type ObjectTypeGroup struct {
@@ -630,6 +650,7 @@ type ObjectTypeGroup struct {
 	OwnerID         uuid.UUID   `json:"owner_id"`
 	CreatedAt       time.Time   `json:"created_at"`
 	UpdatedAt       time.Time   `json:"updated_at"`
+	Version         int         `json:"version"`
 	ObjectTypeIDs   []uuid.UUID `json:"object_type_ids"`
 	ObjectTypeCount int         `json:"object_type_count"`
 	ProjectID       *uuid.UUID  `json:"project_id,omitempty"`
@@ -672,6 +693,7 @@ type LinkType struct {
 	OwnerID               uuid.UUID       `json:"owner_id"`
 	CreatedAt             time.Time       `json:"created_at"`
 	UpdatedAt             time.Time       `json:"updated_at"`
+	Version               int             `json:"version"`
 	// AppCapabilities is the free-form per-app metadata blob on the
 	// link type. The first consumer is Vertex; see migration 0005
 	// and LinkAppCapabilities below for the shape Vertex reads.

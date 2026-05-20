@@ -85,6 +85,13 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		// follow-up slice once the Workshop UX needs it.
 		api.Get("/interfaces", h.ListInterfaces)
 		api.Get("/shared-property-types", h.ListSharedPropertyTypes)
+
+		// Atomic batch save for the Ontology-Manager Review-edits
+		// modal. All staged edits succeed together or none of them
+		// do; per-edit results (errors / conflicts / warnings) come
+		// back inside the response body so the modal can render its
+		// All / Warnings / Errors / Conflicts tabs.
+		api.Post("/batch-save", h.BatchSave)
 	}
 
 	// Mount on both the legacy `/api/v1/ontology-definition` prefix

@@ -366,6 +366,31 @@ func (f *fakeStore) ListSharedPropertyTypes(_ context.Context, _, _ int, _ strin
 	return append([]models.SharedPropertyType(nil), f.sharedProps...), len(f.sharedProps), nil
 }
 
+// SaveBatch is a thin stub good enough to verify the BatchSave handler
+// wiring (auth, JSON decoding, route registration). Every edit gets an
+// "ok" result with the edit's own ClientID echoed back; the full
+// dispatch + atomic-rollback semantics are exercised by the repo-level
+// integration tests against Postgres.
+func (f *fakeStore) SaveBatch(_ context.Context, req *models.BatchSaveRequest, _ uuid.UUID) (*models.BatchSaveResponse, error) {
+	resp := &models.BatchSaveResponse{
+		BatchID: uuid.New(),
+		Status:  models.BatchStatusOK,
+		Results: []models.BatchEditResult{},
+	}
+	if req == nil {
+		return resp, nil
+	}
+	for _, edit := range req.Edits {
+		resp.Results = append(resp.Results, models.BatchEditResult{
+			ClientID: edit.ClientID,
+			Resource: edit.Resource,
+			Op:       edit.Op,
+			Status:   models.BatchStatusOK,
+		})
+	}
+	return resp, nil
+}
+
 // authed produces a request that already has Claims attached, mimicking
 // what authmw.Middleware would do on a real protected route.
 func authed(method, target string, body string) *http.Request {
@@ -435,6 +460,8 @@ func newRouter(h *handlers.Handlers) *chi.Mux {
 
 	r.Get("/interfaces", h.ListInterfaces)
 	r.Get("/shared-property-types", h.ListSharedPropertyTypes)
+
+	r.Post("/batch-save", h.BatchSave)
 	return r
 }
 

@@ -59,8 +59,22 @@ const objectTypeSelect = `SELECT id, name, display_name, description,
 	restricted_view_indexed_policy_version, restricted_view_storage_mode,
 	restricted_view_policy_updated_at, restricted_view_registered_at,
 	restricted_view_indexed_at, pipeline_rid, managed_by,
-	COALESCE(app_capabilities_json, '{}'::jsonb)
+	COALESCE(app_capabilities_json, '{}'::jsonb), version
 	FROM ontology_schema.object_types`
+
+// objectTypeReturning mirrors the column list of objectTypeSelect so the
+// INSERT/UPDATE statements that use RETURNING can be scanned through
+// scanObjectType. Keep the two in lock-step.
+const objectTypeReturning = `id, name, display_name, description, primary_key_property,
+	icon, color, owner_id, created_at, updated_at,
+	plural_display_name, editable, backing_dataset_id,
+	backing_dataset_rid, backing_datasource_type,
+	backing_restricted_view_id, restricted_view_policy,
+	restricted_view_policy_version, restricted_view_registered_policy_version,
+	restricted_view_indexed_policy_version, restricted_view_storage_mode,
+	restricted_view_policy_updated_at, restricted_view_registered_at,
+	restricted_view_indexed_at, pipeline_rid, managed_by,
+	COALESCE(app_capabilities_json, '{}'::jsonb), version`
 
 func (r *Repo) ListObjectTypes(ctx context.Context) ([]models.ObjectType, error) {
 	rows, err := r.Pool.Query(ctx, objectTypeSelect+` ORDER BY name LIMIT 500`)
@@ -130,15 +144,7 @@ func (r *Repo) CreateObjectType(ctx context.Context, body *models.CreateObjectTy
 		     restricted_view_indexed_at, pipeline_rid, managed_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
 		         $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
-		 RETURNING id, name, display_name, description, primary_key_property,
-		           icon, color, owner_id, created_at, updated_at,
-		           plural_display_name, editable, backing_dataset_id,
-		           backing_dataset_rid, backing_datasource_type,
-		           backing_restricted_view_id, restricted_view_policy,
-		           restricted_view_policy_version, restricted_view_registered_policy_version,
-		           restricted_view_indexed_policy_version, restricted_view_storage_mode,
-		           restricted_view_policy_updated_at, restricted_view_registered_at,
-		           restricted_view_indexed_at, pipeline_rid, managed_by`,
+		 RETURNING `+objectTypeReturning,
 		id, strings.TrimSpace(body.Name), body.DisplayName, body.Description,
 		body.PrimaryKeyProperty, body.Icon, body.Color, ownerID,
 		body.PluralDisplayName, editable, body.BackingDatasetID,
@@ -266,20 +272,10 @@ func (r *Repo) UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.
 		    restricted_view_policy_updated_at = $19,
 		    restricted_view_registered_at = $20,
 		    restricted_view_indexed_at = $21,
-		    pipeline_rid = $22, managed_by = $23
+		    pipeline_rid = $22, managed_by = $23,
+		    version = version + 1
 		  WHERE id = $1
-		  RETURNING id, name, display_name, description, primary_key_property,
-		            icon, color, owner_id, created_at, updated_at,
-		            plural_display_name, editable, backing_dataset_id,
-		            backing_dataset_rid, backing_datasource_type,
-		            backing_restricted_view_id, restricted_view_policy,
-		            restricted_view_policy_version,
-		            restricted_view_registered_policy_version,
-		            restricted_view_indexed_policy_version,
-		            restricted_view_storage_mode,
-		            restricted_view_policy_updated_at,
-		            restricted_view_registered_at,
-		            restricted_view_indexed_at, pipeline_rid, managed_by`,
+		  RETURNING `+objectTypeReturning,
 		id, dn, desc, pk, icon, color, time.Now().UTC(),
 		plural, editable, backingDatasetID, backingDatasetRID,
 		datasourceType, restrictedViewID, policy, policyVersion,
@@ -318,7 +314,7 @@ func scanObjectType(r rowLikeT) (*models.ObjectType, error) {
 		&v.RestrictedViewPolicyUpdatedAt,
 		&v.RestrictedViewRegisteredAt,
 		&v.RestrictedViewIndexedAt, &v.PipelineRID,
-		&v.ManagedBy, &v.AppCapabilities); err != nil {
+		&v.ManagedBy, &v.AppCapabilities, &v.Version); err != nil {
 		return nil, err
 	}
 	models.EnrichObjectTypeMetadata(v, nil)
@@ -422,7 +418,7 @@ func (r *Repo) enrichObjectTypeMetadata(ctx context.Context, objectType *models.
 const propertyColumns = `id, object_type_id, name, display_name, description, property_type,
 	required, unique_constraint, time_dependent,
 	default_value, validation_rules, inline_edit_config,
-	created_at, updated_at`
+	created_at, updated_at, version`
 
 func (r *Repo) ListProperties(ctx context.Context, typeID uuid.UUID) ([]models.Property, error) {
 	rows, err := r.Pool.Query(ctx,
@@ -469,7 +465,7 @@ func scanProperty(r rowLikeT) (*models.Property, error) {
 	if err := r.Scan(&p.ID, &p.ObjectTypeID, &p.Name, &p.DisplayName, &p.Description,
 		&p.PropertyType, &p.Required, &p.UniqueConstraint, &p.TimeDependent,
 		&p.DefaultValue, &p.ValidationRules, &p.InlineEditConfig,
-		&p.CreatedAt, &p.UpdatedAt); err != nil {
+		&p.CreatedAt, &p.UpdatedAt, &p.Version); err != nil {
 		return nil, err
 	}
 	models.EnrichPropertyMetadata(p)
@@ -479,7 +475,7 @@ func scanProperty(r rowLikeT) (*models.Property, error) {
 // ── Object type groups ─────────────────────────────────────────────────
 
 const objectTypeGroupColumns = `g.id, g.name, g.display_name, g.description, g.visibility, g.status,
-	g.owner_id, g.created_at, g.updated_at,
+	g.owner_id, g.created_at, g.updated_at, g.version,
 	COALESCE((SELECT array_agg(ot.id ORDER BY ot.display_name) FROM ontology_schema.object_types ot WHERE g.name = ANY(ot.group_names)), '{}'::uuid[]) AS object_type_ids,
 	(SELECT pr.project_id FROM ontology_schema.ontology_project_resources pr WHERE pr.resource_kind = 'object_type_group' AND pr.resource_id = g.id LIMIT 1) AS project_id`
 
@@ -604,7 +600,8 @@ func (r *Repo) UpdateObjectTypeGroup(ctx context.Context, id uuid.UUID, body *mo
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx,
 		`UPDATE ontology_schema.object_type_groups
-		 SET name = $2, display_name = $3, description = $4, visibility = $5, status = $6, updated_at = $7
+		 SET name = $2, display_name = $3, description = $4, visibility = $5, status = $6,
+		     updated_at = $7, version = version + 1
 		 WHERE id = $1`,
 		id, name, displayName, description, visibility, status, time.Now().UTC()); err != nil {
 		return nil, err
@@ -723,7 +720,7 @@ func scanObjectTypeGroup(r rowLikeT) (*models.ObjectTypeGroup, error) {
 	group := &models.ObjectTypeGroup{}
 	if err := r.Scan(&group.ID, &group.Name, &group.DisplayName, &group.Description,
 		&group.Visibility, &group.Status, &group.OwnerID, &group.CreatedAt, &group.UpdatedAt,
-		&group.ObjectTypeIDs, &group.ProjectID); err != nil {
+		&group.Version, &group.ObjectTypeIDs, &group.ProjectID); err != nil {
 		return nil, err
 	}
 	group.ObjectTypeCount = len(group.ObjectTypeIDs)
@@ -734,7 +731,7 @@ func scanObjectTypeGroup(r rowLikeT) (*models.ObjectTypeGroup, error) {
 
 const linkTypeColumns = `id, name, display_name, description, source_type_id, target_type_id,
 	cardinality, label, reverse_label, visibility, link_datasource_mapping, owner_id, created_at, updated_at,
-	COALESCE(app_capabilities_json, '{}'::jsonb) AS app_capabilities_json`
+	COALESCE(app_capabilities_json, '{}'::jsonb) AS app_capabilities_json, version`
 
 func (r *Repo) ListLinkTypes(ctx context.Context, objectTypeID *uuid.UUID) ([]models.LinkType, error) {
 	q := `SELECT ` + linkTypeColumns + ` FROM ontology_schema.link_types`
@@ -846,7 +843,8 @@ func (r *Repo) UpdateLinkType(ctx context.Context, id uuid.UUID, body *models.Up
 		   reverse_label = $6,
 		   visibility = $7,
 		   link_datasource_mapping = $8,
-		   updated_at = $9
+		   updated_at = $9,
+		   version = version + 1
 		 WHERE id = $1
 		 RETURNING `+linkTypeColumns,
 		id, displayName, description, cardinality, label, reverseLabel, visibility, mapping, time.Now().UTC())
@@ -866,7 +864,7 @@ func scanLinkType(r rowLikeT) (*models.LinkType, error) {
 	if err := r.Scan(&lt.ID, &lt.Name, &lt.DisplayName, &lt.Description,
 		&lt.SourceTypeID, &lt.TargetTypeID, &lt.Cardinality, &lt.Label, &lt.ReverseLabel,
 		&lt.Visibility, &lt.LinkDatasourceMapping, &lt.OwnerID, &lt.CreatedAt, &lt.UpdatedAt,
-		&lt.AppCapabilities); err != nil {
+		&lt.AppCapabilities, &lt.Version); err != nil {
 		return nil, err
 	}
 	return lt, nil

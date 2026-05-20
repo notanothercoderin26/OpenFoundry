@@ -47,6 +47,10 @@ type Store interface {
 
 	ListInterfaces(ctx context.Context, page, perPage int, search string) ([]models.OntologyInterface, int, error)
 	ListSharedPropertyTypes(ctx context.Context, page, perPage int, search string) ([]models.SharedPropertyType, int, error)
+
+	// SaveBatch applies the working-state of the Review-edits modal
+	// atomically. See repo.SaveBatch for the semantics.
+	SaveBatch(ctx context.Context, req *models.BatchSaveRequest, actorID uuid.UUID) (*models.BatchSaveResponse, error)
 }
 
 type Handlers struct{ Repo Store }
