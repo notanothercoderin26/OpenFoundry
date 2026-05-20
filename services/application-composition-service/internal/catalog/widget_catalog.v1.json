@@ -1377,6 +1377,190 @@
       "supports_children": false
     },
     {
+      "widget_type": "vertex_graph_embed",
+      "widget_kind": "embed",
+      "label": "Vertex Graph",
+      "description": "Embed a saved Vertex graph, graph template, or diagram inside the Workshop module. Selection sync is user→Workshop via `selected_objects`; Workshop can refocus the graph via `zoom_to`.",
+      "category": "embed",
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "resource": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "kind": { "type": "string", "enum": ["static", "variable", "override_rid"] },
+              "rid": { "type": "string" },
+              "variable_id": { "type": "string" },
+              "override_rid": { "type": "string" }
+            }
+          },
+          "sub_graph_variable_id": { "type": "string" },
+          "refresh_key_variable_id": { "type": "string" },
+          "append_on_parameter_change": { "type": "boolean" },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "id": { "type": "string" },
+                "kind": { "type": "string", "enum": ["object_set", "string", "number", "boolean", "date", "timestamp"] },
+                "variable_id": { "type": "string" },
+                "static_value": {}
+              }
+            }
+          },
+          "scenario": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "load_from_scenario": { "type": "boolean" },
+              "regenerate_after_apply": { "type": "boolean" }
+            }
+          },
+          "selected_objects_variable_id": { "type": "string" },
+          "objects_on_subgraph_variable_id": { "type": "string" },
+          "zoom_to_variable_id": { "type": "string" },
+          "add_to_subgraph_variable_id": { "type": "string" },
+          "available_actions": { "type": "string", "enum": ["all", "some", "none"] },
+          "available_action_type_ids": { "type": "array", "items": { "type": "string" } },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "read_only": { "type": "boolean" },
+              "enable_transition_to_vertex": { "type": "boolean" },
+              "enable_export_png": { "type": "boolean" }
+            }
+          },
+          "panels": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "legend": { "type": "boolean" },
+              "series": { "type": "boolean" },
+              "time_selection": { "type": "boolean" },
+              "timeline": { "type": "boolean" },
+              "layers": { "type": "boolean" },
+              "selection": { "type": "boolean" },
+              "search": { "type": "boolean" },
+              "histogram": { "type": "boolean" },
+              "info": { "type": "boolean" },
+              "version_history": { "type": "boolean" },
+              "add_object": { "type": "boolean" },
+              "subgraph_navigation": { "type": "boolean" }
+            }
+          },
+          "incomplete_inputs_message": { "type": "string" }
+        }
+      },
+      "input_variables": [
+        {
+          "id": "zoom_to",
+          "kind": "object_set",
+          "label": "Zoom to object set",
+          "description": "Object set the embedded graph should focus the viewport on. Workshop→graph is one-directional: the graph cannot reverse-select Workshop variables.",
+          "required": false
+        },
+        {
+          "id": "add_to_subgraph",
+          "kind": "object_set",
+          "label": "Add objects to subgraph",
+          "description": "Programmatically append objects to the embedded graph's current subgraph.",
+          "required": false
+        }
+      ],
+      "output_variables": [
+        {
+          "id": "selected_objects",
+          "kind": "object_set_selection",
+          "label": "Selected objects",
+          "description": "Auto-populated when the user selects one or more nodes in the embedded graph.",
+          "required": false
+        },
+        {
+          "id": "objects_on_subgraph",
+          "kind": "object_set",
+          "label": "Objects on subgraph",
+          "description": "All objects currently rendered on the active subgraph.",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "selected_objects_change",
+          "label": "Selected objects change",
+          "description": "Runs when the embedded graph selection changes.",
+          "action_kinds": ["set_variable", "navigate", "apply_action", "refresh"],
+          "payload_schema": {
+            "type": "object",
+            "properties": {
+              "object_ids": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        {
+          "name": "successful_action_application",
+          "label": "Successful action application",
+          "description": "Runs after an action invoked from inside the embedded graph succeeds.",
+          "action_kinds": ["set_variable", "navigate", "apply_action", "refresh"],
+          "payload_schema": {
+            "type": "object",
+            "properties": {
+              "action_type_id": { "type": "string" }
+            }
+          }
+        }
+      ],
+      "permissions": ["app:read", "ontology:read", "vertex:read"],
+      "display": {
+        "icon": "graph",
+        "accent": "purple",
+        "tags": ["vertex", "graph", "link-analysis", "embed"],
+        "sort_order": 170,
+        "preferred_chrome": "card"
+      },
+      "default_props": {
+        "resource": { "kind": "static", "rid": "", "variable_id": "", "override_rid": "" },
+        "sub_graph_variable_id": "",
+        "refresh_key_variable_id": "",
+        "append_on_parameter_change": false,
+        "parameters": [],
+        "scenario": { "load_from_scenario": false, "regenerate_after_apply": false },
+        "selected_objects_variable_id": "",
+        "objects_on_subgraph_variable_id": "",
+        "zoom_to_variable_id": "",
+        "add_to_subgraph_variable_id": "",
+        "available_actions": "all",
+        "available_action_type_ids": [],
+        "capabilities": {
+          "read_only": true,
+          "enable_transition_to_vertex": true,
+          "enable_export_png": false
+        },
+        "panels": {
+          "legend": true,
+          "series": false,
+          "time_selection": false,
+          "timeline": false,
+          "layers": false,
+          "selection": true,
+          "search": false,
+          "histogram": false,
+          "info": true,
+          "version_history": false,
+          "add_object": false,
+          "subgraph_navigation": false
+        },
+        "incomplete_inputs_message": "Pick a saved Vertex graph in the inspector to render."
+      },
+      "default_size": { "width": 8, "height": 6 },
+      "supported_bindings": ["object_set"],
+      "supports_children": false
+    },
+    {
       "widget_type": "container",
       "widget_kind": "layout",
       "label": "Container",

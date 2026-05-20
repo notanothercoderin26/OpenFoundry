@@ -207,6 +207,18 @@
       "supports_children": false
     },
     {
+      "widget_type": "vertex_graph_embed",
+      "widget_kind": "embed",
+      "category": "embed",
+      "display_icon": "graph",
+      "input_count": 2,
+      "output_count": 2,
+      "event_names": ["selected_objects_change", "successful_action_application"],
+      "permissions": ["app:read", "ontology:read", "vertex:read"],
+      "supported_bindings": ["object_set"],
+      "supports_children": false
+    },
+    {
       "widget_type": "container",
       "widget_kind": "layout",
       "category": "layout",

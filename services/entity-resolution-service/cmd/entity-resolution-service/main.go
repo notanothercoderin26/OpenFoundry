@@ -35,6 +35,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/domain"
 	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/server"
@@ -75,14 +76,39 @@ func main() {
 	}
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
+
+	// Optional cross-service clients. When OBJECT_DATABASE_URL /
+	// TELEMETRY_GOVERNANCE_URL are unset the handlers leave loader
+	// nil + publisher noop, falling back to synthetic fixtures and
+	// suppressing the Data Health POST. This keeps single-service
+	// dev/CI runs working without a full PoC stack.
+	var recordLoader domain.RecordLoader
+	if cfg.ObjectDatabaseURL != "" {
+		recordLoader = domain.NewHTTPObjectTypeLoader(cfg.ObjectDatabaseURL, cfg.Tenant)
+		log.Info("entity-resolution loader wired",
+			slog.String("object_database_url", cfg.ObjectDatabaseURL),
+			slog.String("tenant", cfg.Tenant))
+	} else {
+		log.Info("entity-resolution loader disabled — falling back to synthetic fixtures (OBJECT_DATABASE_URL unset)")
+	}
+
+	var healthPublisher domain.HealthCheckPublisher = domain.NoopHealthCheckPublisher{}
+	if cfg.TelemetryGovernanceURL != "" {
+		healthPublisher = domain.NewHTTPHealthCheckPublisher(cfg.TelemetryGovernanceURL)
+		log.Info("entity-resolution health-check publisher wired",
+			slog.String("telemetry_governance_url", cfg.TelemetryGovernanceURL))
+	}
+
 	h := &handlers.Handlers{
-		Rules:           &repo.MatchRuleRepo{Pool: pool},
-		MergeStrategies: &repo.MergeStrategyRepo{Pool: pool},
-		Jobs:            &repo.FusionJobRepo{Pool: pool},
-		Clusters:        &repo.ClusterRepo{Pool: pool},
-		Review:          &repo.ReviewQueueRepo{Pool: pool},
-		Golden:          &repo.GoldenRecordRepo{Pool: pool},
-		Overview:        &repo.OverviewRepo{Pool: pool},
+		Rules:                &repo.MatchRuleRepo{Pool: pool},
+		MergeStrategies:      &repo.MergeStrategyRepo{Pool: pool},
+		Jobs:                 &repo.FusionJobRepo{Pool: pool},
+		Clusters:             &repo.ClusterRepo{Pool: pool},
+		Review:               &repo.ReviewQueueRepo{Pool: pool},
+		Golden:               &repo.GoldenRecordRepo{Pool: pool},
+		Overview:             &repo.OverviewRepo{Pool: pool},
+		RecordLoader:         recordLoader,
+		HealthCheckPublisher: healthPublisher,
 	}
 	metrics := observability.NewMetrics()
 

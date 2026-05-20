@@ -9,19 +9,27 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/domain"
 	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/repo"
 )
 
-// Handlers wires the fusion-plane repos.
+// Handlers wires the fusion-plane repos. RecordLoader is consulted by
+// RunJob whenever a job's config carries `Sources` (otherwise the
+// engine falls back to synthetic fixtures, keeping CI/dev smoke
+// behaviour unchanged). HealthCheckPublisher posts precision/recall
+// snapshots to telemetry-governance-service so the Data Health
+// surface lights up — a nil or no-op publisher is fine.
 type Handlers struct {
-	Rules           *repo.MatchRuleRepo
-	MergeStrategies *repo.MergeStrategyRepo
-	Jobs            *repo.FusionJobRepo
-	Clusters        *repo.ClusterRepo
-	Review          *repo.ReviewQueueRepo
-	Golden          *repo.GoldenRecordRepo
-	Overview        *repo.OverviewRepo
+	Rules                *repo.MatchRuleRepo
+	MergeStrategies      *repo.MergeStrategyRepo
+	Jobs                 *repo.FusionJobRepo
+	Clusters             *repo.ClusterRepo
+	Review               *repo.ReviewQueueRepo
+	Golden               *repo.GoldenRecordRepo
+	Overview             *repo.OverviewRepo
+	RecordLoader         domain.RecordLoader
+	HealthCheckPublisher domain.HealthCheckPublisher
 }
 
 // --- helpers ------------------------------------------------------------

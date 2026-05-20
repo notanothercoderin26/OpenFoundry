@@ -65,9 +65,37 @@ func main() {
 
 	metrics := observability.NewMetrics()
 	store := repo.NewPgStore(pool)
+
+	// Embedder wiring. When EMBEDDING_PROVIDER_URL is set we route
+	// through libs/ai-kernel-go's HTTP embedder (OpenAI-compatible
+	// or Ollama). Unset keeps the deterministic 15-dim hash
+	// fallback so CI / single-service dev runs work without a
+	// model server.
+	var embedder handlers.Embedder = handlers.OfflineEmbedder{}
+	if cfg.EmbeddingProviderURL != "" {
+		remote, err := handlers.NewRemoteEmbedder(handlers.RemoteEmbedderConfig{
+			EndpointURL:      cfg.EmbeddingProviderURL,
+			ModelName:        cfg.EmbeddingModelName,
+			APIMode:          cfg.EmbeddingAPIMode,
+			CredentialEnvVar: cfg.EmbeddingCredentialEnv,
+		})
+		if err != nil {
+			log.Error("embedder init failed — refusing to start", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		embedder = remote
+		log.Info("retrieval-context embedder wired",
+			slog.String("provider_url", cfg.EmbeddingProviderURL),
+			slog.String("model", cfg.EmbeddingModelName),
+			slog.String("api_mode", cfg.EmbeddingAPIMode),
+			slog.String("tag", remote.Model()))
+	} else {
+		log.Info("retrieval-context embedder using offline-hash-15 fallback (EMBEDDING_PROVIDER_URL unset)")
+	}
+
 	deps := server.Deps{
 		Jobs:      &handlers.Jobs{Store: store, Logger: log},
-		Knowledge: &handlers.Knowledge{Pool: pool},
+		Knowledge: &handlers.Knowledge{Pool: pool, Embedder: embedder},
 		JWT:       authmw.NewJWTConfig(cfg.JWTSecret),
 	}
 

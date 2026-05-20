@@ -22,6 +22,17 @@ type Config struct {
 	}
 	DatabaseURL string
 	JWTSecret   string
+
+	// Embedding — when EmbeddingProviderURL is set, the knowledge
+	// handler swaps the 15-dim hash fallback for a real
+	// provider-backed embedder (OpenAI / Ollama / vLLM via
+	// libs/ai-kernel-go). All four fields are validated together at
+	// startup; leaving EmbeddingProviderURL empty keeps the offline
+	// fallback so CI/dev stays deterministic.
+	EmbeddingProviderURL  string
+	EmbeddingModelName    string
+	EmbeddingAPIMode      string // "chat_completions" (OpenAI / vLLM) or "chat" (Ollama)
+	EmbeddingCredentialEnv string // env-var name to pull bearer token from
 }
 
 func FromEnv() (*Config, error) {
@@ -32,6 +43,10 @@ func FromEnv() (*Config, error) {
 	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50098)
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
+	cfg.EmbeddingProviderURL = os.Getenv("EMBEDDING_PROVIDER_URL")
+	cfg.EmbeddingModelName = os.Getenv("EMBEDDING_MODEL_NAME")
+	cfg.EmbeddingAPIMode = defaultStr(os.Getenv("EMBEDDING_API_MODE"), "chat_completions")
+	cfg.EmbeddingCredentialEnv = os.Getenv("EMBEDDING_CREDENTIAL_ENV")
 	return cfg, nil
 }
 

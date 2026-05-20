@@ -19,6 +19,19 @@ type Config struct {
 	}
 	DatabaseURL string
 	JWTSecret   string
+
+	// ObjectDatabaseURL — when set, the RunJob handler routes
+	// jobs with `Sources` through an HTTPObjectTypeLoader against
+	// object-database-service. Unset leaves the loader nil so jobs
+	// fall back to synthetic fixtures (CI/dev behaviour).
+	ObjectDatabaseURL string
+	// Tenant — default x-of-tenant header value sent to
+	// object-database-service. Per-source bindings can override it.
+	Tenant string
+	// TelemetryGovernanceURL — when set, RunJob posts a
+	// `health-checks` snapshot after every run so Foundry-style
+	// Data Health panels light up. Unset wires a NoopHealthCheckPublisher.
+	TelemetryGovernanceURL string
 }
 
 func FromEnv() (*Config, error) {
@@ -29,6 +42,9 @@ func FromEnv() (*Config, error) {
 	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50058)
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
+	cfg.ObjectDatabaseURL = os.Getenv("OBJECT_DATABASE_URL")
+	cfg.Tenant = defaultStr(os.Getenv("OF_TENANT"), "default")
+	cfg.TelemetryGovernanceURL = os.Getenv("TELEMETRY_GOVERNANCE_URL")
 
 	if cfg.DatabaseURL == "" {
 		return nil, &MissingEnvError{Key: "DATABASE_URL"}

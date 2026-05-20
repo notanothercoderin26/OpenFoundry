@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -111,7 +112,25 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records := domain.SynthesizeEntityRecords(job.EntityType, job.Config)
+	// Source selection: when the job config pins real sources we
+	// pull through h.RecordLoader (object-database-service today;
+	// dataset-versioning-service in a follow-up); otherwise the
+	// engine runs over the synthetic fixtures so CI / dev smoke
+	// behaviour is unchanged.
+	var records []models.EntityRecord
+	if len(job.Config.Sources) > 0 && h.RecordLoader != nil {
+		loaded, err := h.RecordLoader.LoadEntityRecords(r.Context(), job.Config.Sources, int(job.Config.RecordCount))
+		if err != nil {
+			slog.Error("entity-resolution loader failed",
+				slog.String("job_id", job.ID.String()),
+				slog.String("error", err.Error()))
+			writeError(w, http.StatusBadGateway, "failed to load records from configured sources")
+			return
+		}
+		records = loaded
+	} else {
+		records = domain.SynthesizeEntityRecords(job.EntityType, job.Config)
+	}
 	if len(records) < 2 {
 		writeError(w, http.StatusBadRequest, "resolution job requires at least two records")
 		return
@@ -238,6 +257,17 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database operation failed")
 		return
+	}
+
+	// Publish a Data Health snapshot of the run. Best-effort — a
+	// failing publisher is logged and swallowed; the resolution
+	// result is authoritative.
+	if h.HealthCheckPublisher != nil {
+		if err := h.HealthCheckPublisher.PublishJobMetrics(r.Context(), &updatedJob, metrics); err != nil {
+			slog.Warn("publish ER health-check failed",
+				slog.String("job_id", updatedJob.ID.String()),
+				slog.String("error", err.Error()))
+		}
 	}
 
 	clusterIDs := make([]uuid.UUID, len(clusters))

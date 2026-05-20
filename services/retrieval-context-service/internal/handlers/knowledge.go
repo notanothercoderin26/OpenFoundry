@@ -36,9 +36,23 @@ const EmbeddingDims = 15
 // long doc produces many cheap signatures.
 const MaxChunkChars = 1200
 
-// Knowledge bundles the document upload + retrieval handlers.
+// Knowledge bundles the document upload + retrieval handlers. The
+// Embedder is pluggable so cmd/main can wire the offline-hash
+// fallback (CI/dev) or a real provider-backed embedder (PoC and
+// production) without re-touching the handler.
 type Knowledge struct {
-	Pool *pgxpool.Pool
+	Pool     *pgxpool.Pool
+	Embedder Embedder
+}
+
+// embedder returns the configured Embedder or falls back to the
+// offline hash. The fallback keeps single-test handlers working
+// without having to construct the embedder up-front.
+func (h *Knowledge) embedder() Embedder {
+	if h.Embedder != nil {
+		return h.Embedder
+	}
+	return OfflineEmbedder{}
 }
 
 // UploadDocumentRequest is POST /api/v1/retrieval/documents body.
@@ -116,6 +130,9 @@ func (h *Knowledge) UploadDocument(w http.ResponseWriter, r *http.Request) {
 	chunks := splitIntoChunks(body.Content, MaxChunkChars)
 	doc.ChunkCount = len(chunks)
 
+	embedder := h.embedder()
+	model := embedder.Model()
+
 	tx, err := h.Pool.Begin(r.Context())
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -133,12 +150,16 @@ func (h *Knowledge) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i, ch := range chunks {
-		emb := embed(ch)
+		emb, err := embedder.Embed(r.Context(), ch)
+		if err != nil {
+			writeJSONError(w, http.StatusBadGateway, "embedder failed: "+err.Error())
+			return
+		}
 		_, err = tx.Exec(r.Context(),
 			`INSERT INTO knowledge_document_chunks
-			    (id, document_id, chunk_index, content, embedding, char_length)
-			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			uuid.New(), doc.ID, i, ch, emb, len(ch),
+			    (id, document_id, chunk_index, content, embedding, embedding_model, char_length)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			uuid.New(), doc.ID, i, ch, emb, model, len(ch),
 		)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -176,12 +197,19 @@ func (h *Knowledge) Search(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Knowledge) searchChunks(ctx context.Context, kb, query string, limit int) ([]SearchHit, error) {
+	// Filter to chunks produced by the currently-wired embedder.
+	// Mixed-dim corpora (legacy 15-dim hash chunks + new 1536-dim
+	// OpenAI chunks living in the same row set) would silently
+	// score 0 and starve retrieval — the filter prevents that.
+	embedder := h.embedder()
+	model := embedder.Model()
 	q := `SELECT c.document_id, d.title, c.chunk_index, c.content, c.embedding
 	        FROM knowledge_document_chunks c
-	        JOIN knowledge_documents d ON d.id = c.document_id`
-	var args []any
+	        JOIN knowledge_documents d ON d.id = c.document_id
+	       WHERE c.embedding_model = $1`
+	args := []any{model}
 	if kb != "" {
-		q += ` WHERE d.knowledge_base_id = $1`
+		q += ` AND d.knowledge_base_id = $2`
 		args = append(args, kb)
 	}
 	rows, err := h.Pool.Query(ctx, q, args...)
@@ -189,7 +217,10 @@ func (h *Knowledge) searchChunks(ctx context.Context, kb, query string, limit in
 		return nil, err
 	}
 	defer rows.Close()
-	qEmb := embed(query)
+	qEmb, err := embedder.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("embedder failed: %w", err)
+	}
 	qWords := wordsOf(query)
 	scored := make([]SearchHit, 0)
 	for rows.Next() {

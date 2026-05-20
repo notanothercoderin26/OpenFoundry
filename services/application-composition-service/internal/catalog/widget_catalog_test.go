@@ -33,7 +33,7 @@ func TestLoadWidgetCatalogValidatesDataDrivenContract(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "2026-05-11.ws.22", doc.CatalogVersion)
 	require.Equal(t, WidgetCatalogSchemaVersion, doc.SchemaVersion)
-	require.Len(t, doc.Items, 18)
+	require.Len(t, doc.Items, 19)
 
 	seen := map[string]bool{}
 	for _, item := range doc.Items {
@@ -61,6 +61,7 @@ func TestLoadWidgetCatalogValidatesDataDrivenContract(t *testing.T) {
 	require.True(t, seen["button_group"])
 	require.True(t, seen["free_form_analysis"])
 	require.True(t, seen["timeline"])
+	require.True(t, seen["vertex_graph_embed"])
 }
 
 func TestWidgetCatalogSnapshot(t *testing.T) {

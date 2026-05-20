@@ -21,6 +21,7 @@ import {
 } from '@/routes/apps/WorkshopEditorPage';
 import { FreeFormAnalysisWidget } from './FreeFormAnalysisWidget';
 import { WorkshopTimelineWidget } from './WorkshopTimelineWidget';
+import { WorkshopVertexGraphEmbedWidget } from './WorkshopVertexGraphEmbedWidget';
 import { useRuntime } from './workshop-runtime-context';
 
 import { registerWidget, type WidgetRenderProps } from './registry';
@@ -79,6 +80,10 @@ function ScenarioAdapter({ widget }: WidgetRenderProps) {
   return <ScenarioWidgetView widget={widget} />;
 }
 
+function VertexGraphEmbedAdapter({ widget }: WidgetRenderProps) {
+  return <WorkshopVertexGraphEmbedWidget widget={widget} />;
+}
+
 function TimelineAdapter({ widget }: WidgetRenderProps) {
   const { variables } = useWorkshopData();
   const runtime = useRuntime();
@@ -110,4 +115,5 @@ export function registerWorkshopWidgets(): void {
   registerWidget({ type: 'free_form_analysis', Component: FreeFormAnalysisAdapter, label: 'Free-form analysis', version: '1.0.0' });
   registerWidget({ type: 'scenario', Component: ScenarioAdapter, label: 'Scenario controls', version: '1.0.0' });
   registerWidget({ type: 'timeline', Component: TimelineAdapter, label: 'Timeline', version: '1.0.0' });
+  registerWidget({ type: 'vertex_graph_embed', Component: VertexGraphEmbedAdapter, label: 'Vertex Graph', version: '1.0.0' });
 }
