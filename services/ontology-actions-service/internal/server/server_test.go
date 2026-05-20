@@ -34,7 +34,7 @@ func newTestRouter(t *testing.T) http.Handler {
 	cfg.Service.Version = "test"
 	cfg.JWTSecret = testJWTSecret
 	state := &ontologykernel.AppState{Stores: stores.NewInMemory()}
-	return server.BuildRouter(cfg, state, nil)
+	return server.BuildRouter(cfg, state, nil, nil)
 }
 
 func TestBuildRouterRequiresAppState(t *testing.T) {
@@ -48,7 +48,7 @@ func TestBuildRouterRequiresAppState(t *testing.T) {
 			t.Fatal("expected BuildRouter to panic without AppState")
 		}
 	}()
-	_ = server.BuildRouter(cfg, nil, nil)
+	_ = server.BuildRouter(cfg, nil, nil, nil)
 }
 
 func devToken(t *testing.T) string {
@@ -148,7 +148,7 @@ func TestMetricsEndpointRegistersActionCollectors(t *testing.T) {
 	cfg.JWTSecret = testJWTSecret
 	state := &ontologykernel.AppState{Stores: stores.NewInMemory()}
 	m := observability.NewMetrics()
-	router := server.BuildRouter(cfg, state, m)
+	router := server.BuildRouter(cfg, state, m, nil)
 	if actionMetrics := ontologymetrics.ActionMetricsSingleton(); actionMetrics != nil {
 		actionMetrics.RecordSuccess("metrics-smoke", 0.001)
 		actionMetrics.RecordFailure("metrics-smoke", ontologymetrics.FailureTypeInvalidParameter, 0.002)
@@ -171,7 +171,7 @@ func TestExecuteActionRouteAppliesUpdateObject(t *testing.T) {
 	cfg.Service.Version = "test"
 	cfg.JWTSecret = testJWTSecret
 	state := &ontologykernel.AppState{Stores: stores.NewInMemory(), JWTConfig: authmw.NewJWTConfig(testJWTSecret)}
-	router := server.BuildRouter(cfg, state, nil)
+	router := server.BuildRouter(cfg, state, nil, nil)
 
 	objectTypeID := uuid.New()
 	objectID := uuid.New()

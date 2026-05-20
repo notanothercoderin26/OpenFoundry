@@ -162,7 +162,7 @@ func TestFunctionPackageSimulateUsesPythonSidecarManager(t *testing.T) {
 	t.Cleanup(func() { _ = mgr.Stop(context.Background()) })
 	state.PythonRuntime = pythonRuntimeAdapter{mgr: mgr}
 
-	router := server.BuildRouter(cfg, state, nil)
+	router := server.BuildRouter(cfg, state, nil, nil)
 	owner := uuid.New()
 	created := postJSON(t, router, "/api/v1/ontology/functions", map[string]any{
 		"name":    "score_case",
@@ -196,7 +196,7 @@ func TestFunctionPackageSimulateUsesPythonSidecarManager(t *testing.T) {
 func TestFunctionPackageSimulateWithoutSidecarReturnsMachineReadableError(t *testing.T) {
 	cfg := serviceTestConfig()
 	state := newAppState(cfg, nil, stores.NewInMemory())
-	router := server.BuildRouter(cfg, state, nil)
+	router := server.BuildRouter(cfg, state, nil, nil)
 	owner := uuid.New()
 
 	created := postJSON(t, router, "/api/v1/ontology/functions", map[string]any{

@@ -23,30 +23,42 @@ type Store interface {
 	ListObjectTypes(ctx context.Context) ([]models.ObjectType, error)
 	GetObjectType(ctx context.Context, id uuid.UUID) (*models.ObjectType, error)
 	CreateObjectType(ctx context.Context, body *models.CreateObjectTypeRequest, ownerID uuid.UUID) (*models.ObjectType, error)
-	UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.UpdateObjectTypeRequest) (*models.ObjectType, error)
-	UpdateAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage) (*models.ObjectType, error)
-	DeleteObjectType(ctx context.Context, id uuid.UUID) (bool, error)
+	UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.UpdateObjectTypeRequest, actorID uuid.UUID) (*models.ObjectType, error)
+	UpdateAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage, actorID uuid.UUID) (*models.ObjectType, error)
+	DeleteObjectType(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error)
 
 	ListProperties(ctx context.Context, typeID uuid.UUID) ([]models.Property, error)
-	CreateProperty(ctx context.Context, typeID uuid.UUID, body *models.CreatePropertyRequest) (*models.Property, error)
+	GetProperty(ctx context.Context, id uuid.UUID) (*models.Property, error)
+	CreateProperty(ctx context.Context, typeID uuid.UUID, body *models.CreatePropertyRequest, actorID uuid.UUID) (*models.Property, error)
+	UpdateProperty(ctx context.Context, id uuid.UUID, body *models.UpdatePropertyRequest, actorID uuid.UUID) (*models.Property, error)
+	DeleteProperty(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error)
 
 	ListLinkTypes(ctx context.Context, objectTypeID *uuid.UUID) ([]models.LinkType, error)
 	GetLinkType(ctx context.Context, id uuid.UUID) (*models.LinkType, error)
 	CreateLinkType(ctx context.Context, body *models.CreateLinkTypeRequest, ownerID uuid.UUID) (*models.LinkType, error)
-	UpdateLinkType(ctx context.Context, id uuid.UUID, body *models.UpdateLinkTypeRequest) (*models.LinkType, error)
-	UpdateLinkTypeAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage) (*models.LinkType, error)
-	DeleteLinkType(ctx context.Context, id uuid.UUID) (bool, error)
+	UpdateLinkType(ctx context.Context, id uuid.UUID, body *models.UpdateLinkTypeRequest, actorID uuid.UUID) (*models.LinkType, error)
+	UpdateLinkTypeAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage, actorID uuid.UUID) (*models.LinkType, error)
+	DeleteLinkType(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error)
 
 	ListObjectTypeGroups(ctx context.Context, search string, limit, offset int64) ([]models.ObjectTypeGroup, int64, error)
 	GetObjectTypeGroup(ctx context.Context, id uuid.UUID) (*models.ObjectTypeGroup, error)
 	CreateObjectTypeGroup(ctx context.Context, body *models.CreateObjectTypeGroupRequest, ownerID uuid.UUID) (*models.ObjectTypeGroup, error)
 	UpdateObjectTypeGroup(ctx context.Context, id uuid.UUID, body *models.UpdateObjectTypeGroupRequest, actorID uuid.UUID) (*models.ObjectTypeGroup, error)
-	DeleteObjectTypeGroup(ctx context.Context, id uuid.UUID) (bool, error)
-	AddObjectTypeToGroup(ctx context.Context, groupID, objectTypeID uuid.UUID) (*models.ObjectTypeGroup, error)
-	RemoveObjectTypeFromGroup(ctx context.Context, groupID, objectTypeID uuid.UUID) (*models.ObjectTypeGroup, error)
+	DeleteObjectTypeGroup(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error)
+	AddObjectTypeToGroup(ctx context.Context, groupID, objectTypeID, actorID uuid.UUID) (*models.ObjectTypeGroup, error)
+	RemoveObjectTypeFromGroup(ctx context.Context, groupID, objectTypeID, actorID uuid.UUID) (*models.ObjectTypeGroup, error)
 
 	ListInterfaces(ctx context.Context, page, perPage int, search string) ([]models.OntologyInterface, int, error)
+	GetInterface(ctx context.Context, id uuid.UUID) (*models.OntologyInterface, error)
+	CreateInterface(ctx context.Context, body *models.CreateOntologyInterfaceRequest, ownerID uuid.UUID) (*models.OntologyInterface, error)
+	UpdateInterface(ctx context.Context, id uuid.UUID, body *models.UpdateOntologyInterfaceRequest, actorID uuid.UUID) (*models.OntologyInterface, error)
+	DeleteInterface(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error)
+
 	ListSharedPropertyTypes(ctx context.Context, page, perPage int, search string) ([]models.SharedPropertyType, int, error)
+	GetSharedPropertyType(ctx context.Context, id uuid.UUID) (*models.SharedPropertyType, error)
+	CreateSharedPropertyType(ctx context.Context, body *models.CreateSharedPropertyTypeRequest, ownerID uuid.UUID) (*models.SharedPropertyType, error)
+	UpdateSharedPropertyType(ctx context.Context, id uuid.UUID, body *models.UpdateSharedPropertyTypeRequest, actorID uuid.UUID) (*models.SharedPropertyType, error)
+	DeleteSharedPropertyType(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error)
 
 	// SaveBatch applies the working-state of the Review-edits modal
 	// atomically. See repo.SaveBatch for the semantics.
@@ -158,7 +170,7 @@ func (h *Handlers) UpdateObjectType(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, status, msg)
 		return
 	}
-	v, err := h.Repo.UpdateObjectType(r.Context(), id, &body)
+	v, err := h.Repo.UpdateObjectType(r.Context(), id, &body, caller.Sub)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -175,6 +187,11 @@ func (h *Handlers) UpdateObjectType(w http.ResponseWriter, r *http.Request) {
 // free-form JSON object keyed by app name (e.g. `vertex_event`); see
 // migration 0004 for the shape.
 func (h *Handlers) UpdateObjectTypeAppCapabilities(w http.ResponseWriter, r *http.Request) {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
@@ -194,7 +211,7 @@ func (h *Handlers) UpdateObjectTypeAppCapabilities(w http.ResponseWriter, r *htt
 		writeJSONErr(w, http.StatusBadRequest, "app_capabilities must be a JSON object")
 		return
 	}
-	v, err := h.Repo.UpdateAppCapabilities(r.Context(), id, body.AppCapabilities)
+	v, err := h.Repo.UpdateAppCapabilities(r.Context(), id, body.AppCapabilities, caller.Sub)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -368,7 +385,8 @@ func firstTrimmedString(values ...*string) string {
 }
 
 func (h *Handlers) DeleteObjectType(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -377,7 +395,7 @@ func (h *Handlers) DeleteObjectType(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	deleted, err := h.Repo.DeleteObjectType(r.Context(), id)
+	deleted, err := h.Repo.DeleteObjectType(r.Context(), id, caller.Sub)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return

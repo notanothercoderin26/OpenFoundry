@@ -612,16 +612,23 @@ func parseArrayPropertyType(propertyType string) (bool, *string) {
 }
 
 type CreatePropertyRequest struct {
-	Name             string `json:"name"`
-	DisplayName      string `json:"display_name"`
-	Description      string `json:"description,omitempty"`
-	PropertyType     string `json:"property_type"`
-	Required         bool   `json:"required,omitempty"`
-	UniqueConstraint bool   `json:"unique_constraint,omitempty"`
-	TimeDependent    bool   `json:"time_dependent,omitempty"`
-	DefaultValue     any    `json:"default_value,omitempty"`
-	ValidationRules  any    `json:"validation_rules,omitempty"`
-	InlineEditConfig any    `json:"inline_edit_config,omitempty"`
+	// ID lets the caller pre-assign the property's uuid. The
+	// Ontology-Manager working state uses this to stage multiple
+	// related creates in one batch — e.g. a property whose
+	// `object_type_id` points at another not-yet-committed create
+	// in the same batch — without a follow-up "resolve ids" round
+	// trip. Optional. When nil, the server generates a fresh uuid.
+	ID               *uuid.UUID `json:"id,omitempty"`
+	Name             string     `json:"name"`
+	DisplayName      string     `json:"display_name"`
+	Description      string     `json:"description,omitempty"`
+	PropertyType     string     `json:"property_type"`
+	Required         bool       `json:"required,omitempty"`
+	UniqueConstraint bool       `json:"unique_constraint,omitempty"`
+	TimeDependent    bool       `json:"time_dependent,omitempty"`
+	DefaultValue     any        `json:"default_value,omitempty"`
+	ValidationRules  any        `json:"validation_rules,omitempty"`
+	InlineEditConfig any        `json:"inline_edit_config,omitempty"`
 }
 
 // UpdatePropertyRequest is the payload for property updates via the
@@ -760,8 +767,7 @@ type OntologyInterface struct {
 }
 
 // SharedPropertyType mirrors `ontology_schema.shared_property_types`
-// rows. Same scope as `OntologyInterface`: read-only for the catalog
-// view, CRUD pending.
+// rows. CRUD wired in repo via libs/outbox.
 type SharedPropertyType struct {
 	ID               uuid.UUID `json:"id"`
 	Name             string    `json:"name"`
@@ -776,4 +782,59 @@ type SharedPropertyType struct {
 	OwnerID          uuid.UUID `json:"owner_id"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+	// Version is the optimistic-concurrency token; bumped by every
+	// successful UPDATE. The Review-edits modal echoes it as
+	// `expected_version` so stale shared-property edits surface in
+	// the Conflicts tab.
+	Version int `json:"version"`
+}
+
+// CreateOntologyInterfaceRequest is the wire payload accepted by
+// `POST /interfaces`. Mirrors the Foundry contract: an interface
+// declares a name + display name + description; object types bind to
+// it later via batch-save edits.
+type CreateOntologyInterfaceRequest struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Description string `json:"description"`
+}
+
+// UpdateOntologyInterfaceRequest is the partial-update payload
+// accepted by `PATCH /interfaces/{id}`. Nil pointers mean "leave
+// unchanged" — matches the convention used by Object Type / Link Type
+// updates in this package.
+type UpdateOntologyInterfaceRequest struct {
+	DisplayName *string `json:"display_name,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// CreateSharedPropertyTypeRequest is the wire payload accepted by
+// `POST /shared-property-types`. The fields mirror
+// `SharedPropertyType` minus the server-set columns (`id`, `owner_id`,
+// `created_at`, `updated_at`).
+type CreateSharedPropertyTypeRequest struct {
+	Name             string `json:"name"`
+	DisplayName      string `json:"display_name"`
+	Description      string `json:"description"`
+	PropertyType     string `json:"property_type"`
+	Required         bool   `json:"required"`
+	UniqueConstraint bool   `json:"unique_constraint"`
+	TimeDependent    bool   `json:"time_dependent"`
+	DefaultValue     any    `json:"default_value,omitempty"`
+	ValidationRules  any    `json:"validation_rules,omitempty"`
+}
+
+// UpdateSharedPropertyTypeRequest is the partial-update payload for
+// `PATCH /shared-property-types/{id}`. The `property_type` field is
+// deliberately not included — changing the underlying data type of a
+// shared property would break every object type bound to it; callers
+// must delete and re-create instead.
+type UpdateSharedPropertyTypeRequest struct {
+	DisplayName      *string `json:"display_name,omitempty"`
+	Description      *string `json:"description,omitempty"`
+	Required         *bool   `json:"required,omitempty"`
+	UniqueConstraint *bool   `json:"unique_constraint,omitempty"`
+	TimeDependent    *bool   `json:"time_dependent,omitempty"`
+	DefaultValue     any     `json:"default_value,omitempty"`
+	ValidationRules  any     `json:"validation_rules,omitempty"`
 }

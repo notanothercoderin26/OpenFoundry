@@ -36,8 +36,88 @@ func (h *Handlers) ListProperties(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": items})
 }
 
-func (h *Handlers) CreateProperty(w http.ResponseWriter, r *http.Request) {
+// GetProperty surfaces a single property record by id. Used by
+// agents and SDKs that need to inspect a property before mutating it.
+func (h *Handlers) GetProperty(w http.ResponseWriter, r *http.Request) {
 	if _, ok := authmw.FromContext(r.Context()); !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "propertyID"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid property id")
+		return
+	}
+	p, err := h.Repo.GetProperty(r.Context(), id)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if p == nil {
+		writeJSONErr(w, http.StatusNotFound, "property not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// UpdateProperty applies a partial update to one property and emits
+// the corresponding outbox event. The expected_version check lives
+// inside the repo's `updatePropertyTx`; conflicts surface as 409.
+func (h *Handlers) UpdateProperty(w http.ResponseWriter, r *http.Request) {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "propertyID"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid property id")
+		return
+	}
+	var body models.UpdatePropertyRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	updated, err := h.Repo.UpdateProperty(r.Context(), id, &body, caller.Sub)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if updated == nil {
+		writeJSONErr(w, http.StatusNotFound, "property not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// DeleteProperty removes a property and emits a deleted event.
+func (h *Handlers) DeleteProperty(w http.ResponseWriter, r *http.Request) {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "propertyID"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid property id")
+		return
+	}
+	deleted, err := h.Repo.DeleteProperty(r.Context(), id, caller.Sub)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !deleted {
+		writeJSONErr(w, http.StatusNotFound, "property not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) CreateProperty(w http.ResponseWriter, r *http.Request) {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -59,7 +139,7 @@ func (h *Handlers) CreateProperty(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	created, err := h.Repo.CreateProperty(r.Context(), typeID, &body)
+	created, err := h.Repo.CreateProperty(r.Context(), typeID, &body, caller.Sub)
 	if err != nil {
 		slog.Error("create property", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "failed to create property")
@@ -146,7 +226,8 @@ func (h *Handlers) CreateLinkType(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) UpdateLinkType(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -168,7 +249,7 @@ func (h *Handlers) UpdateLinkType(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid visibility")
 		return
 	}
-	updated, err := h.Repo.UpdateLinkType(r.Context(), id, &body)
+	updated, err := h.Repo.UpdateLinkType(r.Context(), id, &body, caller.Sub)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -185,7 +266,8 @@ func (h *Handlers) UpdateLinkType(w http.ResponseWriter, r *http.Request) {
 // payload must be a JSON object; concrete shapes are documented in
 // the models package (LinkAppCapabilities / VertexEdgeDirectionCapability).
 func (h *Handlers) UpdateLinkTypeAppCapabilities(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -207,7 +289,7 @@ func (h *Handlers) UpdateLinkTypeAppCapabilities(w http.ResponseWriter, r *http.
 		writeJSONErr(w, http.StatusBadRequest, "app_capabilities must be a JSON object")
 		return
 	}
-	updated, err := h.Repo.UpdateLinkTypeAppCapabilities(r.Context(), id, body.AppCapabilities)
+	updated, err := h.Repo.UpdateLinkTypeAppCapabilities(r.Context(), id, body.AppCapabilities, caller.Sub)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -220,7 +302,8 @@ func (h *Handlers) UpdateLinkTypeAppCapabilities(w http.ResponseWriter, r *http.
 }
 
 func (h *Handlers) DeleteLinkType(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -229,7 +312,7 @@ func (h *Handlers) DeleteLinkType(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	deleted, err := h.Repo.DeleteLinkType(r.Context(), id)
+	deleted, err := h.Repo.DeleteLinkType(r.Context(), id, caller.Sub)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -347,7 +430,8 @@ func (h *Handlers) UpdateObjectTypeGroup(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handlers) DeleteObjectTypeGroup(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -356,7 +440,7 @@ func (h *Handlers) DeleteObjectTypeGroup(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	deleted, err := h.Repo.DeleteObjectTypeGroup(r.Context(), id)
+	deleted, err := h.Repo.DeleteObjectTypeGroup(r.Context(), id, caller.Sub)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -369,7 +453,8 @@ func (h *Handlers) DeleteObjectTypeGroup(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handlers) AddObjectTypeToGroup(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -377,7 +462,7 @@ func (h *Handlers) AddObjectTypeToGroup(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	group, err := h.Repo.AddObjectTypeToGroup(r.Context(), groupID, objectTypeID)
+	group, err := h.Repo.AddObjectTypeToGroup(r.Context(), groupID, objectTypeID, caller.Sub)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -390,7 +475,8 @@ func (h *Handlers) AddObjectTypeToGroup(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handlers) RemoveObjectTypeFromGroup(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -398,7 +484,7 @@ func (h *Handlers) RemoveObjectTypeFromGroup(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
-	group, err := h.Repo.RemoveObjectTypeFromGroup(r.Context(), groupID, objectTypeID)
+	group, err := h.Repo.RemoveObjectTypeFromGroup(r.Context(), groupID, objectTypeID, caller.Sub)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return

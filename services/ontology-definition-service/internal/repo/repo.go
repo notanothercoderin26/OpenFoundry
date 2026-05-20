@@ -109,193 +109,132 @@ func (r *Repo) GetObjectType(ctx context.Context, id uuid.UUID) (*models.ObjectT
 }
 
 func (r *Repo) CreateObjectType(ctx context.Context, body *models.CreateObjectTypeRequest, ownerID uuid.UUID) (*models.ObjectType, error) {
-	id := uuid.New()
-	if body.ID != nil && *body.ID != uuid.Nil {
-		id = *body.ID
-	}
-	editable := false
-	if body.Editable != nil {
-		editable = *body.Editable
-	}
-	datasourceType := normalizeBackingDatasourceType(ptrString(body.BackingDatasourceType), body.BackingRestrictedViewID, body.RestrictedViewID)
-	restrictedViewID := firstNonEmptyStringPtr(body.RestrictedViewID, body.BackingRestrictedViewID)
-	if datasourceType != "restricted_view" {
-		restrictedViewID = nil
-	}
-	policy := normalizeJSONRaw(body.RestrictedViewPolicy)
-	policyVersion := intValue(body.RestrictedViewPolicyVersion)
-	registeredPolicyVersion := intValue(body.RestrictedViewRegisteredPolicyVersion)
-	indexedPolicyVersion := intValue(body.RestrictedViewIndexedPolicyVersion)
-	storageMode := normalizedStorageMode(ptrString(body.RestrictedViewStorageMode))
-	policyUpdatedAt := body.RestrictedViewPolicyUpdatedAt
-	if len(policy) > 0 && string(policy) != "{}" && policyUpdatedAt == nil {
-		now := time.Now().UTC()
-		policyUpdatedAt = &now
-	}
-	row := r.Pool.QueryRow(ctx,
-		`INSERT INTO ontology_schema.object_types
-		    (id, name, display_name, description, primary_key_property,
-		     icon, color, owner_id, plural_display_name, editable,
-		     backing_dataset_id, backing_dataset_rid, backing_datasource_type,
-		     backing_restricted_view_id, restricted_view_policy,
-		     restricted_view_policy_version, restricted_view_registered_policy_version,
-		     restricted_view_indexed_policy_version, restricted_view_storage_mode,
-		     restricted_view_policy_updated_at, restricted_view_registered_at,
-		     restricted_view_indexed_at, pipeline_rid, managed_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-		         $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
-		 RETURNING `+objectTypeReturning,
-		id, strings.TrimSpace(body.Name), body.DisplayName, body.Description,
-		body.PrimaryKeyProperty, body.Icon, body.Color, ownerID,
-		body.PluralDisplayName, editable, body.BackingDatasetID,
-		body.BackingDatasetRID, datasourceType, restrictedViewID, policy,
-		policyVersion, registeredPolicyVersion, indexedPolicyVersion, storageMode,
-		policyUpdatedAt, body.RestrictedViewRegisteredAt,
-		body.RestrictedViewIndexedAt, body.PipelineRID, body.ManagedBy,
-	)
-	v, err := scanObjectType(row)
+	return r.runInTx(ctx, func(tx pgx.Tx) (*models.ObjectType, error) {
+		v, err := r.createObjectTypeTx(ctx, tx, body, ownerID)
+		if err != nil {
+			return nil, err
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicObjectType,
+			Aggregate:   AggregateObjectType,
+			AggregateID: v.ID.String(),
+			EventType:   EventCreated,
+			ActorID:     ownerID,
+			Version:     v.Version,
+			After:       v,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue object_type created event: %w", err)
+		}
+		return v, nil
+	})
+}
+
+// runInTx opens a Postgres transaction, runs `fn` inside it and commits
+// on success / rolls back on failure. It is the single sanctioned way
+// to combine a primary schema mutation with an outbox.Enqueue under
+// ADR-0022 atomicity. The typed `runInTx` keeps the common ObjectType
+// case ergonomic; for other return shapes use the generic `runRepoTx`
+// below.
+func (r *Repo) runInTx(ctx context.Context, fn func(tx pgx.Tx) (*models.ObjectType, error)) (*models.ObjectType, error) {
+	return runRepoTx(ctx, r.Pool, fn)
+}
+
+// runRepoTx is the generic transaction runner. Callers pass a closure
+// that performs the primary mutation and any outbox enqueues; the
+// helper rolls back on error, commits on success, and returns whatever
+// the closure produced.
+func runRepoTx[T any](ctx context.Context, pool *pgxpool.Pool, fn func(tx pgx.Tx) (T, error)) (T, error) {
+	var zero T
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, err
+		return zero, fmt.Errorf("begin tx: %w", err)
 	}
-	models.EnrichObjectTypeMetadata(v, nil)
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+
+	v, err := fn(tx)
+	if err != nil {
+		return zero, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return zero, fmt.Errorf("commit tx: %w", err)
+	}
+	committed = true
 	return v, nil
 }
 
-func (r *Repo) UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.UpdateObjectTypeRequest) (*models.ObjectType, error) {
-	current, err := r.GetObjectType(ctx, id)
-	if err != nil || current == nil {
-		return current, err
-	}
-	dn := current.DisplayName
-	if body.DisplayName != nil {
-		dn = *body.DisplayName
-	}
-	desc := current.Description
-	if body.Description != nil {
-		desc = *body.Description
-	}
-	pk := current.PrimaryKeyProperty
-	if body.PrimaryKeyProperty != nil {
-		pk = body.PrimaryKeyProperty
-	}
-	icon := current.Icon
-	if body.Icon != nil {
-		icon = body.Icon
-	}
-	color := current.Color
-	if body.Color != nil {
-		color = body.Color
-	}
-	plural := current.PluralDisplayName
-	if body.PluralDisplayName != nil {
-		plural = body.PluralDisplayName
-	}
-	editable := current.Editable
-	if body.Editable != nil {
-		editable = *body.Editable
-	}
-	backingDatasetID := current.BackingDatasetID
-	if body.BackingDatasetID != nil {
-		backingDatasetID = body.BackingDatasetID
-	}
-	backingDatasetRID := current.BackingDatasetRID
-	if body.BackingDatasetRID != nil {
-		backingDatasetRID = body.BackingDatasetRID
-	}
-	datasourceType := current.BackingDatasourceType
-	if body.BackingDatasourceType != nil {
-		datasourceType = normalizeBackingDatasourceType(*body.BackingDatasourceType, body.BackingRestrictedViewID, body.RestrictedViewID)
-	}
-	if datasourceType == "" {
-		datasourceType = normalizeBackingDatasourceType("", current.BackingRestrictedViewID, nil)
-	}
-	restrictedViewID := current.BackingRestrictedViewID
-	if body.RestrictedViewID != nil || body.BackingRestrictedViewID != nil {
-		restrictedViewID = firstNonEmptyStringPtr(body.RestrictedViewID, body.BackingRestrictedViewID)
-	}
-	if datasourceType != "restricted_view" {
-		restrictedViewID = nil
-	}
-	policy := current.RestrictedViewPolicy
-	policyUpdatedAt := current.RestrictedViewPolicyUpdatedAt
-	if len(body.RestrictedViewPolicy) > 0 {
-		policy = normalizeJSONRaw(body.RestrictedViewPolicy)
-		policyUpdatedAt = body.RestrictedViewPolicyUpdatedAt
-		if policyUpdatedAt == nil {
-			now := time.Now().UTC()
-			policyUpdatedAt = &now
+func (r *Repo) UpdateObjectType(ctx context.Context, id uuid.UUID, body *models.UpdateObjectTypeRequest, actorID uuid.UUID) (*models.ObjectType, error) {
+	return r.runInTx(ctx, func(tx pgx.Tx) (*models.ObjectType, error) {
+		current, err := getObjectTypeForUpdate(ctx, tx, id)
+		if err != nil {
+			return nil, err
 		}
-	}
-	policyVersion := current.RestrictedViewPolicyVersion
-	if body.RestrictedViewPolicyVersion != nil {
-		policyVersion = *body.RestrictedViewPolicyVersion
-	}
-	registeredPolicyVersion := current.RestrictedViewRegisteredPolicyVersion
-	if body.RestrictedViewRegisteredPolicyVersion != nil {
-		registeredPolicyVersion = *body.RestrictedViewRegisteredPolicyVersion
-	}
-	indexedPolicyVersion := current.RestrictedViewIndexedPolicyVersion
-	if body.RestrictedViewIndexedPolicyVersion != nil {
-		indexedPolicyVersion = *body.RestrictedViewIndexedPolicyVersion
-	}
-	storageMode := current.RestrictedViewStorageMode
-	if body.RestrictedViewStorageMode != nil {
-		storageMode = normalizedStorageMode(*body.RestrictedViewStorageMode)
-	}
-	restrictedViewRegisteredAt := current.RestrictedViewRegisteredAt
-	if body.RestrictedViewRegisteredAt != nil {
-		restrictedViewRegisteredAt = body.RestrictedViewRegisteredAt
-	}
-	restrictedViewIndexedAt := current.RestrictedViewIndexedAt
-	if body.RestrictedViewIndexedAt != nil {
-		restrictedViewIndexedAt = body.RestrictedViewIndexedAt
-	}
-	pipelineRID := current.PipelineRID
-	if body.PipelineRID != nil {
-		pipelineRID = body.PipelineRID
-	}
-	managedBy := current.ManagedBy
-	if body.ManagedBy != nil {
-		managedBy = body.ManagedBy
-	}
-	row := r.Pool.QueryRow(ctx,
-		`UPDATE ontology_schema.object_types SET
-		    display_name = $2, description = $3, primary_key_property = $4,
-		    icon = $5, color = $6, updated_at = $7,
-		    plural_display_name = $8, editable = $9, backing_dataset_id = $10,
-		    backing_dataset_rid = $11, backing_datasource_type = $12,
-		    backing_restricted_view_id = $13, restricted_view_policy = $14,
-		    restricted_view_policy_version = $15,
-		    restricted_view_registered_policy_version = $16,
-		    restricted_view_indexed_policy_version = $17,
-		    restricted_view_storage_mode = $18,
-		    restricted_view_policy_updated_at = $19,
-		    restricted_view_registered_at = $20,
-		    restricted_view_indexed_at = $21,
-		    pipeline_rid = $22, managed_by = $23,
-		    version = version + 1
-		  WHERE id = $1
-		  RETURNING `+objectTypeReturning,
-		id, dn, desc, pk, icon, color, time.Now().UTC(),
-		plural, editable, backingDatasetID, backingDatasetRID,
-		datasourceType, restrictedViewID, policy, policyVersion,
-		registeredPolicyVersion, indexedPolicyVersion, storageMode,
-		policyUpdatedAt, restrictedViewRegisteredAt, restrictedViewIndexedAt,
-		pipelineRID, managedBy,
-	)
-	v, err := scanObjectType(row)
-	if err != nil {
-		return nil, err
-	}
-	return v, r.enrichObjectTypeMetadata(ctx, v)
+		if current == nil {
+			return nil, nil
+		}
+		updated, err := r.updateObjectTypeTx(ctx, tx, current, body)
+		if err != nil {
+			return nil, err
+		}
+		if updated == nil {
+			return nil, nil
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicObjectType,
+			Aggregate:   AggregateObjectType,
+			AggregateID: id.String(),
+			EventType:   EventUpdated,
+			ActorID:     actorID,
+			Version:     updated.Version,
+			Before:      current,
+			After:       updated,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue object_type updated event: %w", err)
+		}
+		return updated, nil
+	})
 }
 
-func (r *Repo) DeleteObjectType(ctx context.Context, id uuid.UUID) (bool, error) {
-	cmd, err := r.Pool.Exec(ctx, `DELETE FROM ontology_schema.object_types WHERE id = $1`, id)
-	if err != nil {
-		return false, err
-	}
-	return cmd.RowsAffected() > 0, nil
+// DeleteObjectType removes an object type and emits an
+// `ontology.object_type.changed.v1` event of type `deleted`. The
+// `before` snapshot is captured inside the same transaction as the
+// DELETE so the event payload reflects the row that was actually
+// removed.
+func (r *Repo) DeleteObjectType(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error) {
+	deleted, err := runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (bool, error) {
+		before, err := getObjectTypeForUpdate(ctx, tx, id)
+		if err != nil {
+			return false, err
+		}
+		if before == nil {
+			return false, nil
+		}
+		cmd, err := tx.Exec(ctx, `DELETE FROM ontology_schema.object_types WHERE id = $1`, id)
+		if err != nil {
+			return false, err
+		}
+		if cmd.RowsAffected() == 0 {
+			return false, nil
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicObjectType,
+			Aggregate:   AggregateObjectType,
+			AggregateID: id.String(),
+			EventType:   EventDeleted,
+			ActorID:     actorID,
+			Version:     before.Version,
+			Before:      before,
+		}); err != nil {
+			return false, fmt.Errorf("enqueue object_type deleted event: %w", err)
+		}
+		return true, nil
+	})
+	return deleted, err
 }
 
 type rowLikeT interface{ Scan(...any) error }
@@ -324,23 +263,52 @@ func scanObjectType(r rowLikeT) (*models.ObjectType, error) {
 // UpdateAppCapabilities writes only the app_capabilities_json column
 // for a single object type. The payload is stored verbatim — callers
 // are responsible for sanitising / validating the JSON before they
-// invoke this. Returns the refreshed ObjectType.
-func (r *Repo) UpdateAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage) (*models.ObjectType, error) {
+// invoke this. Returns the refreshed ObjectType. Emits an
+// `ontology.object_type.changed.v1` event with type `updated` carrying
+// the before/after snapshots.
+func (r *Repo) UpdateAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage, actorID uuid.UUID) (*models.ObjectType, error) {
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
-	tag, err := r.Pool.Exec(ctx,
-		`UPDATE ontology_schema.object_types
-		    SET app_capabilities_json = $2,
-		        updated_at = NOW()
-		    WHERE id = $1`, id, []byte(payload))
-	if err != nil {
-		return nil, err
-	}
-	if tag.RowsAffected() == 0 {
-		return nil, nil
-	}
-	return r.GetObjectType(ctx, id)
+	return r.runInTx(ctx, func(tx pgx.Tx) (*models.ObjectType, error) {
+		before, err := getObjectTypeForUpdate(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		if before == nil {
+			return nil, nil
+		}
+		tag, err := tx.Exec(ctx,
+			`UPDATE ontology_schema.object_types
+			    SET app_capabilities_json = $2,
+			        updated_at = NOW(),
+			        version = version + 1
+			    WHERE id = $1`, id, []byte(payload))
+		if err != nil {
+			return nil, err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil, nil
+		}
+		row := tx.QueryRow(ctx, objectTypeSelect+` WHERE id = $1`, id)
+		updated, err := scanObjectType(row)
+		if err != nil {
+			return nil, err
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicObjectType,
+			Aggregate:   AggregateObjectType,
+			AggregateID: id.String(),
+			EventType:   EventUpdated,
+			ActorID:     actorID,
+			Version:     updated.Version,
+			Before:      before,
+			After:       updated,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue object_type app_capabilities event: %w", err)
+		}
+		return updated, nil
+	})
 }
 
 func ptrString(ptr *string) string {
@@ -439,25 +407,106 @@ func (r *Repo) ListProperties(ctx context.Context, typeID uuid.UUID) ([]models.P
 	return out, rows.Err()
 }
 
-func (r *Repo) CreateProperty(ctx context.Context, typeID uuid.UUID, body *models.CreatePropertyRequest) (*models.Property, error) {
-	id := uuid.New()
-	dn := body.DisplayName
-	if dn == "" {
-		dn = body.Name
-	}
+func (r *Repo) CreateProperty(ctx context.Context, typeID uuid.UUID, body *models.CreatePropertyRequest, actorID uuid.UUID) (*models.Property, error) {
+	return runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (*models.Property, error) {
+		p, err := r.createPropertyTx(ctx, tx, typeID, body)
+		if err != nil {
+			return nil, err
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicProperty,
+			Aggregate:   AggregateProperty,
+			AggregateID: p.ID.String(),
+			EventType:   EventCreated,
+			ActorID:     actorID,
+			Version:     p.Version,
+			After:       p,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue property created event: %w", err)
+		}
+		return p, nil
+	})
+}
+
+// GetProperty reads a single property by id. Returns nil, nil when no
+// row matches. Used by the new PATCH/DELETE endpoints to surface
+// 404s before opening the mutation transaction.
+func (r *Repo) GetProperty(ctx context.Context, id uuid.UUID) (*models.Property, error) {
 	row := r.Pool.QueryRow(ctx,
-		`INSERT INTO ontology_schema.properties
-		 (id, object_type_id, name, display_name, description, property_type,
-		  required, unique_constraint, time_dependent,
-		  default_value, validation_rules, inline_edit_config,
-		  created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
-		 RETURNING `+propertyColumns,
-		id, typeID, body.Name, dn, body.Description, body.PropertyType,
-		body.Required, body.UniqueConstraint, body.TimeDependent,
-		body.DefaultValue, body.ValidationRules, body.InlineEditConfig,
-		time.Now().UTC())
-	return scanProperty(row)
+		`SELECT `+propertyColumns+` FROM ontology_schema.properties WHERE id = $1`, id)
+	p, err := scanProperty(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return p, err
+}
+
+// UpdateProperty applies a partial update to a single property and
+// emits an `ontology.property.changed.v1` event. Mirrors the
+// transactional pattern used elsewhere in this repo: select for
+// update + mutate + outbox enqueue + commit, all atomic.
+func (r *Repo) UpdateProperty(ctx context.Context, id uuid.UUID, body *models.UpdatePropertyRequest, actorID uuid.UUID) (*models.Property, error) {
+	return runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (*models.Property, error) {
+		current, err := getPropertyForUpdate(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		if current == nil {
+			return nil, nil
+		}
+		updated, err := r.updatePropertyTx(ctx, tx, current, body)
+		if err != nil {
+			return nil, err
+		}
+		if updated == nil {
+			return nil, nil
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicProperty,
+			Aggregate:   AggregateProperty,
+			AggregateID: id.String(),
+			EventType:   EventUpdated,
+			ActorID:     actorID,
+			Version:     updated.Version,
+			Before:      current,
+			After:       updated,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue property updated event: %w", err)
+		}
+		return updated, nil
+	})
+}
+
+// DeleteProperty removes a property and emits a deleted event.
+func (r *Repo) DeleteProperty(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error) {
+	return runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (bool, error) {
+		before, err := getPropertyForUpdate(ctx, tx, id)
+		if err != nil {
+			return false, err
+		}
+		if before == nil {
+			return false, nil
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM ontology_schema.properties WHERE id = $1`, id)
+		if err != nil {
+			return false, err
+		}
+		if tag.RowsAffected() == 0 {
+			return false, nil
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicProperty,
+			Aggregate:   AggregateProperty,
+			AggregateID: id.String(),
+			EventType:   EventDeleted,
+			ActorID:     actorID,
+			Version:     before.Version,
+			Before:      before,
+		}); err != nil {
+			return false, fmt.Errorf("enqueue property deleted event: %w", err)
+		}
+		return true, nil
+	})
 }
 
 func scanProperty(r rowLikeT) (*models.Property, error) {
@@ -562,6 +611,21 @@ func (r *Repo) CreateObjectTypeGroup(ctx context.Context, body *models.CreateObj
 	if err := replaceObjectTypeGroupMembers(ctx, tx, body.Name, body.ObjectTypeIDs); err != nil {
 		return nil, err
 	}
+	created, err := getObjectTypeGroupForUpdate(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+		Topic:       TopicObjectTypeGroup,
+		Aggregate:   AggregateObjectTypeGroup,
+		AggregateID: id.String(),
+		EventType:   EventCreated,
+		ActorID:     ownerID,
+		Version:     1,
+		After:       created,
+	}); err != nil {
+		return nil, fmt.Errorf("enqueue object_type_group created event: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -632,69 +696,141 @@ func (r *Repo) UpdateObjectTypeGroup(ctx context.Context, id uuid.UUID, body *mo
 			return nil, err
 		}
 	}
+	after, err := getObjectTypeGroupForUpdate(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+		Topic:       TopicObjectTypeGroup,
+		Aggregate:   AggregateObjectTypeGroup,
+		AggregateID: id.String(),
+		EventType:   EventUpdated,
+		ActorID:     actorID,
+		Version:     after.Version,
+		Before:      current,
+		After:       after,
+	}); err != nil {
+		return nil, fmt.Errorf("enqueue object_type_group updated event: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return r.GetObjectTypeGroup(ctx, id)
 }
 
-func (r *Repo) DeleteObjectTypeGroup(ctx context.Context, id uuid.UUID) (bool, error) {
-	current, err := r.GetObjectTypeGroup(ctx, id)
-	if err != nil || current == nil {
-		return false, err
-	}
-	tx, err := r.Pool.Begin(ctx)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `UPDATE ontology_schema.object_types SET group_names = array_remove(group_names, $1), updated_at = NOW() WHERE $1 = ANY(group_names)`, current.Name); err != nil {
-		return false, err
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM ontology_schema.ontology_project_resources WHERE resource_kind = 'object_type_group' AND resource_id = $1`, id); err != nil {
-		return false, err
-	}
-	tag, err := tx.Exec(ctx, `DELETE FROM ontology_schema.object_type_groups WHERE id = $1`, id)
-	if err != nil {
-		return false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return false, err
-	}
-	return tag.RowsAffected() > 0, nil
+func (r *Repo) DeleteObjectTypeGroup(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error) {
+	return runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (bool, error) {
+		current, err := getObjectTypeGroupForUpdate(ctx, tx, id)
+		if err != nil {
+			return false, err
+		}
+		if current == nil {
+			return false, nil
+		}
+		if _, err := tx.Exec(ctx, `UPDATE ontology_schema.object_types SET group_names = array_remove(group_names, $1), updated_at = NOW() WHERE $1 = ANY(group_names)`, current.Name); err != nil {
+			return false, err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM ontology_schema.ontology_project_resources WHERE resource_kind = 'object_type_group' AND resource_id = $1`, id); err != nil {
+			return false, err
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM ontology_schema.object_type_groups WHERE id = $1`, id)
+		if err != nil {
+			return false, err
+		}
+		if tag.RowsAffected() == 0 {
+			return false, nil
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicObjectTypeGroup,
+			Aggregate:   AggregateObjectTypeGroup,
+			AggregateID: id.String(),
+			EventType:   EventDeleted,
+			ActorID:     actorID,
+			Version:     current.Version,
+			Before:      current,
+		}); err != nil {
+			return false, fmt.Errorf("enqueue object_type_group deleted event: %w", err)
+		}
+		return true, nil
+	})
 }
 
-func (r *Repo) AddObjectTypeToGroup(ctx context.Context, groupID, objectTypeID uuid.UUID) (*models.ObjectTypeGroup, error) {
-	group, err := r.GetObjectTypeGroup(ctx, groupID)
-	if err != nil || group == nil {
-		return group, err
-	}
-	_, err = r.Pool.Exec(ctx,
-		`UPDATE ontology_schema.object_types
-		 SET group_names = CASE WHEN $1 = ANY(group_names) THEN group_names ELSE array_append(group_names, $1) END,
-		     updated_at = NOW()
-		 WHERE id = $2`,
-		group.Name, objectTypeID)
-	if err != nil {
-		return nil, err
-	}
-	return r.GetObjectTypeGroup(ctx, groupID)
+// AddObjectTypeToGroup links an object type into a group and emits an
+// `ontology.object_type_group.changed.v1` `updated` event reflecting
+// the new membership set. The link state itself lives on
+// `object_types.group_names`, so consumers receive the group's view of
+// the change rather than a stand-alone link event.
+func (r *Repo) AddObjectTypeToGroup(ctx context.Context, groupID, objectTypeID, actorID uuid.UUID) (*models.ObjectTypeGroup, error) {
+	return runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (*models.ObjectTypeGroup, error) {
+		before, err := getObjectTypeGroupForUpdate(ctx, tx, groupID)
+		if err != nil {
+			return nil, err
+		}
+		if before == nil {
+			return nil, nil
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE ontology_schema.object_types
+			 SET group_names = CASE WHEN $1 = ANY(group_names) THEN group_names ELSE array_append(group_names, $1) END,
+			     updated_at = NOW()
+			 WHERE id = $2`,
+			before.Name, objectTypeID); err != nil {
+			return nil, err
+		}
+		after, err := getObjectTypeGroupForUpdate(ctx, tx, groupID)
+		if err != nil {
+			return nil, err
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicObjectTypeGroup,
+			Aggregate:   AggregateObjectTypeGroup,
+			AggregateID: groupID.String(),
+			EventType:   EventUpdated,
+			ActorID:     actorID,
+			Version:     after.Version,
+			Before:      before,
+			After:       after,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue object_type_group add-member event: %w", err)
+		}
+		return after, nil
+	})
 }
 
-func (r *Repo) RemoveObjectTypeFromGroup(ctx context.Context, groupID, objectTypeID uuid.UUID) (*models.ObjectTypeGroup, error) {
-	group, err := r.GetObjectTypeGroup(ctx, groupID)
-	if err != nil || group == nil {
-		return group, err
-	}
-	_, err = r.Pool.Exec(ctx,
-		`UPDATE ontology_schema.object_types
-		 SET group_names = array_remove(group_names, $1), updated_at = NOW()
-		 WHERE id = $2`,
-		group.Name, objectTypeID)
-	if err != nil {
-		return nil, err
-	}
-	return r.GetObjectTypeGroup(ctx, groupID)
+func (r *Repo) RemoveObjectTypeFromGroup(ctx context.Context, groupID, objectTypeID, actorID uuid.UUID) (*models.ObjectTypeGroup, error) {
+	return runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (*models.ObjectTypeGroup, error) {
+		before, err := getObjectTypeGroupForUpdate(ctx, tx, groupID)
+		if err != nil {
+			return nil, err
+		}
+		if before == nil {
+			return nil, nil
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE ontology_schema.object_types
+			 SET group_names = array_remove(group_names, $1), updated_at = NOW()
+			 WHERE id = $2`,
+			before.Name, objectTypeID); err != nil {
+			return nil, err
+		}
+		after, err := getObjectTypeGroupForUpdate(ctx, tx, groupID)
+		if err != nil {
+			return nil, err
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicObjectTypeGroup,
+			Aggregate:   AggregateObjectTypeGroup,
+			AggregateID: groupID.String(),
+			EventType:   EventUpdated,
+			ActorID:     actorID,
+			Version:     after.Version,
+			Before:      before,
+			After:       after,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue object_type_group remove-member event: %w", err)
+		}
+		return after, nil
+	})
 }
 
 func replaceObjectTypeGroupMembers(ctx context.Context, tx pgx.Tx, groupName string, objectTypeIDs []uuid.UUID) error {
@@ -767,96 +903,87 @@ func (r *Repo) GetLinkType(ctx context.Context, id uuid.UUID) (*models.LinkType,
 }
 
 func (r *Repo) CreateLinkType(ctx context.Context, body *models.CreateLinkTypeRequest, ownerID uuid.UUID) (*models.LinkType, error) {
-	id := uuid.New()
-	if body.ID != nil && *body.ID != uuid.Nil {
-		id = *body.ID
-	}
-	dn := body.DisplayName
-	if dn == "" {
-		dn = body.Name
-	}
-	card := body.Cardinality
-	if card == "" {
-		card = "many_to_many"
-	}
-	visibility := body.Visibility
-	if visibility == "" {
-		visibility = "normal"
-	}
-	mapping := body.LinkDatasourceMapping
-	if mapping == nil {
-		mapping = map[string]any{}
-	}
-	row := r.Pool.QueryRow(ctx,
-		`INSERT INTO ontology_schema.link_types
-		 (id, name, display_name, description, source_type_id, target_type_id,
-		  cardinality, label, reverse_label, visibility, link_datasource_mapping, owner_id, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
-		 RETURNING `+linkTypeColumns,
-		id, body.Name, dn, body.Description, body.SourceTypeID, body.TargetTypeID,
-		card, body.Label, body.ReverseLabel, visibility, mapping, ownerID, time.Now().UTC())
-	return scanLinkType(row)
+	return runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (*models.LinkType, error) {
+		lt, err := r.createLinkTypeTx(ctx, tx, body, ownerID)
+		if err != nil {
+			return nil, err
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicLinkType,
+			Aggregate:   AggregateLinkType,
+			AggregateID: lt.ID.String(),
+			EventType:   EventCreated,
+			ActorID:     ownerID,
+			Version:     lt.Version,
+			After:       lt,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue link_type created event: %w", err)
+		}
+		return lt, nil
+	})
 }
 
-func (r *Repo) UpdateLinkType(ctx context.Context, id uuid.UUID, body *models.UpdateLinkTypeRequest) (*models.LinkType, error) {
-	current, err := r.GetLinkType(ctx, id)
-	if err != nil || current == nil {
-		return current, err
-	}
-	displayName := current.DisplayName
-	if body.DisplayName != nil {
-		displayName = *body.DisplayName
-	}
-	description := current.Description
-	if body.Description != nil {
-		description = *body.Description
-	}
-	cardinality := current.Cardinality
-	if body.Cardinality != nil && *body.Cardinality != "" {
-		cardinality = *body.Cardinality
-	}
-	label := current.Label
-	if body.Label != nil {
-		label = *body.Label
-	}
-	reverseLabel := current.ReverseLabel
-	if body.ReverseLabel != nil {
-		reverseLabel = *body.ReverseLabel
-	}
-	visibility := current.Visibility
-	if body.Visibility != nil && *body.Visibility != "" {
-		visibility = *body.Visibility
-	}
-	mapping := current.LinkDatasourceMapping
-	if body.LinkDatasourceMapping != nil {
-		mapping = body.LinkDatasourceMapping
-	}
-	if mapping == nil {
-		mapping = map[string]any{}
-	}
-	row := r.Pool.QueryRow(ctx,
-		`UPDATE ontology_schema.link_types SET
-		   display_name = $2,
-		   description = $3,
-		   cardinality = $4,
-		   label = $5,
-		   reverse_label = $6,
-		   visibility = $7,
-		   link_datasource_mapping = $8,
-		   updated_at = $9,
-		   version = version + 1
-		 WHERE id = $1
-		 RETURNING `+linkTypeColumns,
-		id, displayName, description, cardinality, label, reverseLabel, visibility, mapping, time.Now().UTC())
-	return scanLinkType(row)
+func (r *Repo) UpdateLinkType(ctx context.Context, id uuid.UUID, body *models.UpdateLinkTypeRequest, actorID uuid.UUID) (*models.LinkType, error) {
+	return runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (*models.LinkType, error) {
+		current, err := getLinkTypeForUpdate(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		if current == nil {
+			return nil, nil
+		}
+		updated, err := r.updateLinkTypeTx(ctx, tx, current, body)
+		if err != nil {
+			return nil, err
+		}
+		if updated == nil {
+			return nil, nil
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicLinkType,
+			Aggregate:   AggregateLinkType,
+			AggregateID: id.String(),
+			EventType:   EventUpdated,
+			ActorID:     actorID,
+			Version:     updated.Version,
+			Before:      current,
+			After:       updated,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue link_type updated event: %w", err)
+		}
+		return updated, nil
+	})
 }
 
-func (r *Repo) DeleteLinkType(ctx context.Context, id uuid.UUID) (bool, error) {
-	tag, err := r.Pool.Exec(ctx, `DELETE FROM ontology_schema.link_types WHERE id = $1`, id)
-	if err != nil {
-		return false, err
-	}
-	return tag.RowsAffected() > 0, nil
+func (r *Repo) DeleteLinkType(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (bool, error) {
+	return runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (bool, error) {
+		before, err := getLinkTypeForUpdate(ctx, tx, id)
+		if err != nil {
+			return false, err
+		}
+		if before == nil {
+			return false, nil
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM ontology_schema.link_types WHERE id = $1`, id)
+		if err != nil {
+			return false, err
+		}
+		if tag.RowsAffected() == 0 {
+			return false, nil
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicLinkType,
+			Aggregate:   AggregateLinkType,
+			AggregateID: id.String(),
+			EventType:   EventDeleted,
+			ActorID:     actorID,
+			Version:     before.Version,
+			Before:      before,
+		}); err != nil {
+			return false, fmt.Errorf("enqueue link_type deleted event: %w", err)
+		}
+		return true, nil
+	})
 }
 
 func scanLinkType(r rowLikeT) (*models.LinkType, error) {
@@ -873,23 +1000,50 @@ func scanLinkType(r rowLikeT) (*models.LinkType, error) {
 // UpdateLinkTypeAppCapabilities writes only the app_capabilities_json
 // column for a single link type. Used by the Vertex edge-direction
 // editor; payload is stored verbatim — callers validate the JSON
-// before invoking this.
-func (r *Repo) UpdateLinkTypeAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage) (*models.LinkType, error) {
+// before invoking this. Emits an `ontology.link_type.changed.v1`
+// `updated` event with before/after snapshots.
+func (r *Repo) UpdateLinkTypeAppCapabilities(ctx context.Context, id uuid.UUID, payload json.RawMessage, actorID uuid.UUID) (*models.LinkType, error) {
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
-	tag, err := r.Pool.Exec(ctx,
-		`UPDATE ontology_schema.link_types
-		    SET app_capabilities_json = $2,
-		        updated_at = NOW()
-		    WHERE id = $1`, id, []byte(payload))
-	if err != nil {
-		return nil, err
-	}
-	if tag.RowsAffected() == 0 {
-		return nil, nil
-	}
-	return r.GetLinkType(ctx, id)
+	return runRepoTx(ctx, r.Pool, func(tx pgx.Tx) (*models.LinkType, error) {
+		before, err := getLinkTypeForUpdate(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		if before == nil {
+			return nil, nil
+		}
+		tag, err := tx.Exec(ctx,
+			`UPDATE ontology_schema.link_types
+			    SET app_capabilities_json = $2,
+			        updated_at = NOW(),
+			        version = version + 1
+			    WHERE id = $1`, id, []byte(payload))
+		if err != nil {
+			return nil, err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil, nil
+		}
+		updated, err := getLinkTypeForUpdate(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		if err := EnqueueSchemaEvent(ctx, tx, EventOptions{
+			Topic:       TopicLinkType,
+			Aggregate:   AggregateLinkType,
+			AggregateID: id.String(),
+			EventType:   EventUpdated,
+			ActorID:     actorID,
+			Version:     updated.Version,
+			Before:      before,
+			After:       updated,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue link_type app_capabilities event: %w", err)
+		}
+		return updated, nil
+	})
 }
 
 var _ = errors.New

@@ -14,9 +14,19 @@ export interface NodeBadgeSpec {
   tooltip: string;
 }
 
+export interface NodeRelatedShortcut {
+  count: number;
+  onClick: () => void;
+}
+
 interface NodeBadgeOverlayProps {
   cy: Core | null;
   badgesByNode: Record<string, NodeBadgeSpec[]>;
+  /** Per-node "open related items" shortcut. Rendered as a small
+   *  right-edge chevron on every entry; clicking selects the node
+   *  and opens the Related items drawer. Optional — pass undefined
+   *  or an empty record to hide the shortcut. */
+  relatedShortcutByNode?: Record<string, NodeRelatedShortcut>;
 }
 
 interface PositionedBadge extends NodeBadgeSpec {
@@ -26,17 +36,26 @@ interface PositionedBadge extends NodeBadgeSpec {
   index: number;
 }
 
+interface PositionedShortcut {
+  nodeId: string;
+  cx: number;
+  cy: number;
+  count: number;
+}
+
 const BADGE_RADIUS = 9;
 const BADGE_SPACING = 20;
 const BADGE_FILL = '#ffffff';
 const BADGE_STROKE = '#3b4250';
 
-export function NodeBadgeOverlay({ cy, badgesByNode }: NodeBadgeOverlayProps) {
+export function NodeBadgeOverlay({ cy, badgesByNode, relatedShortcutByNode }: NodeBadgeOverlayProps) {
   const [positioned, setPositioned] = useState<PositionedBadge[]>([]);
+  const [shortcuts, setShortcuts] = useState<PositionedShortcut[]>([]);
 
   useEffect(() => {
     if (!cy) {
       setPositioned([]);
+      setShortcuts([]);
       return undefined;
     }
     const recompute = () => {
@@ -61,6 +80,25 @@ export function NodeBadgeOverlay({ cy, badgesByNode }: NodeBadgeOverlayProps) {
         }
       }
       setPositioned(out);
+      if (relatedShortcutByNode) {
+        const shortOut: PositionedShortcut[] = [];
+        for (const [nodeId, spec] of Object.entries(relatedShortcutByNode)) {
+          if (!spec || spec.count === 0) continue;
+          const element = cy.$id(nodeId);
+          if (element.length === 0 || !element.isNode()) continue;
+          const node = element as NodeSingular;
+          const bb = node.renderedBoundingBox();
+          shortOut.push({
+            nodeId,
+            cx: bb.x2 + 14,
+            cy: (bb.y1 + bb.y2) / 2,
+            count: spec.count,
+          });
+        }
+        setShortcuts(shortOut);
+      } else {
+        setShortcuts([]);
+      }
     };
     recompute();
     cy.on('viewport', recompute);
@@ -73,9 +111,9 @@ export function NodeBadgeOverlay({ cy, badgesByNode }: NodeBadgeOverlayProps) {
       cy.off('layoutstop', recompute);
       cy.off('add remove', recompute);
     };
-  }, [cy, badgesByNode]);
+  }, [cy, badgesByNode, relatedShortcutByNode]);
 
-  if (positioned.length === 0) return null;
+  if (positioned.length === 0 && shortcuts.length === 0) return null;
   return (
     <svg
       aria-hidden="false"
@@ -98,6 +136,28 @@ export function NodeBadgeOverlay({ cy, badgesByNode }: NodeBadgeOverlayProps) {
               tooltip is easier to discover without enabling pointer events
               on the rest of the canvas. */}
           <circle r={BADGE_RADIUS} fill="transparent" style={{ pointerEvents: 'all' }} />
+        </g>
+      ))}
+      {shortcuts.map((s) => (
+        <g
+          key={`related::${s.nodeId}`}
+          transform={`translate(${s.cx} ${s.cy})`}
+          style={{ cursor: 'pointer', pointerEvents: 'all' }}
+          onClick={() => {
+            const handler = relatedShortcutByNode?.[s.nodeId];
+            if (handler) handler.onClick();
+          }}
+        >
+          <circle r={BADGE_RADIUS} fill={BADGE_FILL} stroke={BADGE_STROKE} strokeWidth={1} />
+          <path
+            d="M-2 -3 L2 0 L-2 3"
+            stroke={BADGE_STROKE}
+            strokeWidth={1.4}
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <title>{`Show ${s.count} related artifact${s.count === 1 ? '' : 's'}`}</title>
         </g>
       ))}
     </svg>

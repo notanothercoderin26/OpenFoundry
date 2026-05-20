@@ -42,7 +42,11 @@ pgSchemas:
   enabled: true
   instances: 3
   syncReplicas: 1
-  walLevel: replica
+  # Logical replication is required because ontology-definition-service
+  # (and any future schema-of-types service homed in pg-schemas) ships
+  # `outbox.events` rows captured by the Debezium connector
+  # `outbox-pg-schemas` per ADR-0022.
+  walLevel: logical
   storageClass: ceph-rbd
   storageSize: 100Gi
   walStorageSize: 30Gi
@@ -57,8 +61,8 @@ pgSchemas:
     workMem: 32MB
     effectiveCacheSize: 4GB
     maxConnections: "400"
-    maxReplicationSlots: "4"
-    maxWalSenders: "6"
+    maxReplicationSlots: "8"
+    maxWalSenders: "10"
 
 pgRuntimeConfig:
   enabled: true

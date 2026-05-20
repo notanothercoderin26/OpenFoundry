@@ -15,23 +15,23 @@ https://www.palantir.com/docs/foundry/workshop/widgets-object-table/
 https://www.palantir.com/docs/foundry/workshop/widgets-button-group/
 https://www.palantir.com/docs/foundry/workshop/widgets-map/
 https://www.palantir.com/docs/foundry/workshop/branching-rebasing/
-https://www.palantir.com/docs/foundry/workshop/variables/
-https://www.palantir.com/docs/foundry/workshop/publishing/
+https://www.palantir.com/docs/foundry/workshop/concepts-variables/
+https://www.palantir.com/docs/foundry/workshop/versions/
 
 # ─── B02 — Ontology definition (ontology-definition-service) ───────────────
 https://www.palantir.com/docs/foundry/ontology-manager/overview/
 https://www.palantir.com/docs/foundry/ontology/overview/
 https://www.palantir.com/docs/foundry/object-link-types/type-reference/
-https://www.palantir.com/docs/foundry/object-link-types/object-types/
-https://www.palantir.com/docs/foundry/object-link-types/link-types/
+https://www.palantir.com/docs/foundry/object-link-types/object-types-overview/
+https://www.palantir.com/docs/foundry/object-link-types/link-types-overview/
 https://www.palantir.com/docs/foundry/action-types/overview/
 https://www.palantir.com/docs/foundry/action-types/rules/
 https://www.palantir.com/docs/foundry/action-types/use-actions/
 
 # ─── B03 — Ontology indexer (search/indexing) ──────────────────────────────
 https://www.palantir.com/docs/foundry/object-explorer/overview/
-https://www.palantir.com/docs/foundry/ontology-manager/ontology-indexing/
-https://www.palantir.com/docs/foundry/object-link-types/object-storage-v2/
+https://www.palantir.com/docs/foundry/object-indexing/overview/
+https://www.palantir.com/docs/foundry/object-backend/object-storage-v2-breaking-changes/
 
 # ─── B04 — LLM catalog (llm-catalog-service) ───────────────────────────────
 https://www.palantir.com/docs/foundry/model-catalog/overview/

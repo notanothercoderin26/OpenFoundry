@@ -11,13 +11,35 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import type { Core, ElementDefinition, EventObject, StylesheetStyle } from 'cytoscape';
 
 import { CytoscapeCanvas } from '@components/CytoscapeCanvas';
+import { MonacoEditor } from '@/lib/components/MonacoEditor';
 import { ResourceHealthStatusBadge } from '@/lib/components/health/HealthReportsPanel';
 import { ResourceHealthChecksPanel } from '@/lib/components/health/ResourceHealthChecksPanel';
-import { NodeBadgeOverlay, type NodeBadgeSpec } from '@/lib/components/lineage/NodeBadgeOverlay';
+import { BuildTimelinePanel } from '@/lib/components/lineage/BuildTimelinePanel';
+import { HistogramPanel, type HistogramFilter } from '@/lib/components/lineage/HistogramPanel';
+import { MediaSetPreview } from '@/lib/components/lineage/MediaSetPreview';
+import { NodeBadgeOverlay, type NodeBadgeSpec, type NodeRelatedShortcut } from '@/lib/components/lineage/NodeBadgeOverlay';
+import { NodeContextMenu, type NodeContextMenuItem } from '@/lib/components/lineage/NodeContextMenu';
+import { NodePropertiesPanel, type RelatedObjectType } from '@/lib/components/lineage/NodePropertiesPanel';
+import { RelatedItemsPanel } from '@/lib/components/lineage/RelatedItemsPanel';
 import { ScheduleSidebar } from '@/lib/components/lineage/ScheduleSidebar';
 import { ConfirmDialog } from '@/lib/components/ConfirmDialog';
 import { listDatasetBuildsV1, listBuildsV1, type Build, type CreateBuildResponse } from '@/lib/api/buildsV1';
 import { runBuildWithExpectationGates } from '@/lib/api/data-expectations';
+import {
+  deleteNodeDescription,
+  getNodeDescription,
+  upsertNodeDescription,
+  type NodeDescription as PersistedNodeDescription,
+} from '@/lib/api/lineage-node-descriptions';
+import {
+  createSavedLineageGraph,
+  deleteSavedLineageGraph,
+  getSharedLineageGraph,
+  listSavedLineageGraphs,
+  revokeSavedLineageGraphShare,
+  shareSavedLineageGraph,
+  type SavedLineageGraph,
+} from '@/lib/api/lineage-saved-graphs';
 import {
   forceSnapshotOnNextBuild,
   getDatasetHealth,
@@ -33,20 +55,41 @@ import {
   type DatasetSchemaResponse,
 } from '@/lib/api/datasets';
 import {
+  getDatasetColumnLineage,
   getDatasetLineageImpact,
   getFullLineage,
   triggerLineageBuilds,
+  type ColumnLineageEdge,
   type LineageBuildResult,
   type LineageGraph,
   type LineageImpactAnalysis,
   type LineageNode,
 } from '@/lib/api/pipelines';
+import { downloadCytoscapeSvg } from '@/lib/lineage/exportSvg';
 import {
   commonAncestors,
   commonDescendants,
   expandFromSeeds,
   inBetweenNodes,
 } from '@/lib/lineage/graphTraversal';
+import {
+  computeBuildTimeline,
+  type BuildTimelineColorBy,
+  type BuildTimelineRangeKey,
+} from '@/lib/lineage/buildTimeline';
+import {
+  CORE_LINEAGE_KINDS,
+  collectRelatedArtifacts,
+  distinctRelatedKinds,
+  sortRelatedArtifacts,
+  type RelatedArtifact,
+  type RelatedArtifactSort,
+} from '@/lib/lineage/relatedArtifacts';
+import {
+  computeSelectionHistogram,
+  type HistogramSection,
+  type SchemaLike as HistogramSchemaLike,
+} from '@/lib/lineage/selectionHistogram';
 import {
   computePipelineRollbackPlan,
   downstreamDatasetIds,
@@ -83,7 +126,16 @@ type ColoringMode =
   | 'user_views'
   | 'issues'
   | 'marking';
-type BottomTabId = 'preview' | 'schema' | 'history' | 'jobs' | 'schedules' | 'health' | 'permissions' | 'code';
+type BottomTabId =
+  | 'preview'
+  | 'schema'
+  | 'history'
+  | 'jobs'
+  | 'schedules'
+  | 'health'
+  | 'permissions'
+  | 'code'
+  | 'build_timeline';
 type BuildHelperStrategy = 'all_ancestors' | 'between_selected' | 'selected_only';
 
 type DatasetSchemaLike = DatasetSchema | DatasetSchemaResponse;
@@ -198,6 +250,56 @@ interface SavedLineageGraphSnapshot {
   layout_name: 'breadthfirst' | 'fcose';
   graph_state: LineageSnapshotGraphState | null;
   camera?: LineageSnapshotCamera;
+  /** Set when the snapshot was minted server-side (UUID). Local-only
+   *  snapshots use `lineage-snapshot-<timestamp>` instead. */
+  backend_id?: string;
+  /** Token returned by the backend when "Get quick share link" was used. */
+  share_token?: string | null;
+}
+
+// Best-effort UUID detector so we know when a snapshot.id is backed
+// by the lineage-service vs a localStorage-only timestamp ID.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isBackendSnapshotId(id: string): boolean {
+  return UUID_RE.test(id);
+}
+
+// Conversion between the local snapshot shape and the SavedLineageGraph
+// payload that travels through the backend. We round-trip the entire
+// local object through `payload`; the top-level columns on the row
+// (name/branch/coloring_mode) make list-views possible without
+// scanning the blob.
+function snapshotToBackendRequest(snapshot: SavedLineageGraphSnapshot) {
+  return {
+    name: snapshot.name,
+    branch: snapshot.branch,
+    coloring_mode: snapshot.coloring_mode,
+    payload: snapshot as unknown as Record<string, unknown>,
+  };
+}
+
+function backendRowToSnapshot(row: SavedLineageGraph | { id: string; payload: Record<string, unknown>; name: string; branch: string; coloring_mode: string; updated_at: string; share_token?: string | null }): SavedLineageGraphSnapshot {
+  const payload = (row.payload ?? {}) as Partial<SavedLineageGraphSnapshot>;
+  return {
+    id: row.id,
+    backend_id: row.id,
+    share_token: row.share_token ?? null,
+    name: payload.name ?? row.name,
+    saved_at: payload.saved_at ?? row.updated_at,
+    branch: payload.branch ?? row.branch,
+    coloring_mode: (payload.coloring_mode ?? row.coloring_mode) as ColoringMode,
+    legend_open: payload.legend_open ?? true,
+    hidden_color_keys: payload.hidden_color_keys ?? [],
+    find_query: payload.find_query ?? '',
+    selected_node_ids: payload.selected_node_ids ?? [],
+    expand_parents: payload.expand_parents ?? 5,
+    expand_children: payload.expand_children ?? 0,
+    layout_by_color: payload.layout_by_color ?? false,
+    group_by_color: payload.group_by_color ?? false,
+    layout_name: payload.layout_name ?? 'breadthfirst',
+    graph_state: payload.graph_state ?? null,
+    camera: payload.camera,
+  };
 }
 
 const BUILD_HELPER_STRATEGIES: Array<{ value: BuildHelperStrategy; label: string; description: string }> = [
@@ -1140,6 +1242,15 @@ const STYLESHEET: StylesheetStyle[] = [
     },
   },
   {
+    selector: 'node.histogram-match',
+    style: {
+      'border-width': 3,
+      'border-color': '#1d4d9d',
+      'overlay-color': '#1d4d9d',
+      'overlay-opacity': 0.08,
+    },
+  },
+  {
     selector: 'edge.highlight',
     style: {
       'line-color': '#f08c3a',
@@ -1156,6 +1267,19 @@ const LAYOUT_BREADTHFIRST = {
   padding: 24,
 } as const;
 const LAYOUT_FCOSE = { name: 'fcose', animate: false, padding: 30 } as const;
+const LAYOUT_GRID = { name: 'grid', padding: 24, avoidOverlap: true } as const;
+const LAYOUT_CIRCLE = { name: 'circle', padding: 24, avoidOverlap: true } as const;
+const LAYOUT_CONCENTRIC = { name: 'concentric', padding: 24, avoidOverlap: true } as const;
+
+type LayoutMode = 'breadthfirst' | 'fcose' | 'grid' | 'circle' | 'concentric';
+
+const LAYOUT_OPTIONS: Array<{ value: LayoutMode; label: string; description: string }> = [
+  { value: 'breadthfirst', label: 'Hierarchical', description: 'Directed top-down by topological order (default).' },
+  { value: 'fcose', label: 'Force-directed', description: 'Cluster related nodes; great for coloured groupings.' },
+  { value: 'grid', label: 'Grid', description: 'Uniform rows and columns; useful for triage.' },
+  { value: 'circle', label: 'Circle', description: 'Nodes arranged along a circumference.' },
+  { value: 'concentric', label: 'Concentric', description: 'Rings of decreasing centrality from the centre out.' },
+];
 
 // =============================================================================
 // Inline SVG icon set for the lineage ribbon. Strokes use currentColor so each
@@ -1198,6 +1322,26 @@ const IconFlow = () => (
   <Icon>
     <path d="M4 6h8a4 4 0 0 1 0 8h-4a4 4 0 0 0 0 8h8" />
     <path d="M16 22l4-4M16 22l4 4" />
+  </Icon>
+);
+const IconRelatedArtifacts = () => (
+  <Icon>
+    <path d="M9 12a3 3 0 0 1 3-3h3a4 4 0 0 1 0 8h-1" />
+    <path d="M15 12a3 3 0 0 1-3 3H9a4 4 0 0 1 0-8h1" />
+  </Icon>
+);
+const IconChartGantt = () => (
+  <Icon>
+    <line x1="3" y1="6" x2="11" y2="6" strokeWidth={2} />
+    <line x1="7" y1="12" x2="17" y2="12" strokeWidth={2} />
+    <line x1="5" y1="18" x2="14" y2="18" strokeWidth={2} />
+  </Icon>
+);
+const IconHelp = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-0.9 0.4-1.5 1-1.5 2v0.7" />
+    <circle cx="12" cy="17" r="0.8" fill="currentColor" />
   </Icon>
 );
 const IconLayout = () => (
@@ -1410,7 +1554,11 @@ export function LineagePage() {
   const location = useLocation();
   const locationParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const linkedSnapshotId = locationParams.get('snapshot') ?? '';
-  const readOnlyMode = locationParams.get('readonly') === '1' || locationParams.get('presentation') === '1';
+  const sharedToken = locationParams.get('share') ?? '';
+  const readOnlyMode =
+    locationParams.get('readonly') === '1' ||
+    locationParams.get('presentation') === '1' ||
+    sharedToken !== '';
   const [graph, setGraph] = useState<LineageGraph | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1431,22 +1579,37 @@ export function LineagePage() {
   const [hiddenColorKeys, setHiddenColorKeys] = useState<string[]>([]);
   const [coloringMenuOpen, setColoringMenuOpen] = useState(false);
   const [expandPopoverOpen, setExpandPopoverOpen] = useState(false);
+  const [selectPopoverOpen, setSelectPopoverOpen] = useState(false);
   const [expandParents, setExpandParents] = useState(5);
   const [expandChildren, setExpandChildren] = useState(0);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
+  const [findMode, setFindMode] = useState<'name' | 'column'>('name');
+  /** Per-dataset cache of column names. Populated lazily when the user
+   *  switches Find to column mode and we walk the visible datasets. */
+  const [columnsByDatasetId, setColumnsByDatasetId] = useState<Record<string, Set<string>>>({});
+  const [columnIndexLoading, setColumnIndexLoading] = useState(false);
+  const [nodeContextMenu, setNodeContextMenu] = useState<{ x: number; y: number; nodeId: string; nodeLabel: string } | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [helpMenuOpen, setHelpMenuOpen] = useState(false);
+  const [nodeDescriptions, setNodeDescriptions] = useState<Record<string, PersistedNodeDescription | null>>({});
+  const [nodeDescriptionLoading, setNodeDescriptionLoading] = useState<Record<string, boolean>>({});
   const [branch, setBranch] = useState('master');
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   const [saveMenuOpen, setSaveMenuOpen] = useState(false);
   const [layoutByColor, setLayoutByColor] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('breadthfirst');
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
   const [groupByColor, setGroupByColor] = useState(false);
   const [panSelectMode, setPanSelectMode] = useState<'pan' | 'select'>('pan');
+  /** Quarter-turn count for the Flow tool (0 = TB, 1 = LR, 2 = BT, 3 = RL). */
+  const [flowQuarter, setFlowQuarter] = useState<0 | 1 | 2 | 3>(1);
   const [bottomTab, setBottomTab] = useState<BottomTabId>('preview');
   const [bottomCollapsed, setBottomCollapsed] = useState(false);
   const [bottomFullscreen, setBottomFullscreen] = useState(false);
-  const [activeRightTool, setActiveRightTool] = useState<'search' | 'list' | 'tools' | 'calendar' | 'clipboard' | null>(
-    null,
-  );
+  const [activeRightTool, setActiveRightTool] = useState<
+    'search' | 'properties' | 'tools' | 'calendar' | 'clipboard' | 'related' | null
+  >(null);
   const [datasetPreview, setDatasetPreview] = useState<DatasetPreviewResponse | null>(null);
   const [datasetPreviewLoading, setDatasetPreviewLoading] = useState(false);
   const [nodeDetails, setNodeDetails] = useState<NodeDetailsState>(EMPTY_NODE_DETAILS);
@@ -1466,6 +1629,15 @@ export function LineagePage() {
   const [pipelineRollbackResults, setPipelineRollbackResults] = useState<PipelineRollbackRunResult[]>([]);
   const [pipelineRollbackConfirmOpen, setPipelineRollbackConfirmOpen] = useState(false);
   const [savedSnapshots, setSavedSnapshots] = useState<SavedLineageGraphSnapshot[]>(() => loadSavedLineageSnapshots());
+  const [schemaByDatasetId, setSchemaByDatasetId] = useState<Record<string, HistogramSchemaLike | null>>({});
+  const [schemaFetchingDatasetIds, setSchemaFetchingDatasetIds] = useState<Set<string>>(() => new Set());
+  const [histogramFilters, setHistogramFilters] = useState<HistogramFilter[]>([]);
+  const [relatedExcludedKinds, setRelatedExcludedKinds] = useState<Set<string>>(() => new Set());
+  const [relatedSort, setRelatedSort] = useState<RelatedArtifactSort>('newest');
+  const [relatedShowAutosaved, setRelatedShowAutosaved] = useState(false);
+  const [relatedShowTrash, setRelatedShowTrash] = useState(false);
+  const [buildTimelineRange, setBuildTimelineRange] = useState<BuildTimelineRangeKey>('10d');
+  const [buildTimelineColorBy, setBuildTimelineColorBy] = useState<BuildTimelineColorBy>('schedule');
 
   const cyRef = useRef<Core | null>(null);
   const [cyInstance, setCyInstance] = useState<Core | null>(null);
@@ -1586,10 +1758,23 @@ export function LineagePage() {
   }, [selectedNodeIds, elements]);
 
   const layout = useMemo(() => {
-    return layoutByColor
-      ? (LAYOUT_FCOSE as unknown as Parameters<typeof CytoscapeCanvas>[0]['layout'])
-      : (LAYOUT_BREADTHFIRST as unknown as Parameters<typeof CytoscapeCanvas>[0]['layout']);
-  }, [layoutByColor]);
+    // "Layout by color" forces fcose since it clusters; otherwise respect
+    // the explicit layout picked from the Layout menu.
+    if (layoutByColor) {
+      return LAYOUT_FCOSE as unknown as Parameters<typeof CytoscapeCanvas>[0]['layout'];
+    }
+    const pick =
+      layoutMode === 'fcose'
+        ? LAYOUT_FCOSE
+        : layoutMode === 'grid'
+        ? LAYOUT_GRID
+        : layoutMode === 'circle'
+        ? LAYOUT_CIRCLE
+        : layoutMode === 'concentric'
+        ? LAYOUT_CONCENTRIC
+        : LAYOUT_BREADTHFIRST;
+    return pick as unknown as Parameters<typeof CytoscapeCanvas>[0]['layout'];
+  }, [layoutByColor, layoutMode]);
 
   function clearSelection() {
     setSelectedNodeIds([]);
@@ -1660,6 +1845,7 @@ export function LineagePage() {
     cyRef.current = cy;
     setCyInstance(cy);
     cy.removeListener('tap');
+    cy.removeListener('cxttap');
     cy.on('tap', 'node', (event: EventObject) => {
       const nodeId = String(event.target.id());
       const node = graphRef.current?.nodes.find((entry) => entry.id === nodeId) ?? null;
@@ -1669,22 +1855,85 @@ export function LineagePage() {
     cy.on('tap', (event) => {
       if (event.target === cy) {
         clearSelection();
+        setNodeContextMenu(null);
       }
+    });
+    cy.on('cxttap', 'node', (event: EventObject) => {
+      const nodeId = String(event.target.id());
+      const node = graphRef.current?.nodes.find((entry) => entry.id === nodeId) ?? null;
+      if (!node) return;
+      // Select the node so the menu actions act on it.
+      selectLineageNode(node, false);
+      const original = event.originalEvent as MouseEvent | undefined;
+      setNodeContextMenu({
+        x: original?.clientX ?? 0,
+        y: original?.clientY ?? 0,
+        nodeId: node.id,
+        nodeLabel: node.label,
+      });
     });
   }, []);
 
-  // Apply find-query highlight (re-runs when the term or graph changes).
+  // Lazy column-index loader. When the user switches Find to column
+  // mode we walk every visible dataset once and remember the column
+  // names locally. Subsequent finds reuse the cache so typing stays
+  // instant. Backend errors are silent — column search just falls
+  // back to its existing rows.
+  const loadColumnsForVisibleDatasets = useCallback(async () => {
+    if (!viewGraph) return;
+    const targets = viewGraph.nodes
+      .filter((n) => n.kind === 'dataset')
+      .map((n) => n.id)
+      .filter((id) => !columnsByDatasetId[id]);
+    if (targets.length === 0) return;
+    setColumnIndexLoading(true);
+    const results = await Promise.allSettled(targets.map((id) => getDatasetColumnLineage(id)));
+    setColumnsByDatasetId((prev) => {
+      const next = { ...prev };
+      targets.forEach((id, idx) => {
+        const result = results[idx];
+        const set = new Set<string>();
+        if (result.status === 'fulfilled') {
+          for (const edge of result.value as ColumnLineageEdge[]) {
+            if (edge.source_dataset_id === id && edge.source_column) set.add(edge.source_column);
+            if (edge.target_dataset_id === id && edge.target_column) set.add(edge.target_column);
+          }
+        }
+        next[id] = set;
+      });
+      return next;
+    });
+    setColumnIndexLoading(false);
+  }, [viewGraph, columnsByDatasetId]);
+
+  useEffect(() => {
+    if (findMode !== 'column' || !findOpen) return;
+    void loadColumnsForVisibleDatasets();
+  }, [findMode, findOpen, loadColumnsForVisibleDatasets]);
+
+  // Apply find-query highlight (re-runs when the term, mode, or graph changes).
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
     const q = findQuery.trim().toLowerCase();
     cy.nodes().removeClass('match dim');
     if (!q) return;
-    const matches = cy.nodes().filter((n) => String(n.data('searchText') ?? n.data('displayLabel') ?? '').toLowerCase().includes(q));
+    const matches = cy.nodes().filter((n) => {
+      const id = n.id();
+      if (findMode === 'column') {
+        const columns = columnsByDatasetId[id];
+        if (!columns) return false;
+        for (const column of columns) {
+          if (column.toLowerCase().includes(q)) return true;
+        }
+        return false;
+      }
+      return String(n.data('searchText') ?? n.data('displayLabel') ?? '').toLowerCase().includes(q);
+    });
     if (matches.length === 0) return;
     cy.nodes().not(matches).addClass('dim');
     matches.addClass('match');
-  }, [findQuery, elements]);
+  }, [findQuery, findMode, columnsByDatasetId, elements]);
 
   async function loadImpact(datasetId: string) {
     setImpactLoading(true);
@@ -2064,8 +2313,9 @@ export function LineagePage() {
       ? { zoom: cyRef.current.zoom(), pan: cyRef.current.pan() }
       : undefined;
     const graphState = currentSnapshotGraphState();
+    const localID = replaceID ?? `lineage-snapshot-${Date.now()}`;
     const snapshot: SavedLineageGraphSnapshot = {
-      id: replaceID ?? `lineage-snapshot-${Date.now()}`,
+      id: localID,
       name,
       saved_at: new Date().toISOString(),
       branch,
@@ -2081,11 +2331,39 @@ export function LineagePage() {
       layout_name: layoutByColor ? 'fcose' : 'breadthfirst',
       graph_state: graphState,
       camera,
+      backend_id: replaceID && isBackendSnapshotId(replaceID) ? replaceID : undefined,
+      share_token: null,
     };
     const next = [snapshot, ...savedSnapshots.filter((entry) => entry.id !== snapshot.id)];
     setSavedSnapshots(next);
     persistSavedLineageSnapshots(next);
+    // Mirror to the backend as a best-effort write-through. The local
+    // cache stays authoritative for offline / unauthenticated cases so
+    // a 401 or network failure doesn't lose the snapshot.
+    void mirrorSnapshotToBackend(snapshot);
     return snapshot;
+  }
+
+  async function mirrorSnapshotToBackend(snapshot: SavedLineageGraphSnapshot) {
+    try {
+      const created = await createSavedLineageGraph(snapshotToBackendRequest(snapshot));
+      // Swap the temporary local id for the real backend id so future
+      // share / delete operations hit the right row.
+      setSavedSnapshots((prev) => {
+        const promoted: SavedLineageGraphSnapshot = {
+          ...snapshot,
+          id: created.id,
+          backend_id: created.id,
+          saved_at: created.updated_at,
+          share_token: created.share_token ?? null,
+        };
+        const updated = [promoted, ...prev.filter((entry) => entry.id !== snapshot.id && entry.id !== created.id)];
+        persistSavedLineageSnapshots(updated);
+        return updated;
+      });
+    } catch {
+      // Silent: the local cache already holds the snapshot.
+    }
   }
 
   function saveCurrentSnapshot() {
@@ -2144,9 +2422,35 @@ export function LineagePage() {
   }
 
   async function copySnapshotLink(snapshot: SavedLineageGraphSnapshot, readOnly = false) {
+    // Backend-backed snapshots get a real token-based public link. We
+    // mint a fresh token on every Copy so a previously-revoked link
+    // doesn't sneak back into the clipboard.
+    if (snapshot.backend_id) {
+      try {
+        const minted = await shareSavedLineageGraph(snapshot.backend_id, { read_only: readOnly });
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        const url = `${origin}/lineage?share=${encodeURIComponent(minted.token)}`;
+        await copyTextToClipboard(url);
+        setSavedSnapshots((prev) => {
+          const next = prev.map((entry) =>
+            entry.backend_id === snapshot.backend_id ? { ...entry, share_token: minted.token } : entry,
+          );
+          persistSavedLineageSnapshots(next);
+          return next;
+        });
+        notifications.success(readOnly ? 'Copied presentation link' : 'Copied graph link');
+        return;
+      } catch (cause) {
+        notifications.error(cause instanceof Error ? cause.message : 'Could not mint share link');
+        return;
+      }
+    }
+    // Local-only snapshot — fall back to the legacy URL-hash share link
+    // so the user is not blocked when the backend is unreachable.
     await copyTextToClipboard(lineageSnapshotLink(snapshot.id, readOnly));
     notifications.success(readOnly ? 'Copied presentation link' : 'Copied graph link');
   }
+
 
   function exportSnapshotMetadata(snapshot: SavedLineageGraphSnapshot) {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
@@ -2171,11 +2475,38 @@ export function LineagePage() {
     navigate(`/lineage?snapshot=${encodeURIComponent(snapshot.id)}&readonly=1`);
   }
 
+  async function revokeSnapshotShare(snapshot: SavedLineageGraphSnapshot) {
+    if (!snapshot.backend_id) {
+      notifications.info('This snapshot was never shared.');
+      return;
+    }
+    try {
+      await revokeSavedLineageGraphShare(snapshot.backend_id);
+      setSavedSnapshots((prev) => {
+        const next = prev.map((entry) =>
+          entry.backend_id === snapshot.backend_id ? { ...entry, share_token: null } : entry,
+        );
+        persistSavedLineageSnapshots(next);
+        return next;
+      });
+      notifications.success('Share link revoked');
+    } catch (cause) {
+      notifications.error(cause instanceof Error ? cause.message : 'Could not revoke share link');
+    }
+  }
+
   function deleteSnapshot(id: string) {
+    const target = savedSnapshots.find((entry) => entry.id === id);
     const next = savedSnapshots.filter((entry) => entry.id !== id);
     setSavedSnapshots(next);
     persistSavedLineageSnapshots(next);
     notifications.success('Deleted lineage graph snapshot');
+    if (target?.backend_id) {
+      void deleteSavedLineageGraph(target.backend_id).catch(() => {
+        // Silent: the local cache already removed the row; if the
+        // backend ever comes back it will re-hydrate from the merge.
+      });
+    }
   }
 
   useEffect(() => {
@@ -2192,6 +2523,75 @@ export function LineagePage() {
       setBottomCollapsed(true);
     }
   }, [linkedSnapshotId, readOnlyMode, savedSnapshots, viewGraph]);
+
+  // Hydrate saved snapshots from the backend so they survive across
+  // browsers / devices. Backend rows merge into the local cache by id;
+  // local-only snapshots (timestamp ids) are preserved as offline copies.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await listSavedLineageGraphs();
+        if (cancelled) return;
+        const remote = response.data.map(backendRowToSnapshot);
+        setSavedSnapshots((prev) => {
+          const remoteIDs = new Set(remote.map((entry) => entry.id));
+          const localOnly = prev.filter(
+            (entry) => !entry.backend_id && !remoteIDs.has(entry.id),
+          );
+          const merged = [...remote, ...localOnly].sort(
+            (a, b) => Date.parse(b.saved_at) - Date.parse(a.saved_at),
+          );
+          persistSavedLineageSnapshots(merged);
+          return merged;
+        });
+      } catch {
+        // Silent: localStorage is the safety net while the backend is down.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Open the public viewer when a ?share=<token> link is loaded. The
+  // hydrated snapshot is injected into the local cache so the existing
+  // `?snapshot=<id>` machinery picks it up without further plumbing.
+  useEffect(() => {
+    if (!sharedToken || restoredSnapshotIDRef.current === sharedToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const shared = await getSharedLineageGraph(sharedToken);
+        if (cancelled) return;
+        const snapshot = backendRowToSnapshot({
+          id: shared.id,
+          name: shared.name,
+          branch: shared.branch,
+          coloring_mode: shared.coloring_mode,
+          payload: shared.payload,
+          updated_at: shared.updated_at,
+          share_token: sharedToken,
+        });
+        restoredSnapshotIDRef.current = sharedToken;
+        setSavedSnapshots((prev) => [snapshot, ...prev.filter((entry) => entry.id !== snapshot.id)]);
+        restoreSnapshot(snapshot, { silent: true });
+        setActiveRightTool(null);
+        setSaveMenuOpen(false);
+        setColoringMenuOpen(false);
+        setExpandPopoverOpen(false);
+        setBottomCollapsed(true);
+      } catch (cause) {
+        notifications.error(
+          cause instanceof Error ? cause.message : 'Share link not found or revoked',
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedToken, viewGraph]);
 
   // ---------------------------------------------------------------------------
   // Zoom / fit controls
@@ -2256,6 +2656,47 @@ export function LineagePage() {
     return [...found];
   }, [viewGraph, branch]);
 
+  // Per-node count of non-core neighbors. Used by NodeBadgeOverlay to
+  // render a right-edge "→" shortcut that opens the Related items
+  // drawer focused on that node — matches Foundry's hover-on-arrow
+  // affordance documented for the Data Lineage app.
+  const relatedShortcutByNode = useMemo<Record<string, NodeRelatedShortcut>>(() => {
+    if (!viewGraph) return {};
+    const counts = new Map<string, Set<string>>();
+    for (const edge of viewGraph.edges) {
+      if (!CORE_LINEAGE_KINDS.has(edge.target_kind) && CORE_LINEAGE_KINDS.has(edge.source_kind)) {
+        let set = counts.get(edge.source);
+        if (!set) {
+          set = new Set();
+          counts.set(edge.source, set);
+        }
+        set.add(edge.target);
+      }
+      if (!CORE_LINEAGE_KINDS.has(edge.source_kind) && CORE_LINEAGE_KINDS.has(edge.target_kind)) {
+        let set = counts.get(edge.target);
+        if (!set) {
+          set = new Set();
+          counts.set(edge.target, set);
+        }
+        set.add(edge.source);
+      }
+    }
+    const result: Record<string, NodeRelatedShortcut> = {};
+    for (const [nodeId, neighbors] of counts.entries()) {
+      result[nodeId] = {
+        count: neighbors.size,
+        onClick: () => {
+          const node = viewGraph.nodes.find((n) => n.id === nodeId);
+          if (!node) return;
+          setSelectedNodeIds([nodeId]);
+          setSelectedNode(node);
+          setActiveRightTool('related');
+        },
+      };
+    }
+    return result;
+  }, [viewGraph]);
+
   const nodeBadges = useMemo<Record<string, NodeBadgeSpec[]>>(() => {
     if (!viewGraph) return {};
     const labelByNodeId = new Map(viewGraph.nodes.map((node) => [node.id, node.label]));
@@ -2277,17 +2718,25 @@ export function LineagePage() {
           }
         }
         if (backingTargets.size > 0) {
-          const names = [...backingTargets].map((id) => labelByNodeId.get(id) ?? id).join(', ');
+          const names = [...backingTargets].map((id) => labelByNodeId.get(id) ?? id);
+          const namesLabel = names.join(', ');
           badges.push({
             kind: 'backing',
-            tooltip: `Show ${backingTargets.size} backing dataset · ${names}`,
+            tooltip:
+              backingTargets.size === 1
+                ? `This dataset is used to create the Ontology object [${namesLabel}]`
+                : `This dataset is used to create ${backingTargets.size} Ontology objects: ${namesLabel}`,
           });
         }
         if (writebackSources.size > 0) {
-          const names = [...writebackSources].map((id) => labelByNodeId.get(id) ?? id).join(', ');
+          const names = [...writebackSources].map((id) => labelByNodeId.get(id) ?? id);
+          const namesLabel = names.join(', ');
           badges.push({
             kind: 'writeback',
-            tooltip: `Writeback dataset for ${names}`,
+            tooltip:
+              writebackSources.size === 1
+                ? `This dataset receives writeback from the Ontology object [${namesLabel}]`
+                : `This dataset receives writeback from ${writebackSources.size} Ontology objects: ${namesLabel}`,
           });
         }
       }
@@ -2310,6 +2759,512 @@ export function LineagePage() {
           : expandFromSeeds(selectedNodeIds, viewGraph, expandParents, expandChildren).size,
     };
   }, [viewGraph, selectedNodeIds, expandParents, expandChildren]);
+
+  // -------------------------------------------------------------------------
+  // Properties / Histogram (right sidebar) — computed from current selection.
+  // -------------------------------------------------------------------------
+
+  const histogramSections = useMemo<HistogramSection[]>(() => {
+    if (!viewGraph || selectedNodeIds.length < 2) return [];
+    return computeSelectionHistogram({
+      nodes: viewGraph.nodes,
+      selectedNodeIds,
+      schemaByDatasetId,
+    });
+  }, [viewGraph, selectedNodeIds, schemaByDatasetId]);
+
+  const highlightedHistogramIds = useMemo<string[]>(() => {
+    if (histogramFilters.length === 0 || histogramSections.length === 0) return [];
+    // Group filters by section, then OR within section + AND across sections.
+    const bySection = new Map<string, Set<string>>();
+    for (const filter of histogramFilters) {
+      const section = histogramSections.find((s) => s.id === filter.sectionId);
+      const row = section?.rows.find((r) => r.value === filter.value);
+      if (!row) continue;
+      let existing = bySection.get(filter.sectionId);
+      if (!existing) {
+        existing = new Set<string>();
+        bySection.set(filter.sectionId, existing);
+      }
+      for (const id of row.nodeIds) existing.add(id);
+    }
+    let intersection: Set<string> | null = null;
+    for (const set of bySection.values()) {
+      if (intersection === null) {
+        intersection = new Set(set);
+      } else {
+        const next = new Set<string>();
+        for (const id of intersection) if (set.has(id)) next.add(id);
+        intersection = next;
+      }
+      if (intersection.size === 0) break;
+    }
+    return intersection ? [...intersection] : [];
+  }, [histogramFilters, histogramSections]);
+
+  // Apply a CSS class to highlighted nodes so the canvas reflects active filters.
+  useEffect(() => {
+    const cy = cyInstance;
+    if (!cy) return;
+    cy.batch(() => {
+      cy.nodes().removeClass('histogram-match');
+      if (highlightedHistogramIds.length === 0) return;
+      for (const id of highlightedHistogramIds) cy.$id(id).addClass('histogram-match');
+    });
+  }, [cyInstance, highlightedHistogramIds]);
+
+  // Reset histogram filters when selection drops below the multi-select
+  // threshold; otherwise stale filters reference nodes that are no longer
+  // grouped together in the histogram.
+  useEffect(() => {
+    if (selectedNodeIds.length < 2 && histogramFilters.length > 0) {
+      setHistogramFilters([]);
+    }
+  }, [selectedNodeIds, histogramFilters.length]);
+
+  const relatedObjectTypes = useMemo<RelatedObjectType[]>(() => {
+    if (!viewGraph || !selectedNode) return [];
+    const labelById = new Map(viewGraph.nodes.map((node) => [node.id, node.label]));
+    if (selectedNode.kind === 'object_type') return [];
+    if (selectedNode.kind !== 'dataset') return [];
+    const out: RelatedObjectType[] = [];
+    const seen = new Set<string>();
+    for (const edge of viewGraph.edges) {
+      if (edge.source === selectedNode.id && edge.target_kind === 'object_type') {
+        if (seen.has(edge.target)) continue;
+        seen.add(edge.target);
+        out.push({ id: edge.target, label: labelById.get(edge.target) ?? edge.target, relation: 'backing' });
+      } else if (edge.target === selectedNode.id && edge.source_kind === 'object_type') {
+        if (seen.has(edge.source)) continue;
+        seen.add(edge.source);
+        out.push({ id: edge.source, label: labelById.get(edge.source) ?? edge.source, relation: 'writeback' });
+      }
+    }
+    return out;
+  }, [viewGraph, selectedNode]);
+
+  const propertiesSchemaRows = useMemo(() => {
+    if (!selectedNode || selectedNode.kind !== 'dataset') return [];
+    return schemaRows(nodeDetails.schema, datasetPreview);
+  }, [selectedNode, nodeDetails.schema, datasetPreview]);
+
+  const columnsAvailable = useMemo(() => {
+    if (selectedNodeIds.length < 2) return true;
+    if (!viewGraph) return false;
+    for (const id of selectedNodeIds) {
+      const node = viewGraph.nodes.find((n) => n.id === id);
+      if (node?.kind === 'dataset' && !schemaByDatasetId[id]) return false;
+    }
+    return true;
+  }, [selectedNodeIds, schemaByDatasetId, viewGraph]);
+
+  const loadColumnsForSelection = useCallback(async () => {
+    if (!viewGraph) return;
+    const targets = selectedNodeIds
+      .map((id) => viewGraph.nodes.find((n) => n.id === id))
+      .filter((n): n is LineageNode => Boolean(n) && n!.kind === 'dataset')
+      .filter((n) => !schemaByDatasetId[n.id]);
+    if (targets.length === 0) return;
+    setSchemaFetchingDatasetIds((prev) => {
+      const next = new Set(prev);
+      for (const t of targets) next.add(t.id);
+      return next;
+    });
+    const results = await Promise.allSettled(
+      targets.map(async (t) => [t.id, await getDatasetSchemaForBranch(t.id, branchRef.current)] as const),
+    );
+    setSchemaByDatasetId((prev) => {
+      const next = { ...prev };
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          const [id, schema] = result.value;
+          next[id] = schema as HistogramSchemaLike;
+        }
+      }
+      return next;
+    });
+    setSchemaFetchingDatasetIds((prev) => {
+      const next = new Set(prev);
+      for (const t of targets) next.delete(t.id);
+      return next;
+    });
+  }, [viewGraph, selectedNodeIds, schemaByDatasetId]);
+
+  const handleToggleHistogramFilter = useCallback((filter: HistogramFilter) => {
+    setHistogramFilters((prev) => {
+      const exists = prev.find((f) => f.sectionId === filter.sectionId && f.value === filter.value);
+      if (exists) return prev.filter((f) => f !== exists);
+      return [...prev, filter];
+    });
+  }, []);
+
+  const handleUpdateSelectionFromHistogram = useCallback(() => {
+    if (highlightedHistogramIds.length === 0 || !viewGraph) return;
+    const ids = highlightedHistogramIds;
+    setSelectedNodeIds(ids);
+    const lastId = ids[ids.length - 1];
+    const primary = viewGraph.nodes.find((n) => n.id === lastId) ?? null;
+    setSelectedNode(primary);
+    setHistogramFilters([]);
+    notifications.success(`Updated selection to ${ids.length} node(s)`);
+  }, [highlightedHistogramIds, viewGraph]);
+
+  const handleCopyNodeNames = useCallback(async () => {
+    if (!viewGraph || selectedNodeIds.length === 0) return;
+    const labels = selectedNodeIds
+      .map((id) => viewGraph.nodes.find((n) => n.id === id)?.label ?? '')
+      .filter(Boolean);
+    await copyTextToClipboard(labels.join(', '));
+    notifications.success(`Copied ${labels.length} resource name(s)`);
+  }, [viewGraph, selectedNodeIds]);
+
+  const handleOpenInOntologyManager = useCallback((objectTypeId: string) => {
+    navigate(`/ontology-manager?object_type=${encodeURIComponent(objectTypeId)}`);
+  }, [navigate]);
+
+  const handleOpenDataset = useCallback((node: LineageNode) => {
+    const href = datasetHrefForNode(node);
+    if (typeof window !== 'undefined') window.open(href, '_blank', 'noopener');
+  }, []);
+
+  // ----- Persistent node descriptions --------------------------------------
+
+  const loadNodeDescription = useCallback(async (nodeId: string) => {
+    setNodeDescriptionLoading((prev) => ({ ...prev, [nodeId]: true }));
+    try {
+      const desc = await getNodeDescription(nodeId);
+      setNodeDescriptions((prev) => ({ ...prev, [nodeId]: desc }));
+    } catch {
+      // 404 / unauth → mark as "none captured" so the UI shows the
+      // Add-description CTA instead of a spinner.
+      setNodeDescriptions((prev) => ({ ...prev, [nodeId]: null }));
+    } finally {
+      setNodeDescriptionLoading((prev) => ({ ...prev, [nodeId]: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedNode) return;
+    if (nodeDescriptions[selectedNode.id] !== undefined) return;
+    void loadNodeDescription(selectedNode.id);
+  }, [selectedNode, nodeDescriptions, loadNodeDescription]);
+
+  const handleSaveNodeDescription = useCallback(async (node: LineageNode) => {
+    if (typeof window === 'undefined') return;
+    const existing = nodeDescriptions[node.id]?.description ?? '';
+    const next = window.prompt(`Description for ${node.label}`, existing);
+    if (next === null) return; // cancelled
+    try {
+      const upserted = await upsertNodeDescription(node.id, { description: next });
+      if (upserted) {
+        setNodeDescriptions((prev) => ({ ...prev, [node.id]: upserted }));
+        notifications.success('Description saved');
+      } else {
+        // Backend returned 204 → trimmed body was empty, row deleted.
+        setNodeDescriptions((prev) => ({ ...prev, [node.id]: null }));
+        notifications.success('Description cleared');
+      }
+    } catch (cause) {
+      notifications.error(cause instanceof Error ? cause.message : 'Could not save description');
+    }
+  }, [nodeDescriptions]);
+
+  const handleClearNodeDescription = useCallback(async (node: LineageNode) => {
+    try {
+      await deleteNodeDescription(node.id);
+      setNodeDescriptions((prev) => ({ ...prev, [node.id]: null }));
+      notifications.success('Description cleared');
+    } catch (cause) {
+      notifications.error(cause instanceof Error ? cause.message : 'Could not clear description');
+    }
+  }, []);
+
+  // ----- Related items ------------------------------------------------------
+
+  const relatedArtifactsAll = useMemo<RelatedArtifact[]>(() => {
+    if (!viewGraph || selectedNodeIds.length === 0) return [];
+    return collectRelatedArtifacts({
+      nodes: viewGraph.nodes,
+      edges: viewGraph.edges,
+      selectedNodeIds,
+      includeAutosaved: relatedShowAutosaved,
+      includeTrash: relatedShowTrash,
+    });
+  }, [viewGraph, selectedNodeIds, relatedShowAutosaved, relatedShowTrash]);
+
+  const relatedDistinctKinds = useMemo(
+    () => distinctRelatedKinds(relatedArtifactsAll),
+    [relatedArtifactsAll],
+  );
+
+  const relatedIncludedKinds = useMemo(() => {
+    if (relatedDistinctKinds.length === 0) return new Set<string>();
+    return new Set(relatedDistinctKinds.filter((k) => !relatedExcludedKinds.has(k)));
+  }, [relatedDistinctKinds, relatedExcludedKinds]);
+
+  const relatedArtifactsVisible = useMemo<RelatedArtifact[]>(() => {
+    const filtered = relatedArtifactsAll.filter((item) => relatedIncludedKinds.has(item.kind));
+    return sortRelatedArtifacts(filtered, relatedSort);
+  }, [relatedArtifactsAll, relatedIncludedKinds, relatedSort]);
+
+  const handleRelatedToggleKind = useCallback((kind: string) => {
+    setRelatedExcludedKinds((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  }, []);
+
+  const handleRelatedIncludeAllKinds = useCallback(() => {
+    setRelatedExcludedKinds(new Set());
+  }, []);
+
+  const handleRelatedFocusOnGraph = useCallback((item: RelatedArtifact) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const element = cy.$id(item.id);
+    if (element.length === 0) return;
+    cy.center(element);
+    cy.animate({ zoom: Math.max(cy.zoom(), 1) }, { duration: 200 });
+    const node = graphRef.current?.nodes.find((n) => n.id === item.id);
+    if (node) {
+      setSelectedNodeIds([item.id]);
+      setSelectedNode(node);
+    }
+  }, []);
+
+  // ----- Build timeline -----------------------------------------------------
+
+  const pipelineDatasetMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (!viewGraph) return map;
+    for (const edge of viewGraph.edges) {
+      // pipeline node → dataset node means the pipeline produces that dataset.
+      if (edge.source_kind === 'pipeline' && edge.target_kind === 'dataset') {
+        const existing = map.get(edge.source);
+        if (existing) {
+          if (!existing.includes(edge.target)) existing.push(edge.target);
+        } else {
+          map.set(edge.source, [edge.target]);
+        }
+      }
+    }
+    return map;
+  }, [viewGraph]);
+
+  const datasetLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!viewGraph) return map;
+    for (const node of viewGraph.nodes) {
+      if (node.kind === 'dataset') map.set(node.id, node.label);
+    }
+    return map;
+  }, [viewGraph]);
+
+  const selectedDatasetIds = useMemo(
+    () =>
+      selectedNodeIds.filter((id) => {
+        const node = viewGraph?.nodes.find((n) => n.id === id);
+        return node?.kind === 'dataset';
+      }),
+    [selectedNodeIds, viewGraph],
+  );
+
+  const lastBuiltAtByPipeline = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const build of graphBuilds) {
+      const ts = build.finished_at ?? build.started_at;
+      if (!ts) continue;
+      const existing = map.get(build.pipeline_rid);
+      if (!existing || ts > existing) {
+        map.set(build.pipeline_rid, ts);
+      }
+    }
+    return map;
+  }, [graphBuilds]);
+
+  const buildTimelineResult = useMemo(
+    () =>
+      computeBuildTimeline({
+        builds: graphBuilds,
+        pipelineDatasetMap,
+        datasetLabelMap,
+        selectedDatasetIds,
+        rangeKey: buildTimelineRange,
+        colorBy: buildTimelineColorBy,
+      }),
+    [graphBuilds, pipelineDatasetMap, datasetLabelMap, selectedDatasetIds, buildTimelineRange, buildTimelineColorBy],
+  );
+
+  // ----- Selection tools ---------------------------------------------------
+
+  const setSelectionToIds = useCallback((ids: string[]) => {
+    if (!viewGraph) return;
+    if (ids.length === 0) {
+      setSelectedNodeIds([]);
+      setSelectedNode(null);
+      return;
+    }
+    const next = [...new Set(ids)];
+    setSelectedNodeIds(next);
+    const primaryId = next[next.length - 1];
+    const primary = viewGraph.nodes.find((n) => n.id === primaryId) ?? null;
+    setSelectedNode(primary);
+  }, [viewGraph]);
+
+  const handleSelectAll = useCallback(() => {
+    if (!viewGraph) return;
+    setSelectionToIds(viewGraph.nodes.map((n) => n.id));
+    setSelectPopoverOpen(false);
+    notifications.success(`Selected ${viewGraph.nodes.length} node(s)`);
+  }, [viewGraph, setSelectionToIds]);
+
+  const handleInvertSelection = useCallback(() => {
+    if (!viewGraph) return;
+    const current = new Set(selectedNodeIdsRef.current);
+    const inverted = viewGraph.nodes.map((n) => n.id).filter((id) => !current.has(id));
+    setSelectionToIds(inverted);
+    setSelectPopoverOpen(false);
+    notifications.success(`Inverted to ${inverted.length} node(s)`);
+  }, [viewGraph, setSelectionToIds]);
+
+  const handleSelectChildren = useCallback(() => {
+    if (!viewGraph || selectedNodeIdsRef.current.length === 0) return;
+    const additions = expandFromSeeds(selectedNodeIdsRef.current, viewGraph, 0, 1);
+    if (additions.size === 0) {
+      notifications.info('No direct children to add');
+      setSelectPopoverOpen(false);
+      return;
+    }
+    setSelectionToIds([...selectedNodeIdsRef.current, ...additions]);
+    setSelectPopoverOpen(false);
+    notifications.success(`Added ${additions.size} child node(s)`);
+  }, [viewGraph, setSelectionToIds]);
+
+  const handleSelectParents = useCallback(() => {
+    if (!viewGraph || selectedNodeIdsRef.current.length === 0) return;
+    const additions = expandFromSeeds(selectedNodeIdsRef.current, viewGraph, 1, 0);
+    if (additions.size === 0) {
+      notifications.info('No direct parents to add');
+      setSelectPopoverOpen(false);
+      return;
+    }
+    setSelectionToIds([...selectedNodeIdsRef.current, ...additions]);
+    setSelectPopoverOpen(false);
+    notifications.success(`Added ${additions.size} parent node(s)`);
+  }, [viewGraph, setSelectionToIds]);
+
+  const nodeContextMenuItems = useMemo<NodeContextMenuItem[]>(() => {
+    if (!nodeContextMenu) return [];
+    const node = viewGraph?.nodes.find((n) => n.id === nodeContextMenu.nodeId);
+    if (!node) return [];
+    const isDataset = node.kind === 'dataset';
+    const isObjectType = node.kind === 'object_type';
+    return [
+      {
+        id: 'expand-node',
+        label: 'Expand node…',
+        hint: 'Open the Expand popover anchored at this node',
+        onSelect: () => {
+          setSelectedNodeIds([node.id]);
+          setSelectedNode(node);
+          setExpandPopoverOpen(true);
+        },
+      },
+      {
+        id: 'expand-parents',
+        label: 'Expand parents',
+        hint: 'Walk one hop upstream and add to selection',
+        onSelect: () => {
+          if (!viewGraph) return;
+          const additions = expandFromSeeds([node.id], viewGraph, 1, 0);
+          setSelectedNodeIds([node.id, ...additions]);
+          setSelectedNode(node);
+        },
+      },
+      {
+        id: 'expand-descendants',
+        label: 'Expand descendants',
+        hint: 'Walk one hop downstream and add to selection',
+        onSelect: () => {
+          if (!viewGraph) return;
+          const additions = expandFromSeeds([node.id], viewGraph, 0, 1);
+          setSelectedNodeIds([node.id, ...additions]);
+          setSelectedNode(node);
+        },
+      },
+      {
+        id: 'view-properties',
+        label: 'View node properties',
+        hint: 'Open the properties drawer on the right',
+        onSelect: () => {
+          setActiveRightTool('properties');
+        },
+      },
+      {
+        id: 'view-related',
+        label: 'View related items',
+        hint: 'Open the related artifacts drawer',
+        onSelect: () => {
+          setActiveRightTool('related');
+        },
+      },
+      {
+        id: 'open-in-app',
+        label: isObjectType ? 'Open in Ontology Manager' : 'Open in app',
+        disabled: !isDataset && !isObjectType,
+        onSelect: () => {
+          if (isObjectType) {
+            navigate(`/ontology-manager?object_type=${encodeURIComponent(node.id)}`);
+          } else if (isDataset) {
+            const href = datasetHrefForNode(node);
+            if (typeof window !== 'undefined') window.open(href, '_blank', 'noopener');
+          }
+        },
+      },
+      {
+        id: 'remove-from-graph',
+        label: 'Remove from graph',
+        hint: 'Hide this node in the current view',
+        variant: 'danger',
+        onSelect: () => {
+          const cy = cyRef.current;
+          if (!cy) return;
+          cy.$id(node.id).remove();
+        },
+      },
+    ];
+  }, [nodeContextMenu, viewGraph, navigate]);
+
+  const handleRelatedOpenArtifact = useCallback((item: RelatedArtifact) => {
+    if (typeof window === 'undefined') return;
+    const meta = (graphRef.current?.nodes.find((n) => n.id === item.id)?.metadata ?? {}) as Record<string, unknown>;
+    const links = meta.links;
+    if (links && typeof links === 'object' && !Array.isArray(links)) {
+      for (const key of ['self', 'open', 'view']) {
+        const value = (links as Record<string, unknown>)[key];
+        if (typeof value === 'string' && value) {
+          window.open(value, '_blank', 'noopener');
+          return;
+        }
+      }
+    }
+    // Fallback: route by kind.
+    switch (item.kind) {
+      case 'object_type':
+        window.open(`/ontology-manager?object_type=${encodeURIComponent(item.id)}`, '_blank', 'noopener');
+        return;
+      case 'application':
+        window.open(`/apps/${encodeURIComponent(item.id)}`, '_blank', 'noopener');
+        return;
+      case 'function':
+        window.open(`/compute-modules/${encodeURIComponent(item.id)}`, '_blank', 'noopener');
+        return;
+      default:
+        notifications.info(`No deep link configured for ${item.kind}`);
+    }
+  }, []);
 
   const applyExpandSelection = useCallback(
     (newIds: Iterable<string>, label: string) => {
@@ -2369,19 +3324,84 @@ export function LineagePage() {
     cy.userPanningEnabled(panSelectMode === 'pan');
   }, [cyInstance, panSelectMode]);
 
+  // Flow tool — rotates the laid-out positions in 90° increments so the
+  // dependency direction can be flipped LR/TB/RL/BT without re-running
+  // the layout from scratch. We track the quarter currently applied to
+  // the on-screen positions; when the graph re-layouts (`layoutstop`)
+  // we reset the tracker to 0 so the next rotation is applied to the
+  // fresh positions instead of double-rotating.
+  const flowQuarterAppliedRef = useRef<0 | 1 | 2 | 3>(0);
+  useEffect(() => {
+    const cy = cyInstance;
+    if (!cy) return;
+    const onLayoutStop = () => {
+      flowQuarterAppliedRef.current = 0;
+      if (flowQuarter === 0) return;
+      cy.batch(() => {
+        cy.nodes().forEach((node) => {
+          const { x, y } = node.position();
+          let nx = x;
+          let ny = y;
+          for (let i = 0; i < flowQuarter; i++) {
+            const ox = nx;
+            nx = -ny;
+            ny = ox;
+          }
+          node.position({ x: nx, y: ny });
+        });
+      });
+      flowQuarterAppliedRef.current = flowQuarter;
+      cy.fit(undefined, 40);
+    };
+    cy.on('layoutstop', onLayoutStop);
+    return () => {
+      cy.off('layoutstop', onLayoutStop);
+    };
+  }, [cyInstance, flowQuarter]);
+
+  // Apply the rotation eagerly when the user toggles the Flow direction
+  // without waiting for a re-layout.
+  useEffect(() => {
+    const cy = cyInstance;
+    if (!cy) return;
+    const delta = ((flowQuarter - flowQuarterAppliedRef.current) + 4) % 4;
+    if (delta === 0) return;
+    cy.batch(() => {
+      cy.nodes().forEach((node) => {
+        const { x, y } = node.position();
+        let nx = x;
+        let ny = y;
+        for (let i = 0; i < delta; i++) {
+          const ox = nx;
+          nx = -ny;
+          ny = ox;
+        }
+        node.position({ x: nx, y: ny });
+      });
+    });
+    flowQuarterAppliedRef.current = flowQuarter;
+    cy.fit(undefined, 40);
+  }, [cyInstance, flowQuarter]);
+
   useEffect(() => {
     if (readOnlyMode) return undefined;
     function onKeyDown(event: KeyboardEvent) {
-      if (!(event.metaKey || event.ctrlKey)) return;
       const target = event.target as HTMLElement | null;
-      if (
+      const inInput =
         target &&
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
-          target.isContentEditable)
-      ) {
+          target.isContentEditable);
+
+      // Question-mark opens the shortcuts modal (without a modifier).
+      if (event.key === '?' && !event.metaKey && !event.ctrlKey && !inInput) {
+        event.preventDefault();
+        setShortcutsOpen((v) => !v);
         return;
       }
+
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (inInput) return;
       const key = event.key.toLowerCase();
       if (key === 'b') {
         event.preventDefault();
@@ -2430,10 +3450,29 @@ export function LineagePage() {
               setSaveMenuOpen(false);
               setActiveRightTool('clipboard');
             }}
+            onExportSvg={() => {
+              setSaveMenuOpen(false);
+              const cy = cyRef.current;
+              if (!cy) {
+                notifications.error('Graph is not ready yet');
+                return;
+              }
+              const filename = `lineage-${branch}-${new Date().toISOString().slice(0, 10)}`;
+              downloadCytoscapeSvg(cy, filename, `Lineage · ${branch}`);
+              notifications.success('Exported graph to SVG');
+            }}
+            onOpenShortcuts={() => setShortcutsOpen(true)}
+            helpMenuOpen={helpMenuOpen}
+            onHelpMenuClick={() => setHelpMenuOpen((v) => !v)}
+            onStartTour={() => {
+              setHelpMenuOpen(false);
+              notifications.info('Product tour is coming soon');
+            }}
           />
 
           <Ribbon
             selectedNode={selectedNode}
+            selectedNodeCount={selectedNodeIds.length}
             panSelectMode={panSelectMode}
             onPanSelectModeChange={setPanSelectMode}
             onClean={() => {
@@ -2441,7 +3480,14 @@ export function LineagePage() {
               setFindQuery('');
               setFindOpen(false);
             }}
+            selectPopoverOpen={selectPopoverOpen}
+            onSelectClick={() => setSelectPopoverOpen((v) => !v)}
+            onSelectAll={handleSelectAll}
+            onInvertSelection={handleInvertSelection}
+            onSelectChildren={handleSelectChildren}
+            onSelectParents={handleSelectParents}
             onSelectFocus={() => {
+              setSelectPopoverOpen(false);
               if (selectedNode && cyRef.current) {
                 cyRef.current.center(cyRef.current.$id(selectedNode.id));
               }
@@ -2470,6 +3516,9 @@ export function LineagePage() {
             onFindClick={() => setFindOpen((v) => !v)}
             findQuery={findQuery}
             onFindQueryChange={setFindQuery}
+            findMode={findMode}
+            onFindModeChange={setFindMode}
+            columnIndexLoading={columnIndexLoading}
             onRemoveClick={() => {
               if (!selectedNode || !cyRef.current) return;
               cyRef.current.$id(selectedNode.id).remove();
@@ -2484,6 +3533,15 @@ export function LineagePage() {
             legendOpen={legendOpen}
             onLegendToggle={() => setLegendOpen((v) => !v)}
             onRefresh={() => void loadGraph()}
+            flowQuarter={flowQuarter}
+            onFlowToggle={() => setFlowQuarter((v) => (((v + 1) % 4) as 0 | 1 | 2 | 3))}
+            layoutMenuOpen={layoutMenuOpen}
+            layoutMode={layoutMode}
+            onLayoutMenuClick={() => setLayoutMenuOpen((v) => !v)}
+            onLayoutModeChange={(mode) => {
+              setLayoutMode(mode);
+              setLayoutMenuOpen(false);
+            }}
           />
         </>
       )}
@@ -2526,7 +3584,18 @@ export function LineagePage() {
                 onReady={handleCytoscapeReady}
                 className="lineage-canvas"
               />
-              <NodeBadgeOverlay cy={cyInstance} badgesByNode={nodeBadges} />
+              <NodeBadgeOverlay
+                cy={cyInstance}
+                badgesByNode={nodeBadges}
+                relatedShortcutByNode={relatedShortcutByNode}
+              />
+              {nodeContextMenu && (
+                <NodeContextMenu
+                  anchor={nodeContextMenu}
+                  items={nodeContextMenuItems}
+                  onClose={() => setNodeContextMenu(null)}
+                />
+              )}
             </>
           )}
 
@@ -2584,9 +3653,9 @@ export function LineagePage() {
               <IconSearch />
             </RightRailButton>
             <RightRailButton
-              active={activeRightTool === 'list'}
-              title="Resource list"
-              onClick={() => setActiveRightTool((v) => (v === 'list' ? null : 'list'))}
+              active={activeRightTool === 'properties'}
+              title={selectedNodeIds.length >= 2 ? 'View histogram of selection properties' : 'View node properties'}
+              onClick={() => setActiveRightTool((v) => (v === 'properties' ? null : 'properties'))}
             >
               <IconResourceTable />
             </RightRailButton>
@@ -2611,6 +3680,14 @@ export function LineagePage() {
             >
               <IconClipboard />
             </RightRailButton>
+            <RightRailButton
+              active={activeRightTool === 'related'}
+              title="Related items"
+              badge={relatedArtifactsAll.length > 0 ? relatedArtifactsAll.length : undefined}
+              onClick={() => setActiveRightTool((v) => (v === 'related' ? null : 'related'))}
+            >
+              <IconRelatedArtifacts />
+            </RightRailButton>
             <button type="button" style={rightRailCollapse} title="Collapse">
               <IconChevronsLeft />
             </button>
@@ -2620,6 +3697,85 @@ export function LineagePage() {
             <div style={rightRailDrawer} className="of-panel">
               <RightRailDrawerContent
                 tool={activeRightTool}
+                propertiesTitle={
+                  selectedNodeIds.length >= 2
+                    ? 'Histogram of selection properties'
+                    : 'View node properties'
+                }
+                relatedContent={
+                  selectedNodeIds.length > 0 ? (
+                    <RelatedItemsPanel
+                      items={relatedArtifactsVisible}
+                      distinctKinds={relatedDistinctKinds}
+                      includedKinds={relatedIncludedKinds}
+                      onToggleKind={handleRelatedToggleKind}
+                      onIncludeAllKinds={handleRelatedIncludeAllKinds}
+                      sort={relatedSort}
+                      onSortChange={setRelatedSort}
+                      showAutosaved={relatedShowAutosaved}
+                      showTrash={relatedShowTrash}
+                      onToggleAutosaved={() => setRelatedShowAutosaved((v) => !v)}
+                      onToggleTrash={() => setRelatedShowTrash((v) => !v)}
+                      onFocusOnGraph={handleRelatedFocusOnGraph}
+                      onOpenArtifact={handleRelatedOpenArtifact}
+                    />
+                  ) : null
+                }
+                propertiesContent={
+                  selectedNodeIds.length >= 2 && histogramSections.length > 0
+                    ? (
+                        <HistogramPanel
+                          sections={histogramSections}
+                          selectionCount={selectedNodeIds.length}
+                          highlightedCount={highlightedHistogramIds.length}
+                          activeFilters={histogramFilters}
+                          onToggleFilter={handleToggleHistogramFilter}
+                          onClearFilters={() => setHistogramFilters([])}
+                          onUpdateSelection={handleUpdateSelectionFromHistogram}
+                          onCopyNames={handleCopyNodeNames}
+                          onLoadColumns={loadColumnsForSelection}
+                          loadingColumns={schemaFetchingDatasetIds.size > 0}
+                          columnsAvailable={columnsAvailable}
+                        />
+                      )
+                    : selectedNode
+                    ? (
+                        <NodePropertiesPanel
+                          node={selectedNode}
+                          relatedObjectTypes={relatedObjectTypes}
+                          schemaRows={propertiesSchemaRows}
+                          schemaLoading={nodeDetails.loading}
+                          description={
+                            nodeDescriptions[selectedNode.id]
+                              ? {
+                                  text: nodeDescriptions[selectedNode.id]!.description,
+                                  updatedAt: nodeDescriptions[selectedNode.id]!.updated_at,
+                                  updatedBy: nodeDescriptions[selectedNode.id]!.updated_by,
+                                }
+                              : null
+                          }
+                          descriptionLoading={Boolean(nodeDescriptionLoading[selectedNode.id])}
+                          onOpenInOntologyManager={handleOpenInOntologyManager}
+                          onOpenDataset={handleOpenDataset}
+                          onCopyResourceId={(node) => {
+                            void copyTextToClipboard(node.id).then(() => {
+                              notifications.success('Copied resource ID');
+                            });
+                          }}
+                          onAddDescription={(node) => void handleSaveNodeDescription(node)}
+                          onClearDescription={(node) => void handleClearNodeDescription(node)}
+                          onReportIssue={(node) => {
+                            if (typeof window === 'undefined') return;
+                            const subject = encodeURIComponent(`Issue with lineage node ${node.label}`);
+                            const body = encodeURIComponent(
+                              `Resource: ${node.label}\nID: ${node.id}\nKind: ${node.kind}\n\nWhat's wrong?`,
+                            );
+                            window.location.href = `mailto:lineage-issues@openfoundry.local?subject=${subject}&body=${body}`;
+                          }}
+                        />
+                      )
+                    : null
+                }
                 graph={viewGraph}
                 selectedNode={selectedNode}
                 selectedNodeIds={selectedNodeIds}
@@ -2654,6 +3810,7 @@ export function LineagePage() {
                 onCopySnapshotLink={(snapshot, linkReadOnly) => void copySnapshotLink(snapshot, linkReadOnly)}
                 onExportSnapshot={exportSnapshotMetadata}
                 onPresentSnapshot={presentSnapshot}
+                onRevokeShare={(snapshot) => void revokeSnapshotShare(snapshot)}
                 onPick={(id) => {
                   const node = viewGraph?.nodes.find((n) => n.id === id) ?? null;
                   selectLineageNode(node);
@@ -2674,8 +3831,13 @@ export function LineagePage() {
                   setBuildHelperPlan(null);
                   setBuildHelperResults([]);
                 }}
+                lastBuiltAtByPipeline={lastBuiltAtByPipeline}
                 onPreviewBuildPlan={previewBuildHelperPlan}
                 onRunBuildPlan={() => void runBuildHelperPlan()}
+                onCancelBuildPreview={() => {
+                  setBuildHelperPlan(null);
+                  setBuildHelperResults([]);
+                }}
                 onSelectBuildTargets={selectBuildPlanTargets}
                 onRollbackTransactionChange={(next) => {
                   setPipelineRollbackTransactionId(next);
@@ -2745,9 +3907,115 @@ export function LineagePage() {
           sensitiveCandidateCount={sensitiveCandidateCount}
           onTriggerBuilds={() => void triggerBuilds()}
           onReloadImpact={() => selectedNode?.id && void loadImpact(selectedNode.id)}
+          branch={branch}
+          buildTimeline={
+            <BuildTimelinePanel
+              rows={buildTimelineResult.rows}
+              from={buildTimelineResult.from}
+              until={buildTimelineResult.until}
+              rangeKey={buildTimelineRange}
+              colorBy={buildTimelineColorBy}
+              onRangeChange={setBuildTimelineRange}
+              onColorByChange={setBuildTimelineColorBy}
+              emptyHint={
+                selectedDatasetIds.length === 0
+                  ? 'Select one or more datasets to see their build timeline.'
+                  : 'No builds in this time window for the selected datasets.'
+              }
+            />
+          }
         />}
       </div>
+      {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
     </section>
+  );
+}
+
+const KEYBOARD_SHORTCUTS: Array<{ label: string; combo: string }> = [
+  { label: 'Add nodes in-between selection', combo: '⌘ + B' },
+  { label: 'Add common ancestors of selection', combo: '⌘ + J' },
+  { label: 'Add common descendants of selection', combo: '⌘ + K' },
+  { label: 'Multi-select (toggle)', combo: 'Shift / ⌘ + click' },
+  { label: 'Drag-select box', combo: 'Tools → Drag select' },
+  { label: 'Show this list', combo: '?' },
+];
+
+function ShortcutsModal({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.35)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 50,
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="of-panel"
+        style={{
+          minWidth: 320,
+          maxWidth: 480,
+          padding: 16,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <strong style={{ fontSize: 13 }}>Keyboard shortcuts</strong>
+          <button
+            type="button"
+            className="of-button"
+            style={{ fontSize: 11, padding: '2px 8px' }}
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <dl style={{ margin: 0, display: 'grid', gap: 6 }}>
+          {KEYBOARD_SHORTCUTS.map((shortcut) => (
+            <div
+              key={shortcut.label}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 12,
+                fontSize: 12,
+                padding: '4px 0',
+                borderBottom: '1px solid var(--border-subtle)',
+              }}
+            >
+              <dt style={{ margin: 0, color: 'var(--text-default)' }}>{shortcut.label}</dt>
+              <dd
+                style={{
+                  margin: 0,
+                  color: 'var(--text-muted)',
+                  fontFamily: 'var(--font-mono)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {shortcut.combo}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </div>
   );
 }
 
@@ -2766,6 +4034,11 @@ interface LineageHeaderProps {
   onSaveCaretClick: () => void;
   onSaveAs: () => void;
   onOpenGraph: () => void;
+  onExportSvg: () => void;
+  onOpenShortcuts: () => void;
+  helpMenuOpen: boolean;
+  onHelpMenuClick: () => void;
+  onStartTour: () => void;
 }
 function LineageHeader({
   branch,
@@ -2778,6 +4051,11 @@ function LineageHeader({
   onSaveCaretClick,
   onSaveAs,
   onOpenGraph,
+  onExportSvg,
+  onOpenShortcuts,
+  helpMenuOpen,
+  onHelpMenuClick,
+  onStartTour,
 }: LineageHeaderProps) {
   const [customBranch, setCustomBranch] = useState('');
   return (
@@ -2858,9 +4136,55 @@ function LineageHeader({
       </div>
 
       <div style={headerRight}>
-        <button type="button" style={iconBtn} title="Command palette">
+        <button
+          type="button"
+          style={iconBtn}
+          title="Keyboard shortcuts (?)"
+          onClick={onOpenShortcuts}
+        >
           <IconCmd />
         </button>
+        <div style={{ position: 'relative', display: 'inline-flex' }}>
+          <button
+            type="button"
+            style={iconBtn}
+            title="Help"
+            onClick={onHelpMenuClick}
+          >
+            <IconHelp />
+          </button>
+          {helpMenuOpen && (
+            <div style={saveMenu} className="of-panel">
+              <button
+                type="button"
+                style={menuItem(false)}
+                onClick={() => {
+                  onHelpMenuClick();
+                  onOpenShortcuts();
+                }}
+              >
+                Keyboard shortcuts
+              </button>
+              <button
+                type="button"
+                style={menuItem(false)}
+                onClick={() => {
+                  onHelpMenuClick();
+                  onStartTour();
+                }}
+              >
+                Take the product tour
+              </button>
+              <a
+                href="mailto:support@openfoundry.local?subject=Data%20Lineage%20support"
+                style={{ ...menuItem(false), textDecoration: 'none' }}
+                onClick={onHelpMenuClick}
+              >
+                Contact support
+              </a>
+            </div>
+          )}
+        </div>
         <button type="button" style={iconBtn} title="Settings">
           <IconSettings />
         </button>
@@ -2878,6 +4202,9 @@ function LineageHeader({
               </button>
               <button type="button" style={menuItem(false)} onClick={onOpenGraph}>
                 Open graph…
+              </button>
+              <button type="button" style={menuItem(false)} onClick={onExportSvg}>
+                Export graph to SVG
               </button>
             </div>
           )}
@@ -2900,9 +4227,16 @@ interface ExpandPreviewCounts {
 
 interface RibbonProps {
   selectedNode: LineageNode | null;
+  selectedNodeCount: number;
   panSelectMode: 'pan' | 'select';
   onPanSelectModeChange: (mode: 'pan' | 'select') => void;
   onClean: () => void;
+  selectPopoverOpen: boolean;
+  onSelectClick: () => void;
+  onSelectAll: () => void;
+  onInvertSelection: () => void;
+  onSelectChildren: () => void;
+  onSelectParents: () => void;
   onSelectFocus: () => void;
   expandPopoverOpen: boolean;
   onExpandClick: () => void;
@@ -2925,6 +4259,9 @@ interface RibbonProps {
   onFindClick: () => void;
   findQuery: string;
   onFindQueryChange: (s: string) => void;
+  findMode: 'name' | 'column';
+  onFindModeChange: (mode: 'name' | 'column') => void;
+  columnIndexLoading: boolean;
   onRemoveClick: () => void;
   onAlignClick: () => void;
   layoutByColor: boolean;
@@ -2934,12 +4271,25 @@ interface RibbonProps {
   legendOpen: boolean;
   onLegendToggle: () => void;
   onRefresh: () => void;
+  flowQuarter: 0 | 1 | 2 | 3;
+  onFlowToggle: () => void;
+  layoutMenuOpen: boolean;
+  layoutMode: LayoutMode;
+  onLayoutMenuClick: () => void;
+  onLayoutModeChange: (mode: LayoutMode) => void;
 }
 function Ribbon(props: RibbonProps) {
   const {
+    selectedNodeCount,
     panSelectMode,
     onPanSelectModeChange,
     onClean,
+    selectPopoverOpen,
+    onSelectClick,
+    onSelectAll,
+    onInvertSelection,
+    onSelectChildren,
+    onSelectParents,
     onSelectFocus,
     expandPopoverOpen,
     onExpandClick,
@@ -2962,6 +4312,9 @@ function Ribbon(props: RibbonProps) {
     onFindClick,
     findQuery,
     onFindQueryChange,
+    findMode,
+    onFindModeChange,
+    columnIndexLoading,
     onRemoveClick,
     onAlignClick,
     layoutByColor,
@@ -2971,6 +4324,12 @@ function Ribbon(props: RibbonProps) {
     legendOpen,
     onLegendToggle,
     onRefresh,
+    flowQuarter,
+    onFlowToggle,
+    layoutMenuOpen,
+    layoutMode,
+    onLayoutMenuClick,
+    onLayoutModeChange,
   } = props;
 
   return (
@@ -2996,9 +4355,29 @@ function Ribbon(props: RibbonProps) {
         </div>
         <span style={toolBtnLabel}>Tools</span>
       </div>
-      <ToolButton label="Layout" onClick={() => undefined}>
-        <IconLayout />
-      </ToolButton>
+      <div style={{ position: 'relative' }}>
+        <ToolButton label="Layout" onClick={onLayoutMenuClick} active={layoutMenuOpen}>
+          <IconLayout />
+        </ToolButton>
+        {layoutMenuOpen && (
+          <div style={expandPopover} className="of-panel">
+            {LAYOUT_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                style={{
+                  ...expandRow,
+                  ...(layoutMode === option.value ? { background: 'var(--bg-chip-active)', color: 'var(--text-link)' } : {}),
+                }}
+                onClick={() => onLayoutModeChange(option.value)}
+                title={option.description}
+              >
+                <IconLayout /> {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div style={ribbonGroup}>
         <ToolButton label="Undo" onClick={() => undefined}>
           <IconUndo />
@@ -3010,9 +4389,60 @@ function Ribbon(props: RibbonProps) {
       <ToolButton label="Clean" onClick={onClean}>
         <IconClean />
       </ToolButton>
-      <ToolButton label="Select" onClick={onSelectFocus}>
-        <IconSelect />
-      </ToolButton>
+      <div style={{ position: 'relative' }}>
+        <ToolButton label="Select" onClick={onSelectClick} active={selectPopoverOpen}>
+          <IconSelect />
+        </ToolButton>
+        {selectPopoverOpen && (
+          <div style={expandPopover} className="of-panel">
+            <button
+              type="button"
+              style={expandRow}
+              onClick={onSelectAll}
+              title="Select every visible node on the graph"
+            >
+              <IconSelect /> Select all
+            </button>
+            <button
+              type="button"
+              style={expandRow}
+              onClick={onInvertSelection}
+              disabled={selectedNodeCount === 0}
+              title="De-select current nodes and select the rest"
+            >
+              <IconSelect /> Invert selection
+            </button>
+            <button
+              type="button"
+              style={expandRow}
+              onClick={onSelectChildren}
+              disabled={selectedNodeCount === 0}
+              title="Add direct children of the current selection"
+            >
+              <IconSelect /> Select children
+            </button>
+            <button
+              type="button"
+              style={expandRow}
+              onClick={onSelectParents}
+              disabled={selectedNodeCount === 0}
+              title="Add direct parents of the current selection"
+            >
+              <IconSelect /> Select parents
+            </button>
+            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '8px 0' }} />
+            <button
+              type="button"
+              style={expandRow}
+              onClick={onSelectFocus}
+              disabled={selectedNodeCount === 0}
+              title="Center the canvas on the primary selection"
+            >
+              <IconSelect /> Focus on selection
+            </button>
+          </div>
+        )}
+      </div>
       <div style={{ position: 'relative' }}>
         <ToolButton label="Expand" onClick={onExpandClick} active={expandPopoverOpen}>
           <IconExpand />
@@ -3099,14 +4529,40 @@ function Ribbon(props: RibbonProps) {
         </ToolButton>
         {findOpen && (
           <div style={findPopover} className="of-panel">
+            <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+              <button
+                type="button"
+                style={{ ...findModeBtn, ...(findMode === 'name' ? findModeBtnActive : {}) }}
+                onClick={() => onFindModeChange('name')}
+              >
+                By name
+              </button>
+              <button
+                type="button"
+                style={{ ...findModeBtn, ...(findMode === 'column' ? findModeBtnActive : {}) }}
+                onClick={() => onFindModeChange('column')}
+                title="Search dataset columns (loads schemas on demand)"
+              >
+                By column
+              </button>
+            </div>
             <input
               type="text"
               autoFocus
-              placeholder="Find dataset, path, project, branch…"
+              placeholder={
+                findMode === 'column'
+                  ? 'Find column name…'
+                  : 'Find dataset, path, project, branch…'
+              }
               value={findQuery}
               onChange={(e) => onFindQueryChange(e.target.value)}
               style={findInput}
             />
+            {findMode === 'column' && columnIndexLoading && (
+              <div className="of-text-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                Loading column indexes…
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -3117,9 +4573,9 @@ function Ribbon(props: RibbonProps) {
         <IconAlign />
       </ToolButton>
       <ToolButton
-        label="Flow"
-        title="Flow direction (left-to-right by default)"
-        onClick={onAlignClick}
+        label={`Flow ${flowQuarter === 0 ? 'TB' : flowQuarter === 1 ? 'LR' : flowQuarter === 2 ? 'BT' : 'RL'}`}
+        title="Rotate dependency direction (TB → LR → BT → RL)"
+        onClick={onFlowToggle}
       >
         <IconFlow />
       </ToolButton>
@@ -3218,9 +4674,10 @@ interface RightRailButtonProps {
   active: boolean;
   title: string;
   onClick: () => void;
+  badge?: number;
   children: ReactNode;
 }
-function RightRailButton({ active, title, onClick, children }: RightRailButtonProps) {
+function RightRailButton({ active, title, onClick, badge, children }: RightRailButtonProps) {
   return (
     <button
       type="button"
@@ -3229,15 +4686,22 @@ function RightRailButton({ active, title, onClick, children }: RightRailButtonPr
       style={{
         ...rightRailButton,
         ...(active ? rightRailButtonActive : {}),
+        position: 'relative',
       }}
     >
       {children}
+      {badge !== undefined && badge > 0 && (
+        <span style={rightRailBadge}>{badge > 99 ? '99+' : badge}</span>
+      )}
     </button>
   );
 }
 
 interface RightRailDrawerContentProps {
-  tool: 'search' | 'list' | 'tools' | 'calendar' | 'clipboard';
+  tool: 'search' | 'properties' | 'tools' | 'calendar' | 'clipboard' | 'related';
+  propertiesContent: ReactNode | null;
+  propertiesTitle: string;
+  relatedContent: ReactNode | null;
   graph: LineageGraph | null;
   selectedNode: LineageNode | null;
   selectedNodeIds: string[];
@@ -3269,12 +4733,15 @@ interface RightRailDrawerContentProps {
   onCopySnapshotLink: (snapshot: SavedLineageGraphSnapshot, readOnly?: boolean) => void;
   onExportSnapshot: (snapshot: SavedLineageGraphSnapshot) => void;
   onPresentSnapshot: (snapshot: SavedLineageGraphSnapshot) => void;
+  onRevokeShare: (snapshot: SavedLineageGraphSnapshot) => void;
   onPick: (id: string) => void;
+  lastBuiltAtByPipeline: Map<string, string>;
   onBuildStrategyChange: (strategy: BuildHelperStrategy) => void;
   onBuildFallbacksChange: (value: string) => void;
   onBuildForceChange: (value: boolean) => void;
   onPreviewBuildPlan: () => void;
   onRunBuildPlan: () => void;
+  onCancelBuildPreview: () => void;
   onSelectBuildTargets: (plan: BuildHelperPlan) => void;
   onRollbackTransactionChange: (transactionId: string) => void;
   onRefreshRollbackTransactions: () => void;
@@ -3284,6 +4751,9 @@ interface RightRailDrawerContentProps {
 }
 function RightRailDrawerContent({
   tool,
+  propertiesContent,
+  propertiesTitle,
+  relatedContent,
   graph,
   selectedNode,
   selectedNodeIds,
@@ -3315,12 +4785,15 @@ function RightRailDrawerContent({
   onCopySnapshotLink,
   onExportSnapshot,
   onPresentSnapshot,
+  onRevokeShare,
   onPick,
+  lastBuiltAtByPipeline,
   onBuildStrategyChange,
   onBuildFallbacksChange,
   onBuildForceChange,
   onPreviewBuildPlan,
   onRunBuildPlan,
+  onCancelBuildPreview,
   onSelectBuildTargets,
   onRollbackTransactionChange,
   onRefreshRollbackTransactions,
@@ -3341,17 +4814,18 @@ function RightRailDrawerContent({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <strong style={{ fontSize: 13, color: 'var(--text-strong)' }}>
           {tool === 'search' && 'Search'}
-          {tool === 'list' && 'Resource list'}
+          {tool === 'properties' && propertiesTitle}
           {tool === 'tools' && 'Tools'}
           {tool === 'calendar' && 'Schedule'}
           {tool === 'clipboard' && 'Clipboard'}
+          {tool === 'related' && 'Related items'}
         </strong>
         <button type="button" style={iconBtnGhost} onClick={onClose} title="Close">
           ×
         </button>
       </div>
 
-      {(tool === 'search' || tool === 'list') && (
+      {tool === 'search' && (
         <>
           <input
             type="text"
@@ -3383,6 +4857,26 @@ function RightRailDrawerContent({
         </>
       )}
 
+      {tool === 'properties' && (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {propertiesContent ?? (
+            <div className="of-text-muted" style={{ fontSize: 12 }}>
+              Select a node to view properties, or select 2+ nodes to compare them.
+            </div>
+          )}
+        </div>
+      )}
+
+      {tool === 'related' && (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {relatedContent ?? (
+            <div className="of-text-muted" style={{ fontSize: 12 }}>
+              Select a node to see its related artifacts.
+            </div>
+          )}
+        </div>
+      )}
+
       {tool === 'tools' && (
         <div style={{ display: 'grid', gap: 12, minHeight: 0, overflow: 'auto' }}>
           <ColorAndFilterTool
@@ -3402,11 +4896,13 @@ function RightRailDrawerContent({
             plan={buildPlan}
             results={buildResults}
             running={buildRunning}
+            lastBuiltAtByPipeline={lastBuiltAtByPipeline}
             onStrategyChange={onBuildStrategyChange}
             onFallbackBranchesChange={onBuildFallbacksChange}
             onForceBuildChange={onBuildForceChange}
             onPreview={onPreviewBuildPlan}
             onRun={onRunBuildPlan}
+            onCancelPreview={onCancelBuildPreview}
             onSelectTargets={onSelectBuildTargets}
           />
           <PipelineRollbackTool
@@ -3441,6 +4937,7 @@ function RightRailDrawerContent({
           onCopyLink={onCopySnapshotLink}
           onExport={onExportSnapshot}
           onPresent={onPresentSnapshot}
+          onRevokeShare={onRevokeShare}
         />
       )}
     </div>
@@ -3518,9 +5015,10 @@ interface SnapshotClipboardProps {
   onCopyLink: (snapshot: SavedLineageGraphSnapshot, readOnly?: boolean) => void;
   onExport: (snapshot: SavedLineageGraphSnapshot) => void;
   onPresent: (snapshot: SavedLineageGraphSnapshot) => void;
+  onRevokeShare: (snapshot: SavedLineageGraphSnapshot) => void;
 }
 
-function SnapshotClipboard({ snapshots, onRestore, onDelete, onDuplicate, onCopyLink, onExport, onPresent }: SnapshotClipboardProps) {
+function SnapshotClipboard({ snapshots, onRestore, onDelete, onDuplicate, onCopyLink, onExport, onPresent, onRevokeShare }: SnapshotClipboardProps) {
   if (snapshots.length === 0) {
     return (
       <p className="of-text-muted" style={{ fontSize: 12 }}>
@@ -3570,6 +5068,17 @@ function SnapshotClipboard({ snapshots, onRestore, onDelete, onDuplicate, onCopy
               <button type="button" className="of-button" style={{ fontSize: 11 }} onClick={() => onExport(snapshot)}>
                 Export
               </button>
+              {snapshot.share_token && (
+                <button
+                  type="button"
+                  className="of-button"
+                  style={{ fontSize: 11 }}
+                  onClick={() => onRevokeShare(snapshot)}
+                  title="Revoke the active share link so it stops resolving"
+                >
+                  Revoke share
+                </button>
+              )}
               <button type="button" className="of-button" style={{ fontSize: 11 }} onClick={() => onDelete(snapshot.id)}>
                 Delete
               </button>
@@ -3590,11 +5099,13 @@ interface BuildHelperToolProps {
   plan: BuildHelperPlan | null;
   results: BuildHelperRunResult[];
   running: boolean;
+  lastBuiltAtByPipeline: Map<string, string>;
   onStrategyChange: (strategy: BuildHelperStrategy) => void;
   onFallbackBranchesChange: (value: string) => void;
   onForceBuildChange: (value: boolean) => void;
   onPreview: () => void;
   onRun: () => void;
+  onCancelPreview: () => void;
   onSelectTargets: (plan: BuildHelperPlan) => void;
 }
 
@@ -3607,114 +5118,212 @@ function BuildHelperTool({
   plan,
   results,
   running,
+  lastBuiltAtByPipeline,
   onStrategyChange,
   onFallbackBranchesChange,
   onForceBuildChange,
   onPreview,
   onRun,
+  onCancelPreview,
   onSelectTargets,
 }: BuildHelperToolProps) {
   const selectedDatasets = useMemo(() => {
     const byID = new Map((graph?.nodes ?? []).map((node) => [node.id, node]));
     return selectedNodeIds.map((id) => byID.get(id)).filter((node): node is LineageNode => Boolean(node && node.kind === 'dataset'));
   }, [graph, selectedNodeIds]);
-  const runnableCount = plan?.targets.filter((target) => !target.blocked_reason).length ?? 0;
+  const [showWontBeBuilt, setShowWontBeBuilt] = useState(true);
+  const runnableTargets = plan?.targets.filter((target) => !target.blocked_reason) ?? [];
+  const blockedTargets = plan?.targets.filter((target) => Boolean(target.blocked_reason)) ?? [];
+  const runnableCount = runnableTargets.length;
+  const visibleTargets = showWontBeBuilt ? plan?.targets ?? [] : runnableTargets;
+
+  // Stage A: strategy selection. Shown when no plan has been computed yet.
+  if (!plan) {
+    return (
+      <div style={{ display: 'grid', gap: 12, minHeight: 0, overflow: 'auto' }}>
+        <div className="of-panel-muted" style={{ padding: 10 }}>
+          <p className="of-eyebrow">Build helper · Step 1 of 2 · Select a build strategy</p>
+          <div style={{ fontSize: 12, marginTop: 6 }}>
+            {selectedDatasets.length} selected dataset{selectedDatasets.length === 1 ? '' : 's'}
+          </div>
+          {selectedDatasets.length > 0 && (
+            <div style={{ display: 'grid', gap: 4, marginTop: 8 }}>
+              {selectedDatasets.slice(0, 6).map((node) => (
+                <div key={node.id} style={{ fontSize: 11, color: 'var(--text-muted)', overflowWrap: 'anywhere' }}>
+                  {node.label}
+                </div>
+              ))}
+              {selectedDatasets.length > 6 && (
+                <div style={{ fontSize: 11, color: 'var(--text-soft)' }}>+{selectedDatasets.length - 6} more</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <fieldset style={{ display: 'grid', gap: 8, border: 0, padding: 0, margin: 0 }}>
+          <legend className="of-eyebrow" style={{ marginBottom: 4 }}>Builds · Select a build strategy</legend>
+          {BUILD_HELPER_STRATEGIES.map((entry) => (
+            <label key={entry.value} style={radioRow}>
+              <input
+                type="radio"
+                name="build-strategy"
+                value={entry.value}
+                checked={strategy === entry.value}
+                onChange={(event) => onStrategyChange(event.target.value as BuildHelperStrategy)}
+              />
+              <div style={{ display: 'grid', gap: 2, flex: 1 }}>
+                <span style={{ fontSize: 12, fontWeight: 600 }}>{entry.label}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{entry.description}</span>
+              </div>
+            </label>
+          ))}
+        </fieldset>
+
+        <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+          Fallback branches
+          <input
+            value={fallbackBranches}
+            onChange={(event) => onFallbackBranchesChange(event.target.value)}
+            className="of-input"
+            placeholder="master, staging"
+          />
+        </label>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            className="of-button of-button--primary"
+            onClick={onPreview}
+            disabled={selectedDatasets.length === 0}
+          >
+            Next (View preview)
+          </button>
+        </div>
+
+        {results.length > 0 && (
+          <div className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 6 }}>
+            <p className="of-eyebrow">Run results</p>
+            {results.map((result) => (
+              <div key={result.pipeline_rid} style={{ fontSize: 11, overflowWrap: 'anywhere' }}>
+                <strong>{result.pipeline_rid}</strong>
+                <div className={result.error ? 'of-status-danger' : 'of-text-muted'} style={{ marginTop: 2 }}>
+                  {result.error ?? `${result.output_dataset_rids.length} output(s) · ${result.response?.state ?? 'queued'}`}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Stage B: preview. The user has computed a plan and now decides whether
+  // to run it. They can flip the force-build toggle, show/hide the blocked
+  // rows, focus the targets on the canvas, or cancel back to Stage A.
   return (
     <div style={{ display: 'grid', gap: 12, minHeight: 0, overflow: 'auto' }}>
       <div className="of-panel-muted" style={{ padding: 10 }}>
-        <p className="of-eyebrow">Build helper</p>
-        <div style={{ fontSize: 12, marginTop: 6 }}>
-          {selectedDatasets.length} selected dataset{selectedDatasets.length === 1 ? '' : 's'}
+        <p className="of-eyebrow">Build helper · Step 2 of 2 · Finalize build options</p>
+        <div style={{ fontSize: 13, fontWeight: 700, marginTop: 6 }}>
+          {runnableCount} dataset{runnableCount === 1 ? '' : 's'} will be built
         </div>
-        {selectedDatasets.length > 0 && (
-          <div style={{ display: 'grid', gap: 4, marginTop: 8 }}>
-            {selectedDatasets.slice(0, 6).map((node) => (
-              <div key={node.id} style={{ fontSize: 11, color: 'var(--text-muted)', overflowWrap: 'anywhere' }}>
-                {node.label}
-              </div>
-            ))}
-            {selectedDatasets.length > 6 && (
-              <div style={{ fontSize: 11, color: 'var(--text-soft)' }}>+{selectedDatasets.length - 6} more</div>
-            )}
+        {blockedTargets.length > 0 && (
+          <div className="of-text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+            {blockedTargets.length} blocked target{blockedTargets.length === 1 ? '' : 's'} excluded
+          </div>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+          <MetricPill label="Targets" value={plan.targets.length} />
+          <MetricPill label="Transforms" value={plan.transform_ids.length} />
+          <MetricPill label="Strategy" value={BUILD_HELPER_STRATEGIES.find((s) => s.value === plan.strategy)?.label ?? plan.strategy} />
+          <MetricPill label="Branch" value={plan.branch} />
+        </div>
+        {plan.warnings.length > 0 && (
+          <div className="of-status-warning" style={{ marginTop: 8, padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 11 }}>
+            {plan.warnings.join(' ')}
           </div>
         )}
       </div>
 
-      <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
-        Strategy
-        <select value={strategy} onChange={(event) => onStrategyChange(event.target.value as BuildHelperStrategy)} className="of-input">
-          {BUILD_HELPER_STRATEGIES.map((entry) => (
-            <option key={entry.value} value={entry.value}>{entry.label}</option>
-          ))}
-        </select>
-        <span className="of-text-muted" style={{ fontSize: 11 }}>
-          {BUILD_HELPER_STRATEGIES.find((entry) => entry.value === strategy)?.description}
-        </span>
-      </label>
-
-      <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
-        Fallback branches
-        <input
-          value={fallbackBranches}
-          onChange={(event) => onFallbackBranchesChange(event.target.value)}
-          className="of-input"
-          placeholder="master, staging"
-        />
-      </label>
-
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-        <input type="checkbox" checked={forceBuild} onChange={(event) => onForceBuildChange(event.target.checked)} />
-        Force build up-to-date datasets
-      </label>
-
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button type="button" className="of-button" onClick={onPreview}>Preview</button>
-        <button type="button" className="of-button of-button--primary" onClick={onRun} disabled={!plan || runnableCount === 0 || running}>
-          {running ? 'Running...' : 'Run build'}
+      <div style={{ display: 'grid', gap: 6 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+          <input
+            type="checkbox"
+            checked={showWontBeBuilt}
+            onChange={(event) => setShowWontBeBuilt(event.target.checked)}
+          />
+          Show datasets that will not be built
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+          <input
+            type="checkbox"
+            checked={forceBuild}
+            onChange={(event) => onForceBuildChange(event.target.checked)}
+          />
+          Force build on up-to-date datasets
+        </label>
+        <button
+          type="button"
+          className="of-button"
+          style={{ fontSize: 11, justifySelf: 'start' }}
+          onClick={() => onSelectTargets(plan)}
+          disabled={plan.targets.length === 0}
+        >
+          Select nodes on graph
         </button>
       </div>
 
-      {plan && (
-        <div style={{ display: 'grid', gap: 8 }}>
-          <div className="of-panel-muted" style={{ padding: 10 }}>
-            <p className="of-eyebrow">Preview</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-              <MetricPill label="Targets" value={plan.targets.length} />
-              <MetricPill label="Runnable" value={runnableCount} />
-              <MetricPill label="Transforms" value={plan.transform_ids.length} />
-              <MetricPill label="Branch" value={plan.branch} />
-            </div>
-            {plan.warnings.length > 0 && (
-              <div className="of-status-warning" style={{ marginTop: 8, padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 11 }}>
-                {plan.warnings.join(' ')}
-              </div>
-            )}
-            {plan.targets.length > 0 && (
-              <button type="button" className="of-button" style={{ marginTop: 8, fontSize: 11 }} onClick={() => onSelectTargets(plan)}>
-                Select preview targets
-              </button>
-            )}
+      <div style={{ display: 'grid', gap: 6, maxHeight: 320, overflow: 'auto' }}>
+        {visibleTargets.length === 0 ? (
+          <div className="of-text-muted" style={{ fontSize: 12, padding: 8 }}>
+            No targets to display.
           </div>
-          <div style={{ display: 'grid', gap: 6, maxHeight: 260, overflow: 'auto' }}>
-            {plan.targets.map((target) => (
-              <div key={target.node_id} style={candidateRow}>
+        ) : (
+          visibleTargets.map((target) => {
+            const lastBuilt = lastBuiltAtByPipeline.get(target.pipeline_rid);
+            const blocked = Boolean(target.blocked_reason);
+            return (
+              <div key={target.node_id} style={{ ...candidateRow, opacity: blocked ? 0.55 : 1 }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, overflowWrap: 'anywhere' }}>{target.label}</div>
                   <div className="of-eyebrow" style={{ marginTop: 3 }}>
                     {target.reason} · d{target.distance} · {target.branch}
                   </div>
+                  {lastBuilt ? (
+                    <div className="of-text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                      Last built at {formatHelperTimestamp(lastBuilt)}
+                    </div>
+                  ) : (
+                    <div className="of-text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                      Never built in this window
+                    </div>
+                  )}
                   {target.blocked_reason && (
                     <div style={{ fontSize: 11, color: 'var(--status-danger)', marginTop: 3 }}>{target.blocked_reason}</div>
                   )}
                 </div>
-                <span style={{ fontSize: 11, color: target.blocked_reason ? 'var(--status-danger)' : 'var(--status-success)' }}>
-                  {target.blocked_reason ? 'blocked' : 'ready'}
+                <span style={{ fontSize: 11, color: blocked ? 'var(--status-danger)' : 'var(--status-success)' }}>
+                  {blocked ? 'blocked' : 'ready'}
                 </span>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            );
+          })
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button type="button" className="of-button" onClick={onCancelPreview} disabled={running}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="of-button of-button--primary"
+          onClick={onRun}
+          disabled={runnableCount === 0 || running}
+        >
+          {running ? 'Running...' : 'Run build'}
+        </button>
+      </div>
 
       {results.length > 0 && (
         <div className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 6 }}>
@@ -3732,6 +5341,22 @@ function BuildHelperTool({
     </div>
   );
 }
+
+function formatHelperTimestamp(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  return new Date(t).toLocaleString();
+}
+
+const radioRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  padding: '8px 10px',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 'var(--radius-sm)',
+  cursor: 'pointer',
+};
 
 interface PipelineRollbackToolProps {
   selectedNode: LineageNode | null;
@@ -3931,6 +5556,7 @@ const BOTTOM_TABS: { id: BottomTabId; label: string; icon: ReactNode }[] = [
   { id: 'health', label: 'Health', icon: <IconColor /> },
   { id: 'permissions', label: 'Permissions', icon: <IconSelect /> },
   { id: 'code', label: 'Code', icon: <IconCmd /> },
+  { id: 'build_timeline', label: 'Build timeline', icon: <IconChartGantt /> },
 ];
 
 interface BottomPanelProps {
@@ -3955,6 +5581,8 @@ interface BottomPanelProps {
   sensitiveCandidateCount: number;
   onTriggerBuilds: () => void;
   onReloadImpact: () => void;
+  buildTimeline: ReactNode;
+  branch: string;
 }
 function BottomPanel({
   collapsed,
@@ -3978,6 +5606,8 @@ function BottomPanel({
   sensitiveCandidateCount,
   onTriggerBuilds,
   onReloadImpact,
+  buildTimeline,
+  branch,
 }: BottomPanelProps) {
   const height = collapsed ? 36 : fullscreen ? '60vh' : 240;
 
@@ -4017,6 +5647,7 @@ function BottomPanel({
               selectedNode={selectedNode}
               datasetPreview={datasetPreview}
               datasetPreviewLoading={datasetPreviewLoading}
+              branch={branch}
             />
           )}
           {tab === 'schema' && <SchemaTab selectedNode={selectedNode} nodeDetails={nodeDetails} datasetPreview={datasetPreview} />}
@@ -4039,6 +5670,7 @@ function BottomPanel({
           )}
           {tab === 'permissions' && <PermissionsTab selectedNode={selectedNode} />}
           {tab === 'code' && <CodeTab selectedNode={selectedNode} />}
+          {tab === 'build_timeline' && buildTimeline}
         </div>
       )}
     </div>
@@ -4049,10 +5681,14 @@ interface PreviewTabProps {
   selectedNode: LineageNode | null;
   datasetPreview: DatasetPreviewResponse | null;
   datasetPreviewLoading: boolean;
+  branch: string;
 }
-function PreviewTab({ selectedNode, datasetPreview, datasetPreviewLoading }: PreviewTabProps) {
+function PreviewTab({ selectedNode, datasetPreview, datasetPreviewLoading, branch }: PreviewTabProps) {
   if (!selectedNode) {
     return <div style={tabHint}>Select a node to inspect its preview.</div>;
+  }
+  if (isMediaSetNode(selectedNode)) {
+    return <MediaSetPreview mediaSetRid={selectedNode.id} branch={branch} />;
   }
   if (selectedNode.kind !== 'dataset') {
     return (
@@ -4129,6 +5765,16 @@ function PreviewTab({ selectedNode, datasetPreview, datasetPreviewLoading }: Pre
       </div>
     </div>
   );
+}
+
+function isMediaSetNode(node: LineageNode): boolean {
+  if (node.kind === 'media_set') return true;
+  const meta = node.metadata ?? {};
+  for (const key of ['resource_type', 'kind', 'dataset_kind']) {
+    const value = (meta as Record<string, unknown>)[key];
+    if (typeof value === 'string' && value === 'media_set') return true;
+  }
+  return false;
 }
 
 function formatPreviewCell(value: unknown): string {
@@ -4371,6 +6017,8 @@ interface CodeTabProps {
   selectedNode: LineageNode | null;
 }
 function CodeTab({ selectedNode }: CodeTabProps) {
+  const [editorRef, setEditorRef] = useState<MonacoEditorHandle | null>(null);
+  const [editable, setEditable] = useState(false);
   if (!selectedNode) {
     return <div style={tabHint}>Select a dataset to view its job-spec source.</div>;
   }
@@ -4387,12 +6035,118 @@ function CodeTab({ selectedNode }: CodeTabProps) {
       </div>
     );
   }
+
+  const language = (() => {
+    for (const key of ['transform_language', 'language', 'code_language']) {
+      const value = (meta as Record<string, unknown>)[key];
+      if (typeof value === 'string' && value.length > 0) {
+        const normalized = value.toLowerCase();
+        if (normalized.includes('python') || normalized.includes('pyspark')) return 'python';
+        if (normalized.includes('sql')) return 'sql';
+        if (normalized.includes('r')) return 'r';
+        if (normalized.includes('javascript') || normalized.includes('typescript')) return 'typescript';
+        if (normalized.includes('java')) return 'java';
+        if (normalized.includes('scala')) return 'scala';
+        return normalized;
+      }
+    }
+    // Last-resort heuristic on the code body.
+    if (/^(from |import |def )/m.test(code)) return 'python';
+    if (/^\s*(select|with|from)\s/i.test(code)) return 'sql';
+    return 'plaintext';
+  })();
+
+  const repoUrl = firstMetaStringLocal(meta, ['repository_url', 'repo_url', 'source_repository_url']);
+  const workbookUrl = firstMetaStringLocal(meta, ['workbook_url', 'code_workbook_url', 'notebook_url']);
+  const repoLabel = workbookUrl ? 'View in code workbook' : 'View in repository';
+  const externalUrl = workbookUrl ?? repoUrl;
+
   return (
-    <pre style={codePre}>
-      <code>{code}</code>
-    </pre>
+    <div style={codeTabRoot}>
+      <div style={codeToolbar}>
+        <button
+          type="button"
+          className="of-button"
+          style={{ fontSize: 11 }}
+          onClick={() => setEditable((v) => !v)}
+          title={editable ? 'Lock the editor (Quick edit off)' : 'Toggle Quick edit (local-only)'}
+        >
+          {editable ? 'Lock' : 'Quick edit'}
+        </button>
+        <button
+          type="button"
+          className="of-button"
+          style={{ fontSize: 11 }}
+          onClick={() => editorRef?.editor.getAction('actions.find')?.run()}
+          title="Find in code (⌘F)"
+        >
+          Find…
+        </button>
+        {externalUrl ? (
+          <a
+            href={externalUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="of-button"
+            style={{ fontSize: 11 }}
+          >
+            {repoLabel} ↗
+          </a>
+        ) : (
+          <span className="of-text-muted" style={{ fontSize: 11 }}>
+            No repository or workbook link captured
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        <span className="of-text-muted" style={{ fontSize: 11 }}>
+          {language}
+        </span>
+      </div>
+      <div style={codeBody}>
+        <MonacoEditor
+          value={code}
+          language={language}
+          minimap
+          readOnly={!editable}
+          minHeight={220}
+          onMount={(editor) => setEditorRef({ editor })}
+        />
+      </div>
+    </div>
   );
 }
+
+interface MonacoEditorHandle {
+  editor: import('monaco-editor/esm/vs/editor/editor.api').editor.IStandaloneCodeEditor;
+}
+
+function firstMetaStringLocal(metadata: Record<string, unknown>, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+const codeTabRoot: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  height: '100%',
+  minHeight: 0,
+};
+const codeToolbar: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '6px 10px',
+  borderBottom: '1px solid var(--border-subtle)',
+  background: 'var(--bg-canvas)',
+};
+const codeBody: CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflow: 'hidden',
+};
 
 interface HealthTabProps {
   selectedNode: LineageNode | null;
@@ -4834,6 +6588,22 @@ const toolGroupRow: CSSProperties = {
   display: 'inline-flex',
   gap: 4,
 };
+const findModeBtn: CSSProperties = {
+  flex: 1,
+  padding: '4px 8px',
+  fontSize: 11,
+  fontWeight: 600,
+  background: 'var(--bg-canvas)',
+  color: 'var(--text-muted)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 'var(--radius-sm)',
+  cursor: 'pointer',
+};
+const findModeBtnActive: CSSProperties = {
+  background: 'var(--bg-chip-active)',
+  color: 'var(--text-link)',
+  borderColor: 'var(--border-focus)',
+};
 const toolSubBtn: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -5101,6 +6871,23 @@ const rightRailButton: CSSProperties = {
   border: '1px solid transparent',
   borderRadius: 'var(--radius-sm)',
   color: 'var(--text-muted)',
+};
+const rightRailBadge: CSSProperties = {
+  position: 'absolute',
+  top: 2,
+  right: 2,
+  minWidth: 16,
+  height: 14,
+  padding: '0 4px',
+  borderRadius: 7,
+  background: 'var(--text-link)',
+  color: '#fff',
+  fontSize: 9,
+  fontWeight: 700,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  pointerEvents: 'none',
 };
 const rightRailButtonActive: CSSProperties = {
   background: 'var(--bg-chip-active)',

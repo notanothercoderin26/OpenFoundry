@@ -34,6 +34,12 @@ type Options struct {
 	// surface. Nullable so HTTP-health-only mode (or tests that pin
 	// only the legacy surface) can leave it unset.
 	Graph *handlers.GraphHandlers
+	// SavedGraphs hosts the Foundry-style "Save / Open graph" + share
+	// link endpoints. Nullable for tests that don't exercise them.
+	SavedGraphs *handlers.SavedGraphHandlers
+	// NodeDescriptions hosts the "Add description" Properties helper
+	// CRUD. Nullable for tests that don't exercise it.
+	NodeDescriptions *handlers.NodeDescriptionHandlers
 }
 
 func New(cfg *config.Config, m *observability.Metrics, opts *Options, probes ...capabilities.DependencyProbe) *http.Server {
@@ -76,6 +82,12 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options, pr
 	}
 	caps.Mount(r)
 
+	// Public share-link endpoint — no auth. Mounted before the auth
+	// group so the chi router doesn't apply the JWT middleware to it.
+	if opts != nil && opts.SavedGraphs != nil {
+		r.Get("/api/v1/lineage/shared/{token}", opts.SavedGraphs.GetShared)
+	}
+
 	if opts != nil && opts.JWT != nil && opts.Handlers != nil {
 		r.Route("/api/v1/lineage", func(api chi.Router) {
 			api.Use(authmw.Middleware(opts.JWT))
@@ -106,6 +118,22 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options, pr
 				api.Get("/downstream/*", opts.Graph.Downstream)
 				api.Get("/job/{namespace}/{name}/runs", opts.Graph.JobRuns)
 				api.Post("/events", opts.Graph.PostEvent)
+			}
+
+			if opts.SavedGraphs != nil {
+				api.Get("/saved-graphs", opts.SavedGraphs.List)
+				api.Post("/saved-graphs", opts.SavedGraphs.Create)
+				api.Get("/saved-graphs/{id}", opts.SavedGraphs.Get)
+				api.Put("/saved-graphs/{id}", opts.SavedGraphs.Update)
+				api.Delete("/saved-graphs/{id}", opts.SavedGraphs.Delete)
+				api.Post("/saved-graphs/{id}/share", opts.SavedGraphs.Share)
+				api.Delete("/saved-graphs/{id}/share", opts.SavedGraphs.RevokeShare)
+			}
+
+			if opts.NodeDescriptions != nil {
+				api.Get("/nodes/{id}/description", opts.NodeDescriptions.Get)
+				api.Put("/nodes/{id}/description", opts.NodeDescriptions.Upsert)
+				api.Delete("/nodes/{id}/description", opts.NodeDescriptions.Delete)
 			}
 		})
 	}

@@ -53,9 +53,15 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 			api.Patch(base+"/{id}", h.UpdateObjectType)
 			api.Delete(base+"/{id}", h.DeleteObjectType)
 
-			// Properties — nested under each type
+			// Properties — list/create nested under each type
 			api.Get(base+"/{id}/properties", h.ListProperties)
 			api.Post(base+"/{id}/properties", h.CreateProperty)
+			// Per-property update/delete by property id (not type-scoped).
+			// Lets agents and SDKs touch a single property without
+			// going through the Review-edits batch flow.
+			api.Get(base+"/{id}/properties/{propertyID}", h.GetProperty)
+			api.Patch(base+"/{id}/properties/{propertyID}", h.UpdateProperty)
+			api.Delete(base+"/{id}/properties/{propertyID}", h.DeleteProperty)
 
 			// App capabilities (per-app metadata, e.g. vertex_event)
 			api.Put(base+"/{id}/app-capabilities", h.UpdateObjectTypeAppCapabilities)
@@ -78,13 +84,23 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/object-type-groups/{id}/object-types/{objectTypeId}", h.AddObjectTypeToGroup)
 		api.Delete("/object-type-groups/{id}/object-types/{objectTypeId}", h.RemoveObjectTypeFromGroup)
 
-		// Catalog reads consumed by Ontology Manager on first paint.
-		// Both endpoints accept `page`, `per_page` and `search`; they
-		// return the `{ data, total, page, per_page }` envelope the
-		// frontend expects. CRUD on these resources lands in a
-		// follow-up slice once the Workshop UX needs it.
+		// Interfaces — Foundry-equivalent "shape" types for object-type
+		// polymorphism. List endpoint is what the Ontology Manager UI
+		// hits on first paint; CRUD endpoints below let an agent
+		// declare interfaces before binding object types via batch-save.
 		api.Get("/interfaces", h.ListInterfaces)
+		api.Post("/interfaces", h.CreateInterface)
+		api.Get("/interfaces/{id}", h.GetInterface)
+		api.Patch("/interfaces/{id}", h.UpdateInterface)
+		api.Delete("/interfaces/{id}", h.DeleteInterface)
+
+		// Shared property types — semantic wrappers around a base type,
+		// reusable across object types. Same CRUD shape as interfaces.
 		api.Get("/shared-property-types", h.ListSharedPropertyTypes)
+		api.Post("/shared-property-types", h.CreateSharedPropertyType)
+		api.Get("/shared-property-types/{id}", h.GetSharedPropertyType)
+		api.Patch("/shared-property-types/{id}", h.UpdateSharedPropertyType)
+		api.Delete("/shared-property-types/{id}", h.DeleteSharedPropertyType)
 
 		// Atomic batch save for the Ontology-Manager Review-edits
 		// modal. All staged edits succeed together or none of them

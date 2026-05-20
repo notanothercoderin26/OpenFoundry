@@ -25,26 +25,28 @@ import (
 // (auth, validation, success, not-found). It does not aim to mirror
 // the Postgres semantics of the real repo.
 type fakeStore struct {
-	objectTypes  map[uuid.UUID]*models.ObjectType
-	properties   map[uuid.UUID][]models.Property
-	linkTypes    map[uuid.UUID]*models.LinkType
-	groups       map[uuid.UUID]*models.ObjectTypeGroup
-	interfaces   []models.OntologyInterface
-	sharedProps  []models.SharedPropertyType
-	listOTErr    error
-	listLTErr    error
-	listGrpErr   error
-	listIfaceErr error
-	listSPErr    error
-	listPropErr  error
+	objectTypes      map[uuid.UUID]*models.ObjectType
+	properties       map[uuid.UUID][]models.Property
+	linkTypes        map[uuid.UUID]*models.LinkType
+	groups           map[uuid.UUID]*models.ObjectTypeGroup
+	interfaces       map[uuid.UUID]*models.OntologyInterface
+	sharedProperties map[uuid.UUID]*models.SharedPropertyType
+	listOTErr        error
+	listLTErr        error
+	listGrpErr       error
+	listIfaceErr     error
+	listSPErr        error
+	listPropErr      error
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		objectTypes: map[uuid.UUID]*models.ObjectType{},
-		properties:  map[uuid.UUID][]models.Property{},
-		linkTypes:   map[uuid.UUID]*models.LinkType{},
-		groups:      map[uuid.UUID]*models.ObjectTypeGroup{},
+		objectTypes:      map[uuid.UUID]*models.ObjectType{},
+		properties:       map[uuid.UUID][]models.Property{},
+		linkTypes:        map[uuid.UUID]*models.LinkType{},
+		groups:           map[uuid.UUID]*models.ObjectTypeGroup{},
+		interfaces:       map[uuid.UUID]*models.OntologyInterface{},
+		sharedProperties: map[uuid.UUID]*models.SharedPropertyType{},
 	}
 }
 
@@ -94,7 +96,7 @@ func (f *fakeStore) CreateObjectType(_ context.Context, body *models.CreateObjec
 	return v, nil
 }
 
-func (f *fakeStore) UpdateObjectType(_ context.Context, id uuid.UUID, body *models.UpdateObjectTypeRequest) (*models.ObjectType, error) {
+func (f *fakeStore) UpdateObjectType(_ context.Context, id uuid.UUID, body *models.UpdateObjectTypeRequest, _ uuid.UUID) (*models.ObjectType, error) {
 	v, ok := f.objectTypes[id]
 	if !ok {
 		return nil, nil
@@ -134,7 +136,7 @@ func (f *fakeStore) UpdateObjectType(_ context.Context, id uuid.UUID, body *mode
 	return v, nil
 }
 
-func (f *fakeStore) DeleteObjectType(_ context.Context, id uuid.UUID) (bool, error) {
+func (f *fakeStore) DeleteObjectType(_ context.Context, id uuid.UUID, _ uuid.UUID) (bool, error) {
 	if _, ok := f.objectTypes[id]; !ok {
 		return false, nil
 	}
@@ -142,7 +144,7 @@ func (f *fakeStore) DeleteObjectType(_ context.Context, id uuid.UUID) (bool, err
 	return true, nil
 }
 
-func (f *fakeStore) UpdateAppCapabilities(_ context.Context, id uuid.UUID, payload json.RawMessage) (*models.ObjectType, error) {
+func (f *fakeStore) UpdateAppCapabilities(_ context.Context, id uuid.UUID, payload json.RawMessage, _ uuid.UUID) (*models.ObjectType, error) {
 	v, ok := f.objectTypes[id]
 	if !ok {
 		return nil, nil
@@ -162,7 +164,54 @@ func (f *fakeStore) ListProperties(_ context.Context, typeID uuid.UUID) ([]model
 	return append([]models.Property(nil), f.properties[typeID]...), nil
 }
 
-func (f *fakeStore) CreateProperty(_ context.Context, typeID uuid.UUID, body *models.CreatePropertyRequest) (*models.Property, error) {
+func (f *fakeStore) GetProperty(_ context.Context, id uuid.UUID) (*models.Property, error) {
+	for _, props := range f.properties {
+		for i := range props {
+			if props[i].ID == id {
+				p := props[i]
+				return &p, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeStore) UpdateProperty(_ context.Context, id uuid.UUID, body *models.UpdatePropertyRequest, _ uuid.UUID) (*models.Property, error) {
+	for typeID, props := range f.properties {
+		for i := range props {
+			if props[i].ID == id {
+				if body.DisplayName != nil {
+					props[i].DisplayName = *body.DisplayName
+				}
+				if body.PropertyType != nil {
+					props[i].PropertyType = *body.PropertyType
+				}
+				if body.Description != nil {
+					props[i].Description = *body.Description
+				}
+				props[i].Version++
+				p := props[i]
+				f.properties[typeID] = props
+				return &p, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeStore) DeleteProperty(_ context.Context, id uuid.UUID, _ uuid.UUID) (bool, error) {
+	for typeID, props := range f.properties {
+		for i := range props {
+			if props[i].ID == id {
+				f.properties[typeID] = append(props[:i], props[i+1:]...)
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func (f *fakeStore) CreateProperty(_ context.Context, typeID uuid.UUID, body *models.CreatePropertyRequest, _ uuid.UUID) (*models.Property, error) {
 	p := models.Property{
 		ID: uuid.New(), ObjectTypeID: typeID, Name: body.Name,
 		DisplayName: body.DisplayName, PropertyType: body.PropertyType,
@@ -219,7 +268,7 @@ func (f *fakeStore) CreateLinkType(_ context.Context, body *models.CreateLinkTyp
 	return v, nil
 }
 
-func (f *fakeStore) UpdateLinkType(_ context.Context, id uuid.UUID, body *models.UpdateLinkTypeRequest) (*models.LinkType, error) {
+func (f *fakeStore) UpdateLinkType(_ context.Context, id uuid.UUID, body *models.UpdateLinkTypeRequest, _ uuid.UUID) (*models.LinkType, error) {
 	v, ok := f.linkTypes[id]
 	if !ok {
 		return nil, nil
@@ -236,7 +285,7 @@ func (f *fakeStore) UpdateLinkType(_ context.Context, id uuid.UUID, body *models
 	return v, nil
 }
 
-func (f *fakeStore) DeleteLinkType(_ context.Context, id uuid.UUID) (bool, error) {
+func (f *fakeStore) DeleteLinkType(_ context.Context, id uuid.UUID, _ uuid.UUID) (bool, error) {
 	if _, ok := f.linkTypes[id]; !ok {
 		return false, nil
 	}
@@ -244,7 +293,7 @@ func (f *fakeStore) DeleteLinkType(_ context.Context, id uuid.UUID) (bool, error
 	return true, nil
 }
 
-func (f *fakeStore) UpdateLinkTypeAppCapabilities(_ context.Context, id uuid.UUID, payload json.RawMessage) (*models.LinkType, error) {
+func (f *fakeStore) UpdateLinkTypeAppCapabilities(_ context.Context, id uuid.UUID, payload json.RawMessage, _ uuid.UUID) (*models.LinkType, error) {
 	v, ok := f.linkTypes[id]
 	if !ok {
 		return nil, nil
@@ -313,7 +362,7 @@ func (f *fakeStore) UpdateObjectTypeGroup(_ context.Context, id uuid.UUID, body 
 	return v, nil
 }
 
-func (f *fakeStore) DeleteObjectTypeGroup(_ context.Context, id uuid.UUID) (bool, error) {
+func (f *fakeStore) DeleteObjectTypeGroup(_ context.Context, id uuid.UUID, _ uuid.UUID) (bool, error) {
 	if _, ok := f.groups[id]; !ok {
 		return false, nil
 	}
@@ -321,7 +370,7 @@ func (f *fakeStore) DeleteObjectTypeGroup(_ context.Context, id uuid.UUID) (bool
 	return true, nil
 }
 
-func (f *fakeStore) AddObjectTypeToGroup(_ context.Context, groupID, objectTypeID uuid.UUID) (*models.ObjectTypeGroup, error) {
+func (f *fakeStore) AddObjectTypeToGroup(_ context.Context, groupID, objectTypeID, _ uuid.UUID) (*models.ObjectTypeGroup, error) {
 	v, ok := f.groups[groupID]
 	if !ok {
 		return nil, nil
@@ -336,7 +385,7 @@ func (f *fakeStore) AddObjectTypeToGroup(_ context.Context, groupID, objectTypeI
 	return v, nil
 }
 
-func (f *fakeStore) RemoveObjectTypeFromGroup(_ context.Context, groupID, objectTypeID uuid.UUID) (*models.ObjectTypeGroup, error) {
+func (f *fakeStore) RemoveObjectTypeFromGroup(_ context.Context, groupID, objectTypeID, _ uuid.UUID) (*models.ObjectTypeGroup, error) {
 	v, ok := f.groups[groupID]
 	if !ok {
 		return nil, nil
@@ -352,18 +401,151 @@ func (f *fakeStore) RemoveObjectTypeFromGroup(_ context.Context, groupID, object
 	return v, nil
 }
 
+func (f *fakeStore) GetInterface(_ context.Context, id uuid.UUID) (*models.OntologyInterface, error) {
+	v, ok := f.interfaces[id]
+	if !ok {
+		return nil, nil
+	}
+	return v, nil
+}
+
+func (f *fakeStore) CreateInterface(_ context.Context, body *models.CreateOntologyInterfaceRequest, ownerID uuid.UUID) (*models.OntologyInterface, error) {
+	id := uuid.New()
+	v := &models.OntologyInterface{
+		ID:          id,
+		Name:        body.Name,
+		DisplayName: body.DisplayName,
+		Description: body.Description,
+		OwnerID:     ownerID,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	if v.DisplayName == "" {
+		v.DisplayName = v.Name
+	}
+	if f.interfaces == nil {
+		f.interfaces = map[uuid.UUID]*models.OntologyInterface{}
+	}
+	f.interfaces[id] = v
+	return v, nil
+}
+
+func (f *fakeStore) UpdateInterface(_ context.Context, id uuid.UUID, body *models.UpdateOntologyInterfaceRequest, _ uuid.UUID) (*models.OntologyInterface, error) {
+	v, ok := f.interfaces[id]
+	if !ok {
+		return nil, nil
+	}
+	if body.DisplayName != nil {
+		v.DisplayName = *body.DisplayName
+	}
+	if body.Description != nil {
+		v.Description = *body.Description
+	}
+	v.UpdatedAt = time.Now().UTC()
+	return v, nil
+}
+
+func (f *fakeStore) DeleteInterface(_ context.Context, id uuid.UUID, _ uuid.UUID) (bool, error) {
+	if _, ok := f.interfaces[id]; !ok {
+		return false, nil
+	}
+	delete(f.interfaces, id)
+	return true, nil
+}
+
+func (f *fakeStore) GetSharedPropertyType(_ context.Context, id uuid.UUID) (*models.SharedPropertyType, error) {
+	v, ok := f.sharedProperties[id]
+	if !ok {
+		return nil, nil
+	}
+	return v, nil
+}
+
+func (f *fakeStore) CreateSharedPropertyType(_ context.Context, body *models.CreateSharedPropertyTypeRequest, ownerID uuid.UUID) (*models.SharedPropertyType, error) {
+	id := uuid.New()
+	v := &models.SharedPropertyType{
+		ID:               id,
+		Name:             body.Name,
+		DisplayName:      body.DisplayName,
+		Description:      body.Description,
+		PropertyType:     body.PropertyType,
+		Required:         body.Required,
+		UniqueConstraint: body.UniqueConstraint,
+		TimeDependent:    body.TimeDependent,
+		DefaultValue:     body.DefaultValue,
+		ValidationRules:  body.ValidationRules,
+		OwnerID:          ownerID,
+		CreatedAt:        time.Now().UTC(),
+		UpdatedAt:        time.Now().UTC(),
+	}
+	if v.DisplayName == "" {
+		v.DisplayName = v.Name
+	}
+	if f.sharedProperties == nil {
+		f.sharedProperties = map[uuid.UUID]*models.SharedPropertyType{}
+	}
+	f.sharedProperties[id] = v
+	return v, nil
+}
+
+func (f *fakeStore) UpdateSharedPropertyType(_ context.Context, id uuid.UUID, body *models.UpdateSharedPropertyTypeRequest, _ uuid.UUID) (*models.SharedPropertyType, error) {
+	v, ok := f.sharedProperties[id]
+	if !ok {
+		return nil, nil
+	}
+	if body.DisplayName != nil {
+		v.DisplayName = *body.DisplayName
+	}
+	if body.Description != nil {
+		v.Description = *body.Description
+	}
+	if body.Required != nil {
+		v.Required = *body.Required
+	}
+	if body.UniqueConstraint != nil {
+		v.UniqueConstraint = *body.UniqueConstraint
+	}
+	if body.TimeDependent != nil {
+		v.TimeDependent = *body.TimeDependent
+	}
+	if body.DefaultValue != nil {
+		v.DefaultValue = body.DefaultValue
+	}
+	if body.ValidationRules != nil {
+		v.ValidationRules = body.ValidationRules
+	}
+	v.UpdatedAt = time.Now().UTC()
+	return v, nil
+}
+
+func (f *fakeStore) DeleteSharedPropertyType(_ context.Context, id uuid.UUID, _ uuid.UUID) (bool, error) {
+	if _, ok := f.sharedProperties[id]; !ok {
+		return false, nil
+	}
+	delete(f.sharedProperties, id)
+	return true, nil
+}
+
 func (f *fakeStore) ListInterfaces(_ context.Context, _, _ int, _ string) ([]models.OntologyInterface, int, error) {
 	if f.listIfaceErr != nil {
 		return nil, 0, f.listIfaceErr
 	}
-	return append([]models.OntologyInterface(nil), f.interfaces...), len(f.interfaces), nil
+	out := make([]models.OntologyInterface, 0, len(f.interfaces))
+	for _, v := range f.interfaces {
+		out = append(out, *v)
+	}
+	return out, len(f.interfaces), nil
 }
 
 func (f *fakeStore) ListSharedPropertyTypes(_ context.Context, _, _ int, _ string) ([]models.SharedPropertyType, int, error) {
 	if f.listSPErr != nil {
 		return nil, 0, f.listSPErr
 	}
-	return append([]models.SharedPropertyType(nil), f.sharedProps...), len(f.sharedProps), nil
+	out := make([]models.SharedPropertyType, 0, len(f.sharedProperties))
+	for _, v := range f.sharedProperties {
+		out = append(out, *v)
+	}
+	return out, len(f.sharedProperties), nil
 }
 
 // SaveBatch is a thin stub good enough to verify the BatchSave handler
@@ -660,7 +842,7 @@ func TestListPropertiesAll(t *testing.T) {
 	v, _ := store.CreateObjectType(context.Background(),
 		&models.CreateObjectTypeRequest{Name: "Asset", DisplayName: "Asset"}, uuid.New())
 	_, _ = store.CreateProperty(context.Background(), v.ID,
-		&models.CreatePropertyRequest{Name: "label", PropertyType: "string"})
+		&models.CreatePropertyRequest{Name: "label", PropertyType: "string"}, uuid.New())
 	r := newRouter(&handlers.Handlers{Repo: store})
 
 	t.Run("auth", func(t *testing.T) {
@@ -1133,9 +1315,8 @@ func TestAddRemoveObjectTypeToGroup(t *testing.T) {
 func TestListInterfacesAll(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
-	store.interfaces = []models.OntologyInterface{
-		{ID: uuid.New(), Name: "Identifiable", DisplayName: "Identifiable"},
-	}
+	iID := uuid.New()
+	store.interfaces[iID] = &models.OntologyInterface{ID: iID, Name: "Identifiable", DisplayName: "Identifiable"}
 	r := newRouter(&handlers.Handlers{Repo: store})
 
 	t.Run("auth", func(t *testing.T) {
@@ -1166,8 +1347,9 @@ func TestListInterfacesAll(t *testing.T) {
 func TestListSharedPropertyTypesAll(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
-	store.sharedProps = []models.SharedPropertyType{
-		{ID: uuid.New(), Name: "iso_currency", DisplayName: "ISO Currency", PropertyType: "string"},
+	sptID := uuid.New()
+	store.sharedProperties[sptID] = &models.SharedPropertyType{
+		ID: sptID, Name: "iso_currency", DisplayName: "ISO Currency", PropertyType: "string",
 	}
 	r := newRouter(&handlers.Handlers{Repo: store})
 

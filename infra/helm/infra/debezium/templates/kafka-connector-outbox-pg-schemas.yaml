@@ -1,0 +1,96 @@
+---
+# Debezium Postgres source connector for `pg-schemas.outbox.events`.
+#
+# Drains the transactional outbox owned by the schema-of-types
+# services homed in `pg-schemas` (today: ontology-definition-service;
+# follow-ups will add ontology-actions-service and others) to the
+# `ontology.*.changed.v1` topics carried in the `topic` column.
+#
+# Lands paused (`pause-reconciliation: "true"`) until:
+#   1. `pg-schemas` has `wal_level=logical` rolled out (see
+#      infra/helm/infra/postgres-clusters/values.yaml). Confirmed by:
+#        kubectl exec -n pg-schemas pg-schemas-1 -- psql -At -c \
+#          "SHOW wal_level"   # must print `logical`
+#   2. Every mutation handler in ontology-definition-service is wired
+#      to libs/outbox.Enqueue (see services/ontology-definition-service/
+#      internal/repo/repo.go).
+#   3. Apicurio schemas for the 6 versioned topics (object_type,
+#      link_type, property, object_type_group, interface,
+#      shared_property_type) are registered.
+#
+# Unpause:
+#   kubectl annotate kafkaconnector/outbox-pg-schemas -n kafka \
+#     strimzi.io/pause-reconciliation="false" --overwrite
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaConnector
+metadata:
+  name: outbox-pg-schemas
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: debezium
+    openfoundry.io/source: pg-schemas
+  annotations:
+    strimzi.io/pause-reconciliation: "true"
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    # ---- Source identity ----------------------------------------
+    database.server.name: pg-schemas
+    topic.prefix: pg-schemas
+    plugin.name: pgoutput
+    slot.name: debezium_outbox_pg_schemas
+    publication.name: debezium_outbox_pg_schemas_pub
+    publication.autocreate.mode: filtered
+    # ---- Postgres connection ------------------------------------
+    database.hostname: pg-schemas-rw.pg-schemas.svc
+    database.port: "5432"
+    database.user: ${secrets:kafka/pg-schemas-debezium:username}
+    database.password: ${secrets:kafka/pg-schemas-debezium:password}
+    database.dbname: openfoundry_ontology_service
+    # ---- Scope: outbox.events only ------------------------------
+    schema.include.list: outbox
+    table.include.list: outbox.events
+    # ---- Snapshot semantics -------------------------------------
+    # libs/outbox.Enqueue inserts then deletes within the same tx;
+    # the table is empty in steady state. `never` is correct — on a
+    # connector reset we resume from the slot offset and replay live
+    # WAL records, not a table snapshot.
+    snapshot.mode: never
+    # ---- EventRouter SMT ----------------------------------------
+    transforms: outbox
+    transforms.outbox.type: io.debezium.transforms.outbox.EventRouter
+    # The `topic` column on outbox.events carries the routing key
+    # (`ontology.object_type.changed.v1`, etc.). The replacement is
+    # the routed value verbatim.
+    transforms.outbox.route.by.field: topic
+    transforms.outbox.route.topic.replacement: ${routedByValue}
+    transforms.outbox.table.field.event.id: event_id
+    transforms.outbox.table.field.event.key: aggregate_id
+    transforms.outbox.table.field.event.payload: payload
+    transforms.outbox.table.field.event.payload.id: event_id
+    transforms.outbox.table.fields.additional.placement: "headers:header"
+    # No tombstones — the INSERT/DELETE pair within one tx is by design.
+    tombstones.on.delete: "false"
+    # ---- Heartbeat to bound replication-slot lag ----------------
+    heartbeat.interval.ms: "30000"
+    heartbeat.action.query: |
+      INSERT INTO outbox.heartbeat (id, last_seen_at)
+      VALUES ('debezium-outbox', NOW())
+      ON CONFLICT (id) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+    # ---- Producer overrides ------------------------------------
+    producer.override.acks: all
+    producer.override.enable.idempotence: "true"
+    producer.override.compression.type: zstd
+    producer.override.max.in.flight.requests.per.connection: "5"
+    producer.override.retries: "2147483647"
+    # ---- Decimal / numeric handling ----------------------------
+    decimal.handling.mode: string
+    time.precision.mode: connect
+    # ---- DLQ ---------------------------------------------------
+    errors.tolerance: all
+    errors.deadletterqueue.topic.name: __dlq.outbox-pg-schemas.v1
+    errors.deadletterqueue.topic.replication.factor: "3"
+    errors.deadletterqueue.context.headers.enable: "true"
+    errors.log.enable: "true"
+    errors.log.include.messages: "false"

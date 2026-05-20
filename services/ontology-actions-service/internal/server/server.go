@@ -22,21 +22,30 @@ import (
 	kernelstorage "github.com/openfoundry/openfoundry-go/libs/ontology-kernel/handlers/storage"
 	ontologymetrics "github.com/openfoundry/openfoundry-go/libs/ontology-kernel/metrics"
 	"github.com/openfoundry/openfoundry-go/services/ontology-actions-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/ontology-actions-service/internal/handlers"
 )
 
 // New builds the HTTP server bound to cfg.Server.{Host,Port}.
-func New(cfg *config.Config, state *ontologykernel.AppState, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+//
+// The optional `lifted` handler set carries the action-type
+// schema-mutation routes that have been lifted out of the kernel
+// (POST/PUT/PATCH/DELETE on /actions[/{id}]) so they can pair their
+// SQL writes with libs/outbox.Enqueue inside a single Postgres
+// transaction (ADR-0022). Passing `nil` keeps the kernel-only path
+// in place — useful for stub-mode tests that don't need outbox
+// behavior.
+func New(cfg *config.Config, state *ontologykernel.AppState, m *observability.Metrics, lifted *handlers.Handlers, probes ...capabilities.DependencyProbe) *http.Server {
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
-		Handler:           BuildRouter(cfg, state, m, probes...),
+		Handler:           BuildRouter(cfg, state, m, lifted, probes...),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }
 
 // BuildRouter exposes the chi.Router for in-process tests
 // (parity with `tower::ServiceExt::oneshot` callers in Rust).
-func BuildRouter(cfg *config.Config, state *ontologykernel.AppState, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+func BuildRouter(cfg *config.Config, state *ontologykernel.AppState, m *observability.Metrics, lifted *handlers.Handlers, probes ...capabilities.DependencyProbe) http.Handler {
 	if state == nil {
 		panic("ontology-actions-service requires non-nil AppState; set DATABASE_URL or enable OF_DEV_STUB_MODE for explicit local/test in-memory state")
 	}
@@ -76,7 +85,7 @@ func BuildRouter(cfg *config.Config, state *ontologykernel.AppState, m *observab
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	r.Route("/api/v1/ontology", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
-		mountActions(api, state)
+		mountActions(api, state, lifted)
 		mountFunnel(api, state)
 		mountFunctions(api, state)
 		mountRules(api, state)
@@ -96,8 +105,37 @@ func BuildRouter(cfg *config.Config, state *ontologykernel.AppState, m *observab
 	return r
 }
 
-func mountActions(r chi.Router, state *ontologykernel.AppState) {
-	kernelactions.Mount(r, state)
+// mountActions wires the actions surface. When `lifted` is non-nil
+// the three schema-mutation routes (POST/PUT/PATCH/DELETE on
+// /actions[/{id}]) come from the local outbox-aware handlers; the
+// remaining 13 routes (List, Get, Validate, Execute, Metrics, Batch,
+// WhatIf, InlineEdit, Applicable, Upload) are mounted exactly as the
+// kernel exposes them. When `lifted` is nil (stub / test runs) we
+// fall back to the pure kernel Mount.
+func mountActions(r chi.Router, state *ontologykernel.AppState, lifted *handlers.Handlers) {
+	if lifted == nil {
+		kernelactions.Mount(r, state)
+		return
+	}
+	// Schema-mutation routes — lifted, outbox-aware.
+	r.Post("/actions", lifted.CreateActionType)
+	r.Put("/actions/{id}", lifted.UpdateActionType)
+	r.Patch("/actions/{id}", lifted.UpdateActionType)
+	r.Delete("/actions/{id}", lifted.DeleteActionType)
+	// Read + execution routes — straight from the kernel.
+	r.Get("/actions", kernelactions.ListActionTypes(state))
+	r.Get("/actions/{id}", kernelactions.GetActionType(state))
+	r.Post("/actions/{id}/validate", kernelactions.ValidateAction(state))
+	r.Post("/actions/{id}/execute", kernelactions.ExecuteAction(state))
+	r.Get("/actions/{id}/metrics", kernelactions.GetActionMetrics(state))
+	r.Post("/actions/{id}/execute-batch", kernelactions.ExecuteActionBatchHandler(state))
+	r.Get("/actions/{id}/what-if", kernelactions.ListActionWhatIfBranches(state))
+	r.Post("/actions/{id}/what-if", kernelactions.CreateActionWhatIfBranch(state))
+	r.Delete("/actions/{id}/what-if/{branch_id}", kernelactions.DeleteActionWhatIfBranch(state))
+	r.Post("/types/{type_id}/properties/{property_id}/objects/{obj_id}/inline-edit", kernelactions.ExecuteInlineEditHandler(state))
+	r.Post("/types/{type_id}/inline-edit-batch", kernelactions.ExecuteInlineEditBatchHandler(state))
+	r.Get("/types/{type_id}/applicable-actions", kernelactions.ListApplicableActions(state))
+	r.Post("/actions/uploads", kernelactions.UploadActionAttachment(state))
 }
 
 func mountFunnel(r chi.Router, state *ontologykernel.AppState) {

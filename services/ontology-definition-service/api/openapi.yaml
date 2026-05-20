@@ -1,0 +1,755 @@
+# OpenAPI 3.1 specification for ontology-definition-service.
+#
+# Hand-authored to mirror the chi router in internal/server/server.go.
+# When you add or remove a route there, update this file in the same
+# commit so SDK generators (sdks/) and any AI agent driving the
+# ontology end-to-end via this API stay in sync.
+#
+# Endpoints are mounted on TWO prefixes for backwards compatibility:
+#   - /api/v1/ontology              (gateway-canonical)
+#   - /api/v1/ontology-definition   (legacy)
+#
+# Both routes serve the same handlers; consumers are expected to use
+# the canonical prefix.
+openapi: "3.1.0"
+info:
+  title: OpenFoundry ontology-definition-service
+  version: "1.0.0"
+  description: |
+    Foundry-style schema-of-types control plane: object types, link
+    types, properties, action types (in `ontology-actions-service`),
+    interfaces, shared property types, and object-type groups.
+
+    Every mutation here writes to a transactional outbox in the same
+    Postgres transaction (ADR-0022). Debezium tails the WAL and
+    re-emits the events on the canonical Kafka topics:
+
+      - ontology.object_type.changed.v1
+      - ontology.link_type.changed.v1
+      - ontology.property.changed.v1
+      - ontology.object_type_group.changed.v1
+      - ontology.interface.changed.v1
+      - ontology.shared_property_type.changed.v1
+
+    Authentication: every `/api/v1/ontology*` route requires a Bearer
+    JWT. The token's `sub` claim is recorded as `actor_id` / `owner_id`
+    in the audit log and in every outbox event.
+
+servers:
+  - url: https://gateway.openfoundry.example.com
+    description: Gateway prefix; routes mounted on `/api/v1/ontology`.
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: object-types
+  - name: link-types
+  - name: properties
+  - name: object-type-groups
+  - name: interfaces
+  - name: shared-property-types
+  - name: batch
+  - name: health
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      security: []
+      summary: Liveness probe.
+      responses:
+        "200":
+          description: Service is up.
+
+  /api/v1/ontology/object-types:
+    get:
+      tags: [object-types]
+      summary: List all object types (max 500).
+      responses:
+        "200":
+          description: List response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResponseObjectType"
+    post:
+      tags: [object-types]
+      summary: Create an object type.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateObjectTypeRequest" }
+      responses:
+        "201": { $ref: "#/components/responses/ObjectType" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/ontology/object-types/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [object-types]
+      summary: Read one object type.
+      responses:
+        "200": { $ref: "#/components/responses/ObjectType" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [object-types]
+      summary: Partially update an object type.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateObjectTypeRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/ObjectType" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [object-types]
+      summary: Delete an object type.
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/object-types/{id}/app-capabilities:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [object-types]
+      summary: Replace per-app capabilities JSON.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateAppCapabilitiesRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/ObjectType" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/object-types/{id}/properties:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [properties]
+      summary: List properties of an object type.
+      responses:
+        "200":
+          description: List response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResponseProperty"
+    post:
+      tags: [properties]
+      summary: Add a property to an object type.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePropertyRequest" }
+      responses:
+        "201": { $ref: "#/components/responses/Property" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/ontology/object-types/{id}/properties/{propertyID}:
+    parameters:
+      - { in: path, name: id,         required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: propertyID, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [properties]
+      summary: Read one property.
+      responses:
+        "200": { $ref: "#/components/responses/Property" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [properties]
+      summary: Partially update one property.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdatePropertyRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/Property" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [properties]
+      summary: Delete one property.
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/links:
+    get:
+      tags: [link-types]
+      summary: List link types. Optional `?object_type_id=` filter.
+      parameters:
+        - { in: query, name: object_type_id, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: List response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResponseLinkType"
+    post:
+      tags: [link-types]
+      summary: Create a link type.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateLinkTypeRequest" }
+      responses:
+        "201": { $ref: "#/components/responses/LinkType" }
+
+  /api/v1/ontology/links/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [link-types]
+      summary: Read one link type.
+      responses:
+        "200": { $ref: "#/components/responses/LinkType" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [link-types]
+      summary: Partially update a link type.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateLinkTypeRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/LinkType" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [link-types]
+      summary: Delete a link type.
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ontology/links/{id}/app-capabilities:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [link-types]
+      summary: Replace per-app capabilities JSON for a link type.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateAppCapabilitiesRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/LinkType" }
+
+  /api/v1/ontology/object-type-groups:
+    get:
+      tags: [object-type-groups]
+      summary: Paginated list of groups.
+      parameters:
+        - { in: query, name: page,     schema: { type: integer, minimum: 1 } }
+        - { in: query, name: per_page, schema: { type: integer, minimum: 1, maximum: 500 } }
+        - { in: query, name: search,   schema: { type: string } }
+      responses:
+        "200":
+          description: List response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResponseObjectTypeGroup"
+    post:
+      tags: [object-type-groups]
+      summary: Create a group.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateObjectTypeGroupRequest" }
+      responses:
+        "201": { $ref: "#/components/responses/ObjectTypeGroup" }
+
+  /api/v1/ontology/object-type-groups/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:    { tags: [object-type-groups], summary: Read one group, responses: { "200": { $ref: "#/components/responses/ObjectTypeGroup" }, "404": { $ref: "#/components/responses/NotFound" } } }
+    patch:
+      tags: [object-type-groups]
+      summary: Partially update a group.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateObjectTypeGroupRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/ObjectTypeGroup" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete: { tags: [object-type-groups], summary: Delete a group, responses: { "204": { description: Deleted. }, "404": { $ref: "#/components/responses/NotFound" } } }
+
+  /api/v1/ontology/object-type-groups/{id}/object-types/{objectTypeId}:
+    parameters:
+      - { in: path, name: id,           required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: objectTypeId, required: true, schema: { type: string, format: uuid } }
+    post:   { tags: [object-type-groups], summary: Add an object type to a group, responses: { "200": { $ref: "#/components/responses/ObjectTypeGroup" } } }
+    delete: { tags: [object-type-groups], summary: Remove an object type from a group, responses: { "200": { $ref: "#/components/responses/ObjectTypeGroup" } } }
+
+  /api/v1/ontology/interfaces:
+    get:
+      tags: [interfaces]
+      summary: Paginated list of interfaces.
+      parameters:
+        - { in: query, name: page,     schema: { type: integer, minimum: 1 } }
+        - { in: query, name: per_page, schema: { type: integer, minimum: 1, maximum: 500 } }
+        - { in: query, name: search,   schema: { type: string } }
+      responses:
+        "200":
+          description: List response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResponseInterface"
+    post:
+      tags: [interfaces]
+      summary: Create an interface.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateOntologyInterfaceRequest" }
+      responses:
+        "201": { $ref: "#/components/responses/Interface" }
+
+  /api/v1/ontology/interfaces/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get: { tags: [interfaces], summary: Read one interface, responses: { "200": { $ref: "#/components/responses/Interface" }, "404": { $ref: "#/components/responses/NotFound" } } }
+    patch:
+      tags: [interfaces]
+      summary: Partially update an interface.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateOntologyInterfaceRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/Interface" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete: { tags: [interfaces], summary: Delete an interface, responses: { "204": { description: Deleted. }, "404": { $ref: "#/components/responses/NotFound" } } }
+
+  /api/v1/ontology/shared-property-types:
+    get:
+      tags: [shared-property-types]
+      summary: Paginated list of shared property types.
+      parameters:
+        - { in: query, name: page,     schema: { type: integer, minimum: 1 } }
+        - { in: query, name: per_page, schema: { type: integer, minimum: 1, maximum: 500 } }
+        - { in: query, name: search,   schema: { type: string } }
+      responses:
+        "200":
+          description: List response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResponseSharedPropertyType"
+    post:
+      tags: [shared-property-types]
+      summary: Create a shared property type.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateSharedPropertyTypeRequest" }
+      responses:
+        "201": { $ref: "#/components/responses/SharedPropertyType" }
+
+  /api/v1/ontology/shared-property-types/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get: { tags: [shared-property-types], summary: Read one shared property type, responses: { "200": { $ref: "#/components/responses/SharedPropertyType" }, "404": { $ref: "#/components/responses/NotFound" } } }
+    patch:
+      tags: [shared-property-types]
+      summary: Partially update a shared property type.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateSharedPropertyTypeRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/SharedPropertyType" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete: { tags: [shared-property-types], summary: Delete a shared property type, responses: { "204": { description: Deleted. }, "404": { $ref: "#/components/responses/NotFound" } } }
+
+  /api/v1/ontology/batch-save:
+    post:
+      tags: [batch]
+      summary: |
+        Apply a working-state batch atomically. Every edit succeeds and
+        the transaction commits, or any single failure rolls everything
+        back. Each successful edit produces an outbox event tagged with
+        the `batch_id` for correlation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BatchSaveRequest" }
+      responses:
+        "200":
+          description: Batch outcome (status + per-edit results).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchSaveResponse" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:   { description: Malformed request. }
+    Unauthorized: { description: Missing or invalid Bearer token. }
+    Forbidden:    { description: Caller lacks required permissions (e.g. ontology:manage). }
+    NotFound:     { description: Resource not found. }
+    ObjectType:        { description: Object type record.,        content: { application/json: { schema: { $ref: "#/components/schemas/ObjectType" } } } }
+    LinkType:          { description: Link type record.,          content: { application/json: { schema: { $ref: "#/components/schemas/LinkType" } } } }
+    Property:          { description: Property record.,           content: { application/json: { schema: { $ref: "#/components/schemas/Property" } } } }
+    ObjectTypeGroup:   { description: Object type group record.,  content: { application/json: { schema: { $ref: "#/components/schemas/ObjectTypeGroup" } } } }
+    Interface:         { description: Interface record.,          content: { application/json: { schema: { $ref: "#/components/schemas/OntologyInterface" } } } }
+    SharedPropertyType: { description: Shared property type.,     content: { application/json: { schema: { $ref: "#/components/schemas/SharedPropertyType" } } } }
+
+  schemas:
+    Uuid: { type: string, format: uuid }
+    Timestamp: { type: string, format: date-time }
+
+    ObjectType:
+      type: object
+      properties:
+        id:                  { $ref: "#/components/schemas/Uuid" }
+        rid:                 { type: string, description: "Stable Foundry-style resource id." }
+        name:                { type: string }
+        api_name:            { type: string }
+        display_name:        { type: string }
+        plural_display_name: { type: [string, "null"] }
+        description:         { type: string }
+        primary_key_property: { type: [string, "null"] }
+        primary_key:         { type: string }
+        title_property:      { type: [string, "null"] }
+        icon:                { type: [string, "null"] }
+        color:               { type: [string, "null"] }
+        status:              { type: string, enum: [active, deprecated] }
+        visibility:          { type: string, enum: [normal, hidden] }
+        editable:            { type: boolean }
+        properties:          { type: array, items: { $ref: "#/components/schemas/Property" } }
+        property_count:      { type: integer }
+        owner_id:            { $ref: "#/components/schemas/Uuid" }
+        created_at:          { $ref: "#/components/schemas/Timestamp" }
+        updated_at:          { $ref: "#/components/schemas/Timestamp" }
+        version:             { type: integer, description: "Optimistic concurrency token; bumped on every UPDATE." }
+        app_capabilities:    { type: object }
+
+    CreateObjectTypeRequest:
+      type: object
+      required: [name, display_name]
+      properties:
+        name:                  { type: string }
+        display_name:          { type: string }
+        description:           { type: string }
+        primary_key_property:  { type: string }
+        plural_display_name:   { type: string }
+        editable:              { type: boolean }
+        backing_dataset_rid:   { type: string }
+        backing_datasource_type:
+          type: string
+          enum: [dataset, restricted_view]
+        # Other restricted-view fields are accepted; see models package.
+
+    UpdateObjectTypeRequest:
+      type: object
+      description: Partial update. Nil fields are left unchanged.
+      properties:
+        display_name:         { type: string }
+        description:          { type: string }
+        primary_key_property: { type: string }
+        plural_display_name:  { type: string }
+        editable:             { type: boolean }
+        backing_datasource_type: { type: string, enum: [dataset, restricted_view] }
+
+    UpdateAppCapabilitiesRequest:
+      type: object
+      required: [app_capabilities]
+      properties:
+        app_capabilities:
+          type: object
+          description: "Free-form JSON object keyed by app name."
+
+    Property:
+      type: object
+      properties:
+        id:                { $ref: "#/components/schemas/Uuid" }
+        object_type_id:    { $ref: "#/components/schemas/Uuid" }
+        name:              { type: string }
+        display_name:      { type: string }
+        description:       { type: string }
+        property_type:     { type: string, description: "Base type token (string, integer, float, boolean, timestamp, uuid, geopoint, geoshape, …)." }
+        required:          { type: boolean }
+        unique_constraint: { type: boolean }
+        time_dependent:    { type: boolean }
+        default_value:     {}
+        validation_rules:  {}
+        version:           { type: integer }
+
+    CreatePropertyRequest:
+      type: object
+      required: [name, property_type]
+      properties:
+        name:              { type: string }
+        display_name:      { type: string }
+        description:       { type: string }
+        property_type:     { type: string }
+        required:          { type: boolean }
+        unique_constraint: { type: boolean }
+        time_dependent:    { type: boolean }
+        default_value:     {}
+        validation_rules:  {}
+
+    UpdatePropertyRequest:
+      type: object
+      properties:
+        display_name:      { type: string }
+        description:       { type: string }
+        property_type:     { type: string }
+        required:          { type: boolean }
+        unique_constraint: { type: boolean }
+        time_dependent:    { type: boolean }
+        default_value:     {}
+        validation_rules:  {}
+
+    LinkType:
+      type: object
+      properties:
+        id:              { $ref: "#/components/schemas/Uuid" }
+        name:            { type: string }
+        display_name:    { type: string }
+        description:     { type: string }
+        source_type_id:  { $ref: "#/components/schemas/Uuid" }
+        target_type_id:  { $ref: "#/components/schemas/Uuid" }
+        cardinality:     { type: string, enum: [one_to_one, one_to_many, many_to_one, many_to_many] }
+        label:           { type: string }
+        reverse_label:   { type: string }
+        visibility:      { type: string, enum: [normal, hidden] }
+        owner_id:        { $ref: "#/components/schemas/Uuid" }
+        created_at:      { $ref: "#/components/schemas/Timestamp" }
+        updated_at:      { $ref: "#/components/schemas/Timestamp" }
+        version:         { type: integer }
+
+    CreateLinkTypeRequest:
+      type: object
+      required: [name, source_type_id, target_type_id]
+      properties:
+        name:             { type: string }
+        display_name:     { type: string }
+        description:      { type: string }
+        source_type_id:   { $ref: "#/components/schemas/Uuid" }
+        target_type_id:   { $ref: "#/components/schemas/Uuid" }
+        cardinality:      { type: string, enum: [one_to_one, one_to_many, many_to_one, many_to_many] }
+        label:            { type: string }
+        reverse_label:    { type: string }
+        visibility:       { type: string, enum: [normal, hidden] }
+
+    UpdateLinkTypeRequest:
+      type: object
+      properties:
+        display_name:  { type: string }
+        description:   { type: string }
+        cardinality:   { type: string, enum: [one_to_one, one_to_many, many_to_one, many_to_many] }
+        label:         { type: string }
+        reverse_label: { type: string }
+        visibility:    { type: string, enum: [normal, hidden] }
+
+    ObjectTypeGroup:
+      type: object
+      properties:
+        id:                { $ref: "#/components/schemas/Uuid" }
+        name:              { type: string }
+        display_name:      { type: string }
+        description:       { type: string }
+        visibility:        { type: string, enum: [normal, hidden] }
+        status:            { type: string, enum: [active, deprecated] }
+        owner_id:          { $ref: "#/components/schemas/Uuid" }
+        object_type_ids:   { type: array, items: { $ref: "#/components/schemas/Uuid" } }
+        version:           { type: integer }
+
+    CreateObjectTypeGroupRequest:
+      type: object
+      required: [name, display_name]
+      properties:
+        name:            { type: string }
+        display_name:    { type: string }
+        description:     { type: string }
+        visibility:      { type: string, enum: [normal, hidden] }
+        status:          { type: string, enum: [active, deprecated] }
+        object_type_ids: { type: array, items: { $ref: "#/components/schemas/Uuid" } }
+        project_id:      { $ref: "#/components/schemas/Uuid" }
+
+    UpdateObjectTypeGroupRequest:
+      type: object
+      properties:
+        name:            { type: string }
+        display_name:    { type: string }
+        description:     { type: string }
+        visibility:      { type: string, enum: [normal, hidden] }
+        status:          { type: string, enum: [active, deprecated] }
+        object_type_ids: { type: array, items: { $ref: "#/components/schemas/Uuid" } }
+        project_id:      { $ref: "#/components/schemas/Uuid" }
+
+    OntologyInterface:
+      type: object
+      properties:
+        id:           { $ref: "#/components/schemas/Uuid" }
+        name:         { type: string }
+        display_name: { type: string }
+        description:  { type: string }
+        owner_id:     { $ref: "#/components/schemas/Uuid" }
+        created_at:   { $ref: "#/components/schemas/Timestamp" }
+        updated_at:   { $ref: "#/components/schemas/Timestamp" }
+
+    CreateOntologyInterfaceRequest:
+      type: object
+      required: [name]
+      properties:
+        name:         { type: string }
+        display_name: { type: string }
+        description:  { type: string }
+
+    UpdateOntologyInterfaceRequest:
+      type: object
+      properties:
+        display_name: { type: string }
+        description:  { type: string }
+
+    SharedPropertyType:
+      type: object
+      properties:
+        id:                { $ref: "#/components/schemas/Uuid" }
+        name:              { type: string }
+        display_name:      { type: string }
+        description:       { type: string }
+        property_type:     { type: string }
+        required:          { type: boolean }
+        unique_constraint: { type: boolean }
+        time_dependent:    { type: boolean }
+        default_value:     {}
+        validation_rules:  {}
+        owner_id:          { $ref: "#/components/schemas/Uuid" }
+        created_at:        { $ref: "#/components/schemas/Timestamp" }
+        updated_at:        { $ref: "#/components/schemas/Timestamp" }
+
+    CreateSharedPropertyTypeRequest:
+      type: object
+      required: [name, property_type]
+      properties:
+        name:              { type: string }
+        display_name:      { type: string }
+        description:       { type: string }
+        property_type:     { type: string }
+        required:          { type: boolean }
+        unique_constraint: { type: boolean }
+        time_dependent:    { type: boolean }
+        default_value:     {}
+        validation_rules:  {}
+
+    UpdateSharedPropertyTypeRequest:
+      type: object
+      properties:
+        display_name:      { type: string }
+        description:       { type: string }
+        required:          { type: boolean }
+        unique_constraint: { type: boolean }
+        time_dependent:    { type: boolean }
+        default_value:     {}
+        validation_rules:  {}
+
+    BatchSaveRequest:
+      type: object
+      required: [edits]
+      properties:
+        source:
+          type: string
+          description: "Free-form source tag (default: 'ontology-manager')."
+        edits:
+          type: array
+          items: { $ref: "#/components/schemas/BatchEdit" }
+
+    BatchEdit:
+      type: object
+      required: [client_id, resource, op]
+      properties:
+        client_id:        { type: string }
+        resource:         { type: string, enum: [object_type, link_type, object_type_group, property] }
+        op:               { type: string, enum: [create, update, delete] }
+        id:               { $ref: "#/components/schemas/Uuid" }
+        expected_version: { type: integer }
+        body:             { description: "Resource-specific payload (CreateXRequest or UpdateXRequest)." }
+
+    BatchSaveResponse:
+      type: object
+      properties:
+        batch_id: { $ref: "#/components/schemas/Uuid" }
+        status:   { type: string, enum: [ok, failed] }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/BatchEditResult" }
+
+    BatchEditResult:
+      type: object
+      properties:
+        client_id:     { type: string }
+        resource:      { type: string }
+        op:            { type: string }
+        status:        { type: string, enum: [ok, failed, conflict, skipped] }
+        resource_id:   { $ref: "#/components/schemas/Uuid" }
+        new_version:   { type: integer }
+        after:         { description: "Post-mutation snapshot of the resource." }
+        error_code:    { type: string }
+        error_field:   { type: string }
+        error_message: { type: string }
+
+    ListResponseObjectType:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/ObjectType" } }
+    ListResponseLinkType:
+      type: object
+      properties:
+        data:  { type: array, items: { $ref: "#/components/schemas/LinkType" } }
+        total: { type: integer }
+    ListResponseProperty:
+      type: object
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Property" } }
+    ListResponseObjectTypeGroup:
+      type: object
+      properties:
+        data:     { type: array, items: { $ref: "#/components/schemas/ObjectTypeGroup" } }
+        total:    { type: integer }
+        page:     { type: integer }
+        per_page: { type: integer }
+    ListResponseInterface:
+      type: object
+      properties:
+        data:     { type: array, items: { $ref: "#/components/schemas/OntologyInterface" } }
+        total:    { type: integer }
+        page:     { type: integer }
+        per_page: { type: integer }
+    ListResponseSharedPropertyType:
+      type: object
+      properties:
+        data:     { type: array, items: { $ref: "#/components/schemas/SharedPropertyType" } }
+        total:    { type: integer }
+        page:     { type: integer }
+        per_page: { type: integer }

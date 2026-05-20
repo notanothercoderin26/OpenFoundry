@@ -30,6 +30,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gocql/gocql"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
@@ -93,12 +94,58 @@ func main() {
 			os.Exit(1)
 		}
 
-		store := lineagestore.NewMemoryStore()
-		// CASSANDRA_CONTACT_POINTS unset → in-memory fallback
-		// (matches `LineageRuntimeStore::build` when the contact list
-		// is empty). The store interface lets us swap to Cassandra
-		// without touching handlers/domain.
-		log.Info("lineage runtime store: in-memory (set CASSANDRA_CONTACT_POINTS to enable Cassandra-backed store)")
+		// Lineage runtime store. Default is the in-memory implementation;
+		// when CASSANDRA_CONTACT_POINTS is set we boot a gocql session,
+		// run the keyspace + table DDL idempotently, and use the
+		// Cassandra-backed store instead. Any failure logs a warning
+		// and degrades back to memory so the service stays up.
+		var (
+			store           lineagestore.Store = lineagestore.NewMemoryStore()
+			cassandraSession *gocql.Session
+		)
+		if contactPoints := strings.TrimSpace(os.Getenv("CASSANDRA_CONTACT_POINTS")); contactPoints != "" {
+			cluster := gocql.NewCluster(strings.Split(contactPoints, ",")...)
+			if keyspace := strings.TrimSpace(os.Getenv("CASSANDRA_KEYSPACE")); keyspace != "" {
+				cluster.Keyspace = keyspace
+			} else {
+				cluster.Keyspace = lineagestore.Keyspace
+			}
+			cluster.Consistency = gocql.LocalQuorum
+			cluster.Timeout = 10 * time.Second
+			cluster.ConnectTimeout = 10 * time.Second
+			username := strings.TrimSpace(os.Getenv("CASSANDRA_USERNAME"))
+			password := strings.TrimSpace(os.Getenv("CASSANDRA_PASSWORD"))
+			if username != "" && password != "" {
+				cluster.Authenticator = gocql.PasswordAuthenticator{
+					Username: username,
+					Password: password,
+				}
+			}
+			session, err := cluster.CreateSession()
+			if err != nil {
+				log.Warn("cassandra session failed, falling back to in-memory store",
+					slog.String("error", err.Error()),
+					slog.String("contact_points", contactPoints))
+			} else {
+				cassandraStore := lineagestore.NewCassandraStore(session)
+				if err := cassandraStore.Migrate(ctx); err != nil {
+					log.Warn("cassandra migrations failed, falling back to in-memory store",
+						slog.String("error", err.Error()))
+					session.Close()
+				} else {
+					store = cassandraStore
+					cassandraSession = session
+					log.Info("lineage runtime store: cassandra",
+						slog.String("contact_points", contactPoints),
+						slog.String("keyspace", cluster.Keyspace))
+				}
+			}
+		}
+		if cassandraSession == nil {
+			log.Info("lineage runtime store: in-memory (set CASSANDRA_CONTACT_POINTS to enable Cassandra-backed store)")
+		} else {
+			defer cassandraSession.Close()
+		}
 
 		state := &lineage.AppState{
 			DB:                         pool,
@@ -110,10 +157,14 @@ func main() {
 		}
 
 		graphRepo := lineagegraph.New(pool)
+		savedGraphsRepo := lineage.NewSavedGraphRepo(pool)
+		descriptionsRepo := lineage.NewNodeDescriptionRepo(pool)
 		lineageOpts = &server.Options{
-			JWT:      authmw.NewJWTConfig(cfg.JWTSecret),
-			Handlers: handlers.NewHandlers(state),
-			Graph:    handlers.NewGraphHandlers(graphRepo),
+			JWT:              authmw.NewJWTConfig(cfg.JWTSecret),
+			Handlers:         handlers.NewHandlers(state),
+			Graph:            handlers.NewGraphHandlers(graphRepo),
+			SavedGraphs:      handlers.NewSavedGraphHandlers(savedGraphsRepo),
+			NodeDescriptions: handlers.NewNodeDescriptionHandlers(descriptionsRepo),
 		}
 
 		// OpenLineage Kafka consumer. Only boots when KAFKA_BOOTSTRAP_SERVERS

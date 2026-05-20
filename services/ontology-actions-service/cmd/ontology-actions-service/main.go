@@ -38,6 +38,8 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/search-abstraction/vespa"
 	storageabstraction "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 	"github.com/openfoundry/openfoundry-go/services/ontology-actions-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/ontology-actions-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/ontology-actions-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/ontology-actions-service/internal/server"
 )
 
@@ -115,7 +117,22 @@ func main() {
 	}
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, state, metrics, deps...)
+
+	// Lifted action-type CRUD handlers (B02 §Deferred follow-up —
+	// closed). When state.DB is wired the lifted set is mounted and
+	// every Create/Update/Delete on /actions[/{id}] writes to the
+	// outbox in the same transaction as the SQL mutation. When
+	// state.DB is nil (stub / dev mode without DATABASE_URL) we pass
+	// nil so the kernel path runs unchanged.
+	var lifted *handlers.Handlers
+	if state != nil && state.DB != nil {
+		lifted = &handlers.Handlers{
+			Repo: &repo.Repo{Pool: state.DB},
+			Pool: state.DB,
+		}
+	}
+
+	srv := server.New(cfg, state, metrics, lifted, deps...)
 	if err := run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

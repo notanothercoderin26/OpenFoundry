@@ -22,13 +22,8 @@
 | Page | Live URL | Local scraped MD | Full-page screenshot |
 |---|---|---|---|
 | Object Explorer overview | https://www.palantir.com/docs/foundry/object-explorer/overview/ | [Seed URLs/Object Explorer/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Explorer/Overview.md) | [Seed URLs/Object Explorer/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Explorer/Overview.screenshot.png) |
-| Ontology indexing (in Ontology Manager) | https://www.palantir.com/docs/foundry/ontology-manager/ontology-indexing/ | [Seed URLs/Ontology Manager/Ontology Indexing.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Ontology%20Manager/Ontology%20Indexing.md) | [Seed URLs/Ontology Manager/Ontology Indexing.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Ontology%20Manager/Ontology%20Indexing.screenshot.png) |
-| Object Storage v2 | https://www.palantir.com/docs/foundry/object-link-types/object-storage-v2/ | [Seed URLs/Object Link Types/Object Storage V2.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Link%20Types/Object%20Storage%20V2.md) | [Seed URLs/Object Link Types/Object Storage V2.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Link%20Types/Object%20Storage%20V2.screenshot.png) |
-
-> The Ontology Indexing URL may not exist verbatim on Palantir's site; if
-> the scraper logs a 404, drop the line from
-> [seed-urls.txt](seed-urls.txt) and rely on the *Object Storage v2* +
-> *Object Explorer* pages, which together cover the indexed lookup model.
+| Object indexing overview | https://www.palantir.com/docs/foundry/object-indexing/overview/ | [Seed URLs/Object Indexing/Overview.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Indexing/Overview.md) | [Seed URLs/Object Indexing/Overview.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Indexing/Overview.screenshot.png) |
+| Object Storage v2 (breaking changes) | https://www.palantir.com/docs/foundry/object-backend/object-storage-v2-breaking-changes/ | [Seed URLs/Object Backend/Object Storage V2 Breaking Changes.md](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Backend/Object%20Storage%20V2%20Breaking%20Changes.md) | [Seed URLs/Object Backend/Object Storage V2 Breaking Changes.screenshot.png](../../docs_original_palantir_foundry/foundry-docs/Seed%20URLs/Object%20Backend/Object%20Storage%20V2%20Breaking%20Changes.screenshot.png) |
 
 ## Foundry behavior to replicate (summary)
 

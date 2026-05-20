@@ -21,7 +21,7 @@ func TestRouteSmokeMountsOntologyActionRoutes(t *testing.T) {
 	cfg.JWTSecret = testJWTSecret
 	state := &ontologykernel.AppState{Stores: stores.NewInMemory()}
 
-	assertRoutesMounted(t, server.BuildRouter(cfg, state, nil), []routeSmokeCase{
+	assertRoutesMounted(t, server.BuildRouter(cfg, state, nil, nil), []routeSmokeCase{
 		{http.MethodGet, "/api/v1/ontology/actions"},
 		{http.MethodPost, "/api/v1/ontology/actions/{id}/validate"},
 		{http.MethodPost, "/api/v1/ontology/actions/{id}/execute"},

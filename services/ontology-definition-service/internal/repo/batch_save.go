@@ -176,6 +176,13 @@ func (r *Repo) applyObjectTypeEdit(ctx context.Context, tx pgx.Tx, audit *auditW
 		if err := json.Unmarshal(edit.Body, &body); err != nil {
 			return errResult(base, "invalid_body", "", err.Error()), nil
 		}
+		// Let the caller pre-assign the uuid via either the envelope
+		// or the body, so the Review-edits modal can stage related
+		// creates (e.g. a property that references this object type)
+		// in the same batch without a round trip to resolve ids.
+		if body.ID == nil && edit.ID != nil {
+			body.ID = edit.ID
+		}
 		created, err := r.createObjectTypeTx(ctx, tx, &body, actorID)
 		if err != nil {
 			return errResult(base, "create_failed", "", err.Error()), nil
@@ -190,6 +197,9 @@ func (r *Repo) applyObjectTypeEdit(ctx context.Context, tx pgx.Tx, audit *auditW
 			After:        created,
 			Source:       source,
 		}); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceObjectType, models.BatchOpCreate, created.ID, created.Version, actorID, batchID, nil, created); err != nil {
 			return models.BatchEditResult{}, err
 		}
 		return okResult(base, created.ID, created.Version, created), nil
@@ -228,6 +238,9 @@ func (r *Repo) applyObjectTypeEdit(ctx context.Context, tx pgx.Tx, audit *auditW
 		}); err != nil {
 			return models.BatchEditResult{}, err
 		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceObjectType, models.BatchOpUpdate, updated.ID, updated.Version, actorID, batchID, current, updated); err != nil {
+			return models.BatchEditResult{}, err
+		}
 		return okResult(base, updated.ID, updated.Version, updated), nil
 
 	case models.BatchOpDelete:
@@ -257,6 +270,9 @@ func (r *Repo) applyObjectTypeEdit(ctx context.Context, tx pgx.Tx, audit *auditW
 		}); err != nil {
 			return models.BatchEditResult{}, err
 		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceObjectType, models.BatchOpDelete, current.ID, current.Version, actorID, batchID, current, nil); err != nil {
+			return models.BatchEditResult{}, err
+		}
 		base.ResourceID = &current.ID
 		base.Status = models.BatchStatusOK
 		return base, nil
@@ -276,6 +292,9 @@ func (r *Repo) applyLinkTypeEdit(ctx context.Context, tx pgx.Tx, audit *auditWri
 		if err := json.Unmarshal(edit.Body, &body); err != nil {
 			return errResult(base, "invalid_body", "", err.Error()), nil
 		}
+		if body.ID == nil && edit.ID != nil {
+			body.ID = edit.ID
+		}
 		created, err := r.createLinkTypeTx(ctx, tx, &body, actorID)
 		if err != nil {
 			return errResult(base, "create_failed", "", err.Error()), nil
@@ -290,6 +309,9 @@ func (r *Repo) applyLinkTypeEdit(ctx context.Context, tx pgx.Tx, audit *auditWri
 			After:        created,
 			Source:       source,
 		}); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceLinkType, models.BatchOpCreate, created.ID, created.Version, actorID, batchID, nil, created); err != nil {
 			return models.BatchEditResult{}, err
 		}
 		return okResult(base, created.ID, created.Version, created), nil
@@ -328,6 +350,9 @@ func (r *Repo) applyLinkTypeEdit(ctx context.Context, tx pgx.Tx, audit *auditWri
 		}); err != nil {
 			return models.BatchEditResult{}, err
 		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceLinkType, models.BatchOpUpdate, updated.ID, updated.Version, actorID, batchID, current, updated); err != nil {
+			return models.BatchEditResult{}, err
+		}
 		return okResult(base, updated.ID, updated.Version, updated), nil
 
 	case models.BatchOpDelete:
@@ -357,6 +382,9 @@ func (r *Repo) applyLinkTypeEdit(ctx context.Context, tx pgx.Tx, audit *auditWri
 		}); err != nil {
 			return models.BatchEditResult{}, err
 		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceLinkType, models.BatchOpDelete, current.ID, current.Version, actorID, batchID, current, nil); err != nil {
+			return models.BatchEditResult{}, err
+		}
 		base.ResourceID = &current.ID
 		base.Status = models.BatchStatusOK
 		return base, nil
@@ -376,6 +404,9 @@ func (r *Repo) applyObjectTypeGroupEdit(ctx context.Context, tx pgx.Tx, audit *a
 		if err := json.Unmarshal(edit.Body, &body); err != nil {
 			return errResult(base, "invalid_body", "", err.Error()), nil
 		}
+		if body.ID == nil && edit.ID != nil {
+			body.ID = edit.ID
+		}
 		created, err := r.createObjectTypeGroupTx(ctx, tx, &body, actorID)
 		if err != nil {
 			return errResult(base, "create_failed", "", err.Error()), nil
@@ -390,6 +421,9 @@ func (r *Repo) applyObjectTypeGroupEdit(ctx context.Context, tx pgx.Tx, audit *a
 			After:        created,
 			Source:       source,
 		}); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceObjectTypeGroup, models.BatchOpCreate, created.ID, created.Version, actorID, batchID, nil, created); err != nil {
 			return models.BatchEditResult{}, err
 		}
 		return okResult(base, created.ID, created.Version, created), nil
@@ -426,6 +460,9 @@ func (r *Repo) applyObjectTypeGroupEdit(ctx context.Context, tx pgx.Tx, audit *a
 			FieldDiffs:      diffObjects(current, updated),
 			Source:          source,
 		}); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceObjectTypeGroup, models.BatchOpUpdate, updated.ID, updated.Version, actorID, batchID, current, updated); err != nil {
 			return models.BatchEditResult{}, err
 		}
 		return okResult(base, updated.ID, updated.Version, updated), nil
@@ -467,6 +504,9 @@ func (r *Repo) applyObjectTypeGroupEdit(ctx context.Context, tx pgx.Tx, audit *a
 		}); err != nil {
 			return models.BatchEditResult{}, err
 		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceObjectTypeGroup, models.BatchOpDelete, current.ID, current.Version, actorID, batchID, current, nil); err != nil {
+			return models.BatchEditResult{}, err
+		}
 		base.ResourceID = &current.ID
 		base.Status = models.BatchStatusOK
 		return base, nil
@@ -489,6 +529,9 @@ func (r *Repo) applyPropertyEdit(ctx context.Context, tx pgx.Tx, audit *auditWri
 		if body.ObjectTypeID == uuid.Nil {
 			return errResult(base, "invalid_body", "object_type_id", "object_type_id is required"), nil
 		}
+		if body.ID == nil && edit.ID != nil {
+			body.ID = edit.ID
+		}
 		created, err := r.createPropertyTx(ctx, tx, body.ObjectTypeID, &body.CreatePropertyRequest)
 		if err != nil {
 			return errResult(base, "create_failed", "", err.Error()), nil
@@ -503,6 +546,9 @@ func (r *Repo) applyPropertyEdit(ctx context.Context, tx pgx.Tx, audit *auditWri
 			After:        created,
 			Source:       source,
 		}); err != nil {
+			return models.BatchEditResult{}, err
+		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceProperty, models.BatchOpCreate, created.ID, created.Version, actorID, batchID, nil, created); err != nil {
 			return models.BatchEditResult{}, err
 		}
 		return okResult(base, created.ID, created.Version, created), nil
@@ -541,6 +587,9 @@ func (r *Repo) applyPropertyEdit(ctx context.Context, tx pgx.Tx, audit *auditWri
 		}); err != nil {
 			return models.BatchEditResult{}, err
 		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceProperty, models.BatchOpUpdate, updated.ID, updated.Version, actorID, batchID, current, updated); err != nil {
+			return models.BatchEditResult{}, err
+		}
 		return okResult(base, updated.ID, updated.Version, updated), nil
 
 	case models.BatchOpDelete:
@@ -570,6 +619,9 @@ func (r *Repo) applyPropertyEdit(ctx context.Context, tx pgx.Tx, audit *auditWri
 		}); err != nil {
 			return models.BatchEditResult{}, err
 		}
+		if err := emitOutboxForBatchEdit(ctx, tx, models.BatchResourceProperty, models.BatchOpDelete, current.ID, current.Version, actorID, batchID, current, nil); err != nil {
+			return models.BatchEditResult{}, err
+		}
 		base.ResourceID = &current.ID
 		base.Status = models.BatchStatusOK
 		return base, nil
@@ -583,6 +635,64 @@ func (r *Repo) applyPropertyEdit(ctx context.Context, tx pgx.Tx, audit *auditWri
 type batchCreatePropertyBody struct {
 	ObjectTypeID                  uuid.UUID `json:"object_type_id"`
 	models.CreatePropertyRequest  `json:",inline"`
+}
+
+// emitOutboxForBatchEdit appends an `ontology.<resource>.changed.v1`
+// event to the outbox in the same transaction as the primary mutation.
+// The Lineage map propagates the batch_id so consumers can correlate
+// the per-edit events that share a single Review-edits submit.
+func emitOutboxForBatchEdit(
+	ctx context.Context, tx pgx.Tx,
+	resourceKind, op string,
+	id uuid.UUID, version int,
+	actorID, batchID uuid.UUID,
+	before, after any,
+) error {
+	topic, aggregate, ok := batchTopicAndAggregate(resourceKind)
+	if !ok {
+		return fmt.Errorf("emit outbox: unknown resource %q", resourceKind)
+	}
+	eventType, ok := batchEventType(op)
+	if !ok {
+		return fmt.Errorf("emit outbox: unknown op %q", op)
+	}
+	return EnqueueSchemaEvent(ctx, tx, EventOptions{
+		Topic:       topic,
+		Aggregate:   aggregate,
+		AggregateID: id.String(),
+		EventType:   eventType,
+		ActorID:     actorID,
+		Version:     version,
+		Before:      before,
+		After:       after,
+		Lineage:     map[string]string{"batch-id": batchID.String()},
+	})
+}
+
+func batchTopicAndAggregate(resourceKind string) (string, string, bool) {
+	switch resourceKind {
+	case models.BatchResourceObjectType:
+		return TopicObjectType, AggregateObjectType, true
+	case models.BatchResourceLinkType:
+		return TopicLinkType, AggregateLinkType, true
+	case models.BatchResourceObjectTypeGroup:
+		return TopicObjectTypeGroup, AggregateObjectTypeGroup, true
+	case models.BatchResourceProperty:
+		return TopicProperty, AggregateProperty, true
+	}
+	return "", "", false
+}
+
+func batchEventType(op string) (EventType, bool) {
+	switch op {
+	case models.BatchOpCreate:
+		return EventCreated, true
+	case models.BatchOpUpdate:
+		return EventUpdated, true
+	case models.BatchOpDelete:
+		return EventDeleted, true
+	}
+	return "", false
 }
 
 // ── Result helpers ─────────────────────────────────────────────────────
@@ -1043,6 +1153,9 @@ func (r *Repo) updateObjectTypeGroupTx(ctx context.Context, tx pgx.Tx, current *
 
 func (r *Repo) createPropertyTx(ctx context.Context, tx pgx.Tx, typeID uuid.UUID, body *models.CreatePropertyRequest) (*models.Property, error) {
 	id := uuid.New()
+	if body.ID != nil && *body.ID != uuid.Nil {
+		id = *body.ID
+	}
 	dn := body.DisplayName
 	if dn == "" {
 		dn = body.Name

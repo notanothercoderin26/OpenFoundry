@@ -1,0 +1,189 @@
+{{- if .Values.topicsDomainV1.enabled }}
+---
+# Ontology schema-of-types topics produced by the
+# `outbox-pg-schemas` Debezium connector (see
+# infra/helm/infra/debezium/templates/kafka-connector-outbox-pg-schemas.yaml).
+#
+# Distinct from the per-instance topic family in `topics-domain-v1.yaml`:
+#
+#   ontology.object.changed.v1            — object instances (existing)
+#   ontology.action.applied.v1            — action executions (existing)
+#   ontology.object_type.changed.v1       — schema mutations on object types (new)
+#   ontology.link_type.changed.v1         — schema mutations on link types (new)
+#   ontology.property.changed.v1          — schema mutations on properties (new)
+#   ontology.object_type_group.changed.v1 — schema mutations on type groups (new)
+#   ontology.interface.changed.v1         — schema mutations on interfaces (new)
+#   ontology.shared_property_type.changed.v1 — schema mutations on shared properties (new)
+#
+# Naming convention pinned by ADR-0022:
+#   <domain>.<entity>.<event>.v<N>
+#
+# Retention is 30d — these events are small and rare (schema changes
+# are not high-rate), and consumers (ontology-indexer, downstream
+# projections, agent-runtime, audit) may need a long replay window
+# when re-seeding caches from a cold start.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: ontology.object_type.changed.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+    openfoundry.io/domain: ontology
+    openfoundry.io/version: v1
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "2592000000"
+    compression.type: producer
+    segment.ms: "21600000"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: ontology.link_type.changed.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+    openfoundry.io/domain: ontology
+    openfoundry.io/version: v1
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "2592000000"
+    compression.type: producer
+    segment.ms: "21600000"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: ontology.property.changed.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+    openfoundry.io/domain: ontology
+    openfoundry.io/version: v1
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "2592000000"
+    compression.type: producer
+    segment.ms: "21600000"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: ontology.object_type_group.changed.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+    openfoundry.io/domain: ontology
+    openfoundry.io/version: v1
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "2592000000"
+    compression.type: producer
+    segment.ms: "21600000"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: ontology.interface.changed.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+    openfoundry.io/domain: ontology
+    openfoundry.io/version: v1
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "2592000000"
+    compression.type: producer
+    segment.ms: "21600000"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: ontology.shared_property_type.changed.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+    openfoundry.io/domain: ontology
+    openfoundry.io/version: v1
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "2592000000"
+    compression.type: producer
+    segment.ms: "21600000"
+---
+# Action type schema mutations (Create/Update/Delete of action TYPES —
+# distinct from `ontology.action.applied.v1` which carries action
+# EXECUTIONS). Produced by `ontology-actions-service` once the kernel
+# hook lands (see PoC/blockers/B02-ontology-definition.md, §"Deferred").
+# The topic is provisioned ahead of the producer code so the Strimzi
+# rollout doesn't block on it.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: ontology.action_type.changed.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+    openfoundry.io/domain: ontology
+    openfoundry.io/version: v1
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "2592000000"
+    compression.type: producer
+    segment.ms: "21600000"
+---
+# DLQ for the outbox-pg-schemas connector. Mirrors the existing
+# __dlq.outbox-pg-policy.v1 used by the pg-policy connector.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: __dlq.outbox-pg-schemas.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: dlq
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "1209600000"
+    compression.type: producer
+{{- end }}

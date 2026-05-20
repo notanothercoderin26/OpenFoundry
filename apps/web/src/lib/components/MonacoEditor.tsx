@@ -54,21 +54,37 @@ interface MonacoEditorProps {
   value: string;
   language: string;
   minHeight?: number;
+  /** When true, renders Monaco's right-side minimap. Default off. */
+  minimap?: boolean;
+  /** When true, locks the editor against keyboard edits. Default false. */
+  readOnly?: boolean;
   onChange?: (value: string) => void;
   onBlur?: (value: string) => void;
+  /** Called once the editor is mounted; useful for triggering actions
+   *  (e.g. `editor.getAction('actions.find')?.run()`) from a parent. */
+  onMount?: (editor: Monaco.editor.IStandaloneCodeEditor) => void;
 }
 
-export function MonacoEditor({ value, language, minHeight = 160, onChange, onBlur }: MonacoEditorProps) {
+export function MonacoEditor({
+  value,
+  language,
+  minHeight = 160,
+  minimap = false,
+  readOnly = false,
+  onChange,
+  onBlur,
+  onMount,
+}: MonacoEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
   const syncingRef = useRef(false);
-  const callbacksRef = useRef({ onChange, onBlur });
+  const callbacksRef = useRef({ onChange, onBlur, onMount });
 
   // Mirror the latest callbacks without re-running the init effect.
   useEffect(() => {
-    callbacksRef.current = { onChange, onBlur };
-  }, [onChange, onBlur]);
+    callbacksRef.current = { onChange, onBlur, onMount };
+  }, [onChange, onBlur, onMount]);
 
   // Init + dispose lifecycle. Captures `value` and `language` only as initial
   // seed; later changes flow through the sync effects below.
@@ -90,7 +106,8 @@ export function MonacoEditor({ value, language, minHeight = 160, onChange, onBlu
         value,
         language: resolvedLanguage,
         automaticLayout: true,
-        minimap: { enabled: false },
+        minimap: { enabled: minimap },
+        readOnly,
         fontSize: 13,
         lineNumbers: 'on',
         roundedSelection: false,
@@ -112,6 +129,7 @@ export function MonacoEditor({ value, language, minHeight = 160, onChange, onBlu
       blurSubscription = editor.onDidBlurEditorText(() => {
         callbacksRef.current.onBlur?.(editor.getValue());
       });
+      callbacksRef.current.onMount?.(editor);
     })();
 
     return () => {
@@ -132,6 +150,13 @@ export function MonacoEditor({ value, language, minHeight = 160, onChange, onBlu
     editor.setValue(value);
     syncingRef.current = false;
   }, [value]);
+
+  // Sync readOnly/minimap toggles at runtime.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.updateOptions({ readOnly, minimap: { enabled: minimap } });
+  }, [readOnly, minimap]);
 
   // Switch language at runtime without recreating the editor.
   useEffect(() => {
