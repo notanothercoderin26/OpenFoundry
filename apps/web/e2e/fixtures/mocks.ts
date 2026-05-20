@@ -52,8 +52,14 @@ export async function mockAuth(page: Page, options: AuthMockOptions = {}): Promi
 
   if (authenticated) {
     await page.addInitScript(() => {
-      window.localStorage.setItem('of_access_token', 'e2e-token');
-      window.localStorage.setItem('of_refresh_token', 'e2e-refresh');
+      // `about:blank` denies localStorage access in modern Chromium, so the
+      // init script needs to be tolerant of pre-navigation document states.
+      try {
+        window.localStorage.setItem('of_access_token', 'e2e-token');
+        window.localStorage.setItem('of_refresh_token', 'e2e-refresh');
+      } catch {
+        // Storage will be re-set on the first real navigation.
+      }
     });
   }
 
@@ -71,6 +77,29 @@ export async function mockAuth(page: Page, options: AuthMockOptions = {}): Promi
       return;
     }
     await route.fulfill({ json: buildUser(user) });
+  });
+
+  // ScopedSessionBanner is mounted in the AppShell and unconditionally
+  // dereferences `options.presets` on render. Return the disabled-feature
+  // shape so the banner short-circuits to `null` instead of crashing in
+  // every authenticated spec.
+  await page.route('**/api/v1/auth/scoped-sessions', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      json: {
+        enabled: false,
+        allow_no_scoped_session: true,
+        always_show_selector: false,
+        no_scoped_session_available: true,
+        bypass_allowed: true,
+        active_scoped_session: null,
+        full_allowed_markings: [],
+        presets: [],
+      },
+    });
   });
 }
 

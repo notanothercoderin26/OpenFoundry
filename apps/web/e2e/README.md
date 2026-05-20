@@ -9,12 +9,18 @@ cross-browser, accessibility-aware, and visual-regression-aware.
 ```
 e2e/
   fixtures/
-    base.ts         Extended `test`/`expect` with auth fixtures
+    base.ts         Extended `test`/`expect` with global fixtures
     mocks.ts        mockAuth(), mockJson(), buildUser(), E2E_NOW
+    api-mocks.ts    Per-resource make/mock factory + installDefaultApiMocks
     workshop.ts     defineWorkshopApp() builder + widget helpers
   pages/
-    LoginPage.ts            Login page object
-    WorkshopRuntimePage.ts  Public workshop runtime page object
+    _base.ts                  BasePagePO / ListPagePO / DetailPagePO
+    index.ts                  Barrel — import every page object from here
+    LoginPage.ts              Login page object
+    AppShellPage.ts           Authenticated chrome (sidebar + topbar)
+    WorkshopRuntimePage.ts    Public workshop runtime page object
+    <Area>Page.ts             Page Object per route area (~95 files)
+    control-panel/            Sub-pages for /control-panel/*
   helpers/
     a11y.ts         expectNoA11yViolations() — axe-core wrapper
   __snapshots__/    Visual regression baselines (committed)
@@ -42,16 +48,56 @@ pnpm --filter @open-foundry/web test:e2e:report
 
 ### Visual snapshots
 
-Snapshots live in `e2e/__snapshots__/` and are diffed pixel-by-pixel. The
-first time you add a `toHaveScreenshot()` assertion, generate the baseline
-locally and commit it:
+Snapshots live in `e2e/__snapshots__/<spec>-snapshots/<name>-<project>-<platform>.png`
+and are diffed pixel-by-pixel on every run. Use the
+{@link helpers/visual.ts} helpers — `prepareForVisual(page)` and
+`expectScreenshot(page, name)` — instead of calling `toHaveScreenshot`
+directly so the project-wide defaults (animations disabled, fonts
+ready, default mask set, `maxDiffPixelRatio: 0.01`) stay in sync.
 
-```sh
-pnpm --filter @open-foundry/web test:e2e:update-snapshots
+Authoring a new snapshot:
+
+```ts
+import { expectScreenshot, prepareForVisual } from './helpers/visual';
+
+test('my page is visually stable', async ({ adminPage, apiMocks }) => {
+  await apiMocks.mockDatasetsList(adminPage);
+  await adminPage.goto('/datasets');
+
+  await prepareForVisual(adminPage);
+  await expectScreenshot(adminPage, 'datasets-list', {
+    mask: [adminPage.getByRole('cell', { name: /^\d+ MB$/ })],
+  });
+});
 ```
 
-Snapshots are platform-sensitive — regenerate on Linux/CI if you author on
-macOS or Windows.
+Generating / refreshing baselines:
+
+```sh
+# Regenerate every snapshot in the suite (use sparingly — re-review diffs!).
+pnpm --filter @open-foundry/web exec playwright test --update-snapshots
+
+# Regenerate just one spec's baselines.
+pnpm --filter @open-foundry/web exec playwright test datasets-list --update-snapshots
+
+# Regenerate per-browser (run inside the matching project).
+pnpm --filter @open-foundry/web exec playwright test --project=firefox --update-snapshots
+```
+
+After regenerating, **review the diff** before committing — a baseline
+update is functionally a "this is what the page should look like" commit
+and silently locks in any unintended UI change. CI baselines are
+generated on Linux; if you author on macOS / Windows, regenerate inside
+a Linux container (or let CI fail once and pull the artifact).
+
+Volatile content is masked automatically by `expectScreenshot`:
+- `<time>` elements
+- `[data-testid$="-timestamp"]`, `[data-testid$="-id"]`,
+  `[data-testid$="-uuid"]`, `[data-testid$="-relative-time"]`
+- Externally hosted avatars (`img[src*="avatar"]`, `…gravatar`)
+- Anything tagged `[data-mask-visual]` (opt-in for new code)
+
+Pass extra locators via the `mask` option for spec-specific noise.
 
 ### Browser filter
 
@@ -62,15 +108,153 @@ load. Defaults to `chromium`. CI uses a matrix of `chromium,firefox,webkit`.
 E2E_BROWSERS=chromium,firefox pnpm --filter @open-foundry/web test:e2e
 ```
 
+## Global fixtures
+
+`fixtures/base.ts` extends Playwright's `test` with the following fixtures.
+**Destructure only what you need — `pageErrors` is the only `auto` one.**
+
+| Fixture       | Auto  | What it gives you                                                                                                    |
+|---------------|-------|----------------------------------------------------------------------------------------------------------------------|
+| `authedPage`  | no    | `page` with `mockAuth` + `installDefaultApiMocks` pre-installed. Uses `authOptions` if set.                          |
+| `adminPage`   | no    | Same as `authedPage` but identity is `roles: ['admin']` + `permissions: ['*']`.                                      |
+| `viewerPage`  | no    | Same shape but identity is `roles: ['viewer']` + `permissions: ['read:*']`. Use for RBAC tests.                      |
+| `apiMocks`    | no    | The full `api-mocks.ts` namespace (`makeDataset`, `mockProjectsList`, …). Catch-all already installed.                |
+| `pageErrors`  | **yes** | Live `string[]` of `pageerror` + `console.error`. Auto-fails the test if non-allowlisted errors remain at teardown. |
+
+Per-test option knobs (set via `test.use({...})`):
+
+| Option           | Default                       | Effect                                                                            |
+|------------------|-------------------------------|-----------------------------------------------------------------------------------|
+| `authOptions`    | `{}`                          | Forwarded to `mockAuth` (user overrides, sso providers, requiresInitialAdmin).    |
+| `freezeTime`     | `false`                       | When `true`, `Date.now()` / `new Date()` are pinned to `E2E_NOW` on every page.   |
+| `errorAllowlist` | `{ patterns: DEFAULT_ERROR_ALLOWLIST }` | Regex bag filtered out before the `pageErrors` post-test assertion. |
+
+The default allowlist covers `ERR_ABORTED`, `Failed to load resource`,
+`AbortError`, and `ResizeObserver loop` noise. Extend it (don't replace it)
+if your spec genuinely needs to tolerate more. The option value is wrapped
+in `{ patterns: [...] }` because Playwright's `test.use` mis-detects bare
+array values as fixture-override tuples:
+
+```ts
+import { DEFAULT_ERROR_ALLOWLIST } from './fixtures/base';
+
+test.use({
+  errorAllowlist: {
+    patterns: [...DEFAULT_ERROR_ALLOWLIST, /MapLibre canvas warning/],
+  },
+});
+```
+
+### Fixture ordering
+
+`apiMocks` runs first and installs a low-priority catch-all
+(`installDefaultApiMocks(page)`). `authedPage` / `adminPage` / `viewerPage`
+each depend on `apiMocks`, so by the time the test body starts:
+
+1. Catch-all is in place (oldest handler).
+2. `mockAuth` routes for `/api/v1/auth/*`, `/api/v1/users/me` are in place
+   (newer than the catch-all, so they win).
+3. Any per-test `page.route(...)` calls are the newest handlers and take
+   precedence over both.
+
+This matches Playwright's most-recent-first dispatch, so override what you
+care about with named resource mockers (`apiMocks.mockDatasetsList(page,
+[makeDataset({ name: 'Custom' })])`) and let the rest fall through to the
+catch-all.
+
+## Scaffolding a new spec
+
+For new route areas, the fastest way to start is the scaffold script.
+It generates `apps/web/e2e/<area>.spec.ts` with the global fixtures
+pre-wired and three test stubs ready to fill in:
+
+```sh
+pnpm --filter @open-foundry/web exec tsx \
+  e2e/scripts/scaffold-spec.ts <area> <route-path> [pageObjectName]
+
+# Examples:
+pnpm --filter @open-foundry/web exec tsx \
+  e2e/scripts/scaffold-spec.ts datasets /datasets DatasetsListPage
+
+pnpm --filter @open-foundry/web exec tsx \
+  e2e/scripts/scaffold-spec.ts notifications /notifications NotificationsPage
+
+pnpm --filter @open-foundry/web exec tsx \
+  e2e/scripts/scaffold-spec.ts favorites /favorites
+```
+
+The third argument (Page Object class) is optional — when omitted, the
+generated spec falls back to inline `page.goto(...)` + `getByRole`. When
+present, it must be a TypeScript identifier that's already exported from
+`./pages` (the barrel) — the scaffold uses `new Foo(adminPage)` + `goto`
++ `expectLoaded`.
+
+What you get:
+- Three `test()` stubs: `<area> loads without errors`, `<area> primary CTA
+  opens modal or navigates`, `<area> list renders mocked data`.
+- `adminPage` + `apiMocks` destructured on every test.
+- TODO comments pointing to the patterns to copy from
+  (`route-smokes.spec.ts`, `workshop-actions.spec.ts`,
+  `fixtures-smoke.spec.ts`).
+
+Out-of-the-box, the generated spec PASSES against the default catch-all
+mocks for any route that doesn't require resource-specific data shapes.
+Fill in the TODOs with real mocks (`apiMocks.mockXList(...)`) and real
+assertions before opening the PR.
+
+Safety: the script refuses to overwrite an existing spec — delete it
+first if you really want to regenerate.
+
 ## Writing a new spec
 
 1. Import `test` and `expect` from `./fixtures/base` (NOT `@playwright/test`).
-2. Call `mockAuth(page)` before `page.goto()` — every protected route needs it.
-3. Mock backend calls with `mockJson(page, url, body)` or `page.route(...)`
-   for anything that needs request inspection.
-4. Prefer Page Objects (`pages/`) over inline locators when behavior repeats.
-5. For Workshop apps, use `defineWorkshopApp()` instead of hand-rolling the
-   ~150-line JSON envelope.
+2. Pick the right page fixture: `adminPage` for admin flows, `viewerPage`
+   for read-only RBAC, `authedPage` otherwise. Use plain `page` only for
+   unauthenticated flows (login, MFA, setup).
+3. Layer resource-specific mocks on top of the catch-all with
+   `apiMocks.mockXList(page, …)` / `apiMocks.mockXDetail(page, …)`.
+4. Prefer Page Objects (`pages/`) over inline locators when behavior
+   repeats. Import them from `./pages` (the barrel).
+5. For Workshop apps, use `defineWorkshopApp()` instead of hand-rolling
+   the ~150-line JSON envelope.
+
+Minimal example:
+
+```ts
+import { test, expect } from './fixtures/base';
+import { DatasetsListPage } from './pages';
+
+test('lists datasets and opens the first row', async ({ adminPage, apiMocks }) => {
+  await apiMocks.mockDatasetsList(adminPage, [
+    apiMocks.makeDataset({ id: 'dataset-1', name: 'Customers' }),
+    apiMocks.makeDataset({ id: 'dataset-2', name: 'Orders' }),
+  ]);
+
+  const datasets = new DatasetsListPage(adminPage);
+  await datasets.goto();
+  await datasets.expectLoaded();
+
+  await expect(datasets.row(/Customers/)).toBeVisible();
+});
+```
+
+Capturing request payloads after an action:
+
+```ts
+import { test, expect } from './fixtures/base';
+
+test('creates a dataset', async ({ adminPage, apiMocks }) => {
+  const cap = apiMocks.captureRequests(adminPage, /\/api\/v1\/datasets$/);
+
+  await adminPage.goto('/datasets');
+  await adminPage.getByRole('button', { name: 'New dataset' }).click();
+  await adminPage.getByLabel('Name').fill('Customers v2');
+  await adminPage.getByRole('button', { name: 'Create' }).click();
+
+  await expect.poll(() => cap.count()).toBe(1);
+  expect(cap.last()?.body).toMatchObject({ name: 'Customers v2' });
+});
+```
 
 Minimal skeleton:
 
@@ -138,8 +322,52 @@ test('my page is accessible', async ({ page }) => {
 });
 ```
 
-Exclusions need a justifying comment — third-party canvases are fine, our
-own components are not.
+Heavy third-party widgets (Monaco, Cytoscape, MapLibre, ECharts) are
+excluded by default via `DEFAULT_A11Y_EXCLUDES`. Additional exclusions
+need a justifying comment — third-party canvases are fine, our own
+components are not.
+
+Every scan writes a detailed JSON report to
+`test-results/a11y/<test-name>.json` (and attaches it to the Playwright
+HTML report) with violation counts, node selectors, HTML snippets, and
+help URLs. CI uploads `test-results/a11y/` as an artifact for triage.
+
+For one-call "go to a route and audit it", use `auditPageA11y`:
+
+```ts
+import { auditPageA11y } from './helpers/a11y';
+
+test('datasets list is accessible', async ({ adminPage }) => {
+  await auditPageA11y(adminPage, {
+    route: '/datasets',
+    screenshot: true, // attach a screenshot on violation for triage
+  });
+});
+```
+
+For pages with known noisy rules you'd rather track than fail on, set
+per-rule severity:
+
+```ts
+await expectNoA11yViolations(page, {
+  rules: {
+    'color-contrast': 'warn',      // logged + reported, doesn't fail
+    region: 'off',                  // disabled in axe entirely
+    'aria-allowed-attr': 'error',  // default — fails the test
+  },
+});
+```
+
+`warn` violations show up as a `a11y-warning` annotation on the test
+result and still appear in the JSON report. Use sparingly; the goal is
+zero `error` violations across the suite.
+
+`include` scopes the scan INTO a subtree (useful when one component is
+ready before the rest of the page):
+
+```ts
+await expectNoA11yViolations(page, { include: ['[data-testid="datasets-table"]'] });
+```
 
 ## CI
 
@@ -172,15 +400,21 @@ duplicating ~25 lines apiece. Replace them with:
 ```diff
 -import { expect, test } from '@playwright/test';
 +import { test, expect } from './fixtures/base';
-+import { mockAuth } from './fixtures/mocks';
  ...
 -  await page.addInitScript(() => {
 -    window.localStorage.setItem('of_access_token', 'e2e-token');
 -  });
 -  await page.route('**/api/v1/auth/bootstrap-status', async (route) => { ... });
 -  await page.route('**/api/v1/users/me', async (route) => { ... });
-+  await mockAuth(page);
+-test('foo', async ({ page }) => {
++test('foo', async ({ adminPage: page }) => {
 ```
+
+The `adminPage` fixture already installs auth + the default API catch-all,
+so specs only need to add resource-specific mocks for the data they care
+about. For per-test error tolerance, use `errorAllowlist` instead of
+hand-rolling `page.on('console', ...)` blocks — the auto `pageErrors`
+fixture covers the listener wiring.
 
 For Workshop specs, replace the hand-rolled app envelope with
 `defineWorkshopApp()` — it fills the theme/settings/slate boilerplate so
