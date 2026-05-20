@@ -244,6 +244,20 @@ type AppendBatchResponse struct {
 	Table            string `json:"table"`
 	Rows             int    `json:"rows"`
 	MetadataLocation string `json:"metadata_location"`
+	// SnapshotID is the Iceberg snapshot id (millis since epoch) the
+	// commit produced. Returned so the pipeline runner can record it
+	// in the lineage event without an extra round-trip.
+	SnapshotID int64 `json:"snapshot_id,omitempty"`
+}
+
+// ScanBatchResponse is the body of GET /openfoundry/iceberg/v1/scan.
+// Rows are returned in row_index order; SnapshotID echoes the resolved
+// snapshot so clients know exactly which version they read.
+type ScanBatchResponse struct {
+	Namespace  string           `json:"namespace"`
+	Table      string           `json:"table"`
+	SnapshotID int64            `json:"snapshot_id"`
+	Rows       []map[string]any `json:"rows"`
 }
 
 // MultiTableCommitRequest is the body of POST /iceberg/v1/transactions/commit.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/models"
+	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/repo"
 )
 
 type fakeAppendStore struct {
@@ -102,6 +103,16 @@ func (f *fakeAppendStore) DropTable(context.Context, string, []string, string, b
 }
 func (f *fakeAppendStore) RenameTable(context.Context, string, []string, string, []string, string) (*models.IcebergTable, error) {
 	return nil, nil
+}
+
+// InsertRowsForSnapshot + ScanRows are the B06 row-storage hooks. The
+// existing audit-contract tests don't inspect rows beyond the
+// snapshot envelope, so the fake records the call and is a no-op.
+func (f *fakeAppendStore) InsertRowsForSnapshot(_ context.Context, _ uuid.UUID, _ int64, _ []map[string]any) error {
+	return nil
+}
+func (f *fakeAppendStore) ScanRows(_ context.Context, _ repo.ScanRowsRequest) ([]map[string]any, int64, error) {
+	return nil, 0, nil
 }
 
 func TestAppendBatchAuditContractFixtureCommits(t *testing.T) {

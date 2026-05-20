@@ -141,7 +141,7 @@ func main() {
 	}
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, metrics, probes.Postgres("primary", pool))
+	srv := server.NewWithDeps(cfg, metrics, server.Deps{Pool: pool}, probes.Postgres("primary", pool))
 	if err := run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

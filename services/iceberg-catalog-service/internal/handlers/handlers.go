@@ -44,6 +44,10 @@ type Store interface {
 	GetMetadataFile(ctx context.Context, tableID uuid.UUID, version int32) (*models.MetadataFile, error)
 	DropTable(ctx context.Context, projectRID string, namespace []string, tableName string, purge bool) (bool, error)
 	RenameTable(ctx context.Context, projectRID string, sourceNS []string, sourceName string, destNS []string, destName string) (*models.IcebergTable, error)
+
+	// B06 row storage backing /openfoundry/iceberg/v1/{append,scan}.
+	InsertRowsForSnapshot(ctx context.Context, tableID uuid.UUID, snapshotID int64, rows []map[string]any) error
+	ScanRows(ctx context.Context, req repo.ScanRowsRequest) ([]map[string]any, int64, error)
 }
 
 type Handlers struct {

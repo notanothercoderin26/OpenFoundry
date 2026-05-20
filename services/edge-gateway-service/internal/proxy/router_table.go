@@ -147,6 +147,15 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 			strings.HasSuffix(path, "/lint")):
 		return u.DatasetVersioning
 
+	// B06 §AC#5 — check-evaluation history is owned by
+	// pipeline-build-service. The singular `/health` endpoint stays on
+	// dataset-versioning-service (snapshot view); only `/health/events`
+	// routes here so the two surfaces coexist without conflict.
+	case strings.HasPrefix(path, "/api/v1/datasets/") &&
+		(strings.HasSuffix(path, "/health/events") ||
+			strings.Contains(path, "/health/events/")):
+		return u.PipelineBuild
+
 	// ── iceberg catalog (admin + spec endpoints) ──
 	case strings.HasPrefix(path, "/api/v1/iceberg-tables"),
 		strings.HasPrefix(path, "/iceberg/v1/"),

@@ -59,17 +59,53 @@ func (h *Handlers) AppendBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	commit := appendCommitRequest(table, batch)
+	snapshotID := snapshotIDFromCommit(commit)
 	_, location, err := h.Repo.CommitTable(r.Context(), projectRID(r), namespace, batch.Spec.Table, commit)
 	if err != nil {
 		writeJSONErr(w, statusFromErr(err), err.Error())
 		return
+	}
+	// Phase-B row persistence — see repo/table_rows.go for the
+	// rationale. Production deployments swap the AppendBatch handler
+	// with a Parquet writer and bypass InsertRowsForSnapshot.
+	if snapshotID != 0 {
+		if err := h.Repo.InsertRowsForSnapshot(r.Context(), table.ID, snapshotID, batch.Rows); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, "persist rows: "+err.Error())
+			return
+		}
 	}
 	writeJSON(w, http.StatusAccepted, models.AppendBatchResponse{
 		Namespace:        batch.Spec.Namespace,
 		Table:            batch.Spec.Table,
 		Rows:             len(batch.Rows),
 		MetadataLocation: location,
+		SnapshotID:       snapshotID,
 	})
+}
+
+// snapshotIDFromCommit pulls the snapshot.snapshot-id out of the
+// add-snapshot update inside the commit request — same value the
+// catalog persisted via appendSnapshot.
+func snapshotIDFromCommit(commit *models.CommitTableRequest) int64 {
+	for _, raw := range commit.Updates {
+		var update map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &update); err != nil {
+			continue
+		}
+		if string(update["action"]) != `"add-snapshot"` {
+			continue
+		}
+		var snapshot struct {
+			ID int64 `json:"snapshot-id"`
+		}
+		if err := json.Unmarshal(update["snapshot"], &snapshot); err != nil {
+			continue
+		}
+		if snapshot.ID != 0 {
+			return snapshot.ID
+		}
+	}
+	return 0
 }
 
 func validateAppendSpec(spec models.TableSpec) error {

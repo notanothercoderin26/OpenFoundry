@@ -101,6 +101,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.
 	})
 
 	r.Post("/openfoundry/iceberg/v1/append", h.AppendBatch)
+	r.Get("/openfoundry/iceberg/v1/scan", h.ScanBatch)
 
 	// OAuth2 token endpoint — public per the REST Catalog spec.
 	if deps.Bearer != nil {
