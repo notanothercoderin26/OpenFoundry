@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams, type SetURLSearchParams } from 'react-router-dom';
 
 import { ApiError } from '@/lib/api/client';
 import { searchOntology, type SearchResult } from '@/lib/api/ontology';
@@ -352,9 +352,35 @@ function shortcutFromRecommendation(entry: ResourceRecommendation): ResourceShor
   };
 }
 
-export function SearchPage() {
+interface SearchPageProps {
+  // When supplied, SearchPage renders in popup mode: it does not read/write
+  // URL params (it would pollute the underlying route) and closes via the
+  // callback instead of `navigate(-1)`.
+  onClose?: () => void;
+}
+
+export function SearchPage({ onClose }: SearchPageProps = {}) {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [urlSearchParams, setUrlSearchParams] = useSearchParams();
+  const embedded = onClose != null;
+  const [localParams, setLocalParams] = useState<URLSearchParams>(() => new URLSearchParams());
+  const searchParams = embedded ? localParams : urlSearchParams;
+  const setSearchParams: SetURLSearchParams = useCallback(
+    (init, _opts) => {
+      if (embedded) {
+        setLocalParams((prev) => {
+          const next = typeof init === 'function' ? init(prev) : init;
+          if (next instanceof URLSearchParams) return next;
+          // URLSearchParams accepts string | string[][] | Record<string, string>.
+          // ParamKeyValuePair[] is structurally identical to string[][].
+          return new URLSearchParams(next as ConstructorParameters<typeof URLSearchParams>[0]);
+        });
+        return;
+      }
+      setUrlSearchParams(init, _opts);
+    },
+    [embedded, setUrlSearchParams],
+  );
 
   const [query, setQuery] = useState(() => searchParams.get('q') ?? '');
   const [submittedQuery, setSubmittedQuery] = useState(() => searchParams.get('q') ?? '');
@@ -384,8 +410,10 @@ export function SearchPage() {
   const requestRef = useRef(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Sync URL → state
+  // Sync URL → state. Skipped when embedded as a popup — the popup manages
+  // state internally and must not react to the underlying route's params.
   useEffect(() => {
+    if (embedded) return;
     const nextQuery = searchParams.get('q') ?? '';
     const nextTab = tabFromParam(searchParams.get('tab'));
     setQuery(nextQuery);
@@ -395,7 +423,7 @@ export function SearchPage() {
     setMarkingFilter(searchParams.getAll('marking').join(' '));
     setProjectFilter(searchParams.get('project') ?? '');
     setModifiedFilter(searchParams.get('modified') ?? '');
-  }, [searchParams]);
+  }, [embedded, searchParams]);
 
   // Hotkeys: Cmd/Ctrl + J → focus input. ESC closes the page.
   useEffect(() => {
@@ -408,12 +436,13 @@ export function SearchPage() {
         return;
       }
       if (e.key === 'Escape') {
-        navigate(-1);
+        if (onClose) onClose();
+        else navigate(-1);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navigate]);
+  }, [navigate, onClose]);
 
   // Auto-focus on mount
   useEffect(() => {
@@ -606,7 +635,8 @@ export function SearchPage() {
   }
 
   function closePage() {
-    navigate(-1);
+    if (onClose) onClose();
+    else navigate(-1);
   }
 
   function applySavedSearch(saved: SavedSearch) {
@@ -662,7 +692,7 @@ export function SearchPage() {
   const visibleTabs = hasQuery ? TABS : TABS.filter((t) => t.id !== 'top');
 
   return (
-    <section className="of-quicksearch" aria-label="Quicksearch">
+    <section className="of-quicksearch" data-embedded={embedded || undefined} aria-label="Quicksearch">
       <header className="of-quicksearch__header">
         <span className="of-quicksearch__searchIcon">
           <Glyph name="search" size={18} />
