@@ -80,7 +80,7 @@ const MOCK_FINDINGS: Finding[] = [
     rule: 'metadata.no-description',
     message: 'Pipeline description is empty.',
     recommendation: 'Add a one-line description to surface in lineage and catalog views.',
-    estimatedImpact: 'Improves discoverability in Data Catalog and Data Lineage.',
+    estimatedImpact: 'Improves discoverability in Dataset Preview and Data Lineage.',
     detectedAt: '2026-05-17T08:14:00Z',
   },
 ];

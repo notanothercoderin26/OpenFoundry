@@ -1486,7 +1486,7 @@ export function ProjectDetailPage() {
 function ProjectTopTabs() {
   type TopTab = { id: 'data-catalog' | 'projects' | 'your-files' | 'shared'; label: string; icon: GlyphName };
   const tabs: TopTab[] = [
-    { id: 'data-catalog', label: 'Data Catalog', icon: 'badge-check' },
+    { id: 'data-catalog', label: 'Dataset Preview', icon: 'badge-check' },
     { id: 'projects', label: 'Projects', icon: 'project' },
     { id: 'your-files', label: 'Your files', icon: 'document' },
     { id: 'shared', label: 'Shared with you', icon: 'users' },
