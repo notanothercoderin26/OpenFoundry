@@ -59,6 +59,11 @@ export type WorkshopAppInput = {
   themeOverrides?: Record<string, unknown>;
   settingsOverrides?: Record<string, unknown>;
   publishedVersionNumber?: number;
+  /** ISO timestamp for created_at / updated_at / published_at. Defaults to `E2E_NOW`. */
+  now?: string;
+  createdBy?: string;
+  publishedVersionId?: string | null;
+  templateKey?: string | null;
 };
 
 const DEFAULT_THEME = {
@@ -142,6 +147,7 @@ export function defineWorkshopApp(input: WorkshopAppInput) {
   const slug = input.slug;
   const id = input.id ?? `${slug}-app`;
   const homePageId = input.homePageId ?? input.pages[0]?.id ?? 'main';
+  const now = input.now ?? E2E_NOW;
 
   return {
     app: {
@@ -168,15 +174,15 @@ export function defineWorkshopApp(input: WorkshopAppInput) {
         slate: DEFAULT_SLATE,
         ...input.settingsOverrides,
       },
-      template_key: null,
-      created_by: 'e2e',
-      published_version_id: 'version-1',
-      created_at: E2E_NOW,
-      updated_at: E2E_NOW,
+      template_key: input.templateKey ?? null,
+      created_by: input.createdBy ?? 'e2e',
+      published_version_id: input.publishedVersionId === undefined ? 'version-1' : input.publishedVersionId,
+      created_at: now,
+      updated_at: now,
     },
     embed: { url: `/apps/runtime/${slug}`, iframe_html: '' },
     published_version_number: input.publishedVersionNumber ?? 1,
-    published_at: E2E_NOW,
+    published_at: now,
   };
 }
 
