@@ -1,7 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { Glyph } from '@/lib/components/ui/Glyph';
-import type { Pipeline } from '@/lib/api/pipelines';
+import {
+  deletePipelineGrant,
+  followPipeline,
+  getPipelineFollowerSummary,
+  getPipelineLinkShare,
+  listPipelineGrants,
+  putPipelineGrant,
+  putPipelineLinkShare,
+  unfollowPipeline,
+  type Pipeline,
+  type PipelineFollowerSummary,
+  type PipelineGrant,
+  type PipelineLinkShare,
+  type PipelineRole,
+} from '@/lib/api/pipelines';
 import {
   applyResourceMarking,
   checkResourceAccess,
@@ -68,6 +82,12 @@ export function PipelineDetailsDrawer({
   const [error, setError] = useState('');
   const [markingPickerOpen, setMarkingPickerOpen] = useState(false);
   const [markingCatalog, setMarkingCatalog] = useState<MarkingCatalog>({ categories: [], byId: new Map() });
+  const [linkShare, setLinkShare] = useState<PipelineLinkShare | null>(null);
+  const [linkShareBusy, setLinkShareBusy] = useState(false);
+  const [grants, setGrants] = useState<PipelineGrant[]>([]);
+  const [grantsBusy, setGrantsBusy] = useState(false);
+  const [followerSummary, setFollowerSummary] = useState<PipelineFollowerSummary>({ following: false, follower_count: 0 });
+  const [followerBusy, setFollowerBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -107,10 +127,105 @@ export function PipelineDetailsDrawer({
       .catch(() => {
         if (!cancelled) setMarkingCatalog({ categories: [], byId: new Map() });
       });
+    void getPipelineLinkShare(pipeline.id)
+      .then((share) => {
+        if (!cancelled) setLinkShare(share);
+      })
+      .catch(() => {
+        // Non-owner principals get 403; surface as null so the UI hides the editor.
+        if (!cancelled) setLinkShare(null);
+      });
+    void listPipelineGrants(pipeline.id)
+      .then((response) => {
+        if (!cancelled) setGrants(response.items);
+      })
+      .catch(() => {
+        if (!cancelled) setGrants([]);
+      });
+    void getPipelineFollowerSummary(pipeline.id)
+      .then((summary) => {
+        if (!cancelled) setFollowerSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setFollowerSummary({ following: false, follower_count: 0 });
+      });
     return () => {
       cancelled = true;
     };
   }, [open, pipeline.id]);
+
+  async function toggleFollow() {
+    setFollowerBusy(true);
+    setError('');
+    try {
+      const next = followerSummary.following
+        ? await unfollowPipeline(pipeline.id)
+        : await followPipeline(pipeline.id);
+      setFollowerSummary(next);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Follow toggle failed');
+    } finally {
+      setFollowerBusy(false);
+    }
+  }
+
+  async function toggleLinkShare(enabled: boolean, role: PipelineRole = 'viewer') {
+    setLinkShareBusy(true);
+    setError('');
+    try {
+      const next = await putPipelineLinkShare(pipeline.id, { enabled, role });
+      setLinkShare(next);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Link share update failed');
+    } finally {
+      setLinkShareBusy(false);
+    }
+  }
+
+  async function rotateLinkShareToken() {
+    if (!linkShare?.enabled) return;
+    setLinkShareBusy(true);
+    setError('');
+    try {
+      const next = await putPipelineLinkShare(pipeline.id, {
+        enabled: true,
+        role: linkShare.role ?? 'viewer',
+        rotate_token: true,
+      });
+      setLinkShare(next);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Token rotation failed');
+    } finally {
+      setLinkShareBusy(false);
+    }
+  }
+
+  async function addGrant(principalId: string, role: PipelineRole) {
+    setGrantsBusy(true);
+    setError('');
+    try {
+      await putPipelineGrant(pipeline.id, { principal_kind: 'user', principal_id: principalId, role });
+      const refreshed = await listPipelineGrants(pipeline.id);
+      setGrants(refreshed.items);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Grant failed');
+    } finally {
+      setGrantsBusy(false);
+    }
+  }
+
+  async function removeGrant(grantId: string) {
+    setGrantsBusy(true);
+    setError('');
+    try {
+      await deletePipelineGrant(pipeline.id, grantId);
+      setGrants((current) => current.filter((entry) => entry.id !== grantId));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Grant removal failed');
+    } finally {
+      setGrantsBusy(false);
+    }
+  }
 
   const pipelineRid = useMemo(() => `pipelines/${pipeline.id}`, [pipeline.id]);
   const ownerLabel = pipeline.owner_id ? pipeline.owner_id.slice(0, 8) : 'unknown';
@@ -214,6 +329,9 @@ export function PipelineDetailsDrawer({
               markingsCount={markings.length}
               pipelineRid={pipelineRid}
               ownerLabel={ownerLabel}
+              followerSummary={followerSummary}
+              followerBusy={followerBusy}
+              onToggleFollow={() => void toggleFollow()}
               onOpenAccess={() => setView('access')}
             />
           )}
@@ -225,6 +343,10 @@ export function PipelineDetailsDrawer({
               markings={markings}
               markingsLoading={markingsLoading}
               markingCatalog={markingCatalog}
+              linkShare={linkShare}
+              linkShareBusy={linkShareBusy}
+              onToggleLinkShare={(enabled, role) => void toggleLinkShare(enabled, role)}
+              onRotateLinkShareToken={() => void rotateLinkShareToken()}
               onAddMarking={() => setMarkingPickerOpen(true)}
               onRemoveMarking={handleRemoveMarking}
               onOpenCheck={() => setView('check')}
@@ -234,7 +356,15 @@ export function PipelineDetailsDrawer({
           {view === 'check' && (
             <CheckAccessBody pipelineId={pipeline.id} organizations={organizations} />
           )}
-          {view === 'roles' && <RolesBody pipeline={pipeline} />}
+          {view === 'roles' && (
+            <RolesBody
+              pipeline={pipeline}
+              grants={grants}
+              grantsBusy={grantsBusy}
+              onAddGrant={(principalId, role) => void addGrant(principalId, role)}
+              onRemoveGrant={(grantId) => void removeGrant(grantId)}
+            />
+          )}
         </div>
       </aside>
 
@@ -257,6 +387,9 @@ interface DetailsBodyProps {
   markingsCount: number;
   pipelineRid: string;
   ownerLabel: string;
+  followerSummary: PipelineFollowerSummary;
+  followerBusy: boolean;
+  onToggleFollow: () => void;
   onOpenAccess: () => void;
 }
 
@@ -268,6 +401,9 @@ function DetailsBody({
   markingsCount,
   pipelineRid,
   ownerLabel,
+  followerSummary,
+  followerBusy,
+  onToggleFollow,
   onOpenAccess,
 }: DetailsBodyProps) {
   return (
@@ -287,7 +423,11 @@ function DetailsBody({
             resize: 'vertical',
           }}
         />
-        <ComingSoonStatRow />
+        <StatRow
+          followerSummary={followerSummary}
+          followerBusy={followerBusy}
+          onToggleFollow={onToggleFollow}
+        />
       </section>
 
       <CollaboratorsPlaceholder ownerLabel={ownerLabel} />
@@ -321,11 +461,40 @@ function DetailsBody({
   );
 }
 
-function ComingSoonStatRow() {
+function StatRow({
+  followerSummary,
+  followerBusy,
+  onToggleFollow,
+}: {
+  followerSummary: PipelineFollowerSummary;
+  followerBusy: boolean;
+  onToggleFollow: () => void;
+}) {
   return (
-    <div style={{ display: 'flex', gap: 12, padding: '4px 0' }}>
+    <div style={{ display: 'flex', gap: 12, padding: '4px 0', alignItems: 'center' }}>
       <ComingSoonStat icon="eye" label="Views" />
-      <ComingSoonStat icon="users" label="Followers" />
+      <button
+        type="button"
+        onClick={onToggleFollow}
+        disabled={followerBusy}
+        className="of-button"
+        style={{
+          padding: '2px 6px',
+          fontSize: 11,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          background: followerSummary.following ? '#dbeafe' : undefined,
+          color: followerSummary.following ? '#1e40af' : undefined,
+        }}
+        title={followerSummary.following ? 'Unfollow this pipeline' : 'Follow this pipeline'}
+      >
+        <Glyph name="users" size={12} />
+        <strong>{followerSummary.follower_count}</strong>
+        <span className="of-text-muted" style={{ fontSize: 11 }}>
+          {followerSummary.following ? 'Following' : 'Followers'}
+        </span>
+      </button>
       <ComingSoonStat icon="document" label="Comments" />
     </div>
   );
@@ -380,6 +549,10 @@ interface AccessBodyProps {
   markings: ResourceMarking[];
   markingsLoading: boolean;
   markingCatalog: MarkingCatalog;
+  linkShare: PipelineLinkShare | null;
+  linkShareBusy: boolean;
+  onToggleLinkShare: (enabled: boolean, role: PipelineRole) => void;
+  onRotateLinkShareToken: () => void;
   onAddMarking: () => void;
   onRemoveMarking: (marking: ResourceMarking) => void;
   onOpenCheck: () => void;
@@ -393,6 +566,10 @@ function AccessBody({
   markings,
   markingsLoading,
   markingCatalog,
+  linkShare,
+  linkShareBusy,
+  onToggleLinkShare,
+  onRotateLinkShareToken,
   onAddMarking,
   onRemoveMarking,
   onOpenCheck,
@@ -474,16 +651,13 @@ function AccessBody({
         </p>
       </section>
 
-      <section style={{ display: 'grid', gap: 6 }}>
-        <SidebarSectionTitle label="Link sharing" />
-        <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
-          Share via tokenized link · <strong>Coming in Phase 2</strong>
-        </p>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.5 }}>
-          <input type="checkbox" disabled />
-          <span style={{ fontSize: 12 }}>Anyone with the link can view</span>
-        </label>
-      </section>
+      <LinkShareSection
+        share={linkShare}
+        busy={linkShareBusy}
+        onToggle={onToggleLinkShare}
+        onRotate={onRotateLinkShareToken}
+      />
+
 
       <section style={{ display: 'grid', gap: 6 }}>
         <SidebarSectionTitle label="Check access" actionLabel="Check" onAction={onOpenCheck} />
@@ -593,7 +767,25 @@ function CheckAccessBody({ pipelineId, organizations }: CheckAccessBodyProps) {
   );
 }
 
-function RolesBody({ pipeline }: { pipeline: Pipeline }) {
+interface RolesBodyProps {
+  pipeline: Pipeline;
+  grants: PipelineGrant[];
+  grantsBusy: boolean;
+  onAddGrant: (principalId: string, role: PipelineRole) => void;
+  onRemoveGrant: (grantId: string) => void;
+}
+
+function RolesBody({ pipeline, grants, grantsBusy, onAddGrant, onRemoveGrant }: RolesBodyProps) {
+  const [newPrincipal, setNewPrincipal] = useState('');
+  const [newRole, setNewRole] = useState<PipelineRole>('viewer');
+
+  function handleAdd() {
+    const trimmed = newPrincipal.trim();
+    if (!trimmed) return;
+    onAddGrant(trimmed, newRole);
+    setNewPrincipal('');
+  }
+
   return (
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
       <SidebarSectionTitle label="Roles" />
@@ -604,10 +796,172 @@ function RolesBody({ pipeline }: { pipeline: Pipeline }) {
         </div>
         <span className="of-chip">owner</span>
       </div>
-      <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
-        Resource-level role grants (add user/group + assign role) land in Phase 2. Use Markings + Organizations for access control today.
-      </p>
+
+      <section style={{ display: 'grid', gap: 6 }}>
+        <SidebarSectionTitle label="Grants" />
+        {grants.length === 0 ? (
+          <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+            No grants yet. Add a user UUID below to share editor/viewer access without making them owner.
+          </p>
+        ) : (
+          grants.map((grant) => (
+            <div
+              key={grant.id}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}
+            >
+              <div style={{ display: 'grid' }}>
+                <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)' }}>{grant.principal_id.slice(0, 12)}…</span>
+                <span className="of-text-muted" style={{ fontSize: 11 }}>
+                  {grant.principal_kind} · since {new Date(grant.created_at).toLocaleDateString()}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span className="of-chip" style={{ fontSize: 11 }}>{grant.role}</span>
+                <button
+                  type="button"
+                  className="of-button"
+                  onClick={() => onRemoveGrant(grant.id)}
+                  disabled={grantsBusy}
+                  style={{ fontSize: 11, color: '#b91c1c' }}
+                  aria-label="Remove grant"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </section>
+
+      <section style={{ display: 'grid', gap: 6 }}>
+        <SidebarSectionTitle label="Add user or group" />
+        <input
+          value={newPrincipal}
+          onChange={(event) => setNewPrincipal(event.target.value)}
+          placeholder="Principal UUID (user or group)"
+          className="of-input"
+          style={{ fontSize: 12 }}
+        />
+        <div style={{ display: 'flex', gap: 6 }}>
+          <select
+            value={newRole}
+            onChange={(event) => setNewRole(event.target.value as PipelineRole)}
+            className="of-select"
+            style={{ flex: 1, fontSize: 12 }}
+          >
+            <option value="discoverer">Discoverer</option>
+            <option value="viewer">Viewer</option>
+            <option value="editor">Editor</option>
+          </select>
+          <button
+            type="button"
+            className="of-button of-button--primary"
+            onClick={handleAdd}
+            disabled={grantsBusy || !newPrincipal.trim()}
+            style={{ fontSize: 12 }}
+          >
+            Grant
+          </button>
+        </div>
+        <p className="of-text-muted" style={{ margin: 0, fontSize: 11 }}>
+          Group lookup UI lands in Phase 2. For now paste a known principal UUID.
+        </p>
+      </section>
     </div>
+  );
+}
+
+interface LinkShareSectionProps {
+  share: PipelineLinkShare | null;
+  busy: boolean;
+  onToggle: (enabled: boolean, role: PipelineRole) => void;
+  onRotate: () => void;
+}
+
+function LinkShareSection({ share, busy, onToggle, onRotate }: LinkShareSectionProps) {
+  const [copied, setCopied] = useState(false);
+  const enabled = share?.enabled ?? false;
+  const role = share?.role ?? 'viewer';
+  const shareUrl = share?.token
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/shared/pipelines/${share.token}`
+    : '';
+
+  async function copyUrl() {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard blocked — silent
+    }
+  }
+
+  if (share === null) {
+    return (
+      <section style={{ display: 'grid', gap: 6 }}>
+        <SidebarSectionTitle label="Link sharing" />
+        <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+          Only the pipeline owner can configure link sharing.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section style={{ display: 'grid', gap: 6 }}>
+      <SidebarSectionTitle label="Link sharing" />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={busy}
+          onChange={(event) => onToggle(event.target.checked, role)}
+        />
+        <span style={{ fontSize: 12 }}>Anyone with the link can access this pipeline</span>
+      </label>
+      {enabled && (
+        <>
+          <label style={{ fontSize: 12, display: 'grid', gap: 4 }}>
+            Role granted by link
+            <select
+              value={role}
+              onChange={(event) => onToggle(true, event.target.value as PipelineRole)}
+              disabled={busy}
+              className="of-select"
+              style={{ fontSize: 12 }}
+            >
+              <option value="discoverer">Discoverer</option>
+              <option value="viewer">Viewer</option>
+              <option value="editor">Editor</option>
+            </select>
+          </label>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input readOnly value={shareUrl} className="of-input" style={{ flex: 1, fontSize: 11 }} />
+            <button
+              type="button"
+              className="of-button"
+              onClick={() => void copyUrl()}
+              disabled={busy || !shareUrl}
+              style={{ fontSize: 11 }}
+              title="Copy link"
+            >
+              {copied ? '✓' : <Glyph name="duplicate" size={11} />}
+            </button>
+            <button
+              type="button"
+              className="of-button"
+              onClick={onRotate}
+              disabled={busy}
+              style={{ fontSize: 11 }}
+              title="Rotate token (invalidates previous link)"
+            >
+              Rotate
+            </button>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 

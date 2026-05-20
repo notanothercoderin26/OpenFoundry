@@ -146,6 +146,17 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabil
 		api.Get("/pipelines/{id}/nodes/{node_id}/preview", handler.PreviewPipelineNode)
 		api.Post("/pipelines/{id}/nodes/{node_id}/preview", handler.PreviewPipelineNode)
 
+		// Access block (owner-only mutations; follow endpoints accept any
+		// authenticated principal). Mirrors vertex-service link-share / grants.
+		api.Get("/pipelines/{id}/link-share", handler.GetPipelineLinkShare)
+		api.Put("/pipelines/{id}/link-share", handler.PutPipelineLinkShare)
+		api.Get("/pipelines/{id}/grants", handler.ListPipelineGrants)
+		api.Put("/pipelines/{id}/grants", handler.PutPipelineGrant)
+		api.Delete("/pipelines/{id}/grants/{grant_id}", handler.DeletePipelineGrant)
+		api.Get("/pipelines/{id}/followers/summary", handler.GetPipelineFollowerSummary)
+		api.Post("/pipelines/{id}/followers", handler.FollowPipeline)
+		api.Delete("/pipelines/{id}/followers", handler.UnfollowPipeline)
+
 		api.Get("/pipelines/{id}/runs", handler.ListPipelineRuns)
 		api.Post("/pipelines/{id}/runs", handler.TriggerPipelineRun)
 		api.Get("/pipelines/{id}/runs/{run_id}", handler.GetPipelineRun)

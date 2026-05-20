@@ -557,6 +557,79 @@ export function restorePipelineVersion(id: string, versionId: string, body?: {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Access block: link sharing, resource-level role grants, followers.
+// Mirrors services/pipeline-build-service/internal/handler/pipeline_access.go.
+
+export type PipelineRole = 'owner' | 'editor' | 'viewer' | 'discoverer';
+export type PipelinePrincipalKind = 'user' | 'group';
+
+export interface PipelineLinkShare {
+  enabled: boolean;
+  token?: string;
+  role?: PipelineRole;
+}
+
+export interface UpdatePipelineLinkShareRequest {
+  enabled: boolean;
+  role?: PipelineRole;
+  rotate_token?: boolean;
+}
+
+export interface PipelineGrant {
+  id: string;
+  pipeline_id: string;
+  principal_kind: PipelinePrincipalKind;
+  principal_id: string;
+  role: PipelineRole;
+  granted_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PutPipelineGrantRequest {
+  principal_kind?: PipelinePrincipalKind;
+  principal_id: string;
+  role: PipelineRole | '';
+}
+
+export interface PipelineFollowerSummary {
+  following: boolean;
+  follower_count: number;
+}
+
+export function getPipelineLinkShare(id: string) {
+  return api.get<PipelineLinkShare>(`/pipelines/${id}/link-share`);
+}
+
+export function putPipelineLinkShare(id: string, body: UpdatePipelineLinkShareRequest) {
+  return api.put<PipelineLinkShare>(`/pipelines/${id}/link-share`, body);
+}
+
+export function listPipelineGrants(id: string) {
+  return api.get<{ items: PipelineGrant[] }>(`/pipelines/${id}/grants`);
+}
+
+export function putPipelineGrant(id: string, body: PutPipelineGrantRequest) {
+  return api.put<PipelineGrant | null>(`/pipelines/${id}/grants`, body);
+}
+
+export function deletePipelineGrant(id: string, grantId: string) {
+  return api.delete(`/pipelines/${id}/grants/${grantId}`);
+}
+
+export function getPipelineFollowerSummary(id: string) {
+  return api.get<PipelineFollowerSummary>(`/pipelines/${id}/followers/summary`);
+}
+
+export function followPipeline(id: string) {
+  return api.post<PipelineFollowerSummary>(`/pipelines/${id}/followers`, {});
+}
+
+export function unfollowPipeline(id: string) {
+  return api.delete<PipelineFollowerSummary>(`/pipelines/${id}/followers`);
+}
+
 // Validation / compilation (Foundry: "Validate" and "Preview" buttons in
 // Pipeline Builder before Deploy). These accept the in-flight DAG from the
 // canvas — they do NOT require a persisted pipeline row.

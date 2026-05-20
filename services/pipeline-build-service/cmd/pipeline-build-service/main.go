@@ -125,6 +125,7 @@ func main() {
 		handler.SetExecutionPorts(handler.ExecutionPorts{Plans: repo, Runs: repo, Python: pythonRuntime, LLM: llmRunner, AIP: aipGenerator, Distributed: distributedRunner, Transactions: handler.ConfigGatedTransactionManager{Metadata: repo, CatalogConfigured: cfg.FoundryIcebergCatalogURL != ""}, Committer: handler.ConfigGatedOutputCommitter{Metadata: outputCommitter, CatalogConfigured: cfg.FoundryIcebergCatalogURL != ""}, Audit: repo, Parallelism: cfg.DistributedPipelineWorkers})
 		handler.SetBuildQueryRepository(repo)
 		handler.SetPipelineAuthoringRepository(repo)
+		handler.SetPipelineAccessRepository(repo)
 		handler.SetSparkSubmissionRepository(repo)
 		handler.SetScheduleRepository(repo)
 		handler.SetJobLogService(&livellogs.Service{Store: repo, Subscriber: livellogs.NewMemoryService()})
