@@ -19,7 +19,6 @@ import {
   createOntologyRestoreChange,
   createSharedPropertyType,
   createValueType,
-  deleteObjectTypeGroup,
   deleteSharedPropertyType,
   deleteValueType,
   deriveOntologyArtifact,
@@ -286,7 +285,6 @@ export function OntologyManagerPage() {
     object_type_ids: [] as string[],
   });
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
-  const [groupSaving, setGroupSaving] = useState(false);
   const [projects, setProjects] = useState<OntologyProject[]>([]);
   const [projectResources, setProjectResources] = useState<
     OntologyProjectResourceBinding[]
@@ -667,24 +665,20 @@ export function OntologyManagerPage() {
     if (editingValueTypeId === valueType.id) resetValueTypeDraft();
   }
 
-  async function removeGroup(group: OntologyObjectTypeGroup) {
-    if (typeof window !== "undefined" && !window.confirm(`Delete group "${group.display_name}"?`)) return;
-    setGroupSaving(true);
-    try {
-      await deleteObjectTypeGroup(group.id);
-      setObjectTypeGroups((current) => current.filter((item) => item.id !== group.id));
-      setObjectTypes((current) =>
-        current.map((type) => ({
-          ...type,
-          group_names: (type.group_names || []).filter((name) => name !== group.name),
-        })),
-      );
-      if (editingGroupId === group.id) resetGroupDraft();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to delete object type group");
-    } finally {
-      setGroupSaving(false);
-    }
+  function removeGroup(group: OntologyObjectTypeGroup) {
+    // Stage a delete on the working state. The actual DELETE flushes
+    // through /batch-save when the user clicks Save in the Review-edits
+    // modal; the local list is rehydrated by refresh() at that point.
+    if (typeof window !== "undefined" && !window.confirm(`Stage delete of group "${group.display_name}"?`)) return;
+    stageOntologyEdit({
+      op: "delete",
+      resource: "object_type_group",
+      resourceId: group.id,
+      expectedVersion: group.version ?? 1,
+      originalSnapshot: group,
+      label: group.display_name || group.name,
+    });
+    if (editingGroupId === group.id) resetGroupDraft();
   }
 
   async function restoreHistoryResource(
@@ -2220,7 +2214,7 @@ export function OntologyManagerPage() {
                         <button type="button" className="of-button" onClick={() => editGroup(group)} style={{ fontSize: 11 }}>
                           Edit
                         </button>
-                        <button type="button" className="of-button" onClick={() => void removeGroup(group)} disabled={groupSaving} style={{ fontSize: 11, color: "#fca5a5", borderColor: "#7f1d1d" }}>
+                        <button type="button" className="of-button" onClick={() => removeGroup(group)} style={{ fontSize: 11, color: "#fca5a5", borderColor: "#7f1d1d" }}>
                           Delete
                         </button>
                       </div>
@@ -2295,11 +2289,11 @@ export function OntologyManagerPage() {
                   </div>
                 </fieldset>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button type="button" className="of-button of-button--primary" onClick={saveGroup} disabled={groupSaving}>
+                  <button type="button" className="of-button of-button--primary" onClick={saveGroup}>
                     {editingGroupId ? "Stage update" : "Stage create"}
                   </button>
                   {editingGroupId ? (
-                    <button type="button" className="of-button" onClick={resetGroupDraft} disabled={groupSaving}>Cancel</button>
+                    <button type="button" className="of-button" onClick={resetGroupDraft}>Cancel</button>
                   ) : null}
                 </div>
               </article>

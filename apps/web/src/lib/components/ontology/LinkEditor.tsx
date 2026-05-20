@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import {
-  createLinkType,
-  deleteLinkType,
   linkTypeCardinalityLabel,
   linkTypeHasDatasourceMapping,
   listLinkTypes,
   listObjectTypes,
-  updateLinkType,
   type LinkType,
   type LinkTypeCardinality,
   type ObjectType,
 } from '@/lib/api/ontology';
+import { stage as stageOntologyEdit } from '@/lib/stores/ontologyWorkingState';
 
 type Cardinality = LinkTypeCardinality;
 
@@ -54,7 +52,6 @@ export function LinkEditor({ linkId = null, defaultSourceTypeId = '', defaultTar
   const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
   const [editing, setEditing] = useState<LinkType | null>(null);
   const [draft, setDraft] = useState(emptyDraft(defaultSourceTypeId, defaultTargetTypeId));
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const typeById = useMemo(() => new Map(objectTypes.map((type) => [type.id, type])), [objectTypes]);
@@ -101,13 +98,24 @@ export function LinkEditor({ linkId = null, defaultSourceTypeId = '', defaultTar
     return '';
   }
 
-  async function save() {
+  // Both `save` and `remove` stage the change on the working state
+  // instead of hitting the server inline. The top-bar OntologyEdits-
+  // Button flushes every staged edit through /api/v1/ontology/batch-
+  // save when the user clicks Save in the Review-edits modal.
+  //
+  // The onCreated / onUpdated / onDeleted callbacks are kept for
+  // backwards compatibility — they fire after `stage()` so the
+  // hosting page can still close drawers or reset selection state.
+  // For create, we synthesize a draft-shaped LinkType (id "") so the
+  // callback's typed signature still holds; consumers that wanted
+  // the persisted row should listen to OntologyEditsButton's onSaved
+  // and refetch instead.
+  function save() {
     const validationError = validate();
     if (validationError) {
       setError(validationError);
       return;
     }
-    setSaving(true);
     setError('');
     const link_datasource_mapping = isManyToMany
       ? {
@@ -116,53 +124,79 @@ export function LinkEditor({ linkId = null, defaultSourceTypeId = '', defaultTar
           target_key: draft.target_key.trim(),
         }
       : null;
-    try {
-      if (editing) {
-        const updated = await updateLinkType(editing.id, {
-          display_name: draft.display_name,
-          description: draft.description,
-          cardinality: draft.cardinality,
-          label: draft.label,
-          reverse_label: draft.reverse_label,
-          visibility: draft.visibility,
-          link_datasource_mapping,
-        });
-        onUpdated?.(updated);
-      } else {
-        const created = await createLinkType({
-          name: draft.name,
-          display_name: draft.display_name,
-          description: draft.description,
-          source_type_id: draft.source_type_id,
-          target_type_id: draft.target_type_id,
-          cardinality: draft.cardinality,
-          label: draft.label,
-          reverse_label: draft.reverse_label,
-          visibility: draft.visibility,
-          link_datasource_mapping,
-        });
-        onCreated?.(created);
-        setDraft(emptyDraft(defaultSourceTypeId, defaultTargetTypeId));
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setSaving(false);
+    if (editing) {
+      const body = {
+        display_name: draft.display_name,
+        description: draft.description,
+        cardinality: draft.cardinality,
+        label: draft.label,
+        reverse_label: draft.reverse_label,
+        visibility: draft.visibility,
+        link_datasource_mapping,
+      };
+      stageOntologyEdit({
+        op: 'update',
+        resource: 'link_type',
+        resourceId: editing.id,
+        expectedVersion: editing.version ?? 1,
+        originalSnapshot: editing,
+        label: editing.display_name || editing.name,
+        draft: body,
+      });
+      onUpdated?.(editing);
+    } else {
+      const body = {
+        name: draft.name,
+        display_name: draft.display_name,
+        description: draft.description,
+        source_type_id: draft.source_type_id,
+        target_type_id: draft.target_type_id,
+        cardinality: draft.cardinality,
+        label: draft.label,
+        reverse_label: draft.reverse_label,
+        visibility: draft.visibility,
+        link_datasource_mapping,
+      };
+      stageOntologyEdit({
+        op: 'create',
+        resource: 'link_type',
+        label: draft.display_name || draft.name,
+        draft: body,
+      });
+      // Best-effort synthetic LinkType to keep the callback signature
+      // stable. The id is empty because the server assigns it on save.
+      onCreated?.({
+        id: '',
+        name: body.name,
+        display_name: body.display_name,
+        description: body.description,
+        source_type_id: body.source_type_id,
+        target_type_id: body.target_type_id,
+        cardinality: body.cardinality,
+        label: body.label,
+        reverse_label: body.reverse_label,
+        visibility: body.visibility,
+        link_datasource_mapping: body.link_datasource_mapping,
+        owner_id: '',
+        created_at: '',
+        updated_at: '',
+      });
+      setDraft(emptyDraft(defaultSourceTypeId, defaultTargetTypeId));
     }
   }
 
-  async function remove() {
+  function remove() {
     if (!editing) return;
-    if (typeof window !== 'undefined' && !window.confirm(`Delete link "${editing.name}"?`)) return;
-    setSaving(true);
-    try {
-      await deleteLinkType(editing.id);
-      onDeleted?.(editing.id);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setSaving(false);
-    }
+    if (typeof window !== 'undefined' && !window.confirm(`Stage delete of link "${editing.name}"?`)) return;
+    stageOntologyEdit({
+      op: 'delete',
+      resource: 'link_type',
+      resourceId: editing.id,
+      expectedVersion: editing.version ?? 1,
+      originalSnapshot: editing,
+      label: editing.display_name || editing.name,
+    });
+    onDeleted?.(editing.id);
   }
 
   return (
@@ -255,11 +289,11 @@ export function LinkEditor({ linkId = null, defaultSourceTypeId = '', defaultTar
       )}
       {error && <p style={{ color: '#fca5a5', fontSize: 11, margin: 0 }}>{error}</p>}
       <div style={{ display: 'flex', gap: 6 }}>
-        <button type="button" onClick={() => void save()} disabled={saving} className="of-button of-button--primary" style={{ fontSize: 11 }}>
-          {saving ? 'Saving…' : editing ? 'Update' : 'Create'}
+        <button type="button" onClick={save} className="of-button of-button--primary" style={{ fontSize: 11 }}>
+          {editing ? 'Stage update' : 'Stage create'}
         </button>
         {editing && (
-          <button type="button" onClick={() => void remove()} disabled={saving} className="of-button" style={{ fontSize: 11, color: '#fca5a5', borderColor: '#7f1d1d' }}>Delete</button>
+          <button type="button" onClick={remove} className="of-button" style={{ fontSize: 11, color: '#fca5a5', borderColor: '#7f1d1d' }}>Stage delete</button>
         )}
       </div>
     </article>

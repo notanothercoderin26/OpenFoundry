@@ -2384,6 +2384,12 @@ export interface LinkType {
   owner_id: string;
   created_at: string;
   updated_at: string;
+  /**
+   * Optimistic-concurrency token. Sent back as `expected_version` by
+   * the working-state batch-save flow so the backend can detect stale
+   * link-type edits against the Review-edits modal's Conflicts tab.
+   */
+  version?: number;
   // Per-app metadata blob. First consumer: Vertex, via
   // app_capabilities.vertex_edge_direction.
   app_capabilities?: LinkAppCapabilities;
