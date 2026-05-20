@@ -40,6 +40,7 @@ import { TemplateBuilder, type BuilderLayerOption } from './template/TemplateBui
 import { UseTemplateDialog } from './template/UseTemplateDialog';
 import { listGraphTemplates, type GraphTemplate } from '@/lib/api/vertexTemplates';
 import { EventBadgeOverlay, type NodeEventBadge } from './EventBadgeOverlay';
+import { SelectionBorderOverlay, type SelectionRingSpec } from './SelectionBorderOverlay';
 import { useSearchParams } from 'react-router-dom';
 
 type LayoutMode = 'cose' | 'breadthfirst' | 'grid' | 'circle' | 'concentric';
@@ -121,7 +122,87 @@ const STORAGE_KEYS = {
   templates: 'of.vertex.templates',
   annotations: 'of.vertex.annotations',
   systemGraphs: 'of.vertex.system-graphs.v1',
+  // D.1 — Saved styles bundle visualisation fields (subtitle, color
+  // by, layout, etc.) into a named profile so the same graph can be
+  // viewed through multiple lenses without losing the previous one.
+  savedStyles: 'of.vertex.saved-styles.v1',
+  activeStyle: 'of.vertex.saved-styles.active.v1',
+  // D.1 — Saved selections are named groups of node ids with a
+  // colour. Each node shows a coloured ring for every visible
+  // selection it belongs to.
+  savedSelections: 'of.vertex.saved-selections.v1',
+  // D.3 — Group-into-edge persists which transactional node ids are
+  // currently collapsed onto which (source -> target) bucket so the
+  // grouping survives a re-render without losing the original
+  // nodes (they are kept in the bucket payload and restored on
+  // ungroup).
+  edgeGroupings: 'of.vertex.edge-groupings.v1',
 };
+
+// ---- D.1 — Saved styles / Saved selections wire shapes ----
+//
+// SavedStyle bundles the visualisation surface a user has tuned for
+// this graph. Switching profiles restores every field in one go; the
+// graph data itself (root type, depth, seed objects) is independent.
+interface SavedStyle {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  fields: {
+    subtitleField: string;
+    extendedLabelField: string;
+    colorByField: string;
+    timeField: string;
+    eventStartField: string;
+    eventEndField: string;
+    mediaField: string;
+    annotationField: string;
+    nodeDisplayMode: NodeDisplayMode;
+    layoutMode: LayoutMode;
+    nodeLabelProperty: string;
+    nodeSizeProperty: string;
+    edgeLabelProperty: string;
+    nodeIconMode: 'dot' | 'diamond' | 'hexagon';
+  };
+}
+
+// A saved selection is a named bag of node ids. `visible` controls
+// whether the coloured ring shows around its members on the canvas.
+interface SavedSelection {
+  id: string;
+  name: string;
+  color: string;
+  nodeIds: string[];
+  visible: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---- D.3 — Edge grouping ----
+//
+// When the user collapses transactional nodes into an edge, we keep
+// the original node ids in the bucket so Ungroup can restore them.
+// Buckets are keyed by `${source}::${target}` (sorted, so order is
+// irrelevant) plus a discriminator if the same pair has multiple
+// groupings.
+interface EdgeGrouping {
+  id: string;
+  endpointA: string;
+  endpointB: string;
+  collapsedNodeIds: string[];
+  label: string;
+  createdAt: string;
+}
+
+const SELECTION_PALETTE = ['#f97316', '#3b82f6', '#ef4444', '#22c55e', '#a855f7', '#eab308'];
+
+function nextSelectionColor(existing: SavedSelection[]): string {
+  for (const colour of SELECTION_PALETTE) {
+    if (!existing.some((s) => s.color === colour)) return colour;
+  }
+  return SELECTION_PALETTE[existing.length % SELECTION_PALETTE.length];
+}
 
 function createId() {
   return crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10);
@@ -338,6 +419,18 @@ export function VertexPage() {
   // relative to the canvas wrapper (renderedPosition from cytoscape).
   const [nodeContextMenu, setNodeContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [pinnedPositions, setPinnedPositions] = useState<Record<string, { x: number; y: number }>>({});
+
+  // D.1 — Saved styles (profile snapshots of the visualisation
+  // fields) and Saved selections (named bags of node ids with a
+  // colour ring). Both persist to localStorage per analysisRid so
+  // they survive a reload.
+  const [savedStyles, setSavedStyles] = useState<SavedStyle[]>([]);
+  const [activeStyleId, setActiveStyleId] = useState<string>('');
+  const [savedSelections, setSavedSelections] = useState<SavedSelection[]>([]);
+  // D.3 — Edge groupings collapse transactional nodes between two
+  // endpoints onto the edge between them; the original nodes are
+  // kept in the bucket so Ungroup can restore them.
+  const [edgeGroupings, setEdgeGroupings] = useState<EdgeGrouping[]>([]);
 
   const [subtitleField, setSubtitleField] = useState('');
   const [extendedLabelField, setExtendedLabelField] = useState('');
@@ -594,6 +687,246 @@ export function VertexPage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+
+  // D.1 / D.3 — Hydrate saved styles, saved selections, and edge
+  // groupings from localStorage when the analysisRid changes (and
+  // persist them whenever they mutate). Each is namespaced by
+  // analysisRid so multiple graphs in the same browser don't bleed
+  // into each other.
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const stylesRaw = localStorage.getItem(`${STORAGE_KEYS.savedStyles}:${analysisRid}`);
+      const activeStyleRaw = localStorage.getItem(`${STORAGE_KEYS.activeStyle}:${analysisRid}`);
+      const selectionsRaw = localStorage.getItem(`${STORAGE_KEYS.savedSelections}:${analysisRid}`);
+      const edgeGroupingsRaw = localStorage.getItem(`${STORAGE_KEYS.edgeGroupings}:${analysisRid}`);
+      if (stylesRaw) setSavedStyles(JSON.parse(stylesRaw) as SavedStyle[]);
+      if (activeStyleRaw) setActiveStyleId(activeStyleRaw);
+      if (selectionsRaw) setSavedSelections(JSON.parse(selectionsRaw) as SavedSelection[]);
+      if (edgeGroupingsRaw) setEdgeGroupings(JSON.parse(edgeGroupingsRaw) as EdgeGrouping[]);
+    } catch {
+      // ignore malformed localStorage payloads — they will be
+      // overwritten by the next mutation.
+    }
+  }, [analysisRid]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(`${STORAGE_KEYS.savedStyles}:${analysisRid}`, JSON.stringify(savedStyles));
+  }, [analysisRid, savedStyles]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    if (activeStyleId) {
+      localStorage.setItem(`${STORAGE_KEYS.activeStyle}:${analysisRid}`, activeStyleId);
+    } else {
+      localStorage.removeItem(`${STORAGE_KEYS.activeStyle}:${analysisRid}`);
+    }
+  }, [analysisRid, activeStyleId]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(`${STORAGE_KEYS.savedSelections}:${analysisRid}`, JSON.stringify(savedSelections));
+  }, [analysisRid, savedSelections]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(`${STORAGE_KEYS.edgeGroupings}:${analysisRid}`, JSON.stringify(edgeGroupings));
+  }, [analysisRid, edgeGroupings]);
+
+  // ---- D.1 — Saved style helpers ----
+
+  function snapshotStyleFields(): SavedStyle['fields'] {
+    return {
+      subtitleField,
+      extendedLabelField,
+      colorByField,
+      timeField,
+      eventStartField,
+      eventEndField,
+      mediaField,
+      annotationField,
+      nodeDisplayMode,
+      layoutMode,
+      nodeLabelProperty,
+      nodeSizeProperty,
+      edgeLabelProperty,
+      nodeIconMode,
+    };
+  }
+
+  function applyStyleSnapshot(fields: SavedStyle['fields']) {
+    setSubtitleField(fields.subtitleField);
+    setExtendedLabelField(fields.extendedLabelField);
+    setColorByField(fields.colorByField);
+    setTimeField(fields.timeField);
+    setEventStartField(fields.eventStartField);
+    setEventEndField(fields.eventEndField);
+    setMediaField(fields.mediaField);
+    setAnnotationField(fields.annotationField);
+    setNodeDisplayMode(fields.nodeDisplayMode);
+    setLayoutMode(fields.layoutMode);
+    setNodeLabelProperty(fields.nodeLabelProperty);
+    setNodeSizeProperty(fields.nodeSizeProperty);
+    setEdgeLabelProperty(fields.edgeLabelProperty);
+    setNodeIconMode(fields.nodeIconMode);
+  }
+
+  function createSavedStyle(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const now = new Date().toISOString();
+    const style: SavedStyle = {
+      id: createId(),
+      name: trimmed,
+      createdAt: now,
+      updatedAt: now,
+      fields: snapshotStyleFields(),
+    };
+    setSavedStyles((prev) => [style, ...prev]);
+    setActiveStyleId(style.id);
+  }
+
+  function applySavedStyle(id: string) {
+    const target = savedStyles.find((s) => s.id === id);
+    if (!target) return;
+    applyStyleSnapshot(target.fields);
+    setActiveStyleId(id);
+  }
+
+  function deleteSavedStyle(id: string) {
+    setSavedStyles((prev) => prev.filter((s) => s.id !== id));
+    setActiveStyleId((current) => (current === id ? '' : current));
+  }
+
+  function overwriteSavedStyle(id: string) {
+    const now = new Date().toISOString();
+    setSavedStyles((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, updatedAt: now, fields: snapshotStyleFields() } : s)),
+    );
+  }
+
+  // ---- D.1 — Saved selection helpers ----
+
+  function createSavedSelection(name: string, nodeIds: string[]) {
+    const trimmed = name.trim();
+    if (!trimmed || nodeIds.length === 0) return;
+    const now = new Date().toISOString();
+    const colour = nextSelectionColor(savedSelections);
+    const selection: SavedSelection = {
+      id: createId(),
+      name: trimmed,
+      color: colour,
+      nodeIds: Array.from(new Set(nodeIds)),
+      visible: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setSavedSelections((prev) => [selection, ...prev]);
+  }
+
+  function toggleSavedSelectionVisible(id: string) {
+    setSavedSelections((prev) => prev.map((s) => (s.id === id ? { ...s, visible: !s.visible } : s)));
+  }
+
+  function deleteSavedSelection(id: string) {
+    setSavedSelections((prev) => prev.filter((s) => s.id !== id));
+  }
+
+  function renameSavedSelection(id: string, name: string) {
+    setSavedSelections((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, name: name.trim() || s.name, updatedAt: new Date().toISOString() } : s)),
+    );
+  }
+
+  function quickSelectSaved(id: string) {
+    const target = savedSelections.find((s) => s.id === id);
+    if (!target) return;
+    setSelectedNodeIds(target.nodeIds);
+    setSelectedNodeId(target.nodeIds[0] ?? '');
+  }
+
+  // Compute the colour rings per node from the currently visible
+  // saved selections. The ring order follows the savedSelections
+  // array so the most recently added selection ends up as the outer
+  // ring — keeping the visual hierarchy stable across renders.
+  const selectionRings = useMemo<SelectionRingSpec>(() => {
+    const byNode: Record<string, string[]> = {};
+    for (const selection of savedSelections) {
+      if (!selection.visible) continue;
+      for (const nodeId of selection.nodeIds) {
+        if (!byNode[nodeId]) byNode[nodeId] = [];
+        byNode[nodeId].push(selection.color);
+      }
+    }
+    return { byNode };
+  }, [savedSelections]);
+
+  // ---- D.3 — Group into edge / Ungroup helpers ----
+
+  // groupSelectedIntoEdge collapses the currently selected nodes
+  // onto an aggregate edge when they share a transactional shape:
+  // every selected node has exactly two distinct neighbours, and
+  // all selected nodes share the *same* unordered pair of
+  // neighbours. Returns a human-readable error string when the
+  // selection does not qualify so the caller can surface it.
+  function groupSelectedIntoEdge(): string | null {
+    if (!graph || selectedNodeIds.length === 0) {
+      return 'Select one or more transactional nodes first.';
+    }
+    const adjacency = new Map<string, Set<string>>();
+    for (const edge of graph.edges) {
+      if (!adjacency.has(edge.source)) adjacency.set(edge.source, new Set());
+      if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set());
+      adjacency.get(edge.source)!.add(edge.target);
+      adjacency.get(edge.target)!.add(edge.source);
+    }
+    let endpoints: [string, string] | null = null;
+    for (const nodeId of selectedNodeIds) {
+      const neighbours = Array.from(adjacency.get(nodeId) ?? []);
+      if (neighbours.length !== 2) {
+        return 'Each selected node must have exactly two distinct neighbours to be grouped into an edge.';
+      }
+      const sorted = neighbours.sort() as [string, string];
+      if (!endpoints) {
+        endpoints = sorted;
+      } else if (endpoints[0] !== sorted[0] || endpoints[1] !== sorted[1]) {
+        return 'Selected nodes must share the same two endpoints to collapse onto a single edge.';
+      }
+    }
+    if (!endpoints) return 'Unable to determine grouping endpoints.';
+    const labelTypeMap = new Map<string, number>();
+    for (const nodeId of selectedNodeIds) {
+      const node = graph.nodes.find((n) => n.id === nodeId);
+      const key = (node?.secondary_label || node?.kind || 'item').toString();
+      labelTypeMap.set(key, (labelTypeMap.get(key) ?? 0) + 1);
+    }
+    const labelParts = Array.from(labelTypeMap.entries()).map(([type, count]) => `${count} ${type}`);
+    const label = labelParts.join(' · ');
+    const grouping: EdgeGrouping = {
+      id: createId(),
+      endpointA: endpoints[0],
+      endpointB: endpoints[1],
+      collapsedNodeIds: Array.from(new Set(selectedNodeIds)),
+      label,
+      createdAt: new Date().toISOString(),
+    };
+    setEdgeGroupings((prev) => [grouping, ...prev]);
+    setSelectedNodeIds([]);
+    setSelectedNodeId('');
+    return null;
+  }
+
+  function ungroupEdgeGrouping(id: string) {
+    setEdgeGroupings((prev) => prev.filter((g) => g.id !== id));
+  }
+
+  function ungroupAggregateEdge(edgeId: string) {
+    // Aggregate edges live under the synthetic id `grouping:<id>`.
+    if (!edgeId.startsWith('grouping:')) return;
+    const id = edgeId.slice('grouping:'.length);
+    ungroupEdgeGrouping(id);
+  }
 
   // Initial catalog load.
   useEffect(() => {
@@ -972,8 +1305,17 @@ export function VertexPage() {
 
   const cyElements = useMemo<ElementDefinition[]>(() => {
     if (!filteredGraph) return [];
-    return [
-      ...filteredGraph.nodes.map((node) => ({
+    // D.3 — Compute the set of node ids that are currently
+    // collapsed onto an aggregate edge. Those nodes (and edges
+    // incident to them) are removed from the canvas in favour of a
+    // single synthetic edge per grouping.
+    const collapsedNodeIds = new Set<string>();
+    for (const grouping of edgeGroupings) {
+      for (const id of grouping.collapsedNodeIds) collapsedNodeIds.add(id);
+    }
+    const nodeElements = filteredGraph.nodes
+      .filter((node) => !collapsedNodeIds.has(node.id))
+      .map((node) => ({
         data: {
           id: node.id,
           label:
@@ -990,8 +1332,10 @@ export function VertexPage() {
         },
         classes: selectedNodeIds.includes(node.id) ? 'is-multi-selected' : '',
         ...(pinnedPositions[node.id] ? { position: pinnedPositions[node.id] } : {}),
-      })),
-      ...filteredGraph.edges.map((edge) => ({
+      }));
+    const edgeElements = filteredGraph.edges
+      .filter((edge) => !collapsedNodeIds.has(edge.source) && !collapsedNodeIds.has(edge.target))
+      .map((edge) => ({
         data: {
           id: edge.id,
           source: edge.source,
@@ -1004,10 +1348,28 @@ export function VertexPage() {
           lineStyle: edgeDashEnabled || edge.metadata?.simulated === true ? 'dashed' : 'solid',
         },
         classes: selectedEdgeId === edge.id ? 'is-edge-selected' : '',
-      })),
-    ];
+      }));
+    // Synthetic aggregate edges, one per grouping. We only add the
+    // synthetic edge when both endpoints survive the node filter
+    // — otherwise the grouping is dangling and we drop it from the
+    // canvas this render.
+    const surviving = new Set(nodeElements.map((n) => n.data.id));
+    const aggregateEdges = edgeGroupings
+      .filter((g) => surviving.has(g.endpointA) && surviving.has(g.endpointB))
+      .map((g) => ({
+        data: {
+          id: `grouping:${g.id}`,
+          source: g.endpointA,
+          target: g.endpointB,
+          label: g.label,
+          width: 3 + Math.min(4, Math.log2(g.collapsedNodeIds.length + 1)),
+          lineStyle: 'solid',
+        },
+        classes: 'is-aggregate-edge',
+      }));
+    return [...nodeElements, ...edgeElements, ...aggregateEdges];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredGraph, subtitleField, extendedLabelField, colorByField, eventRows, pinnedPositions, nodeLabelProperty, nodeSizeProperty, nodeDisplayMode, selectedNodeIds, edgeLabelProperty, edgeDashEnabled, selectedEdgeId]);
+  }, [filteredGraph, subtitleField, extendedLabelField, colorByField, eventRows, pinnedPositions, nodeLabelProperty, nodeSizeProperty, nodeDisplayMode, selectedNodeIds, edgeLabelProperty, edgeDashEnabled, selectedEdgeId, edgeGroupings]);
 
   const cyStylesheet = useMemo<StylesheetStyle[]>(() => {
     const fontSize = nodeDisplayMode === 'card' ? 11 : 10;
@@ -1993,6 +2355,7 @@ export function VertexPage() {
                   onReady={handleCytoscapeReady}
                 />
                 <EventBadgeOverlay cy={cyInstance} badges={nodeEventBadges} />
+                <SelectionBorderOverlay cy={cyInstance} selectionRings={selectionRings} />
                 {nodeContextMenu && (
                   <div
                     role="menu"
@@ -2434,6 +2797,55 @@ export function VertexPage() {
                   </button>
                   <button type="button" className="of-btn" onClick={() => setActiveTab('scenarios')}>Run what-if</button>
                   <button type="button" className="of-btn" onClick={() => setActiveTab('events')}>Recent events</button>
+                  <button
+                    type="button"
+                    className="of-btn"
+                    onClick={() => {
+                      if (selectedNodeIds.length === 0) {
+                        window.alert('Select at least one node first.');
+                        return;
+                      }
+                      const name = window.prompt(`Name this selection (${selectedNodeIds.length} node(s))`);
+                      if (name) createSavedSelection(name, selectedNodeIds);
+                    }}
+                    disabled={selectedNodeIds.length === 0}
+                    title="Save the currently selected nodes as a named group"
+                  >
+                    Save selection
+                  </button>
+                  <button
+                    type="button"
+                    className="of-btn"
+                    onClick={() => {
+                      const err = groupSelectedIntoEdge();
+                      if (err) window.alert(err);
+                    }}
+                    disabled={selectedNodeIds.length === 0}
+                    title="Collapse transactional nodes (each with two distinct neighbours) onto an aggregate edge between those neighbours"
+                  >
+                    Group into edge
+                  </button>
+                  {edgeGroupings.length > 0 && (
+                    <button
+                      type="button"
+                      className="of-btn"
+                      onClick={() => {
+                        if (selectedEdgeId.startsWith('grouping:')) {
+                          ungroupAggregateEdge(selectedEdgeId);
+                          return;
+                        }
+                        // Default: ungroup the most recent aggregate edge.
+                        ungroupEdgeGrouping(edgeGroupings[0].id);
+                      }}
+                      title={
+                        selectedEdgeId.startsWith('grouping:')
+                          ? 'Ungroup the selected aggregate edge'
+                          : `Ungroup the most recent aggregate edge (${edgeGroupings[0].label})`
+                      }
+                    >
+                      Ungroup edge
+                    </button>
+                  )}
                 </div>
                 {linkSummaryOpen && selectedNode && vertexTenant && (
                   <div style={{ marginTop: 8 }}>
@@ -2671,6 +3083,163 @@ export function VertexPage() {
                       </button>
                     ))}
                 </div>
+              </div>
+
+              <div className="of-panel-muted" style={{ marginTop: 12, padding: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <p className="of-eyebrow" style={{ margin: 0 }}>Saved styles</p>
+                  <button
+                    type="button"
+                    className="of-btn of-btn-ghost"
+                    onClick={() => {
+                      const name = window.prompt('Name this style profile');
+                      if (name) createSavedStyle(name);
+                    }}
+                    title="Snapshot the current style fields as a named profile"
+                  >
+                    + New style
+                  </button>
+                </div>
+                {savedStyles.length === 0 ? (
+                  <p className="of-text-muted" style={{ margin: '8px 0 0', fontSize: 12 }}>
+                    No saved styles yet. Tune the fields above and snapshot them with <strong>+ New style</strong>.
+                  </p>
+                ) : (
+                  <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                    {savedStyles.map((style) => {
+                      const active = activeStyleId === style.id;
+                      return (
+                        <div
+                          key={style.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: 8,
+                            borderRadius: 6,
+                            border: active ? '1px solid #67e8f9' : '1px solid var(--border-subtle)',
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="of-btn of-btn-ghost"
+                            style={{ flex: 1, justifyContent: 'flex-start' }}
+                            onClick={() => applySavedStyle(style.id)}
+                            title={`Apply ${style.name}`}
+                          >
+                            {active && '✓ '}
+                            {style.name}
+                          </button>
+                          <button
+                            type="button"
+                            className="of-btn of-btn-ghost"
+                            onClick={() => overwriteSavedStyle(style.id)}
+                            title="Overwrite with current fields"
+                          >
+                            ⟳
+                          </button>
+                          <button
+                            type="button"
+                            className="of-btn of-btn-ghost"
+                            onClick={() => deleteSavedStyle(style.id)}
+                            title="Delete style"
+                            style={{ color: '#f87171' }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="of-panel-muted" style={{ marginTop: 12, padding: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <p className="of-eyebrow" style={{ margin: 0 }}>Saved selections</p>
+                  <button
+                    type="button"
+                    className="of-btn of-btn-ghost"
+                    onClick={() => {
+                      if (selectedNodeIds.length === 0) {
+                        window.alert('Select at least one node first.');
+                        return;
+                      }
+                      const name = window.prompt(`Name this selection (${selectedNodeIds.length} node(s))`);
+                      if (name) createSavedSelection(name, selectedNodeIds);
+                    }}
+                    title="Save the currently selected nodes as a named group"
+                  >
+                    + Save selection
+                  </button>
+                </div>
+                {savedSelections.length === 0 ? (
+                  <p className="of-text-muted" style={{ margin: '8px 0 0', fontSize: 12 }}>
+                    Select nodes on the canvas, then save them as a named group with its own colour ring.
+                  </p>
+                ) : (
+                  <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                    {savedSelections.map((selection) => (
+                      <div
+                        key={selection.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: 8,
+                          borderRadius: 6,
+                          border: '1px solid var(--border-subtle)',
+                          opacity: selection.visible ? 1 : 0.55,
+                        }}
+                      >
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: '50%',
+                            background: selection.color,
+                            border: '2px solid #ffffff',
+                            boxShadow: '0 0 0 1px rgba(148,163,184,0.3)',
+                          }}
+                        />
+                        <input
+                          type="text"
+                          className="of-input"
+                          defaultValue={selection.name}
+                          onBlur={(e) => renameSavedSelection(selection.id, e.target.value)}
+                          style={{ flex: 1, padding: '4px 6px', fontSize: 12 }}
+                        />
+                        <span className="of-text-muted" style={{ fontSize: 11 }}>{selection.nodeIds.length}</span>
+                        <button
+                          type="button"
+                          className="of-btn of-btn-ghost"
+                          onClick={() => quickSelectSaved(selection.id)}
+                          title="Select these nodes"
+                        >
+                          ➤
+                        </button>
+                        <button
+                          type="button"
+                          className="of-btn of-btn-ghost"
+                          onClick={() => toggleSavedSelectionVisible(selection.id)}
+                          title={selection.visible ? 'Hide ring' : 'Show ring'}
+                        >
+                          {selection.visible ? '👁' : '◌'}
+                        </button>
+                        <button
+                          type="button"
+                          className="of-btn of-btn-ghost"
+                          onClick={() => deleteSavedSelection(selection.id)}
+                          title="Delete selection"
+                          style={{ color: '#f87171' }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </SidebarSection>
           )}
