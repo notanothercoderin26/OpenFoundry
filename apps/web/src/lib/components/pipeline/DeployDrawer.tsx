@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import { triggerRun } from '@/lib/api/pipelines';
+import { triggerRun, type PipelineParameter } from '@/lib/api/pipelines';
 import { Glyph } from '@/lib/components/ui/Glyph';
 
 interface OutputOption {
@@ -12,22 +12,25 @@ interface DeployDrawerProps {
   open: boolean;
   pipelineId: string | null;
   outputs: OutputOption[];
+  parameters?: PipelineParameter[];
   lastDeploymentLabel?: string;
   onClose: () => void;
   onDeployed?: (runId: string) => void;
 }
 
-export function DeployDrawer({ open, pipelineId, outputs, lastDeploymentLabel, onClose, onDeployed }: DeployDrawerProps) {
+export function DeployDrawer({ open, pipelineId, outputs, parameters, lastDeploymentLabel, onClose, onDeployed }: DeployDrawerProps) {
   const [tab, setTab] = useState<'settings' | 'errors'>('settings');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deploying, setDeploying] = useState(false);
   const [error, setError] = useState('');
+  const [paramOverrides, setParamOverrides] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!open) return;
     setSelected(new Set(outputs.map((output) => output.id)));
     setTab('settings');
     setError('');
+    setParamOverrides({});
   }, [open, outputs]);
 
   if (!open) return null;
@@ -51,7 +54,17 @@ export function DeployDrawer({ open, pipelineId, outputs, lastDeploymentLabel, o
     setDeploying(true);
     setError('');
     try {
-      const response = await triggerRun(pipelineId);
+      let parameterValues: Record<string, unknown> | undefined;
+      if (parameters && parameters.length > 0) {
+        try {
+          parameterValues = buildParameterOverrides(parameters, paramOverrides);
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : 'Invalid parameter override');
+          setDeploying(false);
+          return;
+        }
+      }
+      const response = await triggerRun(pipelineId, parameterValues ? { parameter_values: parameterValues } : undefined);
       onDeployed?.(response.id);
       onClose();
     } catch (cause) {
@@ -62,6 +75,7 @@ export function DeployDrawer({ open, pipelineId, outputs, lastDeploymentLabel, o
   }
 
   const allSelected = selected.size === outputs.length && outputs.length > 0;
+  const overridableParameters = useMemo(() => parameters ?? [], [parameters]);
 
   return (
     <aside
@@ -191,6 +205,37 @@ export function DeployDrawer({ open, pipelineId, outputs, lastDeploymentLabel, o
               </div>
             </section>
 
+            {overridableParameters.length > 0 && (
+              <section style={{ display: 'grid', gap: 6 }}>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', letterSpacing: 0.4 }}>
+                  PARAMETERS · this run only
+                </p>
+                {overridableParameters.map((param) => (
+                  <label key={param.name} style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                    <span>
+                      <code style={{ fontSize: 11 }}>{param.name}</code>{' '}
+                      <span className="of-text-muted" style={{ fontSize: 11 }}>({param.type})</span>
+                    </span>
+                    <input
+                      value={paramOverrides[param.name] ?? ''}
+                      onChange={(event) =>
+                        setParamOverrides((current) => ({ ...current, [param.name]: event.target.value }))
+                      }
+                      placeholder={formatDefaultHint(param)}
+                      className="of-input"
+                      style={{ fontSize: 12 }}
+                    />
+                    {param.description && (
+                      <span className="of-text-muted" style={{ fontSize: 11 }}>{param.description}</span>
+                    )}
+                  </label>
+                ))}
+                <p className="of-text-muted" style={{ margin: 0, fontSize: 11 }}>
+                  Leave blank to use the pipeline default value.
+                </p>
+              </section>
+            )}
+
             {error ? (
               <div className="of-status-danger" style={{ padding: '8px 12px', borderRadius: 4, fontSize: 12 }}>
                 {error}
@@ -240,6 +285,47 @@ export function DeployDrawer({ open, pipelineId, outputs, lastDeploymentLabel, o
       </footer>
     </aside>
   );
+}
+
+function formatDefaultHint(param: PipelineParameter): string {
+  if (param.default_value === undefined || param.default_value === null) return `default: —`;
+  return `default: ${String(param.default_value)}`;
+}
+
+function buildParameterOverrides(
+  definitions: PipelineParameter[],
+  overrides: Record<string, string>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const param of definitions) {
+    const raw = overrides[param.name];
+    if (raw === undefined) continue;
+    const trimmed = raw.trim();
+    if (trimmed === '') continue;
+    switch (param.type) {
+      case 'integer': {
+        if (!/^-?\d+$/.test(trimmed)) throw new Error(`Parameter "${param.name}" override must be an integer (got "${trimmed}")`);
+        out[param.name] = Number(trimmed);
+        break;
+      }
+      case 'float': {
+        const parsed = Number(trimmed);
+        if (!Number.isFinite(parsed)) throw new Error(`Parameter "${param.name}" override must be a number (got "${trimmed}")`);
+        out[param.name] = parsed;
+        break;
+      }
+      case 'boolean': {
+        const lower = trimmed.toLowerCase();
+        if (lower === 'true') out[param.name] = true;
+        else if (lower === 'false') out[param.name] = false;
+        else throw new Error(`Parameter "${param.name}" override must be "true" or "false"`);
+        break;
+      }
+      default:
+        out[param.name] = trimmed;
+    }
+  }
+  return out;
 }
 
 function RocketGlyph() {

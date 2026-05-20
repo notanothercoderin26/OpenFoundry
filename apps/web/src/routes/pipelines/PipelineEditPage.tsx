@@ -44,6 +44,7 @@ import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/Output
 import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
 import { BuildChecksStatus } from '@/lib/components/pipeline/BuildChecksStatus';
 import { BuildSettingsButton } from '@/lib/components/pipeline/BuildSettingsButton';
+import { OutputsSidebar } from '@/lib/components/pipeline/OutputsSidebar';
 import { PipelineDetailsDrawer } from '@/lib/components/pipeline/PipelineDetailsDrawer';
 import { PipelineParametersModal } from '@/lib/components/pipeline/PipelineParametersModal';
 import { PipelineVersionViewerDrawer } from '@/lib/components/pipeline/PipelineVersionViewerDrawer';
@@ -306,6 +307,7 @@ export function PipelineEditPage() {
   const [parametersOpen, setParametersOpen] = useState(false);
   const [parametersBusy, setParametersBusy] = useState(false);
   const [liveValidation, setLiveValidation] = useState<PipelineValidationResponse | null>(null);
+  const [outputsSidebarCollapsed, setOutputsSidebarCollapsed] = useState(false);
   const [versionViewer, setVersionViewer] = useState<{
     mode: 'details' | 'changes';
     version: PipelineVersion;
@@ -444,8 +446,27 @@ export function PipelineEditPage() {
     setOutputNodeId(newId);
   }
 
+  function handleOpenExistingOutput(node: PipelineNode) {
+    const config = outputConfigForNode(node);
+    const sourceId = node.depends_on[0];
+    const sourceNode = sourceId ? currentNodes().find((entry) => entry.id === sourceId) : null;
+    setOutputDraft({
+      kind: (config.kind as 'dataset' | 'object_type' | 'link_type' | 'virtual_table' | undefined) ?? 'dataset',
+      display_name: node.label,
+      source_node_id: sourceNode?.id ?? '',
+      source_node_label: sourceNode?.label ?? '—',
+      columns_total: 0,
+      columns_mapped: 0,
+    });
+    setOutputNodeId(node.id);
+    setSelectedNodeId(node.id);
+  }
+
   function handleRenameOutput(name: string) {
     setOutputDraft((current) => (current ? { ...current, display_name: name } : current));
+    if (outputNodeId) {
+      setPipelineNodes(currentNodes().map((entry) => (entry.id === outputNodeId ? { ...entry, label: name } : entry)));
+    }
     if (!outputNodeId) return;
     const existing = currentNodes();
     const updated = existing.map((node) => {
@@ -1148,7 +1169,20 @@ export function PipelineEditPage() {
 
         <div style={{ padding: tab === 'canvas' ? 0 : 10 }}>
           {tab === 'canvas' && (
-            <div style={{ position: 'relative' }}>
+            <div
+              style={{
+                position: 'relative',
+                paddingRight: outputsSidebarCollapsed ? 0 : 280,
+              }}
+            >
+              <OutputsSidebar
+                nodes={parsedNodes}
+                collapsed={outputsSidebarCollapsed}
+                onToggle={() => setOutputsSidebarCollapsed((prev) => !prev)}
+                onSelect={(node) => setSelectedNodeId(node.id)}
+                onOpenOutput={(node) => handleOpenExistingOutput(node)}
+                onAddOutput={(source, kind) => handleAddOutput(source, kind)}
+              />
               <PipelineCanvas
                 nodes={parsedNodes}
                 status={statusValue}
@@ -1288,7 +1322,7 @@ export function PipelineEditPage() {
               onRefresh={() => void loadVersions()}
               onPublish={() => void publishDraft()}
               onRestore={(version) => void restoreVersion(version, true)}
-              onOpenInEdit={() => setTab('canvas')}
+              onViewDetail={(version) => setVersionViewer({ mode: 'details', version, previous: null })}
             />
           )}
 
@@ -1397,6 +1431,7 @@ export function PipelineEditPage() {
       <TransformStackEditor
         open={Boolean(transformStack)}
         stack={transformStack}
+        parameters={pipeline?.parameters ?? []}
         onClose={() => {
           setTransformStack(null);
           setTransformOriginNodeId(null);
@@ -1449,6 +1484,7 @@ export function PipelineEditPage() {
         outputs={parsedNodes
           .filter((node) => node.transform_type.startsWith('output_') || Boolean(outputConfigForNode(node).kind))
           .map((node) => ({ id: node.id, label: node.label }))}
+        parameters={pipeline?.parameters ?? []}
         lastDeploymentLabel={runs.length > 0 ? new Date(runs[0].started_at).toLocaleString() : 'None'}
         onClose={() => setDeployOpen(false)}
         onDeployed={() => {
@@ -1503,7 +1539,7 @@ interface ProposalsTabContentProps {
   onRefresh: () => void;
   onPublish: () => void;
   onRestore: (version: PipelineVersion) => void;
-  onOpenInEdit: () => void;
+  onViewDetail: (version: PipelineVersion) => void;
 }
 
 function ProposalsTabContent({
@@ -1515,7 +1551,7 @@ function ProposalsTabContent({
   onRefresh,
   onPublish,
   onRestore,
-  onOpenInEdit,
+  onViewDetail,
 }: ProposalsTabContentProps) {
   const proposalVersions = useMemo(
     () => versions.filter((version) => version.version_kind === 'proposal'),
@@ -1626,7 +1662,7 @@ function ProposalsTabContent({
                   <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                     <button
                       type="button"
-                      onClick={onOpenInEdit}
+                      onClick={() => onViewDetail(version)}
                       className="of-button"
                       style={{ fontSize: 11 }}
                     >

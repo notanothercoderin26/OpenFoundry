@@ -1014,7 +1014,12 @@ export function prunePipeline(body: CompilePipelineRequest) {
 }
 
 // Execution (Foundry: "Build dataset" / "Build downstream" / "Run").
-export function triggerRun(pipelineId: string, body?: { from_node_id?: string; context?: Record<string, unknown>; skip_unchanged?: boolean }) {
+export function triggerRun(pipelineId: string, body?: {
+  from_node_id?: string;
+  context?: Record<string, unknown>;
+  skip_unchanged?: boolean;
+  parameter_values?: Record<string, unknown>;
+}) {
   return api.post<PipelineRun>(`/pipelines/${pipelineId}/runs`, body ?? {});
 }
 

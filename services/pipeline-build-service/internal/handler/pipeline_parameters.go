@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -45,9 +47,11 @@ func loadPipelineParameters(ctx context.Context, pipelineID uuid.UUID) ([]models
 }
 
 // substitutePipelineParametersOnModel applies ${params.X} substitution using
-// the parameters stored directly on the supplied Pipeline model. Used by
-// the run-trigger path where we have already loaded the pipeline.
-func substitutePipelineParametersOnModel(pipeline *models.Pipeline, nodes []models.PipelineNode) ([]models.PipelineNode, error) {
+// the parameters stored directly on the supplied Pipeline model. Optional
+// overrides are merged on top of the defaults so callers can pass per-run
+// parameter values without losing the pipeline-level defaults for params
+// that the request did not override.
+func substitutePipelineParametersOnModel(pipeline *models.Pipeline, nodes []models.PipelineNode, overrides map[string]json.RawMessage) ([]models.PipelineNode, error) {
 	if pipeline == nil {
 		return nodes, nil
 	}
@@ -55,12 +59,64 @@ func substitutePipelineParametersOnModel(pipeline *models.Pipeline, nodes []mode
 	if err != nil {
 		return nil, err
 	}
-	if len(params) == 0 {
+	if len(params) == 0 && len(overrides) == 0 {
 		return nodes, nil
 	}
 	values, err := parameters.Resolve(params)
 	if err != nil {
 		return nil, err
 	}
+	if len(overrides) > 0 {
+		decoded, err := decodeParameterOverrides(params, overrides)
+		if err != nil {
+			return nil, err
+		}
+		values = parameters.Override(values, decoded)
+	}
 	return parameters.Apply(nodes, values)
+}
+
+func decodeParameterOverrides(definitions []models.PipelineParameter, overrides map[string]json.RawMessage) (parameters.Values, error) {
+	defs := make(map[string]models.PipelineParameterType, len(definitions))
+	for _, def := range definitions {
+		defs[def.Name] = def.Type
+	}
+	out := make(parameters.Values, len(overrides))
+	for name, raw := range overrides {
+		paramType, ok := defs[name]
+		if !ok {
+			return nil, fmt.Errorf("parameter override %q does not exist on this pipeline", name)
+		}
+		var decoded any
+		switch paramType {
+		case models.PipelineParameterTypeString:
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return nil, fmt.Errorf("parameter override %q: expected string", name)
+			}
+			decoded = v
+		case models.PipelineParameterTypeInteger:
+			var v int64
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return nil, fmt.Errorf("parameter override %q: expected integer", name)
+			}
+			decoded = v
+		case models.PipelineParameterTypeFloat:
+			var v float64
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return nil, fmt.Errorf("parameter override %q: expected number", name)
+			}
+			decoded = v
+		case models.PipelineParameterTypeBoolean:
+			var v bool
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return nil, fmt.Errorf("parameter override %q: expected boolean", name)
+			}
+			decoded = v
+		default:
+			return nil, fmt.Errorf("parameter override %q: unknown type %q", name, paramType)
+		}
+		out[name] = decoded
+	}
+	return out, nil
 }

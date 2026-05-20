@@ -105,9 +105,13 @@ type ListRunsQuery struct {
 
 // TriggerPipelineRequest is the JSON body for `POST /api/v1/pipelines/{id}/runs`.
 type TriggerPipelineRequest struct {
-	FromNodeID    *string         `json:"from_node_id,omitempty"`
-	Context       json.RawMessage `json:"context,omitempty"`
-	SkipUnchanged bool            `json:"skip_unchanged"`
+	FromNodeID    *string                    `json:"from_node_id,omitempty"`
+	Context       json.RawMessage            `json:"context,omitempty"`
+	SkipUnchanged bool                       `json:"skip_unchanged"`
+	// ParameterValues overrides the pipeline-level parameter defaults for
+	// this single run. Keys are parameter names; values are the raw JSON
+	// payload that the parameters package will coerce to a typed value.
+	ParameterValues map[string]json.RawMessage `json:"parameter_values,omitempty"`
 }
 
 // RetryPipelineRunRequest is the JSON body for the retry endpoint.

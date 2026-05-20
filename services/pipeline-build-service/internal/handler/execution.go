@@ -415,7 +415,7 @@ func planFromPipeline(ctx context.Context, pipeline *models.Pipeline, runID uuid
 	if len(nodes) == 0 {
 		return executor.Plan{}, errors.New("pipeline must define at least one node")
 	}
-	if substituted, err := substitutePipelineParametersOnModel(pipeline, nodes); err != nil {
+	if substituted, err := substitutePipelineParametersOnModel(pipeline, nodes, req.ParameterValues); err != nil {
 		return executor.Plan{}, err
 	} else {
 		nodes = substituted
