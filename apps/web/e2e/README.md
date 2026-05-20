@@ -256,6 +256,95 @@ test('creates a dataset', async ({ adminPage, apiMocks }) => {
 });
 ```
 
+### Mocking Server-Sent Events (SSE)
+
+LLM endpoints (`/api/v1/ai/assist/chat`, future `/ai/chat/completions`
+streaming variants, etc.) reply with `Content-Type: text/event-stream`
+and emit each token as a `data:` event. `helpers/sse.ts` wraps
+`page.route` + the framing rules so specs stay short.
+
+```ts
+import { mockSseStream } from './helpers/sse';
+
+test('streams the assistant reply', async ({ adminPage }) => {
+  await mockSseStream(adminPage, '**/api/v1/ai/assist/chat', [
+    JSON.stringify({ delta: 'Hello' }),
+    JSON.stringify({ delta: ' world' }),
+  ]);
+  await adminPage.goto('/ai/assist');
+
+  await adminPage.getByLabel('Assist prompt').fill('Greet me');
+  await adminPage.getByRole('button', { name: /ask/i }).click();
+
+  await expect(adminPage.getByText('Hello world')).toBeVisible();
+});
+```
+
+The helper produces a body like:
+
+```
+data: {"delta":"Hello"}
+
+data: {"delta":" world"}
+
+data: [DONE]
+
+```
+
+(double newlines between events — required by the spec; the trailing
+`[DONE]` marker matches the OpenAI-compatible gateway). Pass
+`{ closeWith: null }` to omit the terminator or `{ closeWith: 'eof' }`
+to use a custom marker.
+
+**Caveat: bytes arrive all at once.** `route.fulfill` doesn't yield
+partial bodies, so the *transport* is not actually streamed. The
+browser's SSE parser still emits each `data:` event one-by-one as it
+walks the body, so the page sees the same `onmessage` cadence a real
+backend would produce. For assertions about the *final assembled
+message* or about UI affordances per event, this is fine. For true
+chunk-timing assertions ("the typing indicator hides after chunk 2"),
+spin up a local HTTP server in the spec — `route.fulfill` cannot
+deliver that.
+
+**Mid-stream cancellation.** Use `delayMs` to delay the fulfill, fire
+the request, and click Stop during the wait. The browser aborts the
+in-flight fetch before any byte arrives — assert the partial state was
+cleaned up.
+
+```ts
+await mockSseStream(adminPage, '**/api/v1/ai/assist/chat', chunks, {
+  delayMs: 1_500,
+});
+await adminPage.getByRole('button', { name: /ask/i }).click();
+await adminPage.getByRole('button', { name: /stop/i }).click();
+await expect(adminPage.getByRole('button', { name: /stop/i })).toBeHidden();
+```
+
+**Error paths.** Pass `{ status: 429, closeWith: null }` (no events,
+just a 4xx response) to drive the rate-limit toast / banner. The
+helper still sets `Content-Type: text/event-stream`, so the client
+parses the empty body correctly; combine with a JSON body via
+`headers` + `body` if your client expects a structured error envelope
+on non-2xx.
+
+**Inline alternative.** If a spec genuinely needs a one-off shape that
+doesn't fit `mockSseStream`, the raw pattern is:
+
+```ts
+await adminPage.route('**/api/v1/ai/assist/chat', async (route) => {
+  await route.fulfill({
+    status: 200,
+    contentType: 'text/event-stream; charset=utf-8',
+    headers: { 'cache-control': 'no-cache' },
+    body: 'data: {"delta":"hi"}\n\ndata: [DONE]\n\n',
+  });
+});
+```
+
+Keep the helper for everything else — copy-paste of the framing rules
+across specs goes stale the moment the gateway changes its `[DONE]`
+marker.
+
 Minimal skeleton:
 
 ```ts
