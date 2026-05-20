@@ -68,8 +68,11 @@ func TestWorkshopWidgetCatalogAndTemplateRoutes(t *testing.T) {
 		WillReturnRows(pgxmock.NewRows([]string{"id", "key", "name", "description", "category", "preview_image_url", "definition", "created_at"}).
 			AddRow(templateID, templateKey, "Trail Demo", "Trail running starter", "demo", nil, []byte(`{"pages":[{"id":"main","name":"Main","path":"/","layout":{"kind":"grid"},"widgets":[],"visible":true}],"theme":{},"settings":{}}`), now))
 	createdAppID := uuid.New()
+	// CreateApp args: id, name, slug, branch, description, status,
+	// pages, theme, settings, template_key, created_by. branch is the
+	// new column added in 20260520120000_app_branches.sql.
 	mock.ExpectQuery("INSERT INTO apps").
-		WithArgs(pgxmock.AnyArg(), "Trail Starter", "trail-starter", "Trail running starter", "draft", pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WithArgs(pgxmock.AnyArg(), "Trail Starter", "trail-starter", "main", "Trail running starter", "draft", pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
 		WillReturnRows(appRows(createdAppID, []byte(`[{"id":"main","name":"Main","path":"/","layout":{"kind":"grid","columns":12},"widgets":[],"visible":true}]`), []byte(`{}`), []byte(`{"schema_version":"2026-05-11.ws.1"}`), now))
 	fromTemplateRR := authedRequest(t, router, jwt, subject, http.MethodPost, "/api/v1/apps/from-template", []byte(`{"name":"Trail Starter","template_key":"trail-demo"}`))
 	require.Equal(t, http.StatusCreated, fromTemplateRR.Code)
@@ -91,7 +94,7 @@ func TestWorkshopPreviewPageAndSlateRoutes(t *testing.T) {
 	pageMain := []byte(`[{"id":"main","name":"Main","path":"/","layout":{"kind":"grid","columns":12},"widgets":[],"visible":true}]`)
 	pageDetail := []byte(`[{"id":"main","name":"Main","path":"/","layout":{"kind":"grid","columns":12},"widgets":[],"visible":true},{"id":"detail","name":"Detail","path":"/detail","layout":{"kind":"grid","columns":12},"widgets":[],"visible":true}]`)
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, branch, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
 		WithArgs(appID).
 		WillReturnRows(appRows(appID, pageMain, []byte(`{}`), []byte(`{}`), now))
 	previewRR := authedRequest(t, router, jwt, subject, http.MethodGet, "/api/v1/apps/"+appID.String()+"/preview", nil)
@@ -106,10 +109,10 @@ func TestWorkshopPreviewPageAndSlateRoutes(t *testing.T) {
 	require.Equal(t, "draft", preview["preview_mode"])
 	require.NotEmpty(t, preview["widget_catalog"])
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, branch, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
 		WithArgs(appID).
 		WillReturnRows(appRows(appID, pageMain, []byte(`{}`), []byte(`{}`), now))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, branch, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
 		WithArgs(appID).
 		WillReturnRows(appRows(appID, pageMain, []byte(`{}`), []byte(`{}`), now))
 	mock.ExpectQuery("UPDATE apps SET").
@@ -118,7 +121,7 @@ func TestWorkshopPreviewPageAndSlateRoutes(t *testing.T) {
 	addPageRR := authedRequest(t, router, jwt, subject, http.MethodPost, "/api/v1/apps/"+appID.String()+"/pages", []byte(`{"id":"detail","name":"Detail","path":"/detail","layout":{"kind":"grid"},"widgets":[],"visible":true}`))
 	require.Equal(t, http.StatusOK, addPageRR.Code)
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, branch, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
 		WithArgs(appID).
 		WillReturnRows(appRows(appID, pageMain, []byte(`{}`), []byte(`{}`), now))
 	slateRR := authedRequest(t, router, jwt, subject, http.MethodGet, "/api/v1/apps/"+appID.String()+"/slate-package", nil)
@@ -129,10 +132,10 @@ func TestWorkshopPreviewPageAndSlateRoutes(t *testing.T) {
 	require.NotEmpty(t, slate["files"])
 
 	importedSettings := []byte(`{"slate":{"enabled":true,"framework":"react","package_name":"@open-foundry/workshop-app","entry_file":"src/App.tsx","sdk_import":"@open-foundry/sdk/react","workspace":{"enabled":true,"files":[{"path":"src/App.tsx","language":"tsx","content":"export default function App() { return null; }"}]}}}`)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, branch, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
 		WithArgs(appID).
 		WillReturnRows(appRows(appID, pageMain, []byte(`{}`), []byte(`{}`), now))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, branch, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
 		WithArgs(appID).
 		WillReturnRows(appRows(appID, pageMain, []byte(`{}`), []byte(`{}`), now))
 	mock.ExpectQuery("UPDATE apps SET").
@@ -172,7 +175,7 @@ func TestWorkshopPreviewUsesDraftAndPublicRuntimeUsesPublishedSnapshot(t *testin
 	})
 	require.NoError(t, err)
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, branch, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1")).
 		WithArgs(appID).
 		WillReturnRows(appRowsWithPublished(appID, draftPages, []byte(`{}`), []byte(`{"schema_version":"2026-05-11.ws.1","home_page_id":"main"}`), &versionID, now))
 	previewRR := authedRequest(t, router, jwt, subject, http.MethodGet, "/api/v1/apps/"+appID.String()+"/preview", nil)
@@ -187,13 +190,13 @@ func TestWorkshopPreviewUsesDraftAndPublicRuntimeUsesPublishedSnapshot(t *testin
 	previewPages := previewApp["pages"].([]any)
 	require.Equal(t, "Draft Main", previewPages[0].(map[string]any)["name"])
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE slug = $1")).
-		WithArgs("trail-demo").
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, branch, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE slug = $1 AND branch = $2")).
+		WithArgs("trail-demo", "main").
 		WillReturnRows(appRowsWithPublished(appID, draftPages, []byte(`{}`), []byte(`{"schema_version":"2026-05-11.ws.1","home_page_id":"main"}`), &versionID, now))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT v.id, v.app_id, v.version_number, v.status, v.app_snapshot, v.notes,\n\t\t        v.created_by, v.created_at, v.published_at\n\t\t   FROM apps a\n\t\t   JOIN app_versions v ON v.id = a.published_version_id\n\t\t  WHERE a.id = $1")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT v.id, v.app_id, v.branch, v.version_number, v.status, v.app_snapshot, v.notes,\n\t\t        v.created_by, v.created_at, v.published_at\n\t\t   FROM apps a\n\t\t   JOIN app_versions v ON v.id = a.published_version_id\n\t\t  WHERE a.id = $1")).
 		WithArgs(appID).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "app_id", "version_number", "status", "app_snapshot", "notes", "created_by", "created_at", "published_at"}).
-			AddRow(versionID, appID, 3, "published", publishedSnapshot, "Release notes", nil, publishedAt, nil))
+		WillReturnRows(pgxmock.NewRows([]string{"id", "app_id", "branch", "version_number", "status", "app_snapshot", "notes", "created_by", "created_at", "published_at"}).
+			AddRow(versionID, appID, "main", 3, "published", publishedSnapshot, "Release notes", nil, publishedAt, nil))
 	publicRR := httptest.NewRecorder()
 	publicReq := httptest.NewRequest(http.MethodGet, "/api/v1/apps/public/trail-demo", nil)
 	router.ServeHTTP(publicRR, publicReq)
@@ -237,18 +240,18 @@ func TestWorkshopPromoteVersionCreatesNewPublishedSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1 FOR UPDATE")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, branch, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE id = $1 FOR UPDATE")).
 		WithArgs(appID).
 		WillReturnRows(appRows(appID, draftPages, []byte(`{}`), []byte(`{"schema_version":"2026-05-11.ws.1","home_page_id":"main"}`), now))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, app_id, version_number, status, app_snapshot, notes, created_by, created_at, published_at\n\t\t   FROM app_versions WHERE app_id = $1 AND id = $2")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, app_id, branch, version_number, status, app_snapshot, notes, created_by, created_at, published_at\n\t\t   FROM app_versions WHERE app_id = $1 AND id = $2")).
 		WithArgs(appID, sourceVersionID).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "app_id", "version_number", "status", "app_snapshot", "notes", "created_by", "created_at", "published_at"}).
-			AddRow(sourceVersionID, appID, 2, "published", rollbackSnapshot, "Stable release", nil, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
+		WillReturnRows(pgxmock.NewRows([]string{"id", "app_id", "branch", "version_number", "status", "app_snapshot", "notes", "created_by", "created_at", "published_at"}).
+			AddRow(sourceVersionID, appID, "main", 2, "published", rollbackSnapshot, "Stable release", nil, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(MAX(version_number), 0) + 1 FROM app_versions WHERE app_id = $1")).
 		WithArgs(appID).
 		WillReturnRows(pgxmock.NewRows([]string{"next"}).AddRow(4))
-	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO app_versions (id, app_id, version_number, status, app_snapshot, notes, created_by, created_at, published_at)\n         VALUES ($1, $2, $3, 'published', $4, $5, $6, $7, $7)")).
-		WithArgs(pgxmock.AnyArg(), appID, 4, pgxmock.AnyArg(), "Rollback to v2 for release train", pgxmock.AnyArg(), pgxmock.AnyArg()).
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO app_versions (id, app_id, branch, version_number, status, app_snapshot, notes, created_by, created_at, published_at)\n         VALUES ($1, $2, $3, $4, 'published', $5, $6, $7, $8, $8)")).
+		WithArgs(pgxmock.AnyArg(), appID, "main", 4, pgxmock.AnyArg(), "Rollback to v2 for release train", pgxmock.AnyArg(), pgxmock.AnyArg()).
 		WillReturnResult(pgxmock.NewResult("INSERT", 1))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE apps\n\t\t    SET name = $1, slug = $2, description = $3, status = 'published',\n\t\t        pages = $4, theme = $5, settings = $6, template_key = $7,\n\t\t        published_version_id = $8, updated_at = $9\n\t\t  WHERE id = $10")).
 		WithArgs("Trail Demo", "trail-demo", "Stable published trail app", pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), appID).
@@ -330,13 +333,13 @@ func TestWorkshopPublicRuntimeRejectsDraftPublishedSnapshot(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE slug = $1")).
-		WithArgs("trail-demo").
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name, slug, branch, description, status, pages, theme, settings,\n\ttemplate_key, created_by, published_version_id, created_at, updated_at FROM apps WHERE slug = $1 AND branch = $2")).
+		WithArgs("trail-demo", "main").
 		WillReturnRows(appRowsWithPublished(appID, draftPages, []byte(`{}`), []byte(`{"schema_version":"2026-05-11.ws.1","home_page_id":"main"}`), &versionID, now))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT v.id, v.app_id, v.version_number, v.status, v.app_snapshot, v.notes,\n\t\t        v.created_by, v.created_at, v.published_at\n\t\t   FROM apps a\n\t\t   JOIN app_versions v ON v.id = a.published_version_id\n\t\t  WHERE a.id = $1")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT v.id, v.app_id, v.branch, v.version_number, v.status, v.app_snapshot, v.notes,\n\t\t        v.created_by, v.created_at, v.published_at\n\t\t   FROM apps a\n\t\t   JOIN app_versions v ON v.id = a.published_version_id\n\t\t  WHERE a.id = $1")).
 		WithArgs(appID).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "app_id", "version_number", "status", "app_snapshot", "notes", "created_by", "created_at", "published_at"}).
-			AddRow(versionID, appID, 4, "draft", draftSnapshot, "Draft save", nil, now, nil))
+		WillReturnRows(pgxmock.NewRows([]string{"id", "app_id", "branch", "version_number", "status", "app_snapshot", "notes", "created_by", "created_at", "published_at"}).
+			AddRow(versionID, appID, "main", 4, "draft", draftSnapshot, "Draft save", nil, now, nil))
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/apps/public/trail-demo", nil)
@@ -432,7 +435,7 @@ func appRowsWithPublished(appID uuid.UUID, pages, theme, settings []byte, publis
 		publishedArg = pgtype.UUID{Bytes: *publishedVersionID, Valid: true}
 	}
 	return pgxmock.NewRows([]string{
-		"id", "name", "slug", "description", "status", "pages", "theme", "settings",
+		"id", "name", "slug", "branch", "description", "status", "pages", "theme", "settings",
 		"template_key", "created_by", "published_version_id", "created_at", "updated_at",
-	}).AddRow(appID, "Trail Demo", "trail-demo", "Trail running demo", "draft", pages, theme, settings, nil, nil, publishedArg, now, now)
+	}).AddRow(appID, "Trail Demo", "trail-demo", "main", "Trail running demo", "draft", pages, theme, settings, nil, nil, publishedArg, now, now)
 }

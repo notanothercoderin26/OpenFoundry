@@ -1,0 +1,36 @@
+# Geopolitics PoC — blockers
+
+> Date: 2026-05-20
+> Status: **B02 closed at ~85%** (platform-ready; YAML materialization
+> + bulk-load smoke deferred to PoC execution). **B03 at ~25% PoC
+> readiness** — producer side of the indexer pipeline is done
+> platform-wide, but the read path (search route + Workshop pushdown
+> + indexing status) is missing and the geopolitics scale exposes it.
+> Other blockers track the aviation set; only the per-vertical delta
+> lives here.
+
+The geopolitics PoC reuses the platform-level blocker analyses already
+written for the aviation PoC under
+[`../../aviacion/blockers/`](../../aviacion/blockers/). The
+underlying OpenFoundry services
+(`ontology-definition-service`, `ontology-actions-service`,
+`application-composition-service`, `ontology-indexer`, …) are
+vertical-agnostic; what changes between PoCs is the **ontology that
+gets loaded** and the **demo script** that exercises it.
+
+This folder therefore only holds the **per-vertical delta** — the
+geopolitical entities, link types, action types and acceptance items
+that are not already covered by the corresponding aviation B0X file.
+
+## Index
+
+| ID | Title | Per-vertical delta? | See also (platform-level) |
+|---|---|---|---|
+| [B02](B02-ontology-definition.md) | Ontology definition + outbox events for the geopolitical graph | ✅ Yes — Country, SanctionsEntry, EventGDELT, Person, Organization, ArmedGroup, GovernmentBody, Watchlist, InvestigationCase, ActorAlert + 13 link types + 8 action types | [`../../aviacion/blockers/B02-ontology-definition.md`](../../aviacion/blockers/B02-ontology-definition.md) |
+| [B03](B03-ontology-indexer.md) | Ontology indexer end-to-end at geopolitics scale — missing `POST /ontology/search`, Workshop pushdown and indexing-status surface | ✅ Yes — GDELT (~10⁹) + ACLED (~10⁶) + Persons/Orgs cardinality forces a real read path that aviation tolerated without | [`../../aviacion/blockers/B03-ontology-indexer.md`](../../aviacion/blockers/B03-ontology-indexer.md) |
+
+For B01, B04, B05, B06, B07 the aviation files apply unchanged — no
+geopolitics-specific override is needed today. If the geopolitical
+PoC ever requires a divergent code path (e.g. a graph-widget-only
+acceptance criterion), add a sibling B0X file here that references
+the aviation version and lists only the delta.

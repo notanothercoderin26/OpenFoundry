@@ -31,7 +31,10 @@ type DB interface {
 var _ DB = (*pgxpool.Pool)(nil)
 
 // appColumns is the canonical SELECT projection for the `apps` table.
-const appColumns = `id, name, slug, description, status, pages, theme, settings,
+// branch is part of the canonical projection so every reader knows which
+// global branch an app row belongs to. New columns must be appended at
+// the tail to keep scanApp() stable.
+const appColumns = `id, name, slug, branch, description, status, pages, theme, settings,
 	template_key, created_by, published_version_id, created_at, updated_at`
 
 func (r *Repo) ListPrimary(ctx context.Context) ([]models.PrimaryItem, error) {
@@ -143,7 +146,7 @@ func scanApp(row pgx.Row) (*models.App, error) {
 	var a models.App
 	var publishedVersionID pgtype.UUID
 	err := row.Scan(
-		&a.ID, &a.Name, &a.Slug, &a.Description, &a.Status,
+		&a.ID, &a.Name, &a.Slug, &a.Branch, &a.Description, &a.Status,
 		&a.Pages, &a.Theme, &a.Settings,
 		&a.TemplateKey, &a.CreatedBy, &publishedVersionID,
 		&a.CreatedAt, &a.UpdatedAt,
@@ -159,9 +162,13 @@ func scanApp(row pgx.Row) (*models.App, error) {
 }
 
 // ListAppsFilter is the wire-level filter coming from the SPA's listApps().
+// Branch is normalized through models.NormalizeBranch by the handler before
+// reaching here; an empty Branch is taken literally as "no branch filter"
+// (admin views), while "main" is treated as a real predicate.
 type ListAppsFilter struct {
 	Search  string
 	Status  string
+	Branch  string
 	Page    int
 	PerPage int
 }
@@ -178,6 +185,10 @@ func (r *Repo) ListApps(ctx context.Context, f ListAppsFilter) ([]models.AppSumm
 	if strings.TrimSpace(f.Status) != "" {
 		args = append(args, f.Status)
 		conds = append(conds, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if strings.TrimSpace(f.Branch) != "" {
+		args = append(args, f.Branch)
+		conds = append(conds, fmt.Sprintf("branch = $%d", len(args)))
 	}
 	where := ""
 	if len(conds) > 0 {
@@ -201,7 +212,7 @@ func (r *Repo) ListApps(ctx context.Context, f ListAppsFilter) ([]models.AppSumm
 
 	args = append(args, perPage, offset)
 	q := fmt.Sprintf(`
-        SELECT id, name, slug, description, status,
+        SELECT id, name, slug, branch, description, status,
                COALESCE(jsonb_array_length(pages), 0) AS page_count,
                COALESCE((
                    SELECT SUM(COALESCE(jsonb_array_length(p->'widgets'), 0))
@@ -221,7 +232,7 @@ func (r *Repo) ListApps(ctx context.Context, f ListAppsFilter) ([]models.AppSumm
 	for rows.Next() {
 		var s models.AppSummary
 		if err := rows.Scan(
-			&s.ID, &s.Name, &s.Slug, &s.Description, &s.Status,
+			&s.ID, &s.Name, &s.Slug, &s.Branch, &s.Description, &s.Status,
 			&s.PageCount, &s.WidgetCount,
 			&s.TemplateKey, &s.PublishedVersionID, &s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
@@ -309,8 +320,12 @@ func (r *Repo) GetApp(ctx context.Context, id uuid.UUID) (*models.App, error) {
 	return a, err
 }
 
-func (r *Repo) GetAppBySlug(ctx context.Context, slug string) (*models.App, error) {
-	row := r.Pool.QueryRow(ctx, `SELECT `+appColumns+` FROM apps WHERE slug = $1`, slug)
+// GetAppBySlug returns the app row for the (slug, branch) pair. Pass
+// models.DefaultAppBranch (or the empty string, which the caller should
+// normalize) to read the default Workshop branch.
+func (r *Repo) GetAppBySlug(ctx context.Context, slug, branch string) (*models.App, error) {
+	branch = models.NormalizeBranch(branch)
+	row := r.Pool.QueryRow(ctx, `SELECT `+appColumns+` FROM apps WHERE slug = $1 AND branch = $2`, slug, branch)
 	a, err := scanApp(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -350,6 +365,7 @@ func (r *Repo) CreateApp(ctx context.Context, body *models.CreateAppRequest, cre
 	if status == "" {
 		status = "draft"
 	}
+	branch := models.NormalizeBranch(body.Branch)
 	pages := json.RawMessage(body.Pages)
 	if len(pages) == 0 {
 		pages = json.RawMessage(`[]`)
@@ -370,10 +386,10 @@ func (r *Repo) CreateApp(ctx context.Context, body *models.CreateAppRequest, cre
 	theme = contract.Theme
 	settings = contract.Settings
 	row := r.Pool.QueryRow(ctx,
-		`INSERT INTO apps (id, name, slug, description, status, pages, theme, settings, template_key, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO apps (id, name, slug, branch, description, status, pages, theme, settings, template_key, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING `+appColumns,
-		id, body.Name, slug, body.Description, status, []byte(pages), []byte(theme), []byte(settings),
+		id, body.Name, slug, branch, body.Description, status, []byte(pages), []byte(theme), []byte(settings),
 		body.TemplateKey, creator,
 	)
 	return scanApp(row)
@@ -626,6 +642,7 @@ func (r *Repo) PublishApp(ctx context.Context, appID uuid.UUID, notes string, pu
 	snapshot := map[string]any{
 		"name":           a.Name,
 		"slug":           a.Slug,
+		"branch":         a.Branch,
 		"description":    a.Description,
 		"status":         a.Status,
 		"pages":          a.Pages,
@@ -649,9 +666,9 @@ func (r *Repo) PublishApp(ctx context.Context, appID uuid.UUID, notes string, pu
 	versionID := uuid.New()
 	now := time.Now().UTC()
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO app_versions (id, app_id, version_number, status, app_snapshot, notes, created_by, created_at, published_at)
-         VALUES ($1, $2, $3, 'published', $4, $5, $6, $7, $7)`,
-		versionID, appID, nextVersion, snapBytes, notes, publisher, now,
+		`INSERT INTO app_versions (id, app_id, branch, version_number, status, app_snapshot, notes, created_by, created_at, published_at)
+         VALUES ($1, $2, $3, $4, 'published', $5, $6, $7, $8, $8)`,
+		versionID, appID, a.Branch, nextVersion, snapBytes, notes, publisher, now,
 	); err != nil {
 		return nil, err
 	}
@@ -703,7 +720,7 @@ func (r *Repo) PromoteAppVersion(ctx context.Context, appID, versionID uuid.UUID
 	}
 
 	source, err := scanAppVersion(tx.QueryRow(ctx,
-		`SELECT id, app_id, version_number, status, app_snapshot, notes, created_by, created_at, published_at
+		`SELECT id, app_id, branch, version_number, status, app_snapshot, notes, created_by, created_at, published_at
 		   FROM app_versions WHERE app_id = $1 AND id = $2`, appID, versionID))
 	if err != nil {
 		return nil, err
@@ -727,9 +744,9 @@ func (r *Repo) PromoteAppVersion(ctx context.Context, appID, versionID uuid.UUID
 	newVersionID := uuid.New()
 	now := time.Now().UTC()
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO app_versions (id, app_id, version_number, status, app_snapshot, notes, created_by, created_at, published_at)
-         VALUES ($1, $2, $3, 'published', $4, $5, $6, $7, $7)`,
-		newVersionID, appID, nextVersion, source.AppSnapshot, cleanNotes, promoter, now,
+		`INSERT INTO app_versions (id, app_id, branch, version_number, status, app_snapshot, notes, created_by, created_at, published_at)
+         VALUES ($1, $2, $3, $4, 'published', $5, $6, $7, $8, $8)`,
+		newVersionID, appID, current.Branch, nextVersion, source.AppSnapshot, cleanNotes, promoter, now,
 	); err != nil {
 		return nil, err
 	}
@@ -789,7 +806,7 @@ func (r *Repo) PromoteAppVersion(ctx context.Context, appID, versionID uuid.UUID
 
 func (r *Repo) ListAppVersions(ctx context.Context, appID uuid.UUID) ([]models.AppVersion, error) {
 	rows, err := r.Pool.Query(ctx,
-		`SELECT id, app_id, version_number, status, app_snapshot, notes, created_by, created_at, published_at
+		`SELECT id, app_id, branch, version_number, status, app_snapshot, notes, created_by, created_at, published_at
 		   FROM app_versions WHERE app_id = $1 ORDER BY version_number DESC`, appID)
 	if err != nil {
 		return nil, err
@@ -800,7 +817,7 @@ func (r *Repo) ListAppVersions(ctx context.Context, appID uuid.UUID) ([]models.A
 		var v models.AppVersion
 		var publishedAt pgtype.Timestamptz
 		if err := rows.Scan(
-			&v.ID, &v.AppID, &v.VersionNumber, &v.Status, &v.AppSnapshot,
+			&v.ID, &v.AppID, &v.Branch, &v.VersionNumber, &v.Status, &v.AppSnapshot,
 			&v.Notes, &v.CreatedBy, &v.CreatedAt, &publishedAt,
 		); err != nil {
 			return nil, err
@@ -816,7 +833,7 @@ func (r *Repo) ListAppVersions(ctx context.Context, appID uuid.UUID) ([]models.A
 // GetPublishedVersion returns the version row pointed to by apps.published_version_id.
 func (r *Repo) GetPublishedVersion(ctx context.Context, appID uuid.UUID) (*models.AppVersion, error) {
 	return scanAppVersion(r.Pool.QueryRow(ctx,
-		`SELECT v.id, v.app_id, v.version_number, v.status, v.app_snapshot, v.notes,
+		`SELECT v.id, v.app_id, v.branch, v.version_number, v.status, v.app_snapshot, v.notes,
 		        v.created_by, v.created_at, v.published_at
 		   FROM apps a
 		   JOIN app_versions v ON v.id = a.published_version_id
@@ -827,7 +844,7 @@ func scanAppVersion(row pgx.Row) (*models.AppVersion, error) {
 	var v models.AppVersion
 	var publishedAt pgtype.Timestamptz
 	err := row.Scan(
-		&v.ID, &v.AppID, &v.VersionNumber, &v.Status, &v.AppSnapshot,
+		&v.ID, &v.AppID, &v.Branch, &v.VersionNumber, &v.Status, &v.AppSnapshot,
 		&v.Notes, &v.CreatedBy, &v.CreatedAt, &publishedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

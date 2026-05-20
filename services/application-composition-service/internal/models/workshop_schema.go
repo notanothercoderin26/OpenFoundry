@@ -12,6 +12,45 @@ const WorkshopAppSchemaVersion = "2026-05-11.ws.1"
 
 var appSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
+// ValidationError is the structured error type the Workshop schema
+// normalizers return. The Path is the dotted JSON pointer to the
+// offending widget / page / binding (e.g. `pages[0].widgets[2].id`),
+// the Code is a stable machine-readable identifier, and Message is the
+// human-readable explanation. Handlers serialize this as JSON so the
+// editor frontend can highlight the offending node.
+type ValidationError struct {
+	Code    string `json:"code"`
+	Path    string `json:"path,omitempty"`
+	Message string `json:"message"`
+}
+
+func (e *ValidationError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Path == "" {
+		return e.Message
+	}
+	return e.Path + ": " + e.Message
+}
+
+func newValidationError(code, path, message string) *ValidationError {
+	return &ValidationError{Code: code, Path: path, Message: message}
+}
+
+// AsValidationError extracts a *ValidationError from a wrapped error
+// chain. Returns nil if the chain does not contain one.
+func AsValidationError(err error) *ValidationError {
+	if err == nil {
+		return nil
+	}
+	var ve *ValidationError
+	if errors.As(err, &ve) {
+		return ve
+	}
+	return nil
+}
+
 type AppContract struct {
 	Pages    json.RawMessage
 	Theme    json.RawMessage
@@ -142,7 +181,8 @@ type AppWidget struct {
 func NormalizeAppContract(name, slug, status string, pagesRaw, themeRaw, settingsRaw json.RawMessage) (AppContract, error) {
 	slug = strings.TrimSpace(slug)
 	if !appSlugPattern.MatchString(slug) {
-		return AppContract{}, fmt.Errorf("slug %q must use lowercase letters, numbers, and hyphens", slug)
+		return AppContract{}, newValidationError("invalid_slug", "slug",
+			fmt.Sprintf("slug %q must use lowercase letters, numbers, and hyphens", slug))
 	}
 	status = defaultString(status, "draft")
 
@@ -152,7 +192,8 @@ func NormalizeAppContract(name, slug, status string, pagesRaw, themeRaw, setting
 	}
 	theme, err := normalizeJSONObject(themeRaw, map[string]any{})
 	if err != nil {
-		return AppContract{}, fmt.Errorf("theme must be a JSON object: %w", err)
+		return AppContract{}, newValidationError("invalid_theme", "theme",
+			fmt.Sprintf("theme must be a JSON object: %v", err))
 	}
 	settings, err := normalizeSettings(settingsRaw, pages, slug, status)
 	if err != nil {
@@ -177,13 +218,15 @@ func normalizePages(raw json.RawMessage) ([]AppPage, error) {
 	}
 	var rawPages []json.RawMessage
 	if err := json.Unmarshal(raw, &rawPages); err != nil {
-		return nil, fmt.Errorf("pages must be a JSON array: %w", err)
+		return nil, newValidationError("invalid_pages", "pages",
+			fmt.Sprintf("pages must be a JSON array: %v", err))
 	}
 	pages := make([]AppPage, 0, len(rawPages))
 	for i, rawPage := range rawPages {
 		var page AppPage
 		if err := json.Unmarshal(rawPage, &page); err != nil {
-			return nil, fmt.Errorf("pages[%d] must be an object: %w", i, err)
+			return nil, newValidationError("invalid_page", fmt.Sprintf("pages[%d]", i),
+				fmt.Sprintf("page must be an object: %v", err))
 		}
 		var obj map[string]json.RawMessage
 		if err := json.Unmarshal(rawPage, &obj); err == nil {
@@ -208,12 +251,14 @@ func normalizePages(raw json.RawMessage) ([]AppPage, error) {
 }
 
 func normalizePage(page *AppPage, index int, seenPages, seenWidgets map[string]bool) error {
+	pagePath := fmt.Sprintf("pages[%d]", index)
 	page.ID = strings.TrimSpace(page.ID)
 	if page.ID == "" {
-		return fmt.Errorf("pages[%d].id is required", index)
+		return newValidationError("missing_id", pagePath+".id", "id is required")
 	}
 	if seenPages[page.ID] {
-		return fmt.Errorf("duplicate page id %q", page.ID)
+		return newValidationError("duplicate_page_id", pagePath+".id",
+			fmt.Sprintf("duplicate page id %q", page.ID))
 	}
 	seenPages[page.ID] = true
 	page.Name = defaultString(page.Name, page.ID)
@@ -240,7 +285,7 @@ func normalizePage(page *AppPage, index int, seenPages, seenWidgets map[string]b
 func normalizeSection(section *AppSection, path string, seenWidgets map[string]bool) error {
 	section.ID = strings.TrimSpace(section.ID)
 	if section.ID == "" {
-		return fmt.Errorf("%s.id is required", path)
+		return newValidationError("missing_id", path+".id", "id is required")
 	}
 	section.Layout = normalizeLayout(section.Layout)
 	if section.Props == nil {
@@ -268,12 +313,13 @@ func normalizeSection(section *AppSection, path string, seenWidgets map[string]b
 func normalizeOverlay(overlay *AppOverlay, path string, seenWidgets map[string]bool) error {
 	overlay.ID = strings.TrimSpace(overlay.ID)
 	if overlay.ID == "" {
-		return fmt.Errorf("%s.id is required", path)
+		return newValidationError("missing_id", path+".id", "id is required")
 	}
 	overlay.Name = defaultString(overlay.Name, overlay.ID)
 	overlay.OverlayType = defaultString(overlay.OverlayType, "drawer")
 	if overlay.OverlayType != "drawer" && overlay.OverlayType != "modal" {
-		return fmt.Errorf("%s.overlay_type must be drawer or modal", path)
+		return newValidationError("invalid_overlay_type", path+".overlay_type",
+			"overlay_type must be drawer or modal")
 	}
 	overlay.Layout = normalizeLayout(overlay.Layout)
 	if overlay.Props == nil {
@@ -301,15 +347,17 @@ func normalizeOverlay(overlay *AppOverlay, path string, seenWidgets map[string]b
 func normalizeWidget(widget *AppWidget, path string, seenWidgets map[string]bool) error {
 	widget.ID = strings.TrimSpace(widget.ID)
 	if widget.ID == "" {
-		return fmt.Errorf("%s.id is required", path)
+		return newValidationError("missing_id", path+".id", "id is required")
 	}
 	if seenWidgets[widget.ID] {
-		return fmt.Errorf("duplicate widget id %q", widget.ID)
+		return newValidationError("duplicate_widget_id", path+".id",
+			fmt.Sprintf("duplicate widget id %q", widget.ID))
 	}
 	seenWidgets[widget.ID] = true
 	widget.WidgetType = strings.TrimSpace(widget.WidgetType)
 	if widget.WidgetType == "" {
-		return fmt.Errorf("%s.widget_type is required", path)
+		return newValidationError("missing_widget_type", path+".widget_type",
+			"widget_type is required")
 	}
 	widget.Title = defaultString(widget.Title, widget.WidgetType)
 	if widget.Position.Width <= 0 {
@@ -319,7 +367,8 @@ func normalizeWidget(widget *AppWidget, path string, seenWidgets map[string]bool
 		widget.Position.Height = 2
 	}
 	if widget.Position.X < 0 || widget.Position.Y < 0 {
-		return fmt.Errorf("%s.position cannot use negative x/y", path)
+		return newValidationError("invalid_position", path+".position",
+			"position cannot use negative x/y")
 	}
 	if widget.Props == nil {
 		widget.Props = map[string]any{}
@@ -354,12 +403,14 @@ func normalizeWidget(widget *AppWidget, path string, seenWidgets map[string]bool
 func normalizeBinding(binding *WidgetBinding, path string) error {
 	binding.SourceType = strings.TrimSpace(binding.SourceType)
 	if binding.SourceType == "" {
-		return fmt.Errorf("%s.source_type is required", path)
+		return newValidationError("missing_source_type", path+".source_type",
+			"source_type is required")
 	}
 	switch binding.SourceType {
 	case "query", "ontology", "object_set", "dataset", "variable", "function":
 	default:
-		return fmt.Errorf("%s.source_type %q is unsupported", path, binding.SourceType)
+		return newValidationError("unsupported_source_type", path+".source_type",
+			fmt.Sprintf("source_type %q is unsupported", binding.SourceType))
 	}
 	if binding.Fields == nil {
 		binding.Fields = []string{}
@@ -374,19 +425,23 @@ func normalizeEvents(events []WidgetEvent, path string) error {
 	seen := map[string]bool{}
 	for i := range events {
 		event := &events[i]
+		itemPath := fmt.Sprintf("%s[%d]", path, i)
 		event.ID = strings.TrimSpace(event.ID)
 		if event.ID == "" {
-			return fmt.Errorf("%s[%d].id is required", path, i)
+			return newValidationError("missing_id", itemPath+".id", "id is required")
 		}
 		if seen[event.ID] {
-			return fmt.Errorf("duplicate event id %q", event.ID)
+			return newValidationError("duplicate_event_id", itemPath+".id",
+				fmt.Sprintf("duplicate event id %q", event.ID))
 		}
 		seen[event.ID] = true
 		if strings.TrimSpace(event.Trigger) == "" {
-			return fmt.Errorf("%s[%d].trigger is required", path, i)
+			return newValidationError("missing_trigger", itemPath+".trigger",
+				"trigger is required")
 		}
 		if strings.TrimSpace(event.Action) == "" {
-			return fmt.Errorf("%s[%d].action is required", path, i)
+			return newValidationError("missing_action", itemPath+".action",
+				"action is required")
 		}
 		if event.Config == nil {
 			event.Config = map[string]any{}
@@ -399,16 +454,18 @@ func normalizeActions(actions []WorkshopAction, path string) error {
 	seen := map[string]bool{}
 	for i := range actions {
 		action := &actions[i]
+		itemPath := fmt.Sprintf("%s[%d]", path, i)
 		action.ID = strings.TrimSpace(action.ID)
 		if action.ID == "" {
-			return fmt.Errorf("%s[%d].id is required", path, i)
+			return newValidationError("missing_id", itemPath+".id", "id is required")
 		}
 		if seen[action.ID] {
-			return fmt.Errorf("duplicate action id %q", action.ID)
+			return newValidationError("duplicate_action_id", itemPath+".id",
+				fmt.Sprintf("duplicate action id %q", action.ID))
 		}
 		seen[action.ID] = true
 		if strings.TrimSpace(action.Kind) == "" {
-			return fmt.Errorf("%s[%d].kind is required", path, i)
+			return newValidationError("missing_kind", itemPath+".kind", "kind is required")
 		}
 		if action.Config == nil {
 			action.Config = map[string]any{}
@@ -438,7 +495,8 @@ func normalizeLayout(layout PageLayout) PageLayout {
 func normalizeSettings(raw json.RawMessage, pages []AppPage, slug, status string) (map[string]any, error) {
 	settings, err := normalizeJSONObject(raw, map[string]any{})
 	if err != nil {
-		return nil, fmt.Errorf("settings must be a JSON object: %w", err)
+		return nil, newValidationError("invalid_settings", "settings",
+			fmt.Sprintf("settings must be a JSON object: %v", err))
 	}
 	homePageID := ""
 	if len(pages) > 0 {
@@ -483,22 +541,25 @@ func validateWorkshopVariables(raw any) error {
 	}
 	var variables []WorkshopVariable
 	if err := json.Unmarshal(bytes, &variables); err != nil {
-		return fmt.Errorf("settings.workshop_variables must be an array: %w", err)
+		return newValidationError("invalid_variables", "settings.workshop_variables",
+			fmt.Sprintf("workshop_variables must be an array: %v", err))
 	}
 	seen := map[string]bool{}
 	for i, variable := range variables {
+		itemPath := fmt.Sprintf("settings.workshop_variables[%d]", i)
 		if strings.TrimSpace(variable.ID) == "" {
-			return fmt.Errorf("settings.workshop_variables[%d].id is required", i)
+			return newValidationError("missing_id", itemPath+".id", "id is required")
 		}
 		if seen[variable.ID] {
-			return fmt.Errorf("duplicate workshop variable id %q", variable.ID)
+			return newValidationError("duplicate_variable_id", itemPath+".id",
+				fmt.Sprintf("duplicate workshop variable id %q", variable.ID))
 		}
 		seen[variable.ID] = true
 		if strings.TrimSpace(variable.Kind) == "" {
-			return fmt.Errorf("settings.workshop_variables[%d].kind is required", i)
+			return newValidationError("missing_kind", itemPath+".kind", "kind is required")
 		}
 		if strings.TrimSpace(variable.Name) == "" {
-			return fmt.Errorf("settings.workshop_variables[%d].name is required", i)
+			return newValidationError("missing_name", itemPath+".name", "name is required")
 		}
 	}
 	return nil

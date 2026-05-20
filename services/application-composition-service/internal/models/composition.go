@@ -3,6 +3,7 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +32,23 @@ type CreateSecondaryRequest struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+// DefaultAppBranch is the implicit branch every app and version belongs to
+// when no `?branch=` query parameter is supplied. Mirrors the Foundry
+// Workshop concept where every module has a Global Branch and `main` is
+// the published default.
+const DefaultAppBranch = "main"
+
+// NormalizeBranch trims and lower-cases the branch identifier and falls
+// back to DefaultAppBranch when empty. Callers should run incoming query
+// params through this helper before reading or writing.
+func NormalizeBranch(branch string) string {
+	trimmed := strings.TrimSpace(branch)
+	if trimmed == "" {
+		return DefaultAppBranch
+	}
+	return trimmed
+}
+
 // App mirrors the `apps` table created by the foundation migration.
 // Shape matches the AppDefinition the web frontend (apps/web/src/lib/api/apps.ts)
 // already consumes.
@@ -38,6 +56,7 @@ type App struct {
 	ID                 uuid.UUID       `json:"id"`
 	Name               string          `json:"name"`
 	Slug               string          `json:"slug"`
+	Branch             string          `json:"branch"`
 	Description        string          `json:"description"`
 	Status             string          `json:"status"`
 	Pages              json.RawMessage `json:"pages"`
@@ -53,6 +72,7 @@ type App struct {
 type CreateAppRequest struct {
 	Name        string          `json:"name"`
 	Slug        string          `json:"slug,omitempty"`
+	Branch      string          `json:"branch,omitempty"`
 	Description string          `json:"description,omitempty"`
 	Status      string          `json:"status,omitempty"`
 	Pages       json.RawMessage `json:"pages,omitempty"`
@@ -77,6 +97,7 @@ type AppSummary struct {
 	ID                 uuid.UUID  `json:"id"`
 	Name               string     `json:"name"`
 	Slug               string     `json:"slug"`
+	Branch             string     `json:"branch"`
 	Description        string     `json:"description"`
 	Status             string     `json:"status"`
 	PageCount          int        `json:"page_count"`
@@ -91,6 +112,7 @@ type AppSummary struct {
 type AppVersion struct {
 	ID            uuid.UUID       `json:"id"`
 	AppID         uuid.UUID       `json:"app_id"`
+	Branch        string          `json:"branch"`
 	VersionNumber int             `json:"version_number"`
 	Status        string          `json:"status"`
 	AppSnapshot   json.RawMessage `json:"app_snapshot"`
