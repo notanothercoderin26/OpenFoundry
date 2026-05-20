@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures/base';
 import { mockAuth } from './fixtures/mocks';
+import { defineWorkshopApp, mockWorkshopApp } from './fixtures/workshop';
 
 const now = '2026-05-11T00:00:00Z';
 
@@ -23,163 +24,114 @@ const commitScenarioAction = {
   updated_at: now,
 };
 
-const appResponse = {
-  app: {
-    id: 'scenario-demo',
-    name: 'Scenario Demo',
-    slug: 'scenario-demo',
-    description: 'Scenario parity smoke.',
-    status: 'published',
-    pages: [
-      {
-        id: 'main',
-        name: 'Main',
-        path: '/',
-        description: '',
-        visible: true,
-        layout: { kind: 'grid', columns: 12, gap: '16px', max_width: '960px' },
-        widgets: [
-          {
-            id: 'trail-scenario',
-            widget_type: 'scenario',
-            title: 'Trail Scenario',
-            description: '',
-            position: { x: 0, y: 0, width: 5, height: 3 },
-            props: {
-              headline: 'Trail weather scenario',
-              output_variable_id: 'scenario-values',
-              apply_label: 'Apply scenario',
-              reset_label: 'Reset',
-              summary_template: 'Demand multiplier: {{demand_multiplier}}',
-              parameters: [
-                { name: 'demand_multiplier', label: 'Demand multiplier', type: 'number', default_value: '1.0', description: 'Demand adjustment for planning.' },
-                { name: 'temperature_delta', label: 'Temperature delta', type: 'number', default_value: '0', description: 'Degrees added to baseline.' },
-              ],
-            },
-            binding: null,
-            events: [],
-            children: [],
-          },
-          {
-            id: 'scenario-table',
-            widget_type: 'table',
-            title: 'Scenario comparison',
-            description: '',
-            position: { x: 5, y: 0, width: 7, height: 3 },
-            props: {
-              columns: [
-                { key: 'metric', label: 'Metric' },
-                { key: 'value', label: 'Value' },
-              ],
-              page_size: 10,
-            },
-            binding: {
-              source_type: 'query',
-              source_id: '',
-              query_text: "select 'Baseline demand' as metric, '100' as value union all select 'Scenario demand', '{{demand_multiplier}}'",
-              limit: 10,
-            },
-            events: [],
-            children: [],
-          },
-          {
-            id: 'scenario-actions',
-            widget_type: 'button_group',
-            title: 'Scenario actions',
-            description: '',
-            position: { x: 0, y: 3, width: 5, height: 2 },
-            props: {
-              buttons: [
-                {
-                  id: 'commit-scenario-button',
-                  label: 'Commit scenario',
-                  on_click_kind: 'action',
-                  action_type_id: 'commit-scenario',
-                  parameter_defaults: {
-                    scenario_payload: { kind: 'variable', variable_id: 'scenario-values', visibility: 'visible' },
-                  },
-                  default_layout: 'form',
-                  switch_layout: false,
-                  conditional_visibility: false,
-                },
-              ],
-              orientation: 'horizontal',
-              fill_horizontal: false,
-            },
-            binding: null,
-            events: [],
-            children: [],
-          },
+const appResponse = defineWorkshopApp({
+  id: 'scenario-demo',
+  slug: 'scenario-demo',
+  name: 'Scenario Demo',
+  description: 'Scenario parity smoke.',
+  maxWidth: '960px',
+  variables: [
+    {
+      id: 'scenario-values',
+      kind: 'scenario',
+      name: 'Scenario values',
+      object_type_id: '',
+      source_widget_id: 'trail-scenario',
+      metadata: {
+        parameters: [
+          { name: 'demand_multiplier', label: 'Demand multiplier', default_value: '1.0' },
+          { name: 'temperature_delta', label: 'Temperature delta', default_value: '0' },
         ],
       },
-    ],
-    theme: {
-      name: 'Scenario Demo',
-      primary_color: '#0f766e',
-      accent_color: '#c2410c',
-      background_color: '#f8fafc',
-      surface_color: '#ffffff',
-      text_color: '#0f172a',
-      heading_font: 'Inter',
-      body_font: 'Inter',
-      border_radius: 8,
-      logo_url: null,
     },
-    settings: {
-      home_page_id: 'main',
-      navigation_style: 'none',
-      max_width: '960px',
-      show_branding: false,
-      custom_css: null,
-      builder_experience: 'workshop',
-      ontology_source_type_id: null,
-      object_set_variables: [],
-      workshop_variables: [
+  ],
+  pages: [
+    {
+      id: 'main',
+      name: 'Main',
+      layout: { kind: 'grid', columns: 12, gap: '16px', max_width: '960px' },
+      widgets: [
         {
-          id: 'scenario-values',
-          kind: 'scenario',
-          name: 'Scenario values',
-          object_type_id: '',
-          source_widget_id: 'trail-scenario',
-          metadata: {
+          id: 'trail-scenario',
+          widget_type: 'scenario',
+          title: 'Trail Scenario',
+          description: '',
+          position: { x: 0, y: 0, width: 5, height: 3 },
+          props: {
+            headline: 'Trail weather scenario',
+            output_variable_id: 'scenario-values',
+            apply_label: 'Apply scenario',
+            reset_label: 'Reset',
+            summary_template: 'Demand multiplier: {{demand_multiplier}}',
             parameters: [
-              { name: 'demand_multiplier', label: 'Demand multiplier', default_value: '1.0' },
-              { name: 'temperature_delta', label: 'Temperature delta', default_value: '0' },
+              { name: 'demand_multiplier', label: 'Demand multiplier', type: 'number', default_value: '1.0', description: 'Demand adjustment for planning.' },
+              { name: 'temperature_delta', label: 'Temperature delta', type: 'number', default_value: '0', description: 'Degrees added to baseline.' },
             ],
           },
+          binding: null,
+          events: [],
+          children: [],
+        },
+        {
+          id: 'scenario-table',
+          widget_type: 'table',
+          title: 'Scenario comparison',
+          description: '',
+          position: { x: 5, y: 0, width: 7, height: 3 },
+          props: {
+            columns: [
+              { key: 'metric', label: 'Metric' },
+              { key: 'value', label: 'Value' },
+            ],
+            page_size: 10,
+          },
+          binding: {
+            source_type: 'query',
+            source_id: '',
+            query_text: "select 'Baseline demand' as metric, '100' as value union all select 'Scenario demand', '{{demand_multiplier}}'",
+            limit: 10,
+          },
+          events: [],
+          children: [],
+        },
+        {
+          id: 'scenario-actions',
+          widget_type: 'button_group',
+          title: 'Scenario actions',
+          description: '',
+          position: { x: 0, y: 3, width: 5, height: 2 },
+          props: {
+            buttons: [
+              {
+                id: 'commit-scenario-button',
+                label: 'Commit scenario',
+                on_click_kind: 'action',
+                action_type_id: 'commit-scenario',
+                parameter_defaults: {
+                  scenario_payload: { kind: 'variable', variable_id: 'scenario-values', visibility: 'visible' },
+                },
+                default_layout: 'form',
+                switch_layout: false,
+                conditional_visibility: false,
+              },
+            ],
+            orientation: 'horizontal',
+            fill_horizontal: false,
+          },
+          binding: null,
+          events: [],
+          children: [],
         },
       ],
-      consumer_mode: { enabled: false, allow_guest_access: false, portal_title: null, portal_subtitle: null, primary_cta_label: null, primary_cta_url: null },
-      interactive_workshop: { enabled: false, title: null, subtitle: null, briefing_template: null, primary_scenario_widget_id: null, primary_agent_widget_id: null, suggested_questions: [], scenario_presets: [] },
-      workshop_header: { title: null, icon: null, color: null },
-      slate: {
-        enabled: false,
-        framework: 'react',
-        package_name: '',
-        entry_file: '',
-        sdk_import: '',
-        workspace: { enabled: false, repository_id: null, layout: '', runtime: '', dev_command: '', preview_command: '', files: [] },
-        quiver_embed: { enabled: false, primary_type_id: null, secondary_type_id: null, join_field: null, secondary_join_field: null, date_field: null, metric_field: null, group_field: null, selected_group: null },
-      },
     },
-    template_key: null,
-    created_by: 'e2e',
-    published_version_id: 'version-1',
-    created_at: now,
-    updated_at: now,
-  },
-  embed: { url: '/apps/runtime/scenario-demo', iframe_html: '' },
-  published_version_number: 1,
-  published_at: now,
-};
+  ],
+});
 
 test('Scenario variables update comparisons and can seed an Ontology action form', async ({ page }) => {
   const executed: unknown[] = [];
   const querySql: string[] = [];
   await mockAuth(page, { user: { name: 'Trail Runner' } });
-  await page.route('**/api/v1/apps/public/scenario-demo', async (route) => {
-    await route.fulfill({ json: appResponse });
-  });
+  await mockWorkshopApp(page, 'scenario-demo', appResponse);
   await page.route('**/api/v1/ontology/types', async (route) => {
     await route.fulfill({ json: { data: [], total: 0, page: 1, per_page: 200 } });
   });
