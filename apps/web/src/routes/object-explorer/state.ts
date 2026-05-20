@@ -48,6 +48,7 @@ export interface ExplorationContext {
 }
 
 export const RECENTS_KEY = 'of.objectExplorer.recents';
+export const FAVORITES_KEY = 'of.objectExplorer.favoriteTypes';
 
 export const DEFAULT_PROPERTY_FILTER: PropertyFilterDraft = {
   property_name: '',
@@ -98,6 +99,23 @@ export function readRecents(): RecentItem[] {
 export function writeRecents(items: RecentItem[]) {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(RECENTS_KEY, JSON.stringify(items.slice(0, 30)));
+}
+
+export function readFavoriteTypeIds(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(FAVORITES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeFavoriteTypeIds(ids: string[]) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(Array.from(new Set(ids))));
 }
 
 export function shortId(value: string | null | undefined, length = 10) {

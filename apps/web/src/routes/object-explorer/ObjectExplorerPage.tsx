@@ -64,8 +64,11 @@ import {
 } from '@/lib/api/ontology';
 import { useAuth } from '@/lib/stores/auth';
 
+import { Tabs } from '@/lib/components/Tabs';
+
 import { PanelHeader } from './components/atoms';
 import { BrowseGroupsGrid } from './components/BrowseGroupsGrid';
+import { ExplorationsHighlight } from './components/ExplorationsHighlight';
 import { HeaderToolbar } from './components/HeaderToolbar';
 import { PropertyFiltersPanel } from './components/PropertyFiltersPanel';
 import { LinkedFilterPanel } from './components/LinkedFilterPanel';
@@ -75,6 +78,7 @@ import { RecentObjectsList } from './components/RecentObjectsList';
 import { AffordancesPanel } from './components/AffordancesPanel';
 import { ObjectPreviewPanel } from './components/ObjectPreviewPanel';
 import { SavedExplorationsPanel } from './components/SavedExplorationsPanel';
+import { SideNavGroups, type SideNavSelection } from './components/SideNavGroups';
 import { objectExplorerKeys, useObjectExplorerInitialData, useTypeProperties } from './queries';
 import {
   DEFAULT_LINKED_FILTER,
@@ -86,10 +90,12 @@ import {
   objectSetFiltersFromQueryFilters,
   objectToSearchResult,
   objectTypeIdFromResultSet,
+  readFavoriteTypeIds,
   readRecents,
   splitCompact,
   uniqueObjectIds,
   uniqueRecentKey,
+  writeFavoriteTypeIds,
   writeRecents,
   csvEscape,
   downloadText,
@@ -100,6 +106,15 @@ import {
   type RecentItem,
   type SearchMode,
 } from './state';
+
+type ObjectExplorerTab = 'overview' | 'objects' | 'types' | 'artifacts';
+
+const TAB_DEFINITIONS: ReadonlyArray<{ id: ObjectExplorerTab; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'objects', label: 'Objects' },
+  { id: 'types', label: 'Object types' },
+  { id: 'artifacts', label: 'Artifacts' },
+];
 
 
 export function ObjectExplorerPage() {
@@ -166,9 +181,24 @@ export function ObjectExplorerPage() {
   const [objectSetBusy, setObjectSetBusy] = useState(false);
   const [objectSetError, setObjectSetError] = useState('');
 
+  const [activeTab, setActiveTab] = useState<ObjectExplorerTab>('overview');
+  const [sideNavSelection, setSideNavSelection] = useState<SideNavSelection>({ kind: 'all' });
+  const [groupsPage, setGroupsPage] = useState(0);
+  const [favoriteTypeIds, setFavoriteTypeIds] = useState<Set<string>>(() => new Set(readFavoriteTypeIds()));
+
   useEffect(() => {
     setRecents(readRecents());
   }, []);
+
+  function toggleFavoriteType(typeId: string) {
+    setFavoriteTypeIds((current) => {
+      const next = new Set(current);
+      if (next.has(typeId)) next.delete(typeId);
+      else next.add(typeId);
+      writeFavoriteTypeIds(Array.from(next));
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (searchTypeFilter) setNewSetType(searchTypeFilter);
@@ -1123,148 +1153,204 @@ export function ObjectExplorerPage() {
         </section>
       ) : (
         <>
-        <BrowseGroupsGrid
-          groups={explorerGroups}
-          accessForType={accessForType}
-          onBrowse={(typeId) => void browseType(typeId)}
-        />
+          <Tabs tabs={TAB_DEFINITIONS} active={activeTab} onChange={setActiveTab} />
 
-        <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
-          <PanelHeader label="Filters and pivots" value={filterTypeId ? typeById.get(filterTypeId)?.display_name : 'Pick type'} />
-
-          <PropertyFiltersPanel
-            filterTypeId={filterTypeId}
-            onChangeFilterTypeId={setFilterTypeId}
-            objectTypesWithVisibleRows={objectTypesWithVisibleRows}
-            propertyFilters={propertyFilters}
-            setPropertyFilters={setPropertyFilters}
-            typeProperties={typeProperties}
-            filterLoading={filterLoading}
-            onRunFilters={() => void runPropertyFilters()}
-          />
-
-          <LinkedFilterPanel
-            filterTypeId={filterTypeId}
-            linkedFilter={linkedFilter}
-            setLinkedFilter={setLinkedFilter}
-            linkedFilterLinks={linkedFilterLinks}
-            linkedProperties={linkedProperties}
-            linkedFilterProperty={linkedFilterProperty}
-            linkedTargetType={linkedTargetType}
-            typeById={typeById}
-            filterLoading={filterLoading}
-            onRunLinkedFilter={() => void runLinkedExploration()}
-          />
-
-          <PivotPanel
-            pivotLinkTypeId={pivotLinkTypeId}
-            onChangePivotLinkTypeId={setPivotLinkTypeId}
-            pivotLinks={pivotLinks}
-            pivotSourceTypeId={pivotSourceTypeId}
-            pivotTargetType={pivotTargetType}
-            typeById={typeById}
-            searchResults={searchResults}
-            filterLoading={filterLoading}
-            onPivot={() => void pivotToLinkedType()}
-          />
-        </section>
-
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', alignItems: 'start' }}>
-          <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
-            <SearchResultsList
-              searchResults={searchResults}
-              hasSearched={hasSearched}
-              searchError={searchError}
-              explorationContext={explorationContext}
-              selectedResult={selectedResult}
-              typeById={typeById}
-              onPreview={(result) => void selectResult(result)}
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(200px, 240px) minmax(0, 1fr)', alignItems: 'start' }}>
+            <SideNavGroups
+              groups={explorerGroups}
+              selection={sideNavSelection}
+              onSelect={(next) => {
+                setSideNavSelection(next);
+                if (next.kind === 'explorations') setActiveTab('artifacts');
+                else if (activeTab === 'artifacts') setActiveTab('overview');
+              }}
+              favoritesCount={favoriteTypeIds.size}
+              explorationsCount={visibleObjectSets.length}
+              page={groupsPage}
+              onChangePage={setGroupsPage}
             />
 
-            <AffordancesPanel
-              objectSetActionContext={objectSetActionContext}
-              currentResultObjectIds={currentResultObjectIds}
-              openInAffordances={openInAffordances}
-              exportAffordances={exportAffordances}
-              objectSetActions={objectSetActions}
-              objectSetAction={objectSetAction}
-              objectSetActionPrefill={objectSetActionPrefill}
-              affordanceNotice={affordanceNotice}
-              actionNotice={actionNotice}
-              setObjectSetActionId={setObjectSetActionId}
-              setActionNotice={setActionNotice}
-              onCopyIds={(affordance) => void copyCurrentObjectIds(affordance)}
-              onExport={exportCurrentObjects}
-            />
+            <div style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
+              {activeTab === 'overview' && (
+                <>
+                  <ExplorationsHighlight
+                    objectSets={visibleObjectSets}
+                    typeById={typeById}
+                    onOpen={(set) => void openSavedExploration(set)}
+                    onSeeAll={() => setActiveTab('artifacts')}
+                  />
+                  <BrowseGroupsGrid
+                    groups={explorerGroups}
+                    accessForType={accessForType}
+                    onBrowse={(typeId) => {
+                      setActiveTab('objects');
+                      void browseType(typeId);
+                    }}
+                    favoriteTypeIds={favoriteTypeIds}
+                    onToggleFavorite={toggleFavoriteType}
+                    selection={sideNavSelection}
+                  />
+                </>
+              )}
 
-            <RecentObjectsList recents={visibleRecents} onSelect={(item) => void selectRecent(item)} />
-          </section>
+              {activeTab === 'types' && (
+                <BrowseGroupsGrid
+                  groups={explorerGroups}
+                  accessForType={accessForType}
+                  onBrowse={(typeId) => {
+                    setActiveTab('objects');
+                    void browseType(typeId);
+                  }}
+                  favoriteTypeIds={favoriteTypeIds}
+                  onToggleFavorite={toggleFavoriteType}
+                  selection={sideNavSelection}
+                />
+              )}
 
-          <ObjectPreviewPanel
-            selectedObject={selectedObject}
-            selectedResult={selectedResult}
-            selectedType={selectedType}
-            selectedObjectAccess={selectedObjectAccess}
-            selectedSchemaOnly={selectedSchemaOnly}
-            selectedObjectViewResolution={selectedObjectViewResolution}
-            selectedObjectViewTitle={selectedObjectViewTitle}
-            selectedObjectEmbeddingEntry={selectedObjectEmbeddingEntry}
-            selectedFullObjectViewHref={selectedFullObjectViewHref}
-            selectedObjectCommentThread={selectedObjectCommentThread}
-            storeSelectedObjectCommentThread={storeSelectedObjectCommentThread}
-            commentsOpen={commentsOpen}
-            setCommentsOpen={setCommentsOpen}
-            previewLoading={previewLoading}
-            previewError={previewError}
-            summaryEntries={summaryEntries}
-            propertyEntries={propertyEntries}
-            selectedActionId={selectedActionId}
-            setSelectedActionId={setSelectedActionId}
-            selectedAction={selectedAction}
-            selectedActionPrefill={selectedActionPrefill}
-            actionNotice={actionNotice}
-            setActionNotice={setActionNotice}
-            principal={principal}
-            authorDisplayName={user?.email || user?.id || 'object-explorer'}
-            setObjectViewModePreference={setObjectViewModePreference}
-          />
+              {activeTab === 'objects' && (
+                <>
+                  <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
+                    <PanelHeader label="Filters and pivots" value={filterTypeId ? typeById.get(filterTypeId)?.display_name : 'Pick type'} />
 
-          <SavedExplorationsPanel
-            visibleObjectSets={visibleObjectSets}
-            typeById={typeById}
-            principal={principal}
-            objectTypesWithVisibleRows={objectTypesWithVisibleRows}
-            evaluationSetId={evaluationSetId}
-            evaluation={evaluation}
-            evaluationRows={evaluationRows}
-            objectSetBusy={objectSetBusy}
-            objectSetError={objectSetError}
-            newSetName={newSetName}
-            setNewSetName={setNewSetName}
-            newSetType={newSetType}
-            setNewSetType={setNewSetType}
-            newSetDescription={newSetDescription}
-            setNewSetDescription={setNewSetDescription}
-            newSetWhatIf={newSetWhatIf}
-            setNewSetWhatIf={setNewSetWhatIf}
-            saveKind={saveKind}
-            setSaveKind={setSaveKind}
-            savePrivacy={savePrivacy}
-            setSavePrivacy={setSavePrivacy}
-            saveProjectId={saveProjectId}
-            setSaveProjectId={setSaveProjectId}
-            saveFolderPath={saveFolderPath}
-            setSaveFolderPath={setSaveFolderPath}
-            saveLayoutView={saveLayoutView}
-            setSaveLayoutView={setSaveLayoutView}
-            saveColumns={saveColumns}
-            setSaveColumns={setSaveColumns}
-            lastShareLink={lastShareLink}
-            onCreateSet={() => void createSet()}
-            onOpenSavedExploration={(set) => void openSavedExploration(set)}
-            onEvaluateSet={(id, mode) => void evaluateSet(id, mode)}
-          />
-        </div>
+                    <PropertyFiltersPanel
+                      filterTypeId={filterTypeId}
+                      onChangeFilterTypeId={setFilterTypeId}
+                      objectTypesWithVisibleRows={objectTypesWithVisibleRows}
+                      propertyFilters={propertyFilters}
+                      setPropertyFilters={setPropertyFilters}
+                      typeProperties={typeProperties}
+                      filterLoading={filterLoading}
+                      onRunFilters={() => void runPropertyFilters()}
+                    />
+
+                    <LinkedFilterPanel
+                      filterTypeId={filterTypeId}
+                      linkedFilter={linkedFilter}
+                      setLinkedFilter={setLinkedFilter}
+                      linkedFilterLinks={linkedFilterLinks}
+                      linkedProperties={linkedProperties}
+                      linkedFilterProperty={linkedFilterProperty}
+                      linkedTargetType={linkedTargetType}
+                      typeById={typeById}
+                      filterLoading={filterLoading}
+                      onRunLinkedFilter={() => void runLinkedExploration()}
+                    />
+
+                    <PivotPanel
+                      pivotLinkTypeId={pivotLinkTypeId}
+                      onChangePivotLinkTypeId={setPivotLinkTypeId}
+                      pivotLinks={pivotLinks}
+                      pivotSourceTypeId={pivotSourceTypeId}
+                      pivotTargetType={pivotTargetType}
+                      typeById={typeById}
+                      searchResults={searchResults}
+                      filterLoading={filterLoading}
+                      onPivot={() => void pivotToLinkedType()}
+                    />
+                  </section>
+
+                  <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', alignItems: 'start' }}>
+                    <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
+                      <SearchResultsList
+                        searchResults={searchResults}
+                        hasSearched={hasSearched}
+                        searchError={searchError}
+                        explorationContext={explorationContext}
+                        selectedResult={selectedResult}
+                        typeById={typeById}
+                        onPreview={(result) => void selectResult(result)}
+                      />
+
+                      <AffordancesPanel
+                        objectSetActionContext={objectSetActionContext}
+                        currentResultObjectIds={currentResultObjectIds}
+                        openInAffordances={openInAffordances}
+                        exportAffordances={exportAffordances}
+                        objectSetActions={objectSetActions}
+                        objectSetAction={objectSetAction}
+                        objectSetActionPrefill={objectSetActionPrefill}
+                        affordanceNotice={affordanceNotice}
+                        actionNotice={actionNotice}
+                        setObjectSetActionId={setObjectSetActionId}
+                        setActionNotice={setActionNotice}
+                        onCopyIds={(affordance) => void copyCurrentObjectIds(affordance)}
+                        onExport={exportCurrentObjects}
+                      />
+
+                      <RecentObjectsList recents={visibleRecents} onSelect={(item) => void selectRecent(item)} />
+                    </section>
+
+                    <ObjectPreviewPanel
+                      selectedObject={selectedObject}
+                      selectedResult={selectedResult}
+                      selectedType={selectedType}
+                      selectedObjectAccess={selectedObjectAccess}
+                      selectedSchemaOnly={selectedSchemaOnly}
+                      selectedObjectViewResolution={selectedObjectViewResolution}
+                      selectedObjectViewTitle={selectedObjectViewTitle}
+                      selectedObjectEmbeddingEntry={selectedObjectEmbeddingEntry}
+                      selectedFullObjectViewHref={selectedFullObjectViewHref}
+                      selectedObjectCommentThread={selectedObjectCommentThread}
+                      storeSelectedObjectCommentThread={storeSelectedObjectCommentThread}
+                      commentsOpen={commentsOpen}
+                      setCommentsOpen={setCommentsOpen}
+                      previewLoading={previewLoading}
+                      previewError={previewError}
+                      summaryEntries={summaryEntries}
+                      propertyEntries={propertyEntries}
+                      selectedActionId={selectedActionId}
+                      setSelectedActionId={setSelectedActionId}
+                      selectedAction={selectedAction}
+                      selectedActionPrefill={selectedActionPrefill}
+                      actionNotice={actionNotice}
+                      setActionNotice={setActionNotice}
+                      principal={principal}
+                      authorDisplayName={user?.email || user?.id || 'object-explorer'}
+                      setObjectViewModePreference={setObjectViewModePreference}
+                    />
+                  </div>
+                </>
+              )}
+
+              {activeTab === 'artifacts' && (
+                <SavedExplorationsPanel
+                  visibleObjectSets={visibleObjectSets}
+                  typeById={typeById}
+                  principal={principal}
+                  objectTypesWithVisibleRows={objectTypesWithVisibleRows}
+                  evaluationSetId={evaluationSetId}
+                  evaluation={evaluation}
+                  evaluationRows={evaluationRows}
+                  objectSetBusy={objectSetBusy}
+                  objectSetError={objectSetError}
+                  newSetName={newSetName}
+                  setNewSetName={setNewSetName}
+                  newSetType={newSetType}
+                  setNewSetType={setNewSetType}
+                  newSetDescription={newSetDescription}
+                  setNewSetDescription={setNewSetDescription}
+                  newSetWhatIf={newSetWhatIf}
+                  setNewSetWhatIf={setNewSetWhatIf}
+                  saveKind={saveKind}
+                  setSaveKind={setSaveKind}
+                  savePrivacy={savePrivacy}
+                  setSavePrivacy={setSavePrivacy}
+                  saveProjectId={saveProjectId}
+                  setSaveProjectId={setSaveProjectId}
+                  saveFolderPath={saveFolderPath}
+                  setSaveFolderPath={setSaveFolderPath}
+                  saveLayoutView={saveLayoutView}
+                  setSaveLayoutView={setSaveLayoutView}
+                  saveColumns={saveColumns}
+                  setSaveColumns={setSaveColumns}
+                  lastShareLink={lastShareLink}
+                  onCreateSet={() => void createSet()}
+                  onOpenSavedExploration={(set) => void openSavedExploration(set)}
+                  onEvaluateSet={(id, mode) => void evaluateSet(id, mode)}
+                />
+              )}
+            </div>
+          </div>
         </>
       )}
     </section>
