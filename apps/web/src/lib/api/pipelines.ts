@@ -676,6 +676,20 @@ export function deletePipelineComment(id: string, commentId: string) {
   return api.delete(`/pipelines/${id}/comments/${commentId}`);
 }
 
+export interface ComputeProfile {
+  slug: string;
+  display_name: string;
+  description: string;
+  executor_cores: number;
+  executor_memory_gb: number;
+  is_default: boolean;
+  created_at: string;
+}
+
+export function listComputeProfiles() {
+  return api.get<{ items: ComputeProfile[] }>('/compute-profiles');
+}
+
 // Validation / compilation (Foundry: "Validate" and "Preview" buttons in
 // Pipeline Builder before Deploy). These accept the in-flight DAG from the
 // canvas — they do NOT require a persisted pipeline row.

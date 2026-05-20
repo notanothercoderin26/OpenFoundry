@@ -164,6 +164,8 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabil
 		api.Post("/pipelines/{id}/comments", handler.CreatePipelineComment)
 		api.Delete("/pipelines/{id}/comments/{comment_id}", handler.DeletePipelineComment)
 
+		api.Get("/compute-profiles", handler.ListComputeProfiles)
+
 		api.Get("/pipelines/{id}/runs", handler.ListPipelineRuns)
 		api.Post("/pipelines/{id}/runs", handler.TriggerPipelineRun)
 		api.Get("/pipelines/{id}/runs/{run_id}", handler.GetPipelineRun)

@@ -42,6 +42,7 @@ import { UnionEditor } from '@/lib/components/pipeline/UnionEditor';
 import { composeUnionSql, newUnionDraft, type UnionDraft } from '@/lib/components/pipeline/unionDraft';
 import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/OutputDrawer';
 import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
+import { BuildSettingsButton } from '@/lib/components/pipeline/BuildSettingsButton';
 import { PipelineDetailsDrawer } from '@/lib/components/pipeline/PipelineDetailsDrawer';
 import { PipelineParametersModal } from '@/lib/components/pipeline/PipelineParametersModal';
 import { PipelineVersionViewerDrawer } from '@/lib/components/pipeline/PipelineVersionViewerDrawer';
@@ -872,6 +873,17 @@ export function PipelineEditPage() {
     }
   }
 
+  async function saveComputeProfile(slug: string | null) {
+    if (!pipeline) return;
+    setError('');
+    try {
+      const updated = await updatePipeline(pipeline.id, { compute_profile_id: slug ?? '' });
+      setPipeline(updated);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Compute profile save failed');
+    }
+  }
+
   async function saveParameters(next: PipelineParameter[]) {
     if (!pipeline) return;
     setParametersBusy(true);
@@ -1054,6 +1066,10 @@ export function PipelineEditPage() {
                 </span>
               )}
             </button>
+            <BuildSettingsButton
+              selectedSlug={pipeline.compute_profile_id ?? null}
+              onSelect={(slug) => void saveComputeProfile(slug)}
+            />
             <button type="button" onClick={() => void runValidate()} disabled={busy} className="of-button">
               Validate
             </button>

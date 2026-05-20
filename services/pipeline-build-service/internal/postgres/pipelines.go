@@ -222,7 +222,19 @@ func (r *Repository) UpdatePipeline(ctx context.Context, id uuid.UUID, req model
 	}
 	computeProfileID := current.ComputeProfileID
 	if req.ComputeProfile != nil {
-		computeProfileID = req.ComputeProfile
+		trimmed := strings.TrimSpace(*req.ComputeProfile)
+		if trimmed == "" {
+			computeProfileID = nil
+		} else {
+			exists, existsErr := r.ComputeProfileExists(ctx, trimmed)
+			if existsErr != nil {
+				return nil, existsErr
+			}
+			if !exists {
+				return nil, fmt.Errorf("unknown compute profile %q", trimmed)
+			}
+			computeProfileID = &trimmed
+		}
 	}
 	projectID := current.ProjectID
 	if req.ProjectID != nil {
