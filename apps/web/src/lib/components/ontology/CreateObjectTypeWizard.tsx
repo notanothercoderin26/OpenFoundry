@@ -4,15 +4,18 @@ import { Glyph } from "@/lib/components/ui/Glyph";
 import {
   bindProjectResource,
   createActionType,
-  createObjectType,
   createObjectTypeBinding,
-  createProperty,
   listProjects,
   propertyTypeMetadata,
   type ObjectType,
   type OntologyProject,
 } from "@/lib/api/ontology";
 import { listDatasets, previewDataset, type Dataset } from "@/lib/api/datasets";
+import {
+  newClientId,
+  registerPostSave,
+  stage as stageOntologyEdit,
+} from "@/lib/stores/ontologyWorkingState";
 
 interface CreateObjectTypeWizardProps {
   open: boolean;
@@ -491,169 +494,223 @@ export function CreateObjectTypeWizard({
     if (titleColumn === row.id) setTitleColumn("");
   }
 
-  async function submit() {
+  function submit() {
+    // The wizard splits its work into two halves now:
+    //
+    //   1. CORE (atomic): object_type + every included property is
+    //      staged through the working state with a pre-assigned uuid.
+    //      All of them commit together when the user clicks Save in
+    //      the Review-edits modal, or roll back together if any one
+    //      fails validation / conflict.
+    //
+    //   2. AUXILIARY (post-save): project binding, datasource
+    //      binding, and the default create/modify/delete action
+    //      types are NOT in the batch-save dispatch table today, so
+    //      they fire inline after the batch commits via a post-save
+    //      hook. They reuse the same uuid the core core staged, so
+    //      the link-back is exact. If an auxiliary call fails the
+    //      type still exists; the user can recreate the binding /
+    //      action type from the type's detail page.
     setSubmitting(true);
     setError("");
-    try {
-      const submitIssues = propertyEditorIssues(
-        propertyRows,
-        primaryKeyColumn,
-        titleColumn,
-        Boolean(selectedDataset),
-      );
-      if (submitIssues.length > 0) {
-        setError(submitIssues.join(" "));
-        return;
-      }
-      const includedRows = propertyRows.filter(
-        (row) => row.include && row.supported && !row.deleted,
-      );
-      const primaryRow = includedRows.find((row) => row.id === primaryKeyColumn);
-      const titleRow = includedRows.find((row) => row.id === titleColumn);
-      const objectApiName = snakeIdent(name) || "new_object_type";
-      const created = await createObjectType({
-        name: objectApiName,
-        display_name: name.trim() || undefined,
-        description:
-          [
-            description.trim(),
-            selectedGroupNames.trim()
-              ? `Groups: ${selectedGroupNames.trim()}`
-              : "",
-            titleRow ? `Title key: ${titleRow.property_name}` : "",
-            datasourceMode === "continue"
-              ? `Placeholder permissions dataset: ${generatedPermissionsDataset.trim()}`
-              : "",
-            folderPath.trim() ? `Save location: ${folderPath.trim()}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n") || undefined,
-        primary_key_property: primaryRow?.property_name,
-        title_property: titleRow?.property_name,
-        plural_display_name: pluralName.trim() || undefined,
-        group_names: selectedGroupNames
-          .split(",")
-          .map((entry) => entry.trim())
-          .filter(Boolean),
-        object_display_preferences: titleRow
-          ? { title_property: titleRow.property_name }
-          : undefined,
+    const submitIssues = propertyEditorIssues(
+      propertyRows,
+      primaryKeyColumn,
+      titleColumn,
+      Boolean(selectedDataset),
+    );
+    if (submitIssues.length > 0) {
+      setError(submitIssues.join(" "));
+      setSubmitting(false);
+      return;
+    }
+    const includedRows = propertyRows.filter(
+      (row) => row.include && row.supported && !row.deleted,
+    );
+    const primaryRow = includedRows.find((row) => row.id === primaryKeyColumn);
+    const titleRow = includedRows.find((row) => row.id === titleColumn);
+    const objectApiName = snakeIdent(name) || "new_object_type";
+
+    // Pre-assigned uuid shared by every staged edit in this wizard
+    // batch. Property creates reference it via `object_type_id`; the
+    // post-save hook references it for the auxiliary API calls. Cross-
+    // ref propagation in the batch-save dispatch turns this into a
+    // single transactional create on the backend.
+    const objectTypeId = newClientId();
+
+    const objectTypeBody = {
+      id: objectTypeId,
+      name: objectApiName,
+      display_name: name.trim() || undefined,
+      description:
+        [
+          description.trim(),
+          selectedGroupNames.trim()
+            ? `Groups: ${selectedGroupNames.trim()}`
+            : "",
+          titleRow ? `Title key: ${titleRow.property_name}` : "",
+          datasourceMode === "continue"
+            ? `Placeholder permissions dataset: ${generatedPermissionsDataset.trim()}`
+            : "",
+          folderPath.trim() ? `Save location: ${folderPath.trim()}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n") || undefined,
+      primary_key_property: primaryRow?.property_name,
+      title_property: titleRow?.property_name,
+      plural_display_name: pluralName.trim() || undefined,
+      group_names: selectedGroupNames
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+      object_display_preferences: titleRow
+        ? { title_property: titleRow.property_name }
+        : undefined,
+    };
+
+    stageOntologyEdit({
+      clientId: objectTypeId,
+      op: "create",
+      resource: "object_type",
+      label: name.trim() || objectApiName,
+      draft: objectTypeBody,
+    });
+
+    for (const row of includedRows) {
+      stageOntologyEdit({
+        op: "create",
+        resource: "property",
+        label: row.display_name || row.property_name,
+        draft: {
+          object_type_id: objectTypeId,
+          name: row.property_name,
+          display_name: row.display_name,
+          property_type: row.property_type,
+          required:
+            row.required || row.property_name === primaryRow?.property_name,
+          unique_constraint:
+            row.property_name === primaryRow?.property_name,
+        },
       });
+    }
 
-      const propertyResults = await Promise.allSettled(
-        includedRows.map((row) =>
-          createProperty(created.id, {
-            name: row.property_name,
-            display_name: row.display_name,
-            property_type: row.property_type,
-            required:
-              row.required || row.property_name === primaryRow?.property_name,
-            unique_constraint: row.property_name === primaryRow?.property_name,
+    // Queue the auxiliary API calls. They reference the pre-assigned
+    // uuid which becomes the real object type's id once the batch
+    // commits.
+    registerPostSave(async () => {
+      const followups: Array<Promise<unknown>> = [];
+      if (selectedProjectId) {
+        followups.push(
+          bindProjectResource(selectedProjectId, {
+            resource_kind: "object_type",
+            resource_id: objectTypeId,
           }),
-        ),
-      );
-      const propertyFailures = propertyResults.filter(
-        (result) => result.status === "rejected",
-      ).length;
-
-      const followupResults = await Promise.allSettled([
-        selectedProjectId
-          ? bindProjectResource(selectedProjectId, {
-              resource_kind: "object_type",
-              resource_id: created.id,
-            })
-          : Promise.resolve(null),
-        selectedDataset && primaryRow
-          ? createObjectTypeBinding(created.id, {
-              dataset_id: selectedDataset.id,
-              dataset_branch: selectedDataset.active_branch || undefined,
-              primary_key_column: primaryRow.source_column,
-              property_mapping: includedRows
-                .filter((row) => row.source_column.trim())
-                .map((row) => ({
-                  source_field: row.source_column,
-                  target_property: row.property_name,
-                })),
-              sync_mode: "snapshot",
-              default_marking: "default",
-              preview_limit: 1000,
-            })
-          : Promise.resolve(null),
-        actions.create
-          ? createActionType({
-              name: `${objectApiName}_create`,
-              display_name: `Create ${name || "object"}`,
-              description: `Generated by the object type creation helper for ${name || objectApiName}.`,
-              object_type_id: created.id,
-              operation_kind: "create_object",
-              input_schema: includedRows.map((row) => ({
+        );
+      }
+      if (selectedDataset && primaryRow) {
+        followups.push(
+          createObjectTypeBinding(objectTypeId, {
+            dataset_id: selectedDataset.id,
+            dataset_branch: selectedDataset.active_branch || undefined,
+            primary_key_column: primaryRow.source_column,
+            property_mapping: includedRows
+              .filter((row) => row.source_column.trim())
+              .map((row) => ({
+                source_field: row.source_column,
+                target_property: row.property_name,
+              })),
+            sync_mode: "snapshot",
+            default_marking: "default",
+            preview_limit: 1000,
+          }),
+        );
+      }
+      if (actions.create) {
+        followups.push(
+          createActionType({
+            name: `${objectApiName}_create`,
+            display_name: `Create ${name || "object"}`,
+            description: `Generated by the object type creation helper for ${name || objectApiName}.`,
+            object_type_id: objectTypeId,
+            operation_kind: "create_object",
+            input_schema: includedRows.map((row) => ({
+              name: row.property_name,
+              display_name: row.display_name,
+              property_type: row.property_type,
+              required: row.property_name === primaryRow?.property_name,
+            })),
+            config: { generated_by: "object_type_creation_helper" },
+          }),
+        );
+      }
+      if (actions.modify) {
+        followups.push(
+          createActionType({
+            name: `${objectApiName}_modify`,
+            display_name: `Modify ${name || "object"}`,
+            description: `Generated by the object type creation helper for ${name || objectApiName}.`,
+            object_type_id: objectTypeId,
+            operation_kind: "update_object",
+            input_schema: includedRows
+              .filter(
+                (row) => row.property_name !== primaryRow?.property_name,
+              )
+              .map((row) => ({
                 name: row.property_name,
                 display_name: row.display_name,
                 property_type: row.property_type,
-                required: row.property_name === primaryRow?.property_name,
+                required: false,
               })),
-              config: { generated_by: "object_type_creation_helper" },
-            })
-          : Promise.resolve(null),
-        actions.modify
-          ? createActionType({
-              name: `${objectApiName}_modify`,
-              display_name: `Modify ${name || "object"}`,
-              description: `Generated by the object type creation helper for ${name || objectApiName}.`,
-              object_type_id: created.id,
-              operation_kind: "update_object",
-              input_schema: includedRows
-                .filter(
-                  (row) => row.property_name !== primaryRow?.property_name,
-                )
-                .map((row) => ({
-                  name: row.property_name,
-                  display_name: row.display_name,
-                  property_type: row.property_type,
-                  required: false,
-                })),
-              config: { generated_by: "object_type_creation_helper" },
-            })
-          : Promise.resolve(null),
-        actions.delete
-          ? createActionType({
-              name: `${objectApiName}_delete`,
-              display_name: `Delete ${name || "object"}`,
-              description: `Generated by the object type creation helper for ${name || objectApiName}.`,
-              object_type_id: created.id,
-              operation_kind: "delete_object",
-              input_schema: primaryRow
-                ? [
-                    {
-                      name: primaryRow.property_name,
-                      display_name: primaryRow.display_name,
-                      property_type: primaryRow.property_type,
-                      required: true,
-                    },
-                  ]
-                : [],
-              confirmation_required: true,
-              config: { generated_by: "object_type_creation_helper" },
-            })
-          : Promise.resolve(null),
-      ]);
-      const followupFailures = followupResults.filter(
-        (result) => result.status === "rejected",
-      ).length;
-      if (propertyFailures > 0 || followupFailures > 0) {
-        setError(
-          `Object type created, but ${propertyFailures} property write(s) and ${followupFailures} follow-up task(s) failed. You can close this dialog and continue editing the type.`,
+            config: { generated_by: "object_type_creation_helper" },
+          }),
         );
-        onCreated(created);
-        return;
       }
-      onCreated(created);
-      onClose();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Create failed");
-    } finally {
-      setSubmitting(false);
-    }
+      if (actions.delete) {
+        followups.push(
+          createActionType({
+            name: `${objectApiName}_delete`,
+            display_name: `Delete ${name || "object"}`,
+            description: `Generated by the object type creation helper for ${name || objectApiName}.`,
+            object_type_id: objectTypeId,
+            operation_kind: "delete_object",
+            input_schema: primaryRow
+              ? [
+                  {
+                    name: primaryRow.property_name,
+                    display_name: primaryRow.display_name,
+                    property_type: primaryRow.property_type,
+                    required: true,
+                  },
+                ]
+              : [],
+            confirmation_required: true,
+            config: { generated_by: "object_type_creation_helper" },
+          }),
+        );
+      }
+      await Promise.allSettled(followups);
+    });
+
+    // Synthesize an ObjectType stub for the onCreated callback. The
+    // wizard's hosting page closes the dialog and the working-state
+    // badge advertises the pending edits. The page should NOT
+    // navigate to /ontology/<id> here — the row doesn't exist on the
+    // server until the batch save commits.
+    const synthesized: ObjectType = {
+      id: objectTypeId,
+      name: objectTypeBody.name,
+      display_name: objectTypeBody.display_name || objectTypeBody.name,
+      description: objectTypeBody.description || "",
+      primary_key_property: objectTypeBody.primary_key_property ?? null,
+      icon: null,
+      color: null,
+      owner_id: "",
+      created_at: "",
+      updated_at: "",
+    };
+    onCreated(synthesized);
+    onClose();
+    setSubmitting(false);
   }
 
   return (

@@ -201,6 +201,36 @@ function uuid(): string {
   return "edit-" + Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
 }
 
+// ── Post-save hooks ──────────────────────────────────────────────────
+//
+// Some Ontology-Manager flows have to follow up on a batch save with
+// API calls that are NOT in the batch-save dispatch table — the
+// CreateObjectTypeWizard's project / datasource / action-type
+// bindings are the canonical example. The wizard stages the
+// object_type + properties through batch-save (atomic core) and
+// registers an auxiliary hook here; the hook fires after the batch
+// commits, using the pre-assigned cross-reference uuids the wizard
+// allocated up front.
+//
+// Semantics: hooks fire once, only on a successful batch save, and
+// receive the raw response so they can inspect per-edit results.
+// On batch failure the hooks are dropped (callers retry by
+// re-staging from scratch).
+
+export type PostSaveHook = (response: BatchSaveResponse) => Promise<void> | void;
+
+const postSaveHooks: PostSaveHook[] = [];
+
+/**
+ * Queue an auxiliary callback to run once the next successful batch
+ * save commits. Use for follow-up API calls that aren't part of the
+ * batch-save dispatch table — e.g. binding the newly-created object
+ * type to a project, or generating default action types.
+ */
+export function registerPostSave(hook: PostSaveHook) {
+  postSaveHooks.push(hook);
+}
+
 /**
  * Allocate a uuid the working state can use as a cross-reference id.
  *
@@ -440,6 +470,25 @@ export async function save(options: SaveOptions = {}): Promise<BatchSaveResponse
   }
 
   applySaveResponse(response);
+
+  // Drain post-save hooks. They only fire on a successful batch — a
+  // partial / failed batch drops them, callers retry from scratch.
+  const drained = postSaveHooks.splice(0);
+  if (response.status === "ok") {
+    for (const hook of drained) {
+      try {
+        await hook(response);
+      } catch (err) {
+        // Best-effort: a failing hook (e.g. an auxiliary API call) is
+        // logged but doesn't surface in the modal because the core
+        // batch already committed. Callers that need visibility
+        // should report via their own UI (toaster, banner, …).
+        // eslint-disable-next-line no-console
+        console.error("ontology working-state: post-save hook failed", err);
+      }
+    }
+  }
+
   return response;
 }
 
@@ -648,6 +697,7 @@ export function useEditCount(): number {
  */
 export function _resetForTests() {
   snapshot = initialSnapshot;
+  postSaveHooks.length = 0;
   if (typeof sessionStorage !== "undefined") {
     sessionStorage.removeItem(STORAGE_KEY);
   }

@@ -11,6 +11,7 @@ import {
   getConflictCount,
   getEditCount,
   newClientId,
+  registerPostSave,
   resolveConflict,
   save,
   stage,
@@ -348,6 +349,86 @@ describe('diffStagedEdit()', () => {
       createdAt: 0,
     };
     expect(diffStagedEdit(create)).toEqual([]);
+  });
+});
+
+describe('registerPostSave', () => {
+  // Used by CreateObjectTypeWizard to fire auxiliary API calls
+  // (project binding, datasource binding, action types) after the
+  // batch save commits — those resources aren't in the batch-save
+  // dispatch table today.
+  it('fires queued hooks once after a successful save', async () => {
+    stage({
+      op: 'create',
+      resource: 'object_type',
+      label: 'A',
+      draft: { name: 'a', display_name: 'A' },
+    });
+    const calls: number[] = [];
+    registerPostSave(() => {
+      calls.push(1);
+    });
+    registerPostSave(async () => {
+      calls.push(2);
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(200, {
+          batch_id: 'b',
+          status: 'ok',
+          results: [{ client_id: 'x', resource: 'object_type', op: 'create', status: 'ok' }],
+        }),
+      ),
+    );
+    await save();
+    expect(calls).toEqual([1, 2]);
+    // Second save with no hooks queued shouldn't replay them.
+    stage({
+      op: 'create',
+      resource: 'object_type',
+      label: 'B',
+      draft: { name: 'b', display_name: 'B' },
+    });
+    await save();
+    expect(calls).toEqual([1, 2]);
+  });
+
+  it('drops queued hooks when the save fails', async () => {
+    stage({
+      op: 'update',
+      resource: 'object_type',
+      resourceId: 'ot-1',
+      expectedVersion: 1,
+      originalSnapshot: { display_name: 'A' },
+      label: 'A',
+      draft: { display_name: 'A2' },
+    });
+    const calls: string[] = [];
+    registerPostSave(() => {
+      calls.push('hook');
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(200, {
+          batch_id: 'b',
+          status: 'failed',
+          results: [
+            {
+              client_id: 'x',
+              resource: 'object_type',
+              op: 'update',
+              status: 'conflict',
+              current_version: 9,
+              current_body: {},
+            },
+          ],
+        }),
+      ),
+    );
+    await save();
+    expect(calls).toEqual([]);
   });
 });
 

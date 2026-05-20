@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 import { projectStablePath } from "@/lib/compass/stableResourceUrls";
 import {
@@ -258,7 +258,6 @@ const PROPERTY_BASE_TYPE_OPTIONS = [
 ];
 
 export function OntologyManagerPage() {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const [section, setSection] = useState<Section>("overview");
   const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
@@ -2531,10 +2530,13 @@ export function OntologyManagerPage() {
       <CreateObjectTypeWizard
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
-        onCreated={(objectType) => {
+        onCreated={() => {
+          // The wizard now stages onto the working state instead of
+          // committing inline, so the freshly-staged object type has
+          // no server row to navigate to yet. Close the dialog and
+          // leave the new type to surface via OntologyEditsButton's
+          // refresh() after the batch save commits.
           setWizardOpen(false);
-          void refresh();
-          navigate(`/ontology/${objectType.id}`);
         }}
       />
 
