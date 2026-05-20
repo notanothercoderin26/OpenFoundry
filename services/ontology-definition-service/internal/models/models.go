@@ -838,3 +838,81 @@ type UpdateSharedPropertyTypeRequest struct {
 	DefaultValue     any     `json:"default_value,omitempty"`
 	ValidationRules  any     `json:"validation_rules,omitempty"`
 }
+
+// ObjectView mirrors `ontology_schema.object_views` rows. The
+// Ontology Manager "Object Views" tab and the per-object-type detail
+// surfaces (Workshop, Object Explorer, Vertex) read from this table.
+//
+// `Config` is intentionally opaque on the Go side: the apps/web SPA
+// owns the rich nested shape (tabs, sidebar links, workshop modules,
+// panel hosts) and a backend-side typed model would couple this
+// service to every frontend revision. The JSONB column stores
+// whatever the client persisted; downstream consumers parse it.
+type ObjectView struct {
+	ID           uuid.UUID       `json:"id"`
+	Name         string          `json:"name"`
+	DisplayName  string          `json:"display_name"`
+	Description  string          `json:"description"`
+	ObjectTypeID uuid.UUID       `json:"object_type_id"`
+	Mode         string          `json:"mode"`
+	FormFactor   string          `json:"form_factor"`
+	Config       json.RawMessage `json:"config,omitempty"`
+	BranchLabel  *string         `json:"branch_label,omitempty"`
+	Published    bool            `json:"published"`
+	OwnerID      uuid.UUID       `json:"owner_id"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+	Version      int             `json:"version"`
+}
+
+// CreateObjectViewRequest is the wire payload accepted by
+// `POST /object-views`. `Name` and `ObjectTypeID` are required; the
+// remaining fields fall back to sensible defaults (standard / full /
+// empty config / draft).
+type CreateObjectViewRequest struct {
+	Name         string          `json:"name"`
+	DisplayName  string          `json:"display_name,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	ObjectTypeID uuid.UUID       `json:"object_type_id"`
+	Mode         string          `json:"mode,omitempty"`
+	FormFactor   string          `json:"form_factor,omitempty"`
+	Config       json.RawMessage `json:"config,omitempty"`
+	BranchLabel  *string         `json:"branch_label,omitempty"`
+	Published    *bool           `json:"published,omitempty"`
+}
+
+// UpdateObjectViewRequest is the partial-update payload accepted by
+// `PATCH /object-views/{id}`. Nil pointers mean "leave unchanged".
+// `ObjectTypeID` is deliberately omitted — moving a view to a
+// different object type would invalidate every embedded property
+// reference; callers delete and recreate.
+type UpdateObjectViewRequest struct {
+	DisplayName *string         `json:"display_name,omitempty"`
+	Description *string         `json:"description,omitempty"`
+	Mode        *string         `json:"mode,omitempty"`
+	FormFactor  *string         `json:"form_factor,omitempty"`
+	Config      json.RawMessage `json:"config,omitempty"`
+	BranchLabel *string         `json:"branch_label,omitempty"`
+	Published   *bool           `json:"published,omitempty"`
+}
+
+// ValidateObjectViewMode returns nil if `mode` is one of the accepted
+// values (matches the CHECK constraint on `object_views.mode`).
+func ValidateObjectViewMode(mode string) error {
+	switch mode {
+	case "", "standard", "configured":
+		return nil
+	}
+	return fmt.Errorf("invalid mode %q (must be standard or configured)", mode)
+}
+
+// ValidateObjectViewFormFactor returns nil if `formFactor` is one of
+// the accepted values (matches the CHECK constraint on
+// `object_views.form_factor`).
+func ValidateObjectViewFormFactor(formFactor string) error {
+	switch formFactor {
+	case "", "full", "panel":
+		return nil
+	}
+	return fmt.Errorf("invalid form_factor %q (must be full or panel)", formFactor)
+}

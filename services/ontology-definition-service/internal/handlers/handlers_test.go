@@ -104,3 +104,59 @@ func TestCreatePropertyRejectsUnknownBaseType(t *testing.T) {
 	assert.Equal(t, 400, rec.Code)
 	assert.Contains(t, rec.Body.String(), "invalid property type")
 }
+
+func TestListObjectViewsRequiresAuth(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	req := httptest.NewRequest("GET", "/object-views", nil)
+	rec := httptest.NewRecorder()
+	h.ListObjectViews(rec, req)
+	assert.Equal(t, 401, rec.Code)
+}
+
+func TestCreateObjectViewRejectsEmptyName(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{Repo: &fakeStore{}}
+	c := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("POST", "/object-views",
+		strings.NewReader(`{"name":"","object_type_id":"`+uuid.New().String()+`"}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateObjectView(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "name is required")
+}
+
+func TestCreateObjectViewRejectsInvalidFormFactor(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{Repo: &fakeStore{}}
+	c := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("POST", "/object-views",
+		strings.NewReader(`{"name":"summary","object_type_id":"`+uuid.New().String()+`","form_factor":"hologram"}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateObjectView(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "invalid form_factor")
+}
+
+func TestCreateObjectViewRoundTrip(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{Repo: &fakeStore{}}
+	c := &authmw.Claims{Sub: uuid.New()}
+	otID := uuid.New()
+	req := httptest.NewRequest("POST", "/object-views",
+		strings.NewReader(`{"name":"summary","display_name":"Summary","object_type_id":"`+otID.String()+`","mode":"configured","form_factor":"panel","config":{"panel":{"density":"compact"}}}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateObjectView(rec, req)
+	require.Equal(t, 201, rec.Code)
+	got := models.ObjectView{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, "summary", got.Name)
+	assert.Equal(t, "Summary", got.DisplayName)
+	assert.Equal(t, otID, got.ObjectTypeID)
+	assert.Equal(t, "configured", got.Mode)
+	assert.Equal(t, "panel", got.FormFactor)
+	assert.JSONEq(t, `{"panel":{"density":"compact"}}`, string(got.Config))
+}

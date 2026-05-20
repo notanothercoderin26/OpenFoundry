@@ -114,6 +114,18 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, pool *
 		api.Patch("/shared-property-types/{id}", h.UpdateSharedPropertyType)
 		api.Delete("/shared-property-types/{id}", h.DeleteSharedPropertyType)
 
+		// Object views — per-object-type rendering definitions surfaced
+		// in the Ontology Manager "Object Views" tab and consumed by
+		// the object detail surfaces (Workshop, Object Explorer,
+		// Vertex). Also mounted top-level at /api/v1/object-views (see
+		// mountObjectViewsTopLevel below) to match the historical
+		// apps/web client path.
+		api.Get("/object-views", h.ListObjectViews)
+		api.Post("/object-views", h.CreateObjectView)
+		api.Get("/object-views/{id}", h.GetObjectView)
+		api.Patch("/object-views/{id}", h.UpdateObjectView)
+		api.Delete("/object-views/{id}", h.DeleteObjectView)
+
 		// Atomic batch save for the Ontology-Manager Review-edits
 		// modal. All staged edits succeed together or none of them
 		// do; per-edit results (errors / conflicts / warnings) come
@@ -147,9 +159,23 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, pool *
 	r.Route("/api/v1/ontology-definition", mountObjectTypes)
 	r.Route("/api/v1/ontology", mountObjectTypes)
 
+	// Object views are also reachable at the top-level
+	// `/api/v1/object-views` path — apps/web has shipped that URL since
+	// the Rust era and changing it would invalidate every cached
+	// bookmark / saved deep link. The gateway routes the same prefix
+	// here (see edge-gateway-service/internal/proxy/router_table.go).
+	r.Group(func(api chi.Router) {
+		api.Use(authmw.Middleware(jwt))
+		api.Get("/api/v1/object-views", h.ListObjectViews)
+		api.Post("/api/v1/object-views", h.CreateObjectView)
+		api.Get("/api/v1/object-views/{id}", h.GetObjectView)
+		api.Patch("/api/v1/object-views/{id}", h.UpdateObjectView)
+		api.Delete("/api/v1/object-views/{id}", h.DeleteObjectView)
+	})
+
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "ontology-definition",
-		AuthPaths: []string{"/api/v1/ontology-definition", "/api/v1/ontology"},
+		AuthPaths: []string{"/api/v1/ontology-definition", "/api/v1/ontology", "/api/v1/object-views"},
 		Tags:      []string{"ontology", "definition"},
 	}); err != nil {
 		panic("ontology-definition-service: capability ingest failed: " + err.Error())

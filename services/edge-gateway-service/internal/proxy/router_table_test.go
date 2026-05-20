@@ -119,6 +119,9 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/ontology/interfaces", "ontology-def"},
 		{"/api/v1/ontology/types", "ontology-def"},
 		{"/api/v1/ontology/anything-else", "ontology-def"},
+		// object views (top-level path; routes to ontology-definition-service)
+		{"/api/v1/object-views", "ontology-def"},
+		{"/api/v1/object-views/abc", "ontology-def"},
 		// workflows/notebooks (ADR-0030: approvals-service retired into
 		// workflow-automation-service; both /workflows/approvals and the
 		// /approvals alias resolve to workflow now).
