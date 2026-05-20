@@ -127,6 +127,7 @@ func main() {
 		handler.SetPipelineAuthoringRepository(repo)
 		handler.SetPipelineAccessRepository(repo)
 		handler.SetComputeProfileRepository(repo)
+		handler.SetMLModelRepository(repo)
 		handler.SetSparkSubmissionRepository(repo)
 		handler.SetScheduleRepository(repo)
 		handler.SetJobLogService(&livellogs.Service{Store: repo, Subscriber: livellogs.NewMemoryService()})

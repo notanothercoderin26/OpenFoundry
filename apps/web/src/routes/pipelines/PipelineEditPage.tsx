@@ -44,6 +44,7 @@ import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/Output
 import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
 import { BuildChecksStatus } from '@/lib/components/pipeline/BuildChecksStatus';
 import { BuildSettingsButton } from '@/lib/components/pipeline/BuildSettingsButton';
+import { MLPredictEditor } from '@/lib/components/pipeline/MLPredictEditor';
 import { OutputsSidebar } from '@/lib/components/pipeline/OutputsSidebar';
 import { PipelineDetailsDrawer } from '@/lib/components/pipeline/PipelineDetailsDrawer';
 import { PipelineParametersModal } from '@/lib/components/pipeline/PipelineParametersModal';
@@ -308,6 +309,7 @@ export function PipelineEditPage() {
   const [parametersBusy, setParametersBusy] = useState(false);
   const [liveValidation, setLiveValidation] = useState<PipelineValidationResponse | null>(null);
   const [outputsSidebarCollapsed, setOutputsSidebarCollapsed] = useState(false);
+  const [mlPredictNode, setMlPredictNode] = useState<PipelineNode | null>(null);
   const [versionViewer, setVersionViewer] = useState<{
     mode: 'details' | 'changes';
     version: PipelineVersion;
@@ -522,6 +524,10 @@ export function PipelineEditPage() {
   }
 
   function handleOpenTransform(node: PipelineNode) {
+    if (node.transform_type === 'ml_predict') {
+      setMlPredictNode(node);
+      return;
+    }
     const config = node.config as Record<string, unknown> | undefined;
     const storedStack = config?._stack as TransformStack | undefined;
     if (storedStack) {
@@ -1516,6 +1522,24 @@ export function PipelineEditPage() {
         busy={parametersBusy}
         onClose={() => setParametersOpen(false)}
         onSave={(next) => saveParameters(next)}
+      />
+
+      <MLPredictEditor
+        open={Boolean(mlPredictNode)}
+        node={mlPredictNode}
+        upstreamColumns={(() => {
+          if (!mlPredictNode) return [];
+          const sourceId = mlPredictNode.depends_on[0];
+          const source = sourceId ? parsedNodes.find((entry) => entry.id === sourceId) : null;
+          const config = source?.config as Record<string, unknown> | undefined;
+          const schema = config?.schema_columns;
+          if (Array.isArray(schema)) return schema.filter((value): value is string => typeof value === 'string');
+          return [];
+        })()}
+        onClose={() => setMlPredictNode(null)}
+        onApply={(next) => {
+          setPipelineNodes(currentNodes().map((entry) => (entry.id === next.id ? next : entry)));
+        }}
       />
     </section>
   );

@@ -166,6 +166,11 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabil
 
 		api.Get("/compute-profiles", handler.ListComputeProfiles)
 
+		api.Get("/ml-models", handler.ListMLModels)
+		api.Post("/ml-models", handler.CreateMLModel)
+		api.Get("/ml-models/{id}", handler.GetMLModel)
+		api.Delete("/ml-models/{id}", handler.DeleteMLModel)
+
 		api.Get("/pipelines/{id}/runs", handler.ListPipelineRuns)
 		api.Post("/pipelines/{id}/runs", handler.TriggerPipelineRun)
 		api.Get("/pipelines/{id}/runs/{run_id}", handler.GetPipelineRun)

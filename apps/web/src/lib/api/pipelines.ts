@@ -690,6 +690,61 @@ export function listComputeProfiles() {
   return api.get<{ items: ComputeProfile[] }>('/compute-profiles');
 }
 
+// ---------------------------------------------------------------------------
+// Trained ML model registry.
+// Mirrors services/pipeline-build-service/internal/handler/ml_models.go.
+
+export type MLModelFramework = 'sklearn' | 'pytorch' | 'tensorflow' | 'onnx' | 'xgboost' | 'lightgbm' | 'custom';
+
+export interface MLModelField {
+  name: string;
+  type: string;
+}
+
+export interface MLModel {
+  id: string;
+  slug: string;
+  display_name: string;
+  description: string;
+  framework: MLModelFramework | string;
+  version: string;
+  input_schema: MLModelField[];
+  output_schema: MLModelField[];
+  artifact_uri: string;
+  inference_url?: string;
+  owner_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMLModelRequest {
+  slug: string;
+  display_name: string;
+  description?: string;
+  framework?: MLModelFramework | string;
+  version?: string;
+  input_schema?: MLModelField[];
+  output_schema?: MLModelField[];
+  artifact_uri?: string;
+  inference_url?: string;
+}
+
+export function listMLModels() {
+  return api.get<{ items: MLModel[] }>('/ml-models');
+}
+
+export function getMLModel(idOrSlug: string) {
+  return api.get<MLModel>(`/ml-models/${encodeURIComponent(idOrSlug)}`);
+}
+
+export function createMLModel(body: CreateMLModelRequest) {
+  return api.post<MLModel>('/ml-models', body);
+}
+
+export function deleteMLModel(id: string) {
+  return api.delete(`/ml-models/${id}`);
+}
+
 // Validation / compilation (Foundry: "Validate" and "Preview" buttons in
 // Pipeline Builder before Deploy). These accept the in-flight DAG from the
 // canvas — they do NOT require a persisted pipeline row.
