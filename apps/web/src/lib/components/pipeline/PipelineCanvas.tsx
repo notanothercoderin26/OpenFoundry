@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   validatePipeline,
@@ -28,6 +28,30 @@ const NODE_W = 180;
 const NODE_H = 64;
 const STAGE_GAP_X = 80;
 const STAGE_GAP_Y = 24;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 2;
+const ZOOM_STEP = 0.2;
+
+interface Rect {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+function normalizeRect(rect: Rect): Rect {
+  return {
+    x1: Math.min(rect.x1, rect.x2),
+    y1: Math.min(rect.y1, rect.y2),
+    x2: Math.max(rect.x1, rect.x2),
+    y2: Math.max(rect.y1, rect.y2),
+  };
+}
+
+function rectIntersectsNode(rect: Rect, pos: { x: number; y: number }): boolean {
+  const r = normalizeRect(rect);
+  return pos.x < r.x2 && pos.x + NODE_W > r.x1 && pos.y < r.y2 && pos.y + NODE_H > r.y1;
+}
 
 const TRANSFORM_OPTIONS = [
   { value: 'passthrough', label: 'Passthrough' },
@@ -103,6 +127,12 @@ export function PipelineCanvas({
   const [validation, setValidation] = useState<PipelineValidationResponse | null>(null);
   const [validating, setValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [multiSelected, setMultiSelected] = useState<Set<string>>(() => new Set());
+  const [marquee, setMarquee] = useState<Rect | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const stages = useMemo(() => topologicalStages(nodes), [nodes]);
 
@@ -147,6 +177,35 @@ export function PipelineCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, status, scheduleConfig.enabled, scheduleConfig.cron]);
 
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      if (event.key === '=' || event.key === '+') {
+        event.preventDefault();
+        zoomIn();
+      } else if (event.key === '-' || event.key === '_') {
+        event.preventDefault();
+        zoomOut();
+      } else if (event.key === '0') {
+        event.preventDefault();
+        zoomReset();
+      } else if (event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        if (readOnly) return;
+        setMultiSelected(new Set(nodes.map((n) => n.id)));
+        setSelectedId(null);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, readOnly]);
+
   function selectNode(id: string | null) {
     if (readOnly && id !== null) return;
     setSelectedId(id);
@@ -177,6 +236,56 @@ export function PipelineCanvas({
     onChange?.(nodes.filter((n) => n.id !== removed).map((n) => ({ ...n, depends_on: n.depends_on.filter((d) => d !== removed) })));
     setSelectedId(null);
     onSelect?.(null);
+  }
+
+  function removeMultiSelected() {
+    if (readOnly || multiSelected.size === 0) return;
+    const removed = multiSelected;
+    onChange?.(
+      nodes
+        .filter((n) => !removed.has(n.id))
+        .map((n) => ({ ...n, depends_on: n.depends_on.filter((d) => !removed.has(d)) })),
+    );
+    setMultiSelected(new Set());
+  }
+
+  function clampZoom(value: number) {
+    return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(value.toFixed(2))));
+  }
+
+  function zoomIn() {
+    setZoom((current) => clampZoom(current + ZOOM_STEP));
+  }
+
+  function zoomOut() {
+    setZoom((current) => clampZoom(current - ZOOM_STEP));
+  }
+
+  function zoomReset() {
+    setZoom(1);
+  }
+
+  function zoomToFit() {
+    const container = scrollRef.current;
+    if (!container) return;
+    const padding = 40;
+    const fitW = Math.max(canvasW, 1);
+    const fitH = Math.max(canvasH, 1);
+    const widthScale = (container.clientWidth - padding) / fitW;
+    const heightScale = (container.clientHeight - padding) / fitH;
+    setZoom(clampZoom(Math.min(widthScale, heightScale)));
+  }
+
+  function clientPointToCanvas(event: { clientX: number; clientY: number }): { x: number; y: number } | null {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const transformed = pt.matrixTransform(ctm.inverse());
+    return { x: transformed.x, y: transformed.y };
   }
 
   function startConnect() {
@@ -252,6 +361,7 @@ export function PipelineCanvas({
   }
 
   function nodeFill(node: PipelineNode) {
+    if (multiSelected.has(node.id)) return '#dbeafe';
     if (selectedId === node.id) return '#e8f1ff';
     if (pendingSourceId === node.id) return '#fff3df';
     return '#ffffff';
@@ -264,8 +374,56 @@ export function PipelineCanvas({
     if (tone === 'INVALID') return '#ef4444';
     if (tone === 'PENDING') return '#eab308';
     if (tone === 'VALID') return '#10b981';
+    if (multiSelected.has(node.id)) return '#2d72d2';
     if (selectedId === node.id) return '#2d72d2';
     return '#aeb8c5';
+  }
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  function nodeMatchesSearch(node: PipelineNode): boolean {
+    if (!normalizedQuery) return true;
+    return (
+      node.label.toLowerCase().includes(normalizedQuery) ||
+      node.id.toLowerCase().includes(normalizedQuery) ||
+      node.transform_type.toLowerCase().includes(normalizedQuery)
+    );
+  }
+  const searchActive = normalizedQuery.length > 0;
+  const matchCount = searchActive ? nodes.filter(nodeMatchesSearch).length : nodes.length;
+
+  function onSvgMouseDown(event: React.MouseEvent<SVGSVGElement>) {
+    if (readOnly) return;
+    if (pendingJoinLeftId || pendingUnionIds.length > 0 || pendingSourceId) return;
+    if (!event.shiftKey) return;
+    const target = event.target as Element | null;
+    if (target?.closest('[data-pipeline-node]')) return;
+    const p = clientPointToCanvas(event);
+    if (!p) return;
+    event.preventDefault();
+    setMarquee({ x1: p.x, y1: p.y, x2: p.x, y2: p.y });
+    setMultiSelected(new Set());
+    setSelectedId(null);
+  }
+
+  function onSvgMouseMove(event: React.MouseEvent<SVGSVGElement>) {
+    if (!marquee) return;
+    const p = clientPointToCanvas(event);
+    if (!p) return;
+    setMarquee({ ...marquee, x2: p.x, y2: p.y });
+  }
+
+  function onSvgMouseUp() {
+    if (!marquee) return;
+    const r = normalizeRect(marquee);
+    const inside = new Set<string>();
+    nodes.forEach((node) => {
+      const pos = positions.get(node.id);
+      if (!pos) return;
+      if (rectIntersectsNode(r, pos)) inside.add(node.id);
+    });
+    setMultiSelected(inside);
+    setMarquee(null);
+    if (inside.size > 0) onSelect?.(null);
   }
 
   function statusGlyph(nodeId: string) {
@@ -300,15 +458,62 @@ export function PipelineCanvas({
             </button>
           </>
         )}
-        <span className="of-text-muted" style={{ fontSize: 11, marginLeft: 'auto' }}>
-          {validating && '· validating…'}
-          {!validating && validation && validation.valid && '· ✓ valid'}
-          {!validating && validation && !validation.valid && `· ${validation.errors.length} error${validation.errors.length === 1 ? '' : 's'}`}
-          {!validating && validationError && ` · ${validationError}`}
-        </span>
+        {!readOnly && multiSelected.size > 0 && (
+          <>
+            <span className="of-chip" style={{ fontSize: 11 }}>
+              {multiSelected.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={removeMultiSelected}
+              className="of-button"
+              style={{ fontSize: 11, color: '#b91c1c', borderColor: '#fecaca' }}
+            >
+              Remove all
+            </button>
+            <button
+              type="button"
+              onClick={() => setMultiSelected(new Set())}
+              className="of-button"
+              style={{ fontSize: 11 }}
+            >
+              Clear selection
+            </button>
+          </>
+        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+          <label
+            className="of-input"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', fontSize: 11 }}
+          >
+            <Glyph name="search" size={12} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search nodes"
+              aria-label="Search nodes"
+              style={{ border: 0, outline: 'none', background: 'transparent', fontSize: 11, width: 110 }}
+            />
+            {searchActive && (
+              <span className="of-text-muted" style={{ fontSize: 10 }}>
+                {matchCount}/{nodes.length}
+              </span>
+            )}
+          </label>
+          <span className="of-text-muted" style={{ fontSize: 11 }}>
+            {validating && 'validating…'}
+            {!validating && validation && validation.valid && '✓ valid'}
+            {!validating && validation && !validation.valid && `${validation.errors.length} error${validation.errors.length === 1 ? '' : 's'}`}
+            {!validating && validationError && validationError}
+          </span>
+        </div>
       </div>
 
-      <div style={{ overflow: 'auto', border: 0, background: '#eef1f5', position: 'relative' }}>
+      <div
+        ref={scrollRef}
+        style={{ overflow: 'auto', border: 0, background: '#eef1f5', position: 'relative', height: '60vh', minHeight: 320 }}
+      >
         {pendingUnionIds.length > 0 ? (
           (() => {
             const primary = nodes.find((entry) => entry.id === pendingUnionIds[0]);
@@ -435,8 +640,8 @@ export function PipelineCanvas({
               <div
                 style={{
                   position: 'absolute',
-                  top: pos.y,
-                  left: pos.x + NODE_W + 6,
+                  top: pos.y * zoom,
+                  left: (pos.x + NODE_W + 6) * zoom,
                   zIndex: 5,
                   display: 'grid',
                   gap: 2,
@@ -537,7 +742,19 @@ export function PipelineCanvas({
             );
           })()
         ) : null}
-        <svg width={Math.max(canvasW, 600)} height={Math.max(canvasH, 200)} role="img" aria-label="Pipeline DAG" style={{ display: 'block' }}>
+        <svg
+          ref={svgRef}
+          width={Math.max(canvasW, 600) * zoom}
+          height={Math.max(canvasH, 200) * zoom}
+          viewBox={`0 0 ${Math.max(canvasW, 600)} ${Math.max(canvasH, 200)}`}
+          role="img"
+          aria-label="Pipeline DAG"
+          style={{ display: 'block', cursor: marquee ? 'crosshair' : undefined }}
+          onMouseDown={onSvgMouseDown}
+          onMouseMove={onSvgMouseMove}
+          onMouseUp={onSvgMouseUp}
+          onMouseLeave={() => marquee && setMarquee(null)}
+        >
           <defs>
             <pattern id="pipeline-grid" width="18" height="18" patternUnits="userSpaceOnUse">
               <path d="M 18 0 L 0 0 0 18" fill="none" stroke="#d7dde5" strokeWidth="1" />
@@ -582,13 +799,30 @@ export function PipelineCanvas({
           {nodes.map((n) => {
             const pos = positions.get(n.id);
             if (!pos) return null;
+            const dimmed = searchActive && !nodeMatchesSearch(n);
+            const matched = searchActive && nodeMatchesSearch(n);
             return (
               <g
                 key={n.id}
+                data-pipeline-node={n.id}
                 transform={`translate(${pos.x}, ${pos.y})`}
                 onClick={() => nodeClick(n.id)}
-                style={{ cursor: readOnly ? 'default' : 'pointer' }}
+                style={{ cursor: readOnly ? 'default' : 'pointer', opacity: dimmed ? 0.25 : 1 }}
               >
+                {matched && (
+                  <rect
+                    x={-4}
+                    y={-4}
+                    width={NODE_W + 8}
+                    height={NODE_H + 8}
+                    rx={4}
+                    ry={4}
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                  />
+                )}
                 <rect width={NODE_W} height={NODE_H} rx={2} ry={2} fill={nodeFill(n)} stroke={nodeStroke(n)} strokeWidth={1.5} />
                 <rect width={4} height={NODE_H} rx={2} ry={2} fill={selectedId === n.id ? '#2d72d2' : '#6f7d8c'} />
                 <text x={12} y={22} fill="#1f252d" fontSize={12} fontWeight={600}>
@@ -609,12 +843,89 @@ export function PipelineCanvas({
               </g>
             );
           })}
+          {marquee && (() => {
+            const r = normalizeRect(marquee);
+            return (
+              <rect
+                x={r.x1}
+                y={r.y1}
+                width={Math.max(0, r.x2 - r.x1)}
+                height={Math.max(0, r.y2 - r.y1)}
+                fill="rgba(45, 114, 210, 0.08)"
+                stroke="#2d72d2"
+                strokeWidth={1}
+                strokeDasharray="4 3"
+                pointerEvents="none"
+              />
+            );
+          })()}
           {nodes.length === 0 && (
             <text x={20} y={40} fill="#5f6b7a" fontSize={12}>
               Empty DAG. Click "+ SQL" or another transform to add a node.
             </text>
           )}
         </svg>
+        <div
+          role="group"
+          aria-label="Zoom controls"
+          style={{
+            position: 'absolute',
+            bottom: 12,
+            right: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            background: '#fff',
+            border: '1px solid var(--border-default)',
+            borderRadius: 4,
+            padding: 4,
+            boxShadow: '0 4px 12px rgba(15, 23, 42, 0.08)',
+            zIndex: 6,
+          }}
+        >
+          <button
+            type="button"
+            className="of-button"
+            onClick={zoomIn}
+            disabled={zoom >= ZOOM_MAX}
+            title="Zoom in (Ctrl++)"
+            aria-label="Zoom in"
+            style={{ width: 28, height: 28, padding: 0, fontSize: 14 }}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="of-button"
+            onClick={zoomOut}
+            disabled={zoom <= ZOOM_MIN}
+            title="Zoom out (Ctrl+-)"
+            aria-label="Zoom out"
+            style={{ width: 28, height: 28, padding: 0, fontSize: 14 }}
+          >
+            −
+          </button>
+          <button
+            type="button"
+            className="of-button"
+            onClick={zoomToFit}
+            title="Fit to screen"
+            aria-label="Fit to screen"
+            style={{ width: 28, height: 28, padding: 0, fontSize: 11 }}
+          >
+            ⤢
+          </button>
+          <button
+            type="button"
+            className="of-button"
+            onClick={zoomReset}
+            title="Reset zoom (Ctrl+0)"
+            aria-label="Reset zoom"
+            style={{ width: 28, height: 28, padding: 0, fontSize: 10 }}
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+        </div>
       </div>
 
       {validation && validation.errors.length > 0 && (
