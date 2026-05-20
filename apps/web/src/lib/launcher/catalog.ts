@@ -161,6 +161,15 @@ export const LAUNCHER_APPS: LauncherApp[] = [
     name: 'Job Engine',
     description: 'Manage long-running infrastructure jobs and workers.',
   },
+  {
+    id: 'data-connection',
+    href: '/data-connection',
+    icon: 'database',
+    iconTone: '#fb923c',
+    category: 'data-integration',
+    name: 'Data Connection',
+    description: 'Connect OpenFoundry to external systems with sources, syncs, exports, and webhooks.',
+  },
 
   // D. Analytics & Operations
   {

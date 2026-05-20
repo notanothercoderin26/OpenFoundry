@@ -1197,6 +1197,7 @@ func defaultApplicationAccessConfig() ApplicationAccessConfig {
 			{ID: "linter", Name: "Pipeline Linter", Category: "Data Integration", LifecycleStage: "beta", Enabled: true},
 			{ID: "peer-manager", Name: "Peer Manager", Category: "Data Integration", LifecycleStage: "beta", Enabled: true},
 			{ID: "machinery", Name: "Job Engine", Category: "Data Integration", LifecycleStage: "generally_available", Enabled: true},
+			{ID: "data-connection", Name: "Data Connection", Category: "Data Integration", LifecycleStage: "generally_available", Enabled: true},
 
 			// Analytics & Operations
 			{ID: "contour", Name: "Lens", Category: "Analytics & Operations", LifecycleStage: "generally_available", Enabled: true},
