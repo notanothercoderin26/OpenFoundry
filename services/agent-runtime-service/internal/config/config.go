@@ -26,6 +26,14 @@ type Config struct {
 	KafkaBootstrap       string
 	PurposeCheckpointURL string
 	AllowFakeLLMProvider bool
+
+	// B07 — endpoints for the ReAct tool router. Empty disables the
+	// corresponding tool kind (with a friendly observation when an
+	// agent tries to use it anyway).
+	LLMCatalogURL      string
+	ObjectDatabaseURL  string
+	OntologyActionsURL string
+	RetrievalURL       string
 }
 
 func FromEnv() (*Config, error) {
@@ -42,6 +50,10 @@ func FromEnv() (*Config, error) {
 		os.Getenv("PURPOSE_CHECKPOINT_URL"),
 	)
 	cfg.AllowFakeLLMProvider = parseBool(os.Getenv("ALLOW_FAKE_LLM_PROVIDER"), false)
+	cfg.LLMCatalogURL = os.Getenv("LLM_CATALOG_SERVICE_URL")
+	cfg.ObjectDatabaseURL = os.Getenv("OBJECT_DATABASE_SERVICE_URL")
+	cfg.OntologyActionsURL = os.Getenv("ONTOLOGY_ACTIONS_SERVICE_URL")
+	cfg.RetrievalURL = os.Getenv("RETRIEVAL_CONTEXT_SERVICE_URL")
 	if cfg.DatabaseURL == "" {
 		return nil, &MissingEnvError{Key: "DATABASE_URL"}
 	}

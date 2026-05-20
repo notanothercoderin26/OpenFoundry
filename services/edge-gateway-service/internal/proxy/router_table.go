@@ -297,6 +297,10 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 	// ADR-0030: conversation-state-service retired into agent-runtime-service.
 	case strings.HasPrefix(path, "/api/v1/ai/conversations"):
 		return u.AgentRuntime
+	// B07 §AC#4 — document upload + retrieval search.
+	case strings.HasPrefix(path, "/api/v1/retrieval/"),
+		strings.HasPrefix(path, "/api/v1/document-intelligence/"):
+		return u.RetrievalContext
 	case strings.HasPrefix(path, "/api/v1/ai/tools"):
 		return u.AI
 	case strings.HasPrefix(path, "/api/v1/ai"):
