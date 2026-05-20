@@ -43,10 +43,11 @@ const (
 
 // BatchEditResource values.
 const (
-	BatchResourceObjectType      = "object_type"
-	BatchResourceProperty        = "property"
-	BatchResourceLinkType        = "link_type"
-	BatchResourceObjectTypeGroup = "object_type_group"
+	BatchResourceObjectType         = "object_type"
+	BatchResourceProperty           = "property"
+	BatchResourceLinkType           = "link_type"
+	BatchResourceObjectTypeGroup    = "object_type_group"
+	BatchResourceSharedPropertyType = "shared_property_type"
 )
 
 // BatchEditStatus values.

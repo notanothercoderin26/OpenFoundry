@@ -679,6 +679,8 @@ func batchTopicAndAggregate(resourceKind string) (string, string, bool) {
 		return TopicObjectTypeGroup, AggregateObjectTypeGroup, true
 	case models.BatchResourceProperty:
 		return TopicProperty, AggregateProperty, true
+	case models.BatchResourceSharedPropertyType:
+		return TopicSharedPropertyType, AggregateSharedPropertyType, true
 	}
 	return "", "", false
 }

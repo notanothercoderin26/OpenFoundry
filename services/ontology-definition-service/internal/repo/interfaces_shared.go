@@ -376,7 +376,8 @@ func (r *Repo) UpdateSharedPropertyType(ctx context.Context, id uuid.UUID, body 
 			`UPDATE ontology_schema.shared_property_types
 			   SET display_name = $2, description = $3,
 			       required = $4, unique_constraint = $5, time_dependent = $6,
-			       default_value = $7, validation_rules = $8, updated_at = NOW()
+			       default_value = $7, validation_rules = $8, updated_at = NOW(),
+			       version = version + 1
 			 WHERE id = $1
 			 RETURNING `+sharedPropertyTypeColumns,
 			id, dn, desc, required, uniq, td, defValBytes, valRulesBytes)
