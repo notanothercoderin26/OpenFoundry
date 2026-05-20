@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import {
@@ -125,13 +125,26 @@ function virtualTableOutputReference(sourceConfig: PipelineOutputConfig | null, 
   return { kind: 'tabular', database: '', schema: '', table: safeExternalTableName(displayName) };
 }
 
+type EditSubTab = 'canvas' | 'nodes' | 'config' | 'runs' | 'validate';
+type PipelineTab = EditSubTab | 'proposals' | 'history';
+type TopView = 'edit' | 'proposals' | 'history';
+type ProposalFilter = 'all' | 'open' | 'merged';
+
+const EDIT_SUB_TABS: readonly EditSubTab[] = ['canvas', 'nodes', 'config', 'runs', 'validate'];
+
+function isEditSubTab(tab: PipelineTab): tab is EditSubTab {
+  return (EDIT_SUB_TABS as readonly string[]).includes(tab);
+}
+
 export function PipelineEditPage() {
   const { id = '', runId } = useParams<{ id: string; runId?: string }>();
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [versions, setVersions] = useState<PipelineVersion[]>([]);
   const [validation, setValidation] = useState<PipelineValidationResponse | null>(null);
-  const [tab, setTab] = useState<'canvas' | 'nodes' | 'config' | 'runs' | 'history' | 'validate'>(runId ? 'runs' : 'canvas');
+  const [tab, setTab] = useState<PipelineTab>(runId ? 'runs' : 'canvas');
+  const [lastEditTab, setLastEditTab] = useState<EditSubTab>(runId ? 'runs' : 'canvas');
+  const [proposalFilter, setProposalFilter] = useState<ProposalFilter>('all');
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -635,6 +648,15 @@ export function PipelineEditPage() {
     if (runId) setTab('runs');
   }, [runId]);
 
+  useEffect(() => {
+    if (isEditSubTab(tab)) setLastEditTab(tab);
+  }, [tab]);
+
+  const topView: TopView = isEditSubTab(tab) ? 'edit' : tab;
+  function setTopView(next: TopView) {
+    setTab(next === 'edit' ? lastEditTab : next);
+  }
+
   async function save() {
     if (!pipeline) return;
     setSaving(true);
@@ -767,7 +789,7 @@ export function PipelineEditPage() {
       });
       applyLifecyclePipeline(response.pipeline);
       await loadVersions();
-      setTab('history');
+      setTab('proposals');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Proposal failed');
     } finally {
@@ -940,7 +962,22 @@ export function PipelineEditPage() {
       )}
 
       <section className="of-panel" style={{ overflow: 'hidden' }}>
-        <Tabs tabs={['canvas', 'nodes', 'config', 'runs', 'history', 'validate'] as const} active={tab} onChange={setTab} />
+        <Tabs
+          tabs={[
+            { id: 'edit', label: 'Edit' },
+            { id: 'proposals', label: 'Proposals' },
+            { id: 'history', label: 'History' },
+          ] as const}
+          active={topView}
+          onChange={setTopView}
+        />
+        {topView === 'edit' && (
+          <Tabs
+            tabs={EDIT_SUB_TABS}
+            active={isEditSubTab(tab) ? tab : 'canvas'}
+            onChange={(next) => setTab(next)}
+          />
+        )}
 
         <div style={{ padding: tab === 'canvas' ? 0 : 10 }}>
           {tab === 'canvas' && (
@@ -1071,6 +1108,20 @@ export function PipelineEditPage() {
                 )}
               </tbody>
             </table>
+          )}
+
+          {tab === 'proposals' && (
+            <ProposalsTabContent
+              pipeline={pipeline}
+              versions={versions}
+              filter={proposalFilter}
+              onFilterChange={setProposalFilter}
+              busy={historyBusy}
+              onRefresh={() => void loadVersions()}
+              onPublish={() => void publishDraft()}
+              onRestore={(version) => void restoreVersion(version, true)}
+              onOpenInEdit={() => setTab('canvas')}
+            />
           )}
 
           {tab === 'history' && (
@@ -1249,6 +1300,182 @@ export function PipelineEditPage() {
           setTab('runs');
         }}
       />
+    </section>
+  );
+}
+
+function proposalStateForVersion(
+  version: PipelineVersion,
+  latestProposalId: string | undefined,
+  pipelineProposalState: string | undefined,
+): 'open' | 'merged' {
+  if (version.id === latestProposalId && pipelineProposalState === 'open') return 'open';
+  return 'merged';
+}
+
+interface ProposalsTabContentProps {
+  pipeline: Pipeline;
+  versions: PipelineVersion[];
+  filter: ProposalFilter;
+  onFilterChange: (next: ProposalFilter) => void;
+  busy: boolean;
+  onRefresh: () => void;
+  onPublish: () => void;
+  onRestore: (version: PipelineVersion) => void;
+  onOpenInEdit: () => void;
+}
+
+function ProposalsTabContent({
+  pipeline,
+  versions,
+  filter,
+  onFilterChange,
+  busy,
+  onRefresh,
+  onPublish,
+  onRestore,
+  onOpenInEdit,
+}: ProposalsTabContentProps) {
+  const proposalVersions = useMemo(
+    () => versions.filter((version) => version.version_kind === 'proposal'),
+    [versions],
+  );
+  const latestProposalId = proposalVersions[0]?.id;
+  const visibleProposals = useMemo(() => {
+    if (filter === 'all') return proposalVersions;
+    return proposalVersions.filter(
+      (version) => proposalStateForVersion(version, latestProposalId, pipeline.proposal_state) === filter,
+    );
+  }, [proposalVersions, filter, latestProposalId, pipeline.proposal_state]);
+
+  const openCount = proposalVersions.filter(
+    (version) => proposalStateForVersion(version, latestProposalId, pipeline.proposal_state) === 'open',
+  ).length;
+  const mergedCount = proposalVersions.length - openCount;
+
+  const FILTERS: { id: ProposalFilter; label: string; count: number }[] = [
+    { id: 'all', label: 'All', count: proposalVersions.length },
+    { id: 'open', label: 'Open', count: openCount },
+    { id: 'merged', label: 'Merged', count: mergedCount },
+  ];
+
+  return (
+    <section style={{ display: 'grid', gap: 10 }}>
+      <div className="of-toolbar" style={{ justifyContent: 'space-between' }}>
+        <div role="tablist" style={{ display: 'flex', gap: 4 }}>
+          {FILTERS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              role="tab"
+              aria-selected={filter === entry.id}
+              className={`of-button${filter === entry.id ? ' of-button--primary' : ''}`}
+              style={{ fontSize: 12 }}
+              onClick={() => onFilterChange(entry.id)}
+            >
+              {entry.label} <span className="of-text-muted">({entry.count})</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button type="button" onClick={onRefresh} disabled={busy} className="of-button">
+            Refresh
+          </button>
+          {pipeline.proposal_state === 'open' && (
+            <button type="button" onClick={onPublish} disabled={busy} className="of-button of-button--primary">
+              Merge proposal
+            </button>
+          )}
+        </div>
+      </div>
+
+      {pipeline.proposal_state === 'open' && pipeline.proposal_title && (
+        <div
+          className="of-panel"
+          style={{ padding: 10, borderColor: '#15803d', background: '#f0fdf4', display: 'grid', gap: 4 }}
+        >
+          <p className="of-eyebrow" style={{ color: '#15803d' }}>Open proposal</p>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{pipeline.proposal_title}</p>
+          {pipeline.proposal_description && (
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>{pipeline.proposal_description}</p>
+          )}
+        </div>
+      )}
+
+      <table className="of-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Version</th>
+            <th>Branch</th>
+            <th>Title</th>
+            <th>Created</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {visibleProposals.map((version) => {
+            const status = proposalStateForVersion(version, latestProposalId, pipeline.proposal_state);
+            return (
+              <tr key={version.id}>
+                <td>
+                  <span
+                    className="of-chip"
+                    style={{
+                      background: status === 'open' ? '#dcfce7' : '#e5e7eb',
+                      color: status === 'open' ? '#15803d' : '#374151',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {status}
+                  </span>
+                </td>
+                <td style={{ fontFamily: 'var(--font-mono)' }}>v{version.version_number}</td>
+                <td>{version.branch_name || 'main'}</td>
+                <td>
+                  <div style={{ display: 'grid', gap: 2 }}>
+                    <span>{version.message || version.name || 'Untitled proposal'}</span>
+                    {version.description && (
+                      <span className="of-text-muted" style={{ fontSize: 11 }}>{version.description}</span>
+                    )}
+                  </div>
+                </td>
+                <td>{new Date(version.created_at).toLocaleString()}</td>
+                <td style={{ textAlign: 'right' }}>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={onOpenInEdit}
+                      className="of-button"
+                      style={{ fontSize: 11 }}
+                    >
+                      View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onRestore(version)}
+                      disabled={busy}
+                      className="of-button"
+                      style={{ fontSize: 11 }}
+                    >
+                      Restore as draft
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+          {visibleProposals.length === 0 && (
+            <tr>
+              <td colSpan={6} className="of-text-muted">
+                {proposalVersions.length === 0
+                  ? 'No proposals yet. Use "Open proposal" on the Edit toolbar to request a merge into main.'
+                  : `No ${filter} proposals.`}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </section>
   );
 }
