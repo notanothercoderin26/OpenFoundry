@@ -560,7 +560,40 @@ export function VertexPage() {
     setWorkshopObjectSetVariable(searchParams.get('workshopObjectSetVariable') ?? '');
     const hop = Number(searchParams.get('hopBudget') ?? '');
     if (Number.isFinite(hop) && hop > 0) setObjectViewHopBudget(Math.min(6, hop));
+
+    // Seed preloads from the URL — `objectSetRid` wins over the
+    // single-object `objectRid` when both are present (one is a
+    // superset of the other), and either takes precedence over the
+    // pre-existing `seedObjectSetRid` query so a fresh deep-link
+    // always lands on the requested set.
+    const preloadSet = searchParams.get('objectSetRid') ?? searchParams.get('seedObjectSetRid');
+    const preloadObject = searchParams.get('objectRid');
+    if (preloadSet) {
+      setSeedObjectSetRid(preloadSet);
+    } else if (preloadObject) {
+      // Single-object preloads borrow the seed channel — the
+      // traversal endpoint accepts either an object set rid or a
+      // single object rid as the seed payload.
+      setSeedObjectSetRid(preloadObject);
+    }
   }, [searchParams]);
+
+  // Global key handlers: Esc dismisses any floating overlay (right-
+  // click menu) and Cmd/Ctrl+K focuses the inline graph search.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setNodeContextMenu(null);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        inlineSearchInputRef.current?.focus();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Initial catalog load.
   useEffect(() => {
@@ -2280,6 +2313,18 @@ export function VertexPage() {
                     const index = selectedSeriesRows.findIndex((row) => row.date === value);
                     setCurrentTimeIndex(index >= 0 ? index : 0);
                   }}
+                  markCategoryValue={selectedSeriesRows[currentTimeIndex]?.date ?? null}
+                  eventBands={eventRows
+                    .filter((row) => Boolean(row.start) && Boolean(row.end))
+                    .map((row) => {
+                      const intent = eventIntentByTypeKey.get(row.typeLabel);
+                      return {
+                        from: row.start.slice(0, 10),
+                        to: row.end.slice(0, 10),
+                        tone: intent?.tone ?? '#94a3b8',
+                        label: row.label,
+                      };
+                    })}
                 />
               </div>
               {selectedSeriesRows.length > 1 && (

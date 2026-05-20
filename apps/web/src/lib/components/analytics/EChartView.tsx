@@ -20,6 +20,13 @@ interface EChartViewProps {
   mode?: 'bar' | 'line' | 'area' | 'pie';
   emptyLabel?: string;
   onCategoryClick?: (value: string) => void;
+  // Optional: paint a vertical marker on the chart at the given
+  // category value. Used by Vertex's Series tab to show the current
+  // time cursor synchronised with the timeline slider.
+  markCategoryValue?: string | null;
+  // Optional: shaded windows along the X axis. Used by Vertex to
+  // highlight active event windows over the time series.
+  eventBands?: Array<{ from: string; to: string; tone: string; label?: string }>;
 }
 
 export function EChartView({
@@ -29,6 +36,8 @@ export function EChartView({
   mode = 'bar',
   emptyLabel = 'No data available for this view.',
   onCategoryClick,
+  markCategoryValue,
+  eventBands,
 }: EChartViewProps) {
   const onCategoryClickRef = useRef(onCategoryClick);
   useEffect(() => {
@@ -75,15 +84,42 @@ export function EChartView({
         axisLabel: { color: '#64748b' },
         splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.15)' } },
       },
-      series: valueKeys.map((valueKey) => ({
-        name: valueKey,
-        type: mode === 'area' ? 'line' : mode,
-        smooth: mode !== 'bar',
-        areaStyle: mode === 'area' ? { opacity: 0.18 } : undefined,
-        data: rows.map((row) => toNumber(row[valueKey])),
-      })),
+      series: valueKeys.map((valueKey, seriesIndex) => {
+        const markLineData: unknown[] = [];
+        if (seriesIndex === 0 && markCategoryValue && categories.includes(markCategoryValue)) {
+          markLineData.push({
+            xAxis: markCategoryValue,
+            label: { show: false },
+            lineStyle: { color: '#f97316', type: 'solid', width: 2 },
+            symbol: ['none', 'none'],
+          });
+        }
+        const markAreaData: unknown[] = [];
+        if (seriesIndex === 0 && eventBands) {
+          for (const band of eventBands) {
+            if (!categories.includes(band.from) && !categories.includes(band.to)) continue;
+            markAreaData.push([
+              {
+                xAxis: band.from,
+                itemStyle: { color: `${band.tone}33` },
+                label: band.label ? { show: true, formatter: band.label, color: band.tone } : { show: false },
+              },
+              { xAxis: band.to },
+            ]);
+          }
+        }
+        return {
+          name: valueKey,
+          type: mode === 'area' ? 'line' : mode,
+          smooth: mode !== 'bar',
+          areaStyle: mode === 'area' ? { opacity: 0.18 } : undefined,
+          data: rows.map((row) => toNumber(row[valueKey])),
+          markLine: markLineData.length > 0 ? { silent: true, symbol: 'none', data: markLineData } : undefined,
+          markArea: markAreaData.length > 0 ? { silent: true, data: markAreaData } : undefined,
+        };
+      }),
     };
-  }, [rows, categoryKey, valueKeys, mode]);
+  }, [rows, categoryKey, valueKeys, mode, markCategoryValue, eventBands]);
 
   if (!options) {
     return (
