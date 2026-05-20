@@ -148,7 +148,6 @@ export function ReportToolbar({
               onToggle={() => setOpenMenu(openMenu === 'help' ? null : 'help')}
             >
               <MenuItem icon="help" label="Reports documentation" onClick={close(() => undefined)} />
-              <MenuItem icon="bell" label="What's new" onClick={close(() => undefined)} />
               <MenuItem icon="users" label="Contact support" onClick={close(() => undefined)} />
             </ToolbarMenuButton>
             <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border-default)' }} aria-hidden />
