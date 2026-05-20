@@ -15,6 +15,13 @@ interface CytoscapeCanvasProps {
   height?: number | string;
   className?: string;
   onReady?: (cy: Core) => void;
+  /**
+   * Optional handle for E2E tests. When set, the Cytoscape `Core`
+   * instance is also exposed at `window.__cytoscape__[testHandle]`
+   * so Playwright specs can drive zoom, pan, and synthetic node taps
+   * directly. Production callers leave this unset.
+   */
+  testHandle?: string;
 }
 
 export function CytoscapeCanvas({
@@ -24,6 +31,7 @@ export function CytoscapeCanvas({
   height = 360,
   className,
   onReady,
+  testHandle,
 }: CytoscapeCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<Core | null>(null);
@@ -63,11 +71,20 @@ export function CytoscapeCanvas({
       });
 
       cyRef.current = cy;
+      if (testHandle) {
+        const registry =
+          ((globalThis as unknown as { __cytoscape__?: Record<string, Core> }).__cytoscape__ ??= {});
+        registry[testHandle] = cy;
+      }
       onReadyRef.current?.(cy);
     })();
 
     return () => {
       disposed = true;
+      if (testHandle) {
+        const registry = (globalThis as unknown as { __cytoscape__?: Record<string, Core> }).__cytoscape__;
+        if (registry && registry[testHandle] === cyRef.current) delete registry[testHandle];
+      }
       cyRef.current?.destroy();
       cyRef.current = null;
     };
@@ -92,5 +109,12 @@ export function CytoscapeCanvas({
     cy.style(stylesheet).update();
   }, [stylesheet]);
 
-  return <div ref={containerRef} className={className} style={{ width: '100%', height }} />;
+  return (
+    <div
+      ref={containerRef}
+      className={className}
+      data-testid={testHandle ? `cytoscape-canvas-${testHandle}` : undefined}
+      style={{ width: '100%', height }}
+    />
+  );
 }

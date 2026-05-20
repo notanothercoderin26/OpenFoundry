@@ -475,6 +475,7 @@ function OntologyGraphWorkspace({
             height={660}
             onReady={handleReady}
             className="ontology-graph-canvas"
+            testHandle="ontology-graph"
           />
         </div>
       </section>
