@@ -7,11 +7,17 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "check": "tsc -b --noEmit",
+    "check": "tsc -b --noEmit && tsc -p tsconfig.e2e.json --noEmit",
+    "check:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "test:unit": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:all-browsers": "E2E_BROWSERS=chromium,firefox,webkit playwright test",
+    "test:e2e:update-snapshots": "playwright test --update-snapshots",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@tanstack/react-query": "=5.100.10",
@@ -42,6 +48,7 @@
     "tippy.js": "^6.3.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
     "@playwright/test": "=1.60.0",
     "@tailwindcss/postcss": "=4.3.0",
     "@testing-library/jest-dom": "^6.9.1",

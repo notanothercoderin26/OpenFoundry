@@ -75,6 +75,9 @@ type tableRuntimeConfig struct {
 	PipelineType        string                    `json:"pipeline_type,omitempty"`
 	GroupBy             []string                  `json:"group_by,omitempty"`
 	Aggregations        []runtimeAggregationFunc  `json:"aggregations,omitempty"`
+	ModelID             string                    `json:"model_id,omitempty"`
+	InputMapping        map[string]string         `json:"input_mapping,omitempty"`
+	OutputColumns       map[string]string         `json:"output_columns,omitempty"`
 }
 
 type runtimeTransformStack struct {
@@ -248,6 +251,8 @@ func (rt *lightweightTableRuntime) Run(ctx context.Context, node executor.NodeCo
 		rows, err = rt.runGPXParse(node, cfg)
 	case "aggregate":
 		rows, err = rt.runAggregate(node, cfg)
+	case "ml_predict":
+		rows, err = rt.runMLPredict(ctx, node, cfg)
 	default:
 		err = fmt.Errorf("unsupported lightweight transform type: %s", transformType)
 	}

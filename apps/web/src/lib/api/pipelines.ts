@@ -228,6 +228,16 @@ export interface DistributedConfig {
   runner_image?: string | null;
 }
 
+export type PipelineParameterType = 'string' | 'integer' | 'float' | 'boolean';
+
+export interface PipelineParameter {
+  name: string;
+  type: PipelineParameterType;
+  default_value?: unknown;
+  description?: string;
+  required?: boolean;
+}
+
 export interface Pipeline {
   id: string;
   name: string;
@@ -236,6 +246,7 @@ export interface Pipeline {
   dag: PipelineDAG;
   draft_dag?: PipelineDAG;
   published_dag?: PipelineDAG | null;
+  parameters?: PipelineParameter[] | null;
   branch_name?: string;
   draft_updated_at?: string | null;
   published_at?: string | null;
@@ -518,6 +529,7 @@ export function updatePipeline(id: string, body: {
   distributed?: DistributedConfig;
   compute_profile_id?: string;
   project_id?: string;
+  parameters?: PipelineParameter[];
 }) {
   return api.put<Pipeline>(`/pipelines/${id}`, body);
 }
@@ -550,11 +562,187 @@ export function createPipelineProposal(id: string, body: {
 export function restorePipelineVersion(id: string, versionId: string, body?: {
   as_draft?: boolean;
   message?: string;
+  branch_name?: string;
 }) {
   return api.post<PipelinePublishResponse>(
     `/pipelines/${id}/versions/${versionId}/restore`,
     body ?? { as_draft: true },
   );
+}
+
+// ---------------------------------------------------------------------------
+// Access block: link sharing, resource-level role grants, followers.
+// Mirrors services/pipeline-build-service/internal/handler/pipeline_access.go.
+
+export type PipelineRole = 'owner' | 'editor' | 'viewer' | 'discoverer';
+export type PipelinePrincipalKind = 'user' | 'group';
+
+export interface PipelineLinkShare {
+  enabled: boolean;
+  token?: string;
+  role?: PipelineRole;
+}
+
+export interface UpdatePipelineLinkShareRequest {
+  enabled: boolean;
+  role?: PipelineRole;
+  rotate_token?: boolean;
+}
+
+export interface PipelineGrant {
+  id: string;
+  pipeline_id: string;
+  principal_kind: PipelinePrincipalKind;
+  principal_id: string;
+  role: PipelineRole;
+  granted_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PutPipelineGrantRequest {
+  principal_kind?: PipelinePrincipalKind;
+  principal_id: string;
+  role: PipelineRole | '';
+}
+
+export interface PipelineFollowerSummary {
+  following: boolean;
+  follower_count: number;
+}
+
+export function getPipelineLinkShare(id: string) {
+  return api.get<PipelineLinkShare>(`/pipelines/${id}/link-share`);
+}
+
+export function putPipelineLinkShare(id: string, body: UpdatePipelineLinkShareRequest) {
+  return api.put<PipelineLinkShare>(`/pipelines/${id}/link-share`, body);
+}
+
+export function listPipelineGrants(id: string) {
+  return api.get<{ items: PipelineGrant[] }>(`/pipelines/${id}/grants`);
+}
+
+export function putPipelineGrant(id: string, body: PutPipelineGrantRequest) {
+  return api.put<PipelineGrant | null>(`/pipelines/${id}/grants`, body);
+}
+
+export function deletePipelineGrant(id: string, grantId: string) {
+  return api.delete(`/pipelines/${id}/grants/${grantId}`);
+}
+
+export function getPipelineFollowerSummary(id: string) {
+  return api.get<PipelineFollowerSummary>(`/pipelines/${id}/followers/summary`);
+}
+
+export function followPipeline(id: string) {
+  return api.post<PipelineFollowerSummary>(`/pipelines/${id}/followers`, {});
+}
+
+export function unfollowPipeline(id: string) {
+  return api.delete<PipelineFollowerSummary>(`/pipelines/${id}/followers`);
+}
+
+export interface PipelineViewSummary {
+  view_count_30d: number;
+}
+
+export interface PipelineComment {
+  id: string;
+  pipeline_id: string;
+  author_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function recordPipelineView(id: string) {
+  return api.post<PipelineViewSummary>(`/pipelines/${id}/views`, {});
+}
+
+export function getPipelineViewSummary(id: string) {
+  return api.get<PipelineViewSummary>(`/pipelines/${id}/views/summary`);
+}
+
+export function listPipelineComments(id: string) {
+  return api.get<{ items: PipelineComment[] }>(`/pipelines/${id}/comments`);
+}
+
+export function createPipelineComment(id: string, body: string) {
+  return api.post<PipelineComment>(`/pipelines/${id}/comments`, { body });
+}
+
+export function deletePipelineComment(id: string, commentId: string) {
+  return api.delete(`/pipelines/${id}/comments/${commentId}`);
+}
+
+export interface ComputeProfile {
+  slug: string;
+  display_name: string;
+  description: string;
+  executor_cores: number;
+  executor_memory_gb: number;
+  is_default: boolean;
+  created_at: string;
+}
+
+export function listComputeProfiles() {
+  return api.get<{ items: ComputeProfile[] }>('/compute-profiles');
+}
+
+// ---------------------------------------------------------------------------
+// Trained ML model registry.
+// Mirrors services/pipeline-build-service/internal/handler/ml_models.go.
+
+export type MLModelFramework = 'sklearn' | 'pytorch' | 'tensorflow' | 'onnx' | 'xgboost' | 'lightgbm' | 'custom';
+
+export interface MLModelField {
+  name: string;
+  type: string;
+}
+
+export interface MLModel {
+  id: string;
+  slug: string;
+  display_name: string;
+  description: string;
+  framework: MLModelFramework | string;
+  version: string;
+  input_schema: MLModelField[];
+  output_schema: MLModelField[];
+  artifact_uri: string;
+  inference_url?: string;
+  owner_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMLModelRequest {
+  slug: string;
+  display_name: string;
+  description?: string;
+  framework?: MLModelFramework | string;
+  version?: string;
+  input_schema?: MLModelField[];
+  output_schema?: MLModelField[];
+  artifact_uri?: string;
+  inference_url?: string;
+}
+
+export function listMLModels() {
+  return api.get<{ items: MLModel[] }>('/ml-models');
+}
+
+export function getMLModel(idOrSlug: string) {
+  return api.get<MLModel>(`/ml-models/${encodeURIComponent(idOrSlug)}`);
+}
+
+export function createMLModel(body: CreateMLModelRequest) {
+  return api.post<MLModel>('/ml-models', body);
+}
+
+export function deleteMLModel(id: string) {
+  return api.delete(`/ml-models/${id}`);
 }
 
 // Validation / compilation (Foundry: "Validate" and "Preview" buttons in
@@ -881,7 +1069,12 @@ export function prunePipeline(body: CompilePipelineRequest) {
 }
 
 // Execution (Foundry: "Build dataset" / "Build downstream" / "Run").
-export function triggerRun(pipelineId: string, body?: { from_node_id?: string; context?: Record<string, unknown>; skip_unchanged?: boolean }) {
+export function triggerRun(pipelineId: string, body?: {
+  from_node_id?: string;
+  context?: Record<string, unknown>;
+  skip_unchanged?: boolean;
+  parameter_values?: Record<string, unknown>;
+}) {
   return api.post<PipelineRun>(`/pipelines/${pipelineId}/runs`, body ?? {});
 }
 

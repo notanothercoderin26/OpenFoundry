@@ -1,4 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { test, expect } from './fixtures/base';
+import { mockAuth } from './fixtures/mocks';
+import { defineWorkshopApp, mockWorkshopApp } from './fixtures/workshop';
 
 const now = '2026-05-11T00:00:00Z';
 
@@ -76,179 +78,133 @@ const weatherObjects = [
   { id: 'weather-3', object_type_id: 'Weather', properties: { label: 'Green Mountain', temperature: 72, status: 'new' }, created_by: 'e2e', created_at: now, updated_at: now },
 ];
 
-const appResponse = {
-  app: {
-    id: 'workshop-action-demo',
-    name: 'Workshop Action Demo',
-    slug: 'workshop-action-demo',
-    description: 'Button Group action smoke.',
-    status: 'published',
-    pages: [
-      {
-        id: 'main',
-        name: 'Main',
-        path: '/',
-        description: '',
-        visible: true,
-        layout: { kind: 'grid', columns: 12, gap: '16px', max_width: '960px' },
-        widgets: [
-          {
-            id: 'weather-table',
-            widget_type: 'object_table',
-            title: 'Weather Table',
-            description: '',
-            position: { x: 0, y: 0, width: 8, height: 4 },
-            props: {
-              source_variable_id: 'weather-set',
-              columns: ['label', 'temperature', 'status'],
-              default_sort_property: 'label',
-              default_sort_direction: 'asc',
-              row_height_lines: 1,
-              wrap_values: false,
-              multi_select: true,
-              active_object_variable_id: 'weather-active',
-              selected_object_set_variable_id: 'weather-selected',
-              enable_inline_edit: false,
-              row_actions: [
-                {
-                  id: 'bulk-row-review',
-                  label: 'Bulk review',
-                  on_click_kind: 'action',
-                  action_type_id: 'bulk-weather',
-                  parameter_defaults: {
-                    objects: { kind: 'variable', variable_id: 'weather-selected', visibility: 'disabled' },
-                    status: { kind: 'static', static_value: 'reviewed', visibility: 'visible' },
-                  },
-                  default_layout: 'form',
-                  switch_layout: false,
-                  conditional_visibility: false,
+const appResponse = defineWorkshopApp({
+  slug: 'workshop-action-demo',
+  id: 'workshop-action-demo',
+  name: 'Workshop Action Demo',
+  description: 'Button Group action smoke.',
+  maxWidth: '960px',
+  themeOverrides: { name: 'Action Demo' },
+  variables: [
+    { id: 'weather-set', kind: 'object_set_definition', name: 'Weather set', object_type_id: 'Weather', source_widget_id: 'weather-table' },
+    { id: 'weather-active', kind: 'object_set_active_object', name: 'Active weather', object_type_id: 'Weather', source_widget_id: 'weather-table' },
+    { id: 'weather-selected', kind: 'object_set_selection', name: 'Selected weather', object_type_id: 'Weather', source_widget_id: 'weather-table' },
+    { id: 'default-temperature', kind: 'number', name: 'Default temperature', default_value: 84 },
+  ],
+  pages: [
+    {
+      id: 'main',
+      name: 'Main',
+      layout: { kind: 'grid', columns: 12, gap: '16px', max_width: '960px' },
+      widgets: [
+        {
+          id: 'weather-table',
+          widget_type: 'object_table',
+          title: 'Weather Table',
+          description: '',
+          position: { x: 0, y: 0, width: 8, height: 4 },
+          props: {
+            source_variable_id: 'weather-set',
+            columns: ['label', 'temperature', 'status'],
+            default_sort_property: 'label',
+            default_sort_direction: 'asc',
+            row_height_lines: 1,
+            wrap_values: false,
+            multi_select: true,
+            active_object_variable_id: 'weather-active',
+            selected_object_set_variable_id: 'weather-selected',
+            enable_inline_edit: false,
+            row_actions: [
+              {
+                id: 'bulk-row-review',
+                label: 'Bulk review',
+                on_click_kind: 'action',
+                action_type_id: 'bulk-weather',
+                parameter_defaults: {
+                  objects: { kind: 'variable', variable_id: 'weather-selected', visibility: 'disabled' },
+                  status: { kind: 'static', static_value: 'reviewed', visibility: 'visible' },
                 },
-              ],
-            },
-            binding: null,
-            events: [],
-            children: [],
+                default_layout: 'form',
+                switch_layout: false,
+                conditional_visibility: false,
+              },
+            ],
           },
-          {
-            id: 'weather-actions',
-            widget_type: 'button_group',
-            title: 'Weather Actions',
-            description: '',
-            position: { x: 0, y: 0, width: 4, height: 2 },
-            props: {
-              buttons: [
-                {
-                  id: 'update-weather',
-                  label: 'Update weather',
-                  on_click_kind: 'action',
-                  action_type_id: 'edit-weather',
-                  parameter_defaults: {
-                    object: { kind: 'static', static_value: 'weather-1', visibility: 'disabled' },
-                    temperature: { kind: 'variable', variable_id: 'default-temperature', visibility: 'visible' },
-                  },
-                  default_layout: 'form',
-                  switch_layout: false,
-                  conditional_visibility: false,
+          binding: null,
+          events: [],
+          children: [],
+        },
+        {
+          id: 'weather-actions',
+          widget_type: 'button_group',
+          title: 'Weather Actions',
+          description: '',
+          position: { x: 0, y: 0, width: 4, height: 2 },
+          props: {
+            buttons: [
+              {
+                id: 'update-weather',
+                label: 'Update weather',
+                on_click_kind: 'action',
+                action_type_id: 'edit-weather',
+                parameter_defaults: {
+                  object: { kind: 'static', static_value: 'weather-1', visibility: 'disabled' },
+                  temperature: { kind: 'variable', variable_id: 'default-temperature', visibility: 'visible' },
                 },
-                {
-                  id: 'notify-weather',
-                  label: 'Notify weather',
-                  on_click_kind: 'action',
-                  action_type_id: 'notify-weather',
-                  parameter_defaults: {
-                    message: { kind: 'static', static_value: 'Heat advisory', visibility: 'visible' },
-                  },
-                  default_layout: 'form',
-                  switch_layout: false,
-                  conditional_visibility: false,
+                default_layout: 'form',
+                switch_layout: false,
+                conditional_visibility: false,
+              },
+              {
+                id: 'notify-weather',
+                label: 'Notify weather',
+                on_click_kind: 'action',
+                action_type_id: 'notify-weather',
+                parameter_defaults: {
+                  message: { kind: 'static', static_value: 'Heat advisory', visibility: 'visible' },
                 },
-                {
-                  id: 'score-effort',
-                  label: 'Score effort',
-                  on_click_kind: 'action',
-                  action_type_id: 'score-effort',
-                  parameter_defaults: {
-                    object: { kind: 'static', static_value: 'weather-1', visibility: 'disabled' },
-                    effort: { kind: 'static', static_value: '158', visibility: 'visible' },
-                  },
-                  default_layout: 'form',
-                  switch_layout: false,
-                  conditional_visibility: false,
+                default_layout: 'form',
+                switch_layout: false,
+                conditional_visibility: false,
+              },
+              {
+                id: 'score-effort',
+                label: 'Score effort',
+                on_click_kind: 'action',
+                action_type_id: 'score-effort',
+                parameter_defaults: {
+                  object: { kind: 'static', static_value: 'weather-1', visibility: 'disabled' },
+                  effort: { kind: 'static', static_value: '158', visibility: 'visible' },
                 },
-                {
-                  id: 'bulk-weather',
-                  label: 'Bulk review',
-                  on_click_kind: 'action',
-                  action_type_id: 'bulk-weather',
-                  parameter_defaults: {
-                    objects: { kind: 'variable', variable_id: 'weather-selected', visibility: 'disabled' },
-                    status: { kind: 'static', static_value: 'reviewed', visibility: 'visible' },
-                  },
-                  default_layout: 'form',
-                  switch_layout: false,
-                  conditional_visibility: false,
+                default_layout: 'form',
+                switch_layout: false,
+                conditional_visibility: false,
+              },
+              {
+                id: 'bulk-weather',
+                label: 'Bulk review',
+                on_click_kind: 'action',
+                action_type_id: 'bulk-weather',
+                parameter_defaults: {
+                  objects: { kind: 'variable', variable_id: 'weather-selected', visibility: 'disabled' },
+                  status: { kind: 'static', static_value: 'reviewed', visibility: 'visible' },
                 },
-              ],
-              orientation: 'horizontal',
-              fill_horizontal: true,
-            },
-            binding: null,
-            events: [],
-            children: [],
+                default_layout: 'form',
+                switch_layout: false,
+                conditional_visibility: false,
+              },
+            ],
+            orientation: 'horizontal',
+            fill_horizontal: true,
           },
-        ],
-      },
-    ],
-    theme: {
-      name: 'Action Demo',
-      primary_color: '#0f766e',
-      accent_color: '#c2410c',
-      background_color: '#f8fafc',
-      surface_color: '#ffffff',
-      text_color: '#0f172a',
-      heading_font: 'Inter',
-      body_font: 'Inter',
-      border_radius: 8,
-      logo_url: null,
-    },
-    settings: {
-      home_page_id: 'main',
-      navigation_style: 'none',
-      max_width: '960px',
-      show_branding: false,
-      custom_css: null,
-      builder_experience: 'workshop',
-      ontology_source_type_id: null,
-      object_set_variables: [],
-      workshop_variables: [
-        { id: 'weather-set', kind: 'object_set_definition', name: 'Weather set', object_type_id: 'Weather', source_widget_id: 'weather-table' },
-        { id: 'weather-active', kind: 'object_set_active_object', name: 'Active weather', object_type_id: 'Weather', source_widget_id: 'weather-table' },
-        { id: 'weather-selected', kind: 'object_set_selection', name: 'Selected weather', object_type_id: 'Weather', source_widget_id: 'weather-table' },
-        { id: 'default-temperature', kind: 'number', name: 'Default temperature', default_value: 84 },
+          binding: null,
+          events: [],
+          children: [],
+        },
       ],
-      consumer_mode: { enabled: false, allow_guest_access: false, portal_title: null, portal_subtitle: null, primary_cta_label: null, primary_cta_url: null },
-      interactive_workshop: { enabled: false, title: null, subtitle: null, briefing_template: null, primary_scenario_widget_id: null, primary_agent_widget_id: null, suggested_questions: [], scenario_presets: [] },
-      workshop_header: { title: null, icon: null, color: null },
-      slate: {
-        enabled: false,
-        framework: 'react',
-        package_name: '',
-        entry_file: '',
-        sdk_import: '',
-        workspace: { enabled: false, repository_id: null, layout: '', runtime: '', dev_command: '', preview_command: '', files: [] },
-        quiver_embed: { enabled: false, primary_type_id: null, secondary_type_id: null, join_field: null, secondary_join_field: null, date_field: null, metric_field: null, group_field: null, selected_group: null },
-      },
     },
-    template_key: null,
-    created_by: 'e2e',
-    published_version_id: 'version-1',
-    created_at: now,
-    updated_at: now,
-  },
-  embed: { url: '/apps/runtime/workshop-action-demo', iframe_html: '' },
-  published_version_number: 1,
-  published_at: now,
-};
+  ],
+});
 
 test('renders action forms with defaults, validation errors, and success states', async ({ page }) => {
   const validateRequests: Record<string, unknown[]> = {
@@ -264,34 +220,8 @@ test('renders action forms with defaults, validation errors, and success states'
     'bulk-weather': [],
   };
 
-  await page.addInitScript(() => {
-    window.localStorage.setItem('of_access_token', 'e2e-token');
-  });
-  await page.route('**/api/v1/auth/bootstrap-status', async (route) => {
-    await route.fulfill({ json: { requires_initial_admin: false } });
-  });
-  await page.route('**/api/v1/users/me', async (route) => {
-    await route.fulfill({
-      json: {
-        id: '00000000-0000-0000-0000-000000000001',
-        email: 'runner@example.com',
-        name: 'Trail Runner',
-        is_active: true,
-        roles: ['admin'],
-        groups: [],
-        permissions: ['*'],
-        organization_id: null,
-        attributes: {},
-        mfa_enabled: false,
-        mfa_enforced: false,
-        auth_source: 'local',
-        created_at: now,
-      },
-    });
-  });
-  await page.route('**/api/v1/apps/public/workshop-action-demo', async (route) => {
-    await route.fulfill({ json: appResponse });
-  });
+  await mockAuth(page, { user: { name: 'Trail Runner' } });
+  await mockWorkshopApp(page, 'workshop-action-demo', appResponse);
   await page.route('**/api/v1/ontology/types', async (route) => {
     await route.fulfill({
       json: {

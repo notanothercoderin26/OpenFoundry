@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 
 import { evaluateApplicationAccess } from '@/lib/api/control-panel';
@@ -9,6 +9,11 @@ import {
   type LauncherApp,
 } from '@/lib/launcher/catalog';
 import { Glyph, type GlyphName } from './ui/Glyph';
+
+const SearchPageLazy = lazy(async () => {
+  const mod = await import('@/routes/search/SearchPage');
+  return { default: mod.SearchPage };
+});
 
 interface NavItem {
   to: string;
@@ -37,9 +42,7 @@ function readFavorites(): string[] {
 
 const PRIMARY_NAV: NavItem[] = [
   { to: '/', label: 'Home', icon: 'home', end: true },
-  { to: '/search', label: 'Search', icon: 'search', shortcut: 'ctrl + J' },
   { to: '/notifications', label: 'Notifications', icon: 'bell', dot: true },
-  { to: '/whats-new', label: "What's New", icon: 'sparkles', dot: true },
 ];
 
 const SECONDARY_NAV: NavItem[] = [
@@ -101,6 +104,7 @@ export function Sidebar() {
   const { pathname } = useLocation();
   const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsedPref());
   const [launcherOpen, setLauncherOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [category, setCategory] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [hoveredAppId, setHoveredAppId] = useState<string | null>(null);
@@ -160,6 +164,11 @@ export function Sidebar() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape' && launcherOpen) setLauncherOpen(false);
+      const cmd = e.metaKey || e.ctrlKey;
+      if (cmd && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        setSearchOpen((open) => !open);
+      }
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -235,7 +244,25 @@ export function Sidebar() {
 
         <nav className="of-sidebar__nav" aria-label="Primary navigation">
           <section className="of-sidebar__section">
-            {PRIMARY_NAV.map((item) => (
+            <SidebarLink
+              item={PRIMARY_NAV[0]}
+              pathname={pathname}
+              collapsed={collapsed}
+            />
+            <button
+              type="button"
+              className={`of-sidebar__link of-sidebar__link--button${searchOpen ? ' of-sidebar__link--active' : ''}`}
+              data-expanded={searchOpen || undefined}
+              aria-haspopup="dialog"
+              aria-expanded={searchOpen}
+              onClick={() => setSearchOpen((open) => !open)}
+              title={collapsed ? 'Search' : undefined}
+            >
+              <span className="of-sidebar__icon"><Glyph name="search" size={17} /></span>
+              <span className="of-sidebar__label">Search</span>
+              <span className="of-sidebar__hint">ctrl + J</span>
+            </button>
+            {PRIMARY_NAV.slice(1).map((item) => (
               <SidebarLink key={item.to} item={item} pathname={pathname} collapsed={collapsed} />
             ))}
           </section>
@@ -279,6 +306,22 @@ export function Sidebar() {
           ))}
         </section>
       </aside>
+
+      {searchOpen && (
+        <div className="of-quicksearch-popup" data-sidebar-collapsed={collapsed || undefined}>
+          <button
+            type="button"
+            className="of-quicksearch-popup__backdrop"
+            aria-label="Close search"
+            onClick={() => setSearchOpen(false)}
+          />
+          <div className="of-quicksearch-popup__surface" role="dialog" aria-modal="true" aria-label="Search">
+            <Suspense fallback={<div className="of-quicksearch-popup__loading">Loading search…</div>}>
+              <SearchPageLazy onClose={() => setSearchOpen(false)} />
+            </Suspense>
+          </div>
+        </div>
+      )}
 
       {launcherOpen && (
         <div className="of-app-launcher" data-sidebar-collapsed={collapsed || undefined}>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import {
   buildObjectCommentThread,
@@ -21,20 +21,12 @@ import {
   evaluateObjectSet,
   filterObjectsForRestrictedViewPolicy,
   getObjectView,
-  groupLinkedObjectsByLinkType,
   listActionTypes,
-  listLinkTypes,
-  listObjectSets,
-  listObjectTypeGroups,
-  listObjectTypes,
-  listObjectViews,
   listObjects,
-  listProperties,
   listTypeInterfaces,
   materializeObjectSet,
   searchOntology,
   mergeApplicableInterfaceActions,
-  normalizeObjectExplorerProductConfig,
   objectExplorerApplicableActionsForContext,
   objectExplorerVisibleObjectSets,
   objectExplorerVisibleObjectTypes,
@@ -56,283 +48,89 @@ import {
   resolveObjectViewModeToggle,
   schemaOnlyObjectViewResponse,
   type ActionType,
-  type LinkType,
   type ObjectExplorerSavedArtifactKind,
   type ObjectExplorerSavedArtifactPrivacy,
   type ObjectExplorerActionContext,
   type ObjectExplorerExportAffordance,
   type ObjectCommentThread,
-  type ObjectQueryFilter,
-  type ObjectSetFilter,
   type ObjectSetDefinition,
   type ObjectSetEvaluationResponse,
   type ObjectSetTraversal,
   type ObjectInstanceViewPolicy,
-  type OntologyObjectTypeGroup,
-  type ObjectType,
-  type ObjectViewDefinition,
   type ObjectViewMode,
   type ObjectViewResponse,
   type OntologyPermissionPrincipal,
-  type Property,
   type SearchResult,
 } from '@/lib/api/ontology';
-import { ActionExecutor } from '@/lib/components/ontology/ActionExecutor';
-import { ObjectCommentsHelper } from '@/lib/components/ontology/ObjectCommentsHelper';
 import { useAuth } from '@/lib/stores/auth';
 
-type SearchMode = 'lexical' | 'semantic';
-type EvaluationMode = 'preview' | 'materialize';
+import { Tabs } from '@/lib/components/Tabs';
 
-interface RecentItem {
-  kind: string;
-  id: string;
-  title: string;
-  route: string;
-  objectTypeId: string | null;
-  createdAt: string;
-}
+import { PanelHeader } from './components/atoms';
+import { BrowseGroupsGrid } from './components/BrowseGroupsGrid';
+import { ExplorationsHighlight } from './components/ExplorationsHighlight';
+import { HeaderToolbar } from './components/HeaderToolbar';
+import { PropertyFiltersPanel } from './components/PropertyFiltersPanel';
+import { LinkedFilterPanel } from './components/LinkedFilterPanel';
+import { PivotPanel } from './components/PivotPanel';
+import { SearchResultsList } from './components/SearchResultsList';
+import { RecentObjectsList } from './components/RecentObjectsList';
+import { AffordancesPanel } from './components/AffordancesPanel';
+import { ObjectPreviewPanel } from './components/ObjectPreviewPanel';
+import { SavedExplorationsPanel } from './components/SavedExplorationsPanel';
+import { SideNavGroups, type SideNavSelection } from './components/SideNavGroups';
+import { TypePreviewPopover } from './components/TypePreviewPopover';
+import { objectExplorerKeys, useObjectExplorerInitialData, useTypeProperties } from './queries';
+import {
+  DEFAULT_LINKED_FILTER,
+  DEFAULT_PROPERTY_FILTER,
+  OBJECT_EXPLORER_CONFIG,
+  numberFormatter,
+  objectIdFromEvaluationRow,
+  objectQueryFiltersFromDrafts,
+  objectSetFiltersFromQueryFilters,
+  objectToSearchResult,
+  objectTypeIdFromResultSet,
+  readFavoriteTypeIds,
+  readRecents,
+  splitCompact,
+  uniqueObjectIds,
+  uniqueRecentKey,
+  writeFavoriteTypeIds,
+  writeRecents,
+  csvEscape,
+  downloadText,
+  type EvaluationMode,
+  type ExplorationContext,
+  type LinkedFilterDraft,
+  type PropertyFilterDraft,
+  type RecentItem,
+  type SearchMode,
+} from './state';
 
-interface PropertyFilterDraft {
-  property_name: string;
-  operator: ObjectQueryFilter['operator'];
-  value: string;
-}
+type ObjectExplorerTab = 'overview' | 'objects' | 'types' | 'artifacts';
 
-type LinkedFilterMode = 'has_link' | 'linked_property' | 'object_reference';
-
-interface LinkedFilterDraft {
-  mode: LinkedFilterMode;
-  link_type_id: string;
-  property_name: string;
-  operator: ObjectQueryFilter['operator'];
-  value: string;
-  object_id: string;
-}
-
-interface ExplorationContext {
-  kind: 'linked_filter' | 'pivot';
-  label: string;
-  source_object_type_id: string;
-  result_object_type_id: string;
-  source_object_ids: string[];
-  result_object_ids: string[];
-  link_type_id: string;
-  direction: string;
-}
-
-const RECENTS_KEY = 'of.objectExplorer.recents';
-const DEFAULT_PROPERTY_FILTER: PropertyFilterDraft = { property_name: '', operator: 'equals', value: '' };
-const DEFAULT_LINKED_FILTER: LinkedFilterDraft = {
-  mode: 'has_link',
-  link_type_id: '',
-  property_name: '',
-  operator: 'equals',
-  value: '',
-  object_id: '',
-};
-const SEARCH_KINDS = [
-  { value: '', label: 'All resources' },
-  { value: 'object_instance', label: 'Objects' },
-  { value: 'object_type', label: 'Object types' },
-  { value: 'action_type', label: 'Actions' },
-  { value: 'link_type', label: 'Links' },
-  { value: 'shared_property_type', label: 'Shared properties' },
+const TAB_DEFINITIONS: ReadonlyArray<{ id: ObjectExplorerTab; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'objects', label: 'Objects' },
+  { id: 'types', label: 'Object types' },
+  { id: 'artifacts', label: 'Artifacts' },
 ];
-const OBJECT_EXPLORER_CONFIG = normalizeObjectExplorerProductConfig({
-  max_action_selection_count: 1000,
-  max_export_selection_count: 5000,
-  open_in_targets: ['object_views', 'graph', 'map', 'workshop', 'reports'],
-});
 
-const numberFormatter = new Intl.NumberFormat('en-US');
-const dateFormatter = new Intl.DateTimeFormat('en-GB', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-});
-
-function readRecents(): RecentItem[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(RECENTS_KEY);
-    return raw ? (JSON.parse(raw) as RecentItem[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeRecents(items: RecentItem[]) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(RECENTS_KEY, JSON.stringify(items.slice(0, 30)));
-}
-
-function shortId(value: string | null | undefined, length = 10) {
-  if (!value) return '-';
-  return value.length <= length ? value : `${value.slice(0, length)}...`;
-}
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return '-';
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? '-' : dateFormatter.format(parsed);
-}
-
-function formatValue(value: unknown) {
-  if (value === null || value === undefined || value === '') return '-';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return JSON.stringify(value);
-}
-
-function uniqueRecentKey(item: RecentItem) {
-  return `${item.kind}:${item.id}`;
-}
-
-function propertyKind(property?: Property | null) {
-  const raw = `${property?.property_type || ''} ${property?.base_type || ''} ${property?.type_family || ''}`.toLowerCase();
-  if (/(int|long|float|double|decimal|number|numeric|currency|percent)/.test(raw)) return 'number';
-  if (/(date|time|timestamp)/.test(raw)) return 'date';
-  if (/(bool)/.test(raw)) return 'boolean';
-  return 'string';
-}
-
-function propertyInputType(property?: Property | null) {
-  const kind = propertyKind(property);
-  if (kind === 'number') return 'number';
-  if (kind === 'date') return 'datetime-local';
-  return 'text';
-}
-
-function operatorOptionsForProperty(property?: Property | null) {
-  const kind = propertyKind(property);
-  if (kind === 'number' || kind === 'date') {
-    return [
-      ['equals', 'equals'],
-      ['not_equals', 'not equals'],
-      ['gt', 'greater than'],
-      ['gte', 'greater or equal'],
-      ['lt', 'less than'],
-      ['lte', 'less or equal'],
-      ['is_empty', 'is empty'],
-      ['is_not_empty', 'is not empty'],
-    ] as const;
-  }
-  if (kind === 'boolean') {
-    return [
-      ['equals', 'equals'],
-      ['not_equals', 'not equals'],
-      ['is_empty', 'is empty'],
-      ['is_not_empty', 'is not empty'],
-    ] as const;
-  }
-  return [
-    ['equals', 'equals'],
-    ['contains', 'contains'],
-    ['not_equals', 'not equals'],
-    ['is_empty', 'is empty'],
-    ['is_not_empty', 'is not empty'],
-  ] as const;
-}
-
-function coerceFilterValue(value: string, property?: Property | null) {
-  const trimmed = value.trim();
-  if (trimmed === '') return '';
-  if (propertyKind(property) === 'number') {
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : trimmed;
-  }
-  if (propertyKind(property) === 'boolean') return trimmed.toLowerCase() === 'true';
-  return trimmed;
-}
-
-function uniqueObjectIds(results: SearchResult[]) {
-  return Array.from(new Set(results
-    .filter((result) => result.kind === 'object_instance')
-    .map((result) => result.id)
-    .filter(Boolean)));
-}
-
-function splitCompact(value: string) {
-  return value
-    .split(/[,\n]/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
-
-function downloadText(filename: string, text: string, mimeType: string) {
-  const blob = new Blob([text], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
-function csvEscape(value: unknown) {
-  const text = value === null || value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-function objectToSearchResult(object: { id: string; object_type_id: string; properties: Record<string, unknown> }, objectType?: ObjectType | null): SearchResult {
-  const titleProperty = objectType?.title_property || objectType?.primary_key_property || objectType?.primary_key || 'id';
-  const title = formatValue(object.properties?.[titleProperty]) || object.id;
-  return {
-    kind: 'object_instance',
-    id: object.id,
-    object_type_id: object.object_type_id,
-    title,
-    subtitle: objectType?.display_name || objectType?.name || object.object_type_id,
-    snippet: Object.entries(object.properties || {}).slice(0, 4).map(([key, value]) => `${key}: ${formatValue(value)}`).join(' · '),
-    score: 1,
-    route: objectViewFullHref(object.object_type_id, object.id),
-    metadata: { ...(object.properties || {}) },
-  };
-}
-
-function objectQueryFiltersFromDrafts(filters: PropertyFilterDraft[], properties: Property[] = []): ObjectQueryFilter[] {
-  const propertyByName = new Map(properties.map((property) => [property.name, property]));
-  return filters
-    .filter((filter) => filter.property_name && (filter.operator === 'is_empty' || filter.operator === 'is_not_empty' || filter.value.trim() !== ''))
-    .map((filter) => ({
-      property_name: filter.property_name,
-      operator: filter.operator,
-      value: filter.operator === 'is_empty' || filter.operator === 'is_not_empty' ? undefined : coerceFilterValue(filter.value, propertyByName.get(filter.property_name)),
-    }));
-}
-
-function objectSetFiltersFromQueryFilters(filters: ObjectQueryFilter[]): ObjectSetFilter[] {
-  return filters.map((filter) => ({
-    field: filter.property_name,
-    operator: filter.operator || 'equals',
-    value: filter.value ?? null,
-  }));
-}
-
-function objectIdFromEvaluationRow(row: Record<string, unknown>) {
-  const candidate = (row.base && typeof row.base === 'object') ? row.base as Record<string, unknown> : row;
-  return typeof candidate.id === 'string' ? candidate.id : '';
-}
-
-function objectTypeIdFromResultSet(results: SearchResult[]) {
-  const typeIds = Array.from(new Set(results
-    .filter((result) => result.kind === 'object_instance' && result.object_type_id)
-    .map((result) => result.object_type_id as string)));
-  return typeIds.length === 1 ? typeIds[0] : '';
-}
 
 export function ObjectExplorerPage() {
   const { user } = useAuth();
-  const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
-  const [objectTypeGroups, setObjectTypeGroups] = useState<OntologyObjectTypeGroup[]>([]);
-  const [objectSets, setObjectSets] = useState<ObjectSetDefinition[]>([]);
-  const [objectViews, setObjectViews] = useState<ObjectViewDefinition[]>([]);
-  const [linkTypes, setLinkTypes] = useState<LinkType[]>([]);
-  const [actionTypes, setActionTypes] = useState<ActionType[]>([]);
-  const [typeProperties, setTypeProperties] = useState<Property[]>([]);
-  const [linkedProperties, setLinkedProperties] = useState<Property[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
+  const queryClient = useQueryClient();
+  const {
+    objectTypes,
+    objectTypeGroups,
+    objectSets,
+    objectViews,
+    linkTypes,
+    actionTypes,
+    loading,
+    error: pageError,
+  } = useObjectExplorerInitialData();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('lexical');
@@ -384,43 +182,26 @@ export function ObjectExplorerPage() {
   const [objectSetBusy, setObjectSetBusy] = useState(false);
   const [objectSetError, setObjectSetError] = useState('');
 
+  const [activeTab, setActiveTab] = useState<ObjectExplorerTab>('overview');
+  const [sideNavSelection, setSideNavSelection] = useState<SideNavSelection>({ kind: 'all' });
+  const [groupsPage, setGroupsPage] = useState(0);
+  const [favoriteTypeIds, setFavoriteTypeIds] = useState<Set<string>>(() => new Set(readFavoriteTypeIds()));
+  const [previewTypeId, setPreviewTypeId] = useState<string | null>(null);
+  const [scopeTypeIds, setScopeTypeIds] = useState<Set<string>>(() => new Set());
+
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setPageError('');
-      try {
-        const [typeRes, groupRes, setRes, linkRes, actionRes, viewRes] = await Promise.all([
-          listObjectTypes({ per_page: 200 }),
-          listObjectTypeGroups({ per_page: 200 }),
-          listObjectSets({ size: 500 }),
-          listLinkTypes({ per_page: 200 }).catch(() => ({ data: [], total: 0 })),
-          listActionTypes({ per_page: 200 }).catch(() => ({ data: [], total: 0, page: 1, per_page: 200 })),
-          listObjectViews({ per_page: 500 }).catch(() => ({ data: [] as ObjectViewDefinition[], total: 0, page: 1, per_page: 500 })),
-        ]);
-        if (cancelled) return;
-        setObjectTypes(typeRes.data);
-        setObjectTypeGroups(groupRes.data);
-        setObjectSets(setRes.data);
-        setObjectViews(viewRes.data);
-        setLinkTypes(linkRes.data);
-        setActionTypes(actionRes.data);
-        setNewSetType(typeRes.data[0]?.id ?? '');
-        setFilterTypeId(typeRes.data[0]?.id ?? '');
-        setDirectOpenTypeId(typeRes.data[0]?.id ?? '');
-        setRecents(readRecents());
-      } catch (cause) {
-        if (cancelled) return;
-        setPageError(cause instanceof Error ? cause.message : 'Failed to load object explorer');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
+    setRecents(readRecents());
   }, []);
+
+  function toggleFavoriteType(typeId: string) {
+    setFavoriteTypeIds((current) => {
+      const next = new Set(current);
+      if (next.has(typeId)) next.delete(typeId);
+      else next.add(typeId);
+      writeFavoriteTypeIds(Array.from(next));
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (searchTypeFilter) setNewSetType(searchTypeFilter);
@@ -508,7 +289,14 @@ export function ObjectExplorerPage() {
   const linkedFilterLink = linkedFilter.link_type_id ? linkById.get(linkedFilter.link_type_id) ?? null : null;
   const linkedFilterContext = linkedFilterLink ? objectExplorerLinkedTargetForType(linkedFilterLink, filterTypeId) : null;
   const linkedTargetType = linkedFilterContext ? typeById.get(linkedFilterContext.target_object_type_id) : null;
+
+  const typePropertiesQuery = useTypeProperties(filterTypeId);
+  const typeProperties = typePropertiesQuery.data ?? [];
+  const linkedTargetTypeId = linkedFilterContext?.target_object_type_id ?? '';
+  const linkedPropertiesQuery = useTypeProperties(linkedTargetTypeId);
+  const linkedProperties = linkedPropertiesQuery.data ?? [];
   const linkedFilterProperty = linkedProperties.find((property) => property.name === linkedFilter.property_name) ?? null;
+
   const pivotSourceTypeId = searchTypeFilter || filterTypeId || searchResults.find((result) => result.object_type_id)?.object_type_id || '';
   const pivotLinkType = pivotLinkTypeId ? linkById.get(pivotLinkTypeId) ?? null : null;
   const pivotContext = pivotLinkType ? objectExplorerLinkedTargetForType(pivotLinkType, pivotSourceTypeId) : null;
@@ -536,56 +324,34 @@ export function ObjectExplorerPage() {
   }, [pivotLinkTypeId, pivotLinks]);
 
   useEffect(() => {
-    if (!filterTypeId) {
-      setTypeProperties([]);
-      return;
+    if (typePropertiesQuery.error) {
+      setSearchError(typePropertiesQuery.error instanceof Error ? typePropertiesQuery.error.message : 'Failed to load properties');
     }
-    let cancelled = false;
-    listProperties(filterTypeId)
-      .then((properties) => {
-        if (cancelled) return;
-        setTypeProperties(properties);
-        setPropertyFilters((current) => current.length > 0
-          ? current.map((filter, index) => ({
-              ...filter,
-              property_name: properties.some((property) => property.name === filter.property_name)
-                ? filter.property_name
-                : index === 0 ? properties[0]?.name ?? '' : '',
-            }))
-          : [{ ...DEFAULT_PROPERTY_FILTER, property_name: properties[0]?.name ?? '' }]);
-      })
-      .catch((cause) => {
-        if (!cancelled) setSearchError(cause instanceof Error ? cause.message : 'Failed to load properties');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [filterTypeId]);
+  }, [typePropertiesQuery.error]);
 
   useEffect(() => {
-    if (!linkedFilterContext?.target_object_type_id) {
-      setLinkedProperties([]);
-      return;
-    }
-    let cancelled = false;
-    listProperties(linkedFilterContext.target_object_type_id)
-      .then((properties) => {
-        if (cancelled) return;
-        setLinkedProperties(properties);
-        setLinkedFilter((current) => ({
-          ...current,
-          property_name: properties.some((property) => property.name === current.property_name)
-            ? current.property_name
-            : properties[0]?.name ?? '',
-        }));
-      })
-      .catch(() => {
-        if (!cancelled) setLinkedProperties([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [linkedFilterContext?.target_object_type_id]);
+    if (!typePropertiesQuery.data) return;
+    const properties = typePropertiesQuery.data;
+    setPropertyFilters((current) => current.length > 0
+      ? current.map((filter, index) => ({
+          ...filter,
+          property_name: properties.some((property) => property.name === filter.property_name)
+            ? filter.property_name
+            : index === 0 ? properties[0]?.name ?? '' : '',
+        }))
+      : [{ ...DEFAULT_PROPERTY_FILTER, property_name: properties[0]?.name ?? '' }]);
+  }, [typePropertiesQuery.data]);
+
+  useEffect(() => {
+    if (!linkedPropertiesQuery.data) return;
+    const properties = linkedPropertiesQuery.data;
+    setLinkedFilter((current) => ({
+      ...current,
+      property_name: properties.some((property) => property.name === current.property_name)
+        ? current.property_name
+        : properties[0]?.name ?? '',
+    }));
+  }, [linkedPropertiesQuery.data]);
 
   useEffect(() => {
     if (!pendingShareId || loading) return;
@@ -700,7 +466,6 @@ export function ObjectExplorerPage() {
   function storeSelectedObjectCommentThread(thread: ObjectCommentThread) {
     setCommentThreads((current) => ({ ...current, [thread.id]: thread }));
   }
-  const linkedObjectGroups = useMemo(() => groupLinkedObjectsByLinkType(selectedObject?.neighbors ?? []), [selectedObject?.neighbors]);
   const evaluationRows = evaluation?.rows.slice(0, 8) ?? [];
   const currentResultTypeId = searchTypeFilter || objectTypeIdFromResultSet(searchResults) || evaluation?.object_set.base_object_type_id || filterTypeId || '';
   const currentResultObjectIds = useMemo(() => {
@@ -750,8 +515,7 @@ export function ObjectExplorerPage() {
   }, [objectSetActionId, objectSetActions]);
 
   async function refreshObjectSets() {
-    const res = await listObjectSets();
-    setObjectSets(res.data);
+    await queryClient.invalidateQueries({ queryKey: objectExplorerKeys.objectSets() });
   }
 
   function accessForType(typeId: string | null | undefined): ObjectInstanceViewPolicy {
@@ -1012,18 +776,25 @@ export function ObjectExplorerPage() {
     setHasSearched(true);
     setExplorationContext(null);
     try {
+      const scopeForServer = scopeTypeIds.size === 1 ? scopeTypeIds.values().next().value : searchTypeFilter || undefined;
       const res = await searchOntology({
         query,
         kind: searchKindFilter || undefined,
-        object_type_id: searchTypeFilter || undefined,
+        object_type_id: scopeForServer,
         limit: 50,
         semantic: searchMode === 'semantic',
       });
       setSearchResults(res.data
         .filter((result) => {
-          if (result.kind === 'object_type') return visibleObjectTypeIds.has(result.id);
+          if (result.kind === 'object_type') {
+            if (!visibleObjectTypeIds.has(result.id)) return false;
+            return scopeTypeIds.size === 0 || scopeTypeIds.has(result.id);
+          }
           if (result.kind !== 'object_instance') return true;
-          return Boolean(result.object_type_id && visibleObjectTypeIds.has(result.object_type_id) && accessForType(result.object_type_id).can_view_instances);
+          if (!result.object_type_id || !visibleObjectTypeIds.has(result.object_type_id)) return false;
+          if (!accessForType(result.object_type_id).can_view_instances) return false;
+          if (scopeTypeIds.size > 0 && !scopeTypeIds.has(result.object_type_id)) return false;
+          return true;
         })
         .map((result) => {
           if (result.kind !== 'object_instance') return result;
@@ -1091,9 +862,15 @@ export function ObjectExplorerPage() {
       const view = await getObjectView(result.object_type_id, result.id);
       const [implementedInterfaces, loadedActions] = await Promise.all([
         listTypeInterfaces(result.object_type_id).catch(() => []),
-        actionTypes.length > 0 ? Promise.resolve(actionTypes) : listActionTypes({ per_page: 200 }).then((response) => response.data).catch(() => []),
+        actionTypes.length > 0
+          ? Promise.resolve(actionTypes)
+          : queryClient
+              .fetchQuery({
+                queryKey: objectExplorerKeys.actionTypes(),
+                queryFn: () => listActionTypes({ per_page: 200 }).then((response) => response.data),
+              })
+              .catch(() => [] as ActionType[]),
       ]);
-      if (actionTypes.length === 0 && loadedActions.length > 0) setActionTypes(loadedActions);
       const allActions = loadedActions.length > 0 ? loadedActions : view.applicable_actions;
       const applicableActions = mergeApplicableInterfaceActions(view.applicable_actions, allActions, implementedInterfaces);
       const nextView = redactObjectViewResponseForObjectViewPermissions({
@@ -1350,103 +1127,58 @@ export function ObjectExplorerPage() {
     }
   }
 
+  function previewType(typeId: string) {
+    setPreviewTypeId(typeId);
+  }
+
+  function startExplorationFromPreview(typeId: string) {
+    setPreviewTypeId(null);
+    setActiveTab('objects');
+    void browseType(typeId);
+  }
+
+  function handleTypeaheadType(typeId: string) {
+    setActiveTab('objects');
+    void browseType(typeId);
+  }
+
+  function handleTypeaheadSavedSet(set: ObjectSetDefinition) {
+    setActiveTab('artifacts');
+    void openSavedExploration(set);
+  }
+
+  function handleTypeaheadRecent(item: RecentItem) {
+    setActiveTab('objects');
+    void selectRecent(item);
+  }
+
   return (
     <section className="of-page" style={{ display: 'grid', gap: 12 }}>
-      <header className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-          <div style={{ minWidth: 280 }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              <Link to="/ontology" className="of-link" style={{ fontSize: 12 }}>
-                Ontology
-              </Link>
-              <span className="of-text-muted">/</span>
-              <span className="of-text-muted" style={{ fontSize: 12 }}>Object explorer</span>
-            </div>
-            <h1 className="of-heading-xl" style={{ marginTop: 8 }}>
-              Object explorer
-            </h1>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            <Link to="/ontology/graph" className="of-button">
-              Graph
-            </Link>
-            <Link to="/ontology/object-sets" className="of-button">
-              Object sets
-            </Link>
-            <Link to="/object-views" className="of-button">
-              Views
-            </Link>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))' }}>
-          <MetricCard label="Visible types" value={numberFormatter.format(visibleObjectTypes.length)} />
-          <MetricCard label="Saved explorations" value={numberFormatter.format(visibleObjectSets.length)} />
-          <MetricCard label="Results" value={numberFormatter.format(searchResults.length)} />
-          <MetricCard label="Recent" value={numberFormatter.format(visibleRecents.length)} />
-        </div>
-
-        <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(min(100%, 360px), 1fr) repeat(3, minmax(min(100%, 150px), auto))', alignItems: 'center' }}>
-          <input
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search objects, actions, links"
-            className="of-input"
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void runSearch();
-            }}
-          />
-          <div style={{ display: 'inline-flex', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', minHeight: 30 }}>
-            {(['lexical', 'semantic'] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setSearchMode(mode)}
-                className={searchMode === mode ? 'of-button of-button--primary' : 'of-button of-button--ghost'}
-                style={{ border: 0, borderRadius: 0, minWidth: 76 }}
-              >
-                {mode === 'lexical' ? 'Lexical' : 'Semantic'}
-              </button>
-            ))}
-          </div>
-          <select value={searchKindFilter} onChange={(event) => setSearchKindFilter(event.target.value)} className="of-input">
-            {SEARCH_KINDS.map((kind) => (
-              <option key={kind.value} value={kind.value}>
-                {kind.label}
-              </option>
-            ))}
-          </select>
-          <select value={searchTypeFilter} onChange={(event) => setSearchTypeFilter(event.target.value)} className="of-input">
-            <option value="">All types</option>
-            {visibleObjectTypes.map((type) => (
-              <option key={type.id} value={type.id}>
-                {type.display_name}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={() => void runSearch()} disabled={searchLoading || !searchQuery.trim()} className="of-button of-button--primary">
-            {searchLoading ? 'Searching' : 'Search'}
-          </button>
-        </div>
-
-        <div className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8, gridTemplateColumns: 'minmax(min(100%, 180px), 220px) minmax(min(100%, 220px), 1fr) auto', alignItems: 'center' }}>
-          <select value={directOpenTypeId} onChange={(event) => setDirectOpenTypeId(event.target.value)} className="of-input">
-            {visibleObjectTypes.map((type) => (
-              <option key={type.id} value={type.id}>{type.display_name || type.name}</option>
-            ))}
-          </select>
-          <input
-            value={directOpenObjectId}
-            onChange={(event) => setDirectOpenObjectId(event.target.value)}
-            onKeyDown={(event) => { if (event.key === 'Enter') void openDirectObject(); }}
-            placeholder="Object primary key or ID"
-            className="of-input"
-          />
-          <button type="button" onClick={() => void openDirectObject()} disabled={!directOpenTypeId || !directOpenObjectId.trim()} className="of-button">
-            Open Object View
-          </button>
-        </div>
-      </header>
+      <HeaderToolbar
+        visibleObjectTypes={visibleObjectTypes}
+        visibleObjectSets={visibleObjectSets}
+        searchResultsCount={searchResults.length}
+        visibleRecents={visibleRecents}
+        groups={explorerGroups}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        searchMode={searchMode}
+        setSearchMode={setSearchMode}
+        searchKindFilter={searchKindFilter}
+        setSearchKindFilter={setSearchKindFilter}
+        scopeTypeIds={scopeTypeIds}
+        setScopeTypeIds={setScopeTypeIds}
+        searchLoading={searchLoading}
+        onRunSearch={() => void runSearch()}
+        onSelectTypeFromTypeahead={handleTypeaheadType}
+        onSelectSavedSetFromTypeahead={handleTypeaheadSavedSet}
+        onSelectRecentFromTypeahead={handleTypeaheadRecent}
+        directOpenTypeId={directOpenTypeId}
+        setDirectOpenTypeId={setDirectOpenTypeId}
+        directOpenObjectId={directOpenObjectId}
+        setDirectOpenObjectId={setDirectOpenObjectId}
+        onOpenDirectObject={() => void openDirectObject()}
+      />
 
       {pageError && (
         <div className="of-status-danger" style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', fontSize: 12 }}>
@@ -1460,815 +1192,220 @@ export function ObjectExplorerPage() {
         </section>
       ) : (
         <>
-        <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
-          <PanelHeader label="Browse object type groups" value={`${explorerGroups.length}`} />
-          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))' }}>
-            {explorerGroups.map((group) => (
-              <article key={group.id} className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <strong>{group.display_name}</strong>
-                    {group.description ? <p className="of-text-muted" style={{ margin: '2px 0 0', fontSize: 11 }}>{group.description}</p> : null}
-                  </div>
-                  <span className="of-chip">{group.object_types.length}</span>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {group.object_types.slice(0, 6).map((type) => {
-                    const canBrowseRows = accessForType(type.id).can_view_instances;
-                    return (
-                      <button
-                        key={type.id}
-                        type="button"
-                        onClick={() => void browseType(type.id)}
-                        disabled={!canBrowseRows}
-                        className="of-button"
-                        style={{ fontSize: 12 }}
-                        title={canBrowseRows ? `Browse ${type.display_name || type.name}` : accessForType(type.id).reason}
-                      >
-                        {type.display_name || type.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </article>
-            ))}
-            {explorerGroups.length === 0 && <EmptyState label="No visible object type groups." compact />}
-          </div>
-        </section>
+          <Tabs tabs={TAB_DEFINITIONS} active={activeTab} onChange={setActiveTab} />
 
-        <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
-          <PanelHeader label="Filters and pivots" value={filterTypeId ? typeById.get(filterTypeId)?.display_name : 'Pick type'} />
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(200px, 240px) minmax(0, 1fr)', alignItems: 'start' }}>
+            <SideNavGroups
+              groups={explorerGroups}
+              selection={sideNavSelection}
+              onSelect={(next) => {
+                setSideNavSelection(next);
+                if (next.kind === 'explorations') setActiveTab('artifacts');
+                else if (activeTab === 'artifacts') setActiveTab('overview');
+              }}
+              favoritesCount={favoriteTypeIds.size}
+              explorationsCount={visibleObjectSets.length}
+              page={groupsPage}
+              onChangePage={setGroupsPage}
+            />
 
-          <section className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
-            <PanelHeader label="Property filters" value={`${propertyFilters.length}`} />
-            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(min(100%, 220px), 260px) minmax(0, 1fr) auto', alignItems: 'start' }}>
-              <select value={filterTypeId} onChange={(event) => setFilterTypeId(event.target.value)} className="of-input">
-                {objectTypesWithVisibleRows.map((type) => (
-                  <option key={type.id} value={type.id}>{type.display_name || type.name}</option>
-                ))}
-              </select>
-              <div style={{ display: 'grid', gap: 6 }}>
-                {propertyFilters.map((filter, index) => {
-                  const property = typeProperties.find((entry) => entry.name === filter.property_name) ?? null;
-                  return (
-                    <div key={index} style={{ display: 'grid', gap: 6, gridTemplateColumns: 'minmax(140px, 1fr) minmax(120px, 170px) minmax(120px, 1fr) auto' }}>
-                      <select
-                        value={filter.property_name}
-                        onChange={(event) => setPropertyFilters((current) => current.map((entry, i) => i === index ? { ...entry, property_name: event.target.value, operator: 'equals' } : entry))}
-                        className="of-input"
-                      >
-                        {typeProperties.map((entry) => (
-                          <option key={entry.id} value={entry.name}>{entry.display_name || entry.name}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={filter.operator}
-                        onChange={(event) => setPropertyFilters((current) => current.map((entry, i) => i === index ? { ...entry, operator: event.target.value as ObjectQueryFilter['operator'] } : entry))}
-                        className="of-input"
-                      >
-                        {operatorOptionsForProperty(property).map(([value, label]) => (
-                          <option key={value} value={value}>{label}</option>
-                        ))}
-                      </select>
-                      {propertyKind(property) === 'boolean' ? (
-                        <select
-                          value={filter.value || 'true'}
-                          onChange={(event) => setPropertyFilters((current) => current.map((entry, i) => i === index ? { ...entry, value: event.target.value } : entry))}
-                          disabled={filter.operator === 'is_empty' || filter.operator === 'is_not_empty'}
-                          className="of-input"
-                        >
-                          <option value="true">true</option>
-                          <option value="false">false</option>
-                        </select>
-                      ) : (
-                        <input
-                          type={propertyInputType(property)}
-                          value={filter.value}
-                          onChange={(event) => setPropertyFilters((current) => current.map((entry, i) => i === index ? { ...entry, value: event.target.value } : entry))}
-                          disabled={filter.operator === 'is_empty' || filter.operator === 'is_not_empty'}
-                          className="of-input"
-                          placeholder={propertyKind(property) === 'number' ? 'Number' : propertyKind(property) === 'date' ? 'Date or time' : 'Value'}
-                        />
-                      )}
-                      <button type="button" className="of-button" onClick={() => setPropertyFilters((current) => current.filter((_, i) => i !== index))} disabled={propertyFilters.length <= 1}>Remove</button>
-                    </div>
-                  );
-                })}
-                <button type="button" className="of-button" style={{ justifySelf: 'start' }} onClick={() => setPropertyFilters((current) => [...current, { ...DEFAULT_PROPERTY_FILTER, property_name: typeProperties[0]?.name ?? '' }])}>
-                  Add filter
-                </button>
-              </div>
-              <button type="button" className="of-button of-button--primary" onClick={() => void runPropertyFilters()} disabled={!filterTypeId || filterLoading}>
-                {filterLoading ? 'Filtering' : 'Run filters'}
-              </button>
-            </div>
-          </section>
+            <div style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
+              {activeTab === 'overview' && (
+                <>
+                  <ExplorationsHighlight
+                    objectSets={visibleObjectSets}
+                    typeById={typeById}
+                    onOpen={(set) => void openSavedExploration(set)}
+                    onSeeAll={() => setActiveTab('artifacts')}
+                  />
+                  <BrowseGroupsGrid
+                    groups={explorerGroups}
+                    linkTypes={linkTypes}
+                    accessForType={accessForType}
+                    onBrowse={(typeId) => {
+                      setActiveTab('objects');
+                      void browseType(typeId);
+                    }}
+                    onPreviewType={previewType}
+                    favoriteTypeIds={favoriteTypeIds}
+                    onToggleFavorite={toggleFavoriteType}
+                    selection={sideNavSelection}
+                  />
+                </>
+              )}
 
-          <section className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
-            <PanelHeader label="Linked-object filters" value={linkedTargetType ? linkedTargetType.display_name || linkedTargetType.name : 'No link'} />
-            {linkedFilterLinks.length > 0 ? (
-              <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(min(100%, 150px), 180px) minmax(min(100%, 220px), 260px) minmax(0, 1fr) auto', alignItems: 'start' }}>
-                <select value={linkedFilter.mode} onChange={(event) => setLinkedFilter((current) => ({ ...current, mode: event.target.value as LinkedFilterMode }))} className="of-input">
-                  <option value="has_link">Has link</option>
-                  <option value="linked_property">Linked property</option>
-                  <option value="object_reference">Object reference</option>
-                </select>
-                <select value={linkedFilter.link_type_id} onChange={(event) => setLinkedFilter((current) => ({ ...current, link_type_id: event.target.value }))} className="of-input">
-                  {linkedFilterLinks.map((linkType) => {
-                    const target = objectExplorerLinkedTargetForType(linkType, filterTypeId);
-                    return (
-                      <option key={linkType.id} value={linkType.id}>
-                        {linkType.display_name || linkType.name} to {typeById.get(target?.target_object_type_id || '')?.display_name || target?.target_object_type_id}
-                      </option>
-                    );
-                  })}
-                </select>
-                {linkedFilter.mode === 'linked_property' ? (
-                  <div style={{ display: 'grid', gap: 6, gridTemplateColumns: 'minmax(130px, 1fr) minmax(120px, 160px) minmax(120px, 1fr)' }}>
-                    <select value={linkedFilter.property_name} onChange={(event) => setLinkedFilter((current) => ({ ...current, property_name: event.target.value, operator: 'equals' }))} className="of-input">
-                      {linkedProperties.map((property) => (
-                        <option key={property.id} value={property.name}>{property.display_name || property.name}</option>
-                      ))}
-                    </select>
-                    <select value={linkedFilter.operator} onChange={(event) => setLinkedFilter((current) => ({ ...current, operator: event.target.value as ObjectQueryFilter['operator'] }))} className="of-input">
-                      {operatorOptionsForProperty(linkedFilterProperty).map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
-                      ))}
-                    </select>
-                    <input
-                      type={propertyInputType(linkedFilterProperty)}
-                      value={linkedFilter.value}
-                      onChange={(event) => setLinkedFilter((current) => ({ ...current, value: event.target.value }))}
-                      disabled={linkedFilter.operator === 'is_empty' || linkedFilter.operator === 'is_not_empty'}
-                      className="of-input"
-                      placeholder="Linked value"
+              {activeTab === 'types' && (
+                <BrowseGroupsGrid
+                  groups={explorerGroups}
+                  linkTypes={linkTypes}
+                  accessForType={accessForType}
+                  onBrowse={(typeId) => {
+                    setActiveTab('objects');
+                    void browseType(typeId);
+                  }}
+                  onPreviewType={previewType}
+                  favoriteTypeIds={favoriteTypeIds}
+                  onToggleFavorite={toggleFavoriteType}
+                  selection={sideNavSelection}
+                />
+              )}
+
+              {activeTab === 'objects' && (
+                <>
+                  <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
+                    <PanelHeader label="Filters and pivots" value={filterTypeId ? typeById.get(filterTypeId)?.display_name : 'Pick type'} />
+
+                    <PropertyFiltersPanel
+                      filterTypeId={filterTypeId}
+                      onChangeFilterTypeId={setFilterTypeId}
+                      objectTypesWithVisibleRows={objectTypesWithVisibleRows}
+                      propertyFilters={propertyFilters}
+                      setPropertyFilters={setPropertyFilters}
+                      typeProperties={typeProperties}
+                      filterLoading={filterLoading}
+                      onRunFilters={() => void runPropertyFilters()}
+                    />
+
+                    <LinkedFilterPanel
+                      filterTypeId={filterTypeId}
+                      linkedFilter={linkedFilter}
+                      setLinkedFilter={setLinkedFilter}
+                      linkedFilterLinks={linkedFilterLinks}
+                      linkedProperties={linkedProperties}
+                      linkedFilterProperty={linkedFilterProperty}
+                      linkedTargetType={linkedTargetType}
+                      typeById={typeById}
+                      filterLoading={filterLoading}
+                      onRunLinkedFilter={() => void runLinkedExploration()}
+                    />
+
+                    <PivotPanel
+                      pivotLinkTypeId={pivotLinkTypeId}
+                      onChangePivotLinkTypeId={setPivotLinkTypeId}
+                      pivotLinks={pivotLinks}
+                      pivotSourceTypeId={pivotSourceTypeId}
+                      pivotTargetType={pivotTargetType}
+                      typeById={typeById}
+                      searchResults={searchResults}
+                      filterLoading={filterLoading}
+                      onPivot={() => void pivotToLinkedType()}
+                    />
+                  </section>
+
+                  <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', alignItems: 'start' }}>
+                    <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
+                      <SearchResultsList
+                        searchResults={searchResults}
+                        hasSearched={hasSearched}
+                        searchError={searchError}
+                        explorationContext={explorationContext}
+                        selectedResult={selectedResult}
+                        typeById={typeById}
+                        onPreview={(result) => void selectResult(result)}
+                      />
+
+                      <AffordancesPanel
+                        objectSetActionContext={objectSetActionContext}
+                        currentResultObjectIds={currentResultObjectIds}
+                        openInAffordances={openInAffordances}
+                        exportAffordances={exportAffordances}
+                        objectSetActions={objectSetActions}
+                        objectSetAction={objectSetAction}
+                        objectSetActionPrefill={objectSetActionPrefill}
+                        affordanceNotice={affordanceNotice}
+                        actionNotice={actionNotice}
+                        setObjectSetActionId={setObjectSetActionId}
+                        setActionNotice={setActionNotice}
+                        onCopyIds={(affordance) => void copyCurrentObjectIds(affordance)}
+                        onExport={exportCurrentObjects}
+                      />
+
+                      <RecentObjectsList recents={visibleRecents} onSelect={(item) => void selectRecent(item)} />
+                    </section>
+
+                    <ObjectPreviewPanel
+                      selectedObject={selectedObject}
+                      selectedResult={selectedResult}
+                      selectedType={selectedType}
+                      selectedObjectAccess={selectedObjectAccess}
+                      selectedSchemaOnly={selectedSchemaOnly}
+                      selectedObjectViewResolution={selectedObjectViewResolution}
+                      selectedObjectViewTitle={selectedObjectViewTitle}
+                      selectedObjectEmbeddingEntry={selectedObjectEmbeddingEntry}
+                      selectedFullObjectViewHref={selectedFullObjectViewHref}
+                      selectedObjectCommentThread={selectedObjectCommentThread}
+                      storeSelectedObjectCommentThread={storeSelectedObjectCommentThread}
+                      commentsOpen={commentsOpen}
+                      setCommentsOpen={setCommentsOpen}
+                      previewLoading={previewLoading}
+                      previewError={previewError}
+                      summaryEntries={summaryEntries}
+                      propertyEntries={propertyEntries}
+                      selectedActionId={selectedActionId}
+                      setSelectedActionId={setSelectedActionId}
+                      selectedAction={selectedAction}
+                      selectedActionPrefill={selectedActionPrefill}
+                      actionNotice={actionNotice}
+                      setActionNotice={setActionNotice}
+                      principal={principal}
+                      authorDisplayName={user?.email || user?.id || 'object-explorer'}
+                      setObjectViewModePreference={setObjectViewModePreference}
                     />
                   </div>
-                ) : linkedFilter.mode === 'object_reference' ? (
-                  <input
-                    value={linkedFilter.object_id}
-                    onChange={(event) => setLinkedFilter((current) => ({ ...current, object_id: event.target.value }))}
-                    placeholder={`${linkedTargetType?.display_name || 'Linked object'} ID`}
-                    className="of-input"
-                  />
-                ) : (
-                  <div className="of-text-muted" style={{ padding: '6px 0', fontSize: 12 }}>
-                    Has visible linked object
-                  </div>
-                )}
-                <button type="button" className="of-button of-button--primary" onClick={() => void runLinkedExploration()} disabled={!linkedFilter.link_type_id || filterLoading}>
-                  {filterLoading ? 'Filtering' : 'Run linked filter'}
-                </button>
-              </div>
-            ) : (
-              <EmptyState label="No visible link filters for this object type." compact />
-            )}
-          </section>
-
-          <section className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
-            <PanelHeader label="Pivot linked objects" value={pivotTargetType ? pivotTargetType.display_name || pivotTargetType.name : 'Pick link'} />
-            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(min(100%, 260px), 320px) minmax(0, 1fr) auto', alignItems: 'center' }}>
-              <select value={pivotLinkTypeId} onChange={(event) => setPivotLinkTypeId(event.target.value)} className="of-input" disabled={pivotLinks.length === 0}>
-                {pivotLinks.map((linkType) => {
-                  const target = objectExplorerLinkedTargetForType(linkType, pivotSourceTypeId);
-                  return (
-                    <option key={linkType.id} value={linkType.id}>
-                      {linkType.display_name || linkType.name} to {typeById.get(target?.target_object_type_id || '')?.display_name || target?.target_object_type_id}
-                    </option>
-                  );
-                })}
-              </select>
-              <span className="of-text-muted" style={{ fontSize: 12 }}>
-                {numberFormatter.format(uniqueObjectIds(searchResults).length)} source objects from the current result set
-              </span>
-              <button type="button" className="of-button" onClick={() => void pivotToLinkedType()} disabled={!pivotLinkTypeId || filterLoading || uniqueObjectIds(searchResults).length === 0}>
-                Pivot
-              </button>
-            </div>
-          </section>
-        </section>
-
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', alignItems: 'start' }}>
-          <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
-            <PanelHeader label="Search results" value={hasSearched ? `${searchResults.length}` : 'Ready'} />
-
-            {searchError && (
-              <div className="of-status-danger" style={{ padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
-                {searchError}
-              </div>
-            )}
-            {explorationContext && (
-              <div className="of-status-success" style={{ padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                <span>{explorationContext.label}</span>
-                <span>{numberFormatter.format(explorationContext.source_object_ids.length)} source</span>
-                <span>{numberFormatter.format(explorationContext.result_object_ids.length)} result</span>
-              </div>
-            )}
-
-            <div style={{ display: 'grid', gap: 6, maxHeight: 520, overflow: 'auto' }}>
-              {searchResults.map((result, index) => (
-                <SearchResultRow
-                  key={`${result.kind}-${result.id}-${index}`}
-                  result={result}
-                  selected={selectedResult?.id === result.id && selectedResult.kind === result.kind}
-                  typeLabel={result.object_type_id ? typeById.get(result.object_type_id)?.display_name : undefined}
-                  onPreview={() => void selectResult(result)}
-                />
-              ))}
-              {searchResults.length === 0 && (
-                <EmptyState label={hasSearched ? 'No matching resources.' : 'Run a search to populate the explorer.'} />
-              )}
-            </div>
-
-            <section className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 10 }}>
-              <PanelHeader
-                label="Actions / Open In / Export"
-                value={objectSetActionContext ? `${numberFormatter.format(currentResultObjectIds.length)} selected` : 'No set'}
-              />
-              {affordanceNotice && (
-                <div className="of-status-success" style={{ padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
-                  {affordanceNotice}
-                </div>
-              )}
-              {objectSetActionContext ? (
-                <>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {openInAffordances.map((target) => (
-                      target.enabled ? (
-                        <Link key={target.id} to={target.href} className="of-button">
-                          {target.label}
-                        </Link>
-                      ) : (
-                        <button key={target.id} type="button" className="of-button" disabled title={target.reason}>
-                          {target.label}
-                        </button>
-                      )
-                    ))}
-                  </div>
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {exportAffordances.map((exportOption) => (
-                      <button
-                        key={exportOption.id}
-                        type="button"
-                        className="of-button"
-                        disabled={!exportOption.enabled}
-                        title={exportOption.enabled ? exportOption.label : exportOption.reason}
-                        onClick={() => {
-                          if (exportOption.id === 'copy_ids') void copyCurrentObjectIds(exportOption);
-                          else exportCurrentObjects(exportOption);
-                        }}
-                      >
-                        {exportOption.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {objectSetActions.map((action) => (
-                        <button
-                          key={action.id}
-                          type="button"
-                          onClick={() => {
-                            setObjectSetActionId(action.id);
-                            setActionNotice('');
-                          }}
-                          className={(objectSetAction?.id === action.id) ? 'of-button of-button--primary' : 'of-button'}
-                        >
-                          {action.display_name || action.name}
-                        </button>
-                      ))}
-                      {objectSetActions.length === 0 && <span className="of-text-muted">No actions for this object set.</span>}
-                    </div>
-                    {objectSetAction && (
-                      <div className="of-panel" style={{ padding: 10, display: 'grid', gap: 8 }}>
-                        {objectSetActionPrefill?.warning && (
-                          <div className="of-status-warning" style={{ padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
-                            {objectSetActionPrefill.warning}
-                          </div>
-                        )}
-                        <ActionExecutor
-                          action={objectSetAction}
-                          initialParameters={objectSetActionPrefill?.initial_parameters}
-                          hiddenParams={objectSetActionPrefill?.hidden_params}
-                          targetObjectId={objectSetActionPrefill?.target_object_id}
-                          batchTargetObjectIds={objectSetActionPrefill?.batch_target_object_ids}
-                          emptyMessage={objectSetActionPrefill?.prefilled_parameter_names.length ? 'Selected objects are pre-filled by Object Explorer.' : undefined}
-                          disabledReason={objectSetActionPrefill?.blocked_reason}
-                          onExecuted={(response) => {
-                            setActionNotice('total' in response ? `Batch execution recorded: ${response.succeeded}/${response.total}` : 'Execution recorded.');
-                          }}
-                        />
-                      </div>
-                    )}
-                    {actionNotice && (
-                      <div className="of-status-success" style={{ padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
-                        {actionNotice}
-                      </div>
-                    )}
-                  </div>
                 </>
-              ) : (
-                <EmptyState label="Run a search, filter, or saved exploration to enable action and export affordances." compact />
               )}
-            </section>
 
-            <section className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
-              <PanelHeader label="Recent objects" value={`${visibleRecents.length}`} />
-              <div style={{ display: 'grid', gap: 4, maxHeight: 190, overflow: 'auto' }}>
-                {visibleRecents.map((item) => (
-                  <button
-                    key={`${item.kind}-${item.id}`}
-                    type="button"
-                    onClick={() => void selectRecent(item)}
-                    className="of-button of-button--ghost"
-                    style={{ justifyContent: 'space-between', minHeight: 32, padding: '4px 6px', textAlign: 'left' }}
-                  >
-                    <span style={{ minWidth: 0 }}>
-                      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {item.title}
-                      </span>
-                      <span className="of-text-muted" style={{ display: 'block', fontSize: 11 }}>
-                        {item.kind} - {formatDate(item.createdAt)}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-                {visibleRecents.length === 0 && <EmptyState label="No recent objects." compact />}
-              </div>
-            </section>
-          </section>
-
-          <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
-            <PanelHeader
-              label="Panel Object View"
-              value={selectedObjectViewResolution?.selected_mode === 'configured' ? 'Custom' : selectedObject ? 'Core' : previewLoading ? 'Loading' : 'Idle'}
-            />
-            {selectedObjectViewResolution ? (
-              <div className="of-panel-muted" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: 8 }}>
-                <label style={{ fontSize: 12, fontWeight: 600 }}>
-                  View
-                  <select
-                    value={selectedObjectViewResolution.selected_mode}
-                    onChange={(event) => setObjectViewModePreference(event.target.value as ObjectViewMode)}
-                    className="of-input"
-                    disabled={!selectedObjectViewResolution.supports_toggle}
-                    style={{ marginLeft: 6, width: 'auto' }}
-                  >
-                    {selectedObjectViewResolution.options.map((option) => (
-                      <option key={option.mode} value={option.mode} disabled={!option.enabled}>
-                        {option.label}{option.default ? ' default' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {selectedObjectViewResolution.custom_is_default ? <span className="of-chip of-status-success">Custom default</span> : null}
-                {selectedObjectEmbeddingEntry?.uses_host_header ? <span className="of-chip">Object Explorer header</span> : null}
-                {!selectedObjectViewResolution.supports_toggle && selectedObjectViewResolution.limitation ? (
-                  <span className="of-chip of-status-warning">{selectedObjectViewResolution.limitation}</span>
-                ) : null}
-              </div>
-            ) : null}
-
-            {previewError && (
-              <div className="of-status-danger" style={{ padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
-                {previewError}
-              </div>
-            )}
-
-            {previewLoading ? (
-              <EmptyState label="Loading object view..." />
-            ) : selectedObject ? (
-              <>
-                <article className="of-panel-muted" style={{ padding: 12, display: 'grid', gap: 10 }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <p className="of-eyebrow">{selectedType?.display_name ?? selectedObject.object.object_type_id}</p>
-                      <h2 className="of-heading-md" style={{ marginTop: 4 }}>
-                        {selectedSchemaOnly ? `${selectedType?.display_name ?? 'Object'} schema` : selectedObjectViewTitle}
-                      </h2>
-                      {!selectedSchemaOnly ? (
-                        <p className="of-text-muted" style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                          {selectedObject.object.id}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      <span className="of-chip">{selectedSchemaOnly ? 'schema only' : selectedObject.object.marking ?? 'unmarked'}</span>
-                      {!selectedSchemaOnly ? (
-                        <Link to={selectedFullObjectViewHref} className="of-button of-button--primary">
-                          Open full Object View
-                        </Link>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="of-button"
-                        disabled={!selectedObjectCommentThread?.permissions.can_view}
-                        onClick={() => setCommentsOpen((open) => !open)}
-                      >
-                        Comments
-                      </button>
-                      <Link to={`/ontology/${selectedObject.object.object_type_id}`} className="of-button">
-                        Open type
-                      </Link>
-                    </div>
-                  </div>
-
-                  {selectedSchemaOnly && selectedObjectAccess ? (
-                    <div className="of-status-warning" style={{ padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
-                      {selectedObjectAccess.reason}
-                    </div>
-                  ) : null}
-
-                  <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 120px), 1fr))' }}>
-                    <MetricCard label="Actions" value={`${selectedObject.applicable_actions.length}`} />
-                    <MetricCard label="Rules" value={`${selectedObject.matching_rules.length}`} />
-                    <MetricCard label="Timeline" value={`${selectedObject.timeline.length}`} />
-                    <MetricCard label="Comments" value={`${selectedObjectCommentThread?.comments.filter((comment) => !comment.deleted_at).length ?? 0}`} />
-                  </div>
-                </article>
-
-                {commentsOpen ? (
-                  <ObjectCommentsHelper
-                    thread={selectedObjectCommentThread}
-                    principal={principal}
-                    authorDisplayName={user?.email || user?.id || 'object-explorer'}
-                    onThreadChange={storeSelectedObjectCommentThread}
-                    onClose={() => setCommentsOpen(false)}
-                  />
-                ) : null}
-
-                <section className="of-panel-muted" style={{ padding: 12 }}>
-                  <PanelHeader label="Summary" value={`${summaryEntries.length}`} />
-                  {selectedSchemaOnly ? <EmptyState label="Summary values are restricted; schema remains available on the object type." compact /> : <KeyValueGrid entries={summaryEntries} />}
-                </section>
-
-                <section className="of-panel-muted" style={{ padding: 12 }}>
-                  <PanelHeader label="Properties" value={`${propertyEntries.length}`} />
-                  {selectedSchemaOnly ? <EmptyState label="Property values are restricted; open the type to inspect property definitions." compact /> : <KeyValueGrid entries={propertyEntries} />}
-                </section>
-
-                <section className="of-panel-muted" style={{ padding: 12, display: 'grid', gap: 8 }}>
-                  <PanelHeader label="Linked objects" value={`${selectedObject.neighbors.length}`} />
-                  {selectedSchemaOnly ? (
-                    <EmptyState label="Linked-object previews are hidden because object values are restricted." compact />
-                  ) : (
-                  <div style={{ display: 'grid', gap: 6, maxHeight: 210, overflow: 'auto' }}>
-                    {linkedObjectGroups.slice(0, 6).map((group) => (
-                      <div key={group.link_type_id} className="of-card" style={{ padding: 8, display: 'grid', gap: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                          <strong>{group.link_name}</strong>
-                          <span className="of-chip">{group.outbound.length} out · {group.inbound.length} in</span>
-                        </div>
-                        {group.items.slice(0, 3).map((neighbor) => {
-                          const neighborSchemaOnly = Boolean(neighbor.object.object_view_access?.schema_only);
-                          return neighborSchemaOnly ? (
-                            <div key={`${neighbor.link_id}-${neighbor.object.id}`} className="of-text-muted" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
-                              <span>Schema-only linked object</span>
-                              <span>{neighbor.direction}</span>
-                            </div>
-                          ) : (
-                            <Link key={`${neighbor.link_id}-${neighbor.object.id}`} to={objectViewFullHref(neighbor.object)} className="of-link" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
-                              <span>{objectViewTitle(neighbor.object)}</span>
-                              <span className="of-text-muted">{neighbor.direction}</span>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    ))}
-                    {selectedObject.neighbors.length === 0 && <EmptyState label="No linked objects." compact />}
-                  </div>
-                  )}
-                </section>
-
-                <section className="of-panel-muted" style={{ padding: 12, display: 'grid', gap: 10 }}>
-                  <PanelHeader label="Applicable actions" value={`${selectedObject.applicable_actions.length}`} />
-                  {selectedSchemaOnly ? (
-                    <EmptyState label="Action execution is hidden until object data is viewable." compact />
-                  ) : (
-                  <>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {selectedObject.applicable_actions.map((action) => (
-                      <button
-                        key={action.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedActionId(action.id);
-                          setActionNotice('');
-                        }}
-                        className={selectedActionId === action.id ? 'of-button of-button--primary' : 'of-button'}
-                      >
-                        {action.display_name || action.name}
-                      </button>
-                    ))}
-                    {selectedObject.applicable_actions.length === 0 && <span className="of-text-muted">No actions.</span>}
-                  </div>
-                  {selectedAction && (
-                    <div className="of-panel" style={{ padding: 12 }}>
-                      <ActionExecutor
-                        action={selectedAction}
-                        initialParameters={selectedActionPrefill?.initial_parameters}
-                        hiddenParams={selectedActionPrefill?.hidden_params}
-                        targetObjectId={selectedActionPrefill?.target_object_id || selectedObject.object.id}
-                        batchTargetObjectIds={selectedActionPrefill?.batch_target_object_ids}
-                        disabledReason={selectedActionPrefill?.blocked_reason || (selectedObject.object.object_security_access?.blocked ? selectedObject.object.object_security_access.reason : '')}
-                        onExecuted={(response) => {
-                          setActionNotice('total' in response ? `Batch execution recorded: ${response.succeeded}/${response.total}` : 'Execution recorded.');
-                        }}
-                      />
-                      {selectedActionPrefill?.warning && (
-                        <p className="of-text-muted" style={{ margin: '8px 0 0', fontSize: 11 }}>
-                          {selectedActionPrefill.warning}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {actionNotice && (
-                    <div className="of-status-success" style={{ padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
-                      {actionNotice}
-                    </div>
-                  )}
-                  </>
-                  )}
-                </section>
-              </>
-            ) : (
-              <EmptyState label={selectedResult ? 'Selected resource has no object preview.' : 'Select an object result.'} />
-            )}
-          </section>
-
-          <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
-            <PanelHeader label="Saved explorations" value={`${visibleObjectSets.length}`} />
-
-            {objectSetError && (
-              <div className="of-status-danger" style={{ padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
-                {objectSetError}
-              </div>
-            )}
-
-            <section className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
-              <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(min(100%, 180px), 1fr) minmax(min(100%, 160px), 180px)' }}>
-                <input
-                  value={newSetName}
-                  onChange={(event) => setNewSetName(event.target.value)}
-                  placeholder="Title"
-                  className="of-input"
-                />
-                <select value={saveKind} onChange={(event) => setSaveKind(event.target.value as ObjectExplorerSavedArtifactKind)} className="of-input">
-                  <option value="exploration">Exploration</option>
-                  <option value="list">Object list</option>
-                </select>
-              </div>
-              <select value={newSetType} onChange={(event) => setNewSetType(event.target.value)} className="of-input">
-                <option value="">Pick base type</option>
-                {objectTypesWithVisibleRows.map((type) => (
-                  <option key={type.id} value={type.id}>
-                    {type.display_name}
-                  </option>
-                ))}
-              </select>
-              <input
-                value={newSetDescription}
-                onChange={(event) => setNewSetDescription(event.target.value)}
-                placeholder="Description"
-                className="of-input"
-              />
-              <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(min(100%, 120px), 160px) minmax(min(100%, 150px), 1fr)' }}>
-                <select value={savePrivacy} onChange={(event) => setSavePrivacy(event.target.value as ObjectExplorerSavedArtifactPrivacy)} className="of-input">
-                  <option value="private">Private</option>
-                  <option value="public">Public</option>
-                </select>
-                <input
-                  value={savePrivacy === 'private' ? '/home/Explorations' : saveFolderPath}
-                  onChange={(event) => setSaveFolderPath(event.target.value)}
-                  disabled={savePrivacy === 'private'}
-                  placeholder="Folder path"
-                  className="of-input"
-                />
-              </div>
-              {savePrivacy === 'public' && (
-                <input
-                  value={saveProjectId}
-                  onChange={(event) => setSaveProjectId(event.target.value)}
-                  placeholder="Project ID"
-                  className="of-input"
+              {activeTab === 'artifacts' && (
+                <SavedExplorationsPanel
+                  visibleObjectSets={visibleObjectSets}
+                  typeById={typeById}
+                  principal={principal}
+                  objectTypesWithVisibleRows={objectTypesWithVisibleRows}
+                  evaluationSetId={evaluationSetId}
+                  evaluation={evaluation}
+                  evaluationRows={evaluationRows}
+                  objectSetBusy={objectSetBusy}
+                  objectSetError={objectSetError}
+                  newSetName={newSetName}
+                  setNewSetName={setNewSetName}
+                  newSetType={newSetType}
+                  setNewSetType={setNewSetType}
+                  newSetDescription={newSetDescription}
+                  setNewSetDescription={setNewSetDescription}
+                  newSetWhatIf={newSetWhatIf}
+                  setNewSetWhatIf={setNewSetWhatIf}
+                  saveKind={saveKind}
+                  setSaveKind={setSaveKind}
+                  savePrivacy={savePrivacy}
+                  setSavePrivacy={setSavePrivacy}
+                  saveProjectId={saveProjectId}
+                  setSaveProjectId={setSaveProjectId}
+                  saveFolderPath={saveFolderPath}
+                  setSaveFolderPath={setSaveFolderPath}
+                  saveLayoutView={saveLayoutView}
+                  setSaveLayoutView={setSaveLayoutView}
+                  saveColumns={saveColumns}
+                  setSaveColumns={setSaveColumns}
+                  lastShareLink={lastShareLink}
+                  onCreateSet={() => void createSet()}
+                  onOpenSavedExploration={(set) => void openSavedExploration(set)}
+                  onEvaluateSet={(id, mode) => void evaluateSet(id, mode)}
                 />
               )}
-              <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(min(100%, 120px), 160px) minmax(min(100%, 150px), 1fr)' }}>
-                <select value={saveLayoutView} onChange={(event) => setSaveLayoutView(event.target.value)} className="of-input">
-                  <option value="split">Split</option>
-                  <option value="table">Table</option>
-                  <option value="cards">Cards</option>
-                </select>
-                <input
-                  value={saveColumns}
-                  onChange={(event) => setSaveColumns(event.target.value)}
-                  placeholder="Columns"
-                  className="of-input"
-                />
-              </div>
-              <input
-                value={newSetWhatIf}
-                onChange={(event) => setNewSetWhatIf(event.target.value)}
-                placeholder="What-if label"
-                className="of-input"
-              />
-              <button type="button" onClick={() => void createSet()} disabled={objectSetBusy} className="of-button of-button--primary">
-                {objectSetBusy ? 'Working' : saveKind === 'list' ? 'Save list' : 'Save exploration'}
-              </button>
-              {lastShareLink && (
-                <a href={lastShareLink} className="of-link" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {lastShareLink}
-                </a>
-              )}
-            </section>
-
-            <div style={{ display: 'grid', gap: 6, maxHeight: 300, overflow: 'auto' }}>
-              {visibleObjectSets.map((set) => {
-                const access = objectExplorerSavedArtifactAccess(set, typeById.get(set.base_object_type_id), principal);
-                const shareLink = objectExplorerShareLink(set, typeof window !== 'undefined' ? window.location.origin : '');
-                return (
-                  <article
-                    key={set.id}
-                    className={evaluationSetId === set.id ? 'of-panel' : 'of-panel-muted'}
-                    style={{ padding: 10, display: 'grid', gap: 8 }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {set.name}
-                        </strong>
-                        <p className="of-text-muted" style={{ margin: '2px 0 0', fontSize: 11 }}>
-                          {typeById.get(set.base_object_type_id)?.display_name ?? shortId(set.base_object_type_id)}
-                        </p>
-                      </div>
-                      <span className="of-chip">{numberFormatter.format(set.materialized_row_count)} rows</span>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      <span className="of-chip">{objectExplorerSavedArtifactKind(set)}</span>
-                      <span className="of-chip">{access.privacy}</span>
-                      {access.schema_only && <span className="of-chip">schema only</span>}
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      <button type="button" onClick={() => void openSavedExploration(set)} disabled={objectSetBusy} className="of-button of-button--primary">
-                        Open
-                      </button>
-                      <button type="button" onClick={() => void evaluateSet(set.id, 'preview')} disabled={objectSetBusy || !access.can_view_objects} className="of-button">
-                        Preview
-                      </button>
-                      <button type="button" onClick={() => void evaluateSet(set.id, 'materialize')} disabled={objectSetBusy || !access.can_view_objects} className="of-button">
-                        Materialize
-                      </button>
-                      <a href={shareLink} className="of-button">Share</a>
-                    </div>
-                  </article>
-                );
-              })}
-              {visibleObjectSets.length === 0 && <EmptyState label="No saved explorations." compact />}
             </div>
-
-            {evaluation && (
-              <section className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
-                <PanelHeader label="Last evaluation" value={`${evaluation.total_rows} rows`} />
-                <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 120px), 1fr))' }}>
-                  <MetricCard label="Base matches" value={`${evaluation.total_base_matches}`} />
-                  <MetricCard label="Neighbors" value={`${evaluation.traversal_neighbor_count}`} />
-                  <MetricCard label="Materialized" value={evaluation.materialized ? 'Yes' : 'No'} />
-                </div>
-                <div style={{ display: 'grid', gap: 6, maxHeight: 240, overflow: 'auto' }}>
-                  {evaluationRows.map((row, index) => (
-                    <pre
-                      key={index}
-                      style={{
-                        margin: 0,
-                        padding: 8,
-                        background: 'var(--bg-default)',
-                        border: '1px solid var(--border-subtle)',
-                        borderRadius: 'var(--radius-sm)',
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 11,
-                        overflow: 'auto',
-                      }}
-                    >
-                      {JSON.stringify(row, null, 2)}
-                    </pre>
-                  ))}
-                  {evaluationRows.length === 0 && <EmptyState label="No evaluation rows." compact />}
-                </div>
-              </section>
-            )}
-          </section>
-        </div>
+          </div>
         </>
       )}
+
+      {previewTypeId && (
+        <TypePreviewPopover
+          typeId={previewTypeId}
+          typeById={typeById}
+          linkTypes={linkTypes}
+          onClose={() => setPreviewTypeId(null)}
+          onStartExploration={startExplorationFromPreview}
+        />
+      )}
     </section>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="of-panel-muted" style={{ padding: 10 }}>
-      <p className="of-eyebrow">{label}</p>
-      <p style={{ marginTop: 4, color: 'var(--text-strong)', fontSize: 18, fontWeight: 600 }}>{value}</p>
-    </div>
-  );
-}
-
-function PanelHeader({ label, value }: { label: string; value?: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-      <p className="of-eyebrow">{label}</p>
-      {value && <span className="of-chip">{value}</span>}
-    </div>
-  );
-}
-
-function EmptyState({ label, compact = false }: { label: string; compact?: boolean }) {
-  return (
-    <div
-      className="of-text-muted"
-      style={{
-        padding: compact ? 10 : 24,
-        textAlign: 'center',
-        border: '1px dashed var(--border-default)',
-        borderRadius: 'var(--radius-md)',
-        fontSize: 12,
-      }}
-    >
-      {label}
-    </div>
-  );
-}
-
-function KeyValueGrid({ entries }: { entries: Array<[string, unknown]> }) {
-  if (entries.length === 0) return <EmptyState label="No values." compact />;
-  return (
-    <dl style={{ display: 'grid', gap: 6, margin: '8px 0 0' }}>
-      {entries.map(([key, value]) => (
-        <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 0.45fr) minmax(0, 1fr)', gap: 8, fontSize: 12 }}>
-          <dt className="of-text-muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {key}
-          </dt>
-          <dd style={{ margin: 0, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {formatValue(value)}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function SearchResultRow({
-  result,
-  selected,
-  typeLabel,
-  onPreview,
-}: {
-  result: SearchResult;
-  selected: boolean;
-  typeLabel?: string;
-  onPreview: () => void;
-}) {
-  return (
-    <article
-      className={selected ? 'of-panel' : 'of-panel-muted'}
-      style={{ padding: 10, display: 'grid', gap: 8, borderColor: selected ? '#2d72d2' : undefined }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-        <div style={{ minWidth: 0 }}>
-          <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {result.title || result.id}
-          </strong>
-          <p className="of-text-muted" style={{ margin: '2px 0 0', fontSize: 11 }}>
-            {typeLabel ? `${typeLabel} - ` : ''}
-            {result.subtitle ?? result.kind}
-          </p>
-        </div>
-        <span className="of-chip">{result.score.toFixed(2)}</span>
-      </div>
-      {result.snippet && (
-        <p className="of-text-muted" style={{ margin: 0, fontSize: 12, lineHeight: 1.45 }}>
-          {result.snippet}
-        </p>
-      )}
-      {result.score_breakdown && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          <span className="of-chip">lex {result.score_breakdown.lexical_score.toFixed(2)}</span>
-          <span className="of-chip">sem {result.score_breakdown.semantic_score.toFixed(2)}</span>
-          <span className="of-chip">{result.score_breakdown.fusion_strategy}</span>
-        </div>
-      )}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        <button type="button" onClick={onPreview} className={result.kind === 'object_instance' ? 'of-button of-button--primary' : 'of-button'}>
-          {result.kind === 'object_instance' ? 'Preview' : 'Select'}
-        </button>
-        {result.route && (
-          <Link to={result.route} className="of-button">
-            Open
-          </Link>
-        )}
-      </div>
-    </article>
   );
 }

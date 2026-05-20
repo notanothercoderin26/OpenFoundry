@@ -202,9 +202,15 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		(strings.HasPrefix(path, "/api/v1/ontology/objects/") && strings.HasSuffix(path, "/rule-runs")):
 		return u.OntologyActions
 
+	// Quiver visual functions live in ontology-definition-service's
+	// Postgres database (table `ontology_quiver_visual_functions`),
+	// so the CRUD surface is served from there — not from
+	// ontology-query-service which is Cassandra-only.
+	case strings.HasPrefix(path, "/api/v1/ontology/quiver"):
+		return u.OntologyDefinition
+
 	case strings.HasPrefix(path, "/api/v1/ontology/search"),
 		strings.HasPrefix(path, "/api/v1/ontology/graph"),
-		strings.HasPrefix(path, "/api/v1/ontology/quiver"),
 		strings.HasPrefix(path, "/api/v1/ontology/object-sets"),
 		strings.HasPrefix(path, "/api/v1/ontology/traverse"),
 		strings.HasPrefix(path, "/api/v1/ontology/histogram"),
@@ -239,6 +245,14 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 	case strings.HasPrefix(path, "/api/v1/ontology-indexer"):
 		return u.OntologyIndexer
 	case strings.HasPrefix(path, "/api/v1/ontology"):
+		return u.OntologyDefinition
+
+	// Object views — top-level surface owned by ontology-definition-service.
+	// The path predates the `/api/v1/ontology/...` namespace consolidation;
+	// the service exposes the same handlers under both prefixes so the
+	// historical apps/web client URL (and any cached deep links) keep
+	// working without a frontend migration.
+	case strings.HasPrefix(path, "/api/v1/object-views"):
 		return u.OntologyDefinition
 
 	// ADR-0030: approvals-service retired into workflow-automation-service.

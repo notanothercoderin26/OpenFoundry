@@ -146,7 +146,7 @@ export function DatasetsListPage() {
     <section className="of-catalog-page">
       <nav className="of-catalog-subnav" aria-label="Catalog sections">
         <CatalogSubnavItem to="/datasets" icon="folder-open" label="Files" active={false} title="All files" />
-        <CatalogSubnavItem to="/datasets" icon="badge-check" label="Data Catalog" active title="Data Catalog" highlightIcon />
+        <CatalogSubnavItem to="/datasets" icon="badge-check" label="Dataset Preview" active title="Dataset Preview" highlightIcon />
         <CatalogSubnavItem to="/projects" icon="bookmark" label="Portfolios" active={false} />
         <CatalogSubnavItem to="/projects" icon="project" label="Projects" active={false} />
         <CatalogSubnavItem to="/workspace" icon="users" label="Your files" active={false} />
@@ -159,7 +159,7 @@ export function DatasetsListPage() {
       </nav>
 
       <header className="of-catalog-header">
-        <h1 className="of-catalog-header__title">Data Catalog</h1>
+        <h1 className="of-catalog-header__title">Dataset Preview</h1>
         <div className="of-catalog-header__actions">
           <Link to="/data-connection/new" className="of-button">
             Request data
@@ -209,7 +209,7 @@ export function DatasetsListPage() {
         <section className="of-catalog-content">
           <div className="of-catalog-toolbar">
             <div className="of-catalog-breadcrumb">
-              <span className="of-catalog-breadcrumb__current">Data Catalog</span>
+              <span className="of-catalog-breadcrumb__current">Dataset Preview</span>
               <Glyph name="chevron-right" size={14} />
               <span style={{ color: 'var(--text-strong)', fontSize: 13, fontWeight: 600 }}>
                 {activeTab === 'collections' ? 'Collections' : 'All files'}

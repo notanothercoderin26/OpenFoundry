@@ -144,6 +144,148 @@
     },
     {
       "id": "_meta.capabilities.list",
+      "service": "cipher-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "cipher-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "cipher-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "cipher-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
+      "id": "cipher.algorithms.list",
+      "service": "cipher-service",
+      "method": "GET",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.decrypt.batch",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.decrypt.batch.v2",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.decrypt.stream",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.encrypt.batch",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.encrypt.batch.v2",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.keys.create",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.keys.delete",
+      "service": "cipher-service",
+      "method": "DELETE",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.keys.get",
+      "service": "cipher-service",
+      "method": "GET",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.keys.list",
+      "service": "cipher-service",
+      "method": "GET",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.keys.retire",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.keys.revoke",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.keys.rotate",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.keys.rotate_new",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.keys.update",
+      "service": "cipher-service",
+      "method": "PATCH",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.keys.wrap_for_promotion",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.peppers.create",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.peppers.rotate",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "cipher.tokenize",
+      "service": "cipher-service",
+      "method": "POST",
+      "source": "literal"
+    },
+    {
+      "id": "_meta.capabilities.list",
       "service": "code-repository-review-service",
       "method": "GET",
       "path": "/_meta/capabilities",
@@ -169,6 +311,209 @@
       "method": "GET",
       "path": "/_meta/version",
       "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
+      "id": "compute-module.container_image.validate",
+      "service": "compute-module-service",
+      "method": "POST",
+      "path": "/api/v1/compute-modules/container-image/validate",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.invocations.cancel",
+      "service": "compute-module-service",
+      "method": "POST",
+      "path": "/api/v1/compute-modules/invocations/{invocation_id}/cancel",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.invocations.get",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/api/v1/compute-modules/invocations/{invocation_id}",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.invocations.list",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/api/v1/compute-modules/invocations",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.archive",
+      "service": "compute-module-service",
+      "method": "POST",
+      "path": "/api/v1/compute-modules/{id}/archive",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.container_image.clear",
+      "service": "compute-module-service",
+      "method": "DELETE",
+      "path": "/api/v1/compute-modules/{id}/container-image",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.container_image.get",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/api/v1/compute-modules/{id}/container-image",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.container_image.set",
+      "service": "compute-module-service",
+      "method": "PUT",
+      "path": "/api/v1/compute-modules/{id}/container-image",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.create",
+      "service": "compute-module-service",
+      "method": "POST",
+      "path": "/api/v1/compute-modules",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.delete",
+      "service": "compute-module-service",
+      "method": "DELETE",
+      "path": "/api/v1/compute-modules/{id}",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.duplicate",
+      "service": "compute-module-service",
+      "method": "POST",
+      "path": "/api/v1/compute-modules/{id}/duplicate",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.execution_mode.get",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/api/v1/compute-modules/{id}/execution-mode",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.functions.invoke",
+      "service": "compute-module-service",
+      "method": "POST",
+      "path": "/api/v1/compute-modules/{module_id}/functions/{name}/invoke",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.functions.invoke_async",
+      "service": "compute-module-service",
+      "method": "POST",
+      "path": "/api/v1/compute-modules/{module_id}/functions/{name}/invoke-async",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.get",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/api/v1/compute-modules/{id}",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.list",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/api/v1/compute-modules",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.move",
+      "service": "compute-module-service",
+      "method": "POST",
+      "path": "/api/v1/compute-modules/{id}/move",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.pipeline_io.clear",
+      "service": "compute-module-service",
+      "method": "DELETE",
+      "path": "/api/v1/compute-modules/{id}/pipeline-io",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.pipeline_io.set",
+      "service": "compute-module-service",
+      "method": "PUT",
+      "path": "/api/v1/compute-modules/{id}/pipeline-io",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.restore",
+      "service": "compute-module-service",
+      "method": "POST",
+      "path": "/api/v1/compute-modules/{id}/restore",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.runtime.clear",
+      "service": "compute-module-service",
+      "method": "DELETE",
+      "path": "/api/v1/compute-modules/{id}/runtime",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.runtime.get",
+      "service": "compute-module-service",
+      "method": "GET",
+      "path": "/api/v1/compute-modules/{id}/runtime",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.runtime.set",
+      "service": "compute-module-service",
+      "method": "PUT",
+      "path": "/api/v1/compute-modules/{id}/runtime",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.modules.update",
+      "service": "compute-module-service",
+      "method": "PATCH",
+      "path": "/api/v1/compute-modules/{id}",
+      "source": "literal"
+    },
+    {
+      "id": "compute-module.runtime.validate",
+      "service": "compute-module-service",
+      "method": "POST",
+      "path": "/api/v1/compute-modules/runtime/validate",
+      "source": "literal"
     },
     {
       "id": "_meta.capabilities.list",
@@ -281,6 +626,118 @@
       "method": "GET",
       "path": "/_meta/version",
       "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "function-runtime-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "function-runtime-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "function-runtime-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "function-runtime-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "global-branch-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "global-branch-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "global-branch-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "global-branch-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
+      "id": "global-branch.branches.abandon",
+      "service": "global-branch-service",
+      "method": "POST",
+      "path": "/api/v1/global-branches/{id}/abandon",
+      "source": "literal"
+    },
+    {
+      "id": "global-branch.branches.create",
+      "service": "global-branch-service",
+      "method": "POST",
+      "path": "/api/v1/global-branches",
+      "source": "literal"
+    },
+    {
+      "id": "global-branch.branches.get",
+      "service": "global-branch-service",
+      "method": "GET",
+      "path": "/api/v1/global-branches/{id}",
+      "source": "literal"
+    },
+    {
+      "id": "global-branch.branches.list",
+      "service": "global-branch-service",
+      "method": "GET",
+      "path": "/api/v1/global-branches",
+      "source": "literal"
+    },
+    {
+      "id": "global-branch.branches.update",
+      "service": "global-branch-service",
+      "method": "PATCH",
+      "path": "/api/v1/global-branches/{id}",
+      "source": "literal"
+    },
+    {
+      "id": "global-branch.participants.add",
+      "service": "global-branch-service",
+      "method": "POST",
+      "path": "/api/v1/global-branches/{id}/participants",
+      "source": "literal"
+    },
+    {
+      "id": "global-branch.participants.list",
+      "service": "global-branch-service",
+      "method": "GET",
+      "path": "/api/v1/global-branches/{id}/participants",
+      "source": "literal"
+    },
+    {
+      "id": "global-branch.participants.remove",
+      "service": "global-branch-service",
+      "method": "DELETE",
+      "path": "/api/v1/global-branches/{id}/participants/{service}",
+      "source": "literal"
     },
     {
       "id": "_meta.capabilities.list",
@@ -530,6 +987,34 @@
     {
       "id": "_meta.version.get",
       "service": "model-deployment-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "network-boundary-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "network-boundary-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "network-boundary-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "network-boundary-service",
       "method": "GET",
       "path": "/_meta/version",
       "source": "mount"
@@ -978,6 +1463,34 @@
     {
       "id": "_meta.version.get",
       "service": "tenancy-organizations-service",
+      "method": "GET",
+      "path": "/_meta/version",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.capabilities.list",
+      "service": "vertex-service",
+      "method": "GET",
+      "path": "/_meta/capabilities",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.deps.get",
+      "service": "vertex-service",
+      "method": "GET",
+      "path": "/_meta/deps",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.health.get",
+      "service": "vertex-service",
+      "method": "GET",
+      "path": "/_meta/health",
+      "source": "mount"
+    },
+    {
+      "id": "_meta.version.get",
+      "service": "vertex-service",
       "method": "GET",
       "path": "/_meta/version",
       "source": "mount"
