@@ -29,6 +29,7 @@ type Pipeline struct {
 	DistributedConfig   json.RawMessage `json:"distributed_config,omitempty"`
 	ComputeProfileID    *string         `json:"compute_profile_id,omitempty"`
 	ProjectID           *uuid.UUID      `json:"project_id,omitempty"`
+	Parameters          json.RawMessage `json:"parameters,omitempty"`
 	DraftDAG            json.RawMessage `json:"draft_dag,omitempty"`
 	PublishedDAG        json.RawMessage `json:"published_dag,omitempty"`
 	BranchName          string          `json:"branch_name"`
@@ -235,6 +236,7 @@ type CreatePipelineRequest struct {
 	Distributed    json.RawMessage         `json:"distributed,omitempty"`
 	ComputeProfile *string                 `json:"compute_profile_id,omitempty"`
 	ProjectID      *uuid.UUID              `json:"project_id,omitempty"`
+	Parameters     *[]PipelineParameter    `json:"parameters,omitempty"`
 }
 
 // UpdatePipelineRequest is the JSON body for `PATCH /api/v1/pipelines/{id}`.
@@ -256,6 +258,7 @@ type UpdatePipelineRequest struct {
 	Distributed    json.RawMessage         `json:"distributed,omitempty"`
 	ComputeProfile *string                 `json:"compute_profile_id,omitempty"`
 	ProjectID      *uuid.UUID              `json:"project_id,omitempty"`
+	Parameters     *[]PipelineParameter    `json:"parameters,omitempty"`
 }
 
 func (r CreatePipelineRequest) CanonicalDAG() (json.RawMessage, error) {

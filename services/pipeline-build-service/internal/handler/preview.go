@@ -92,6 +92,12 @@ func PreviewPipelineNode(w http.ResponseWriter, r *http.Request) {
 		writePipelinePreviewError(w, pipelineID, nodeID, sampleSize, nil, http.StatusBadRequest, pipelineNodePreviewError{Kind: "invalid_pipeline_graph", NodeID: nodeID, Message: err.Error()})
 		return
 	}
+	if substituted, err := substitutePipelineParameters(r.Context(), pipelineID, nodes); err != nil {
+		writePipelinePreviewError(w, pipelineID, nodeID, sampleSize, nil, http.StatusBadRequest, pipelineNodePreviewError{Kind: "parameter_substitution_failed", NodeID: nodeID, Message: err.Error()})
+		return
+	} else {
+		nodes = substituted
+	}
 	response, err := executeLocalPipelinePreview(r.Context(), pipelineID, nodeID, nodes, sampleSize)
 	if err != nil {
 		var execErr previewExecutionError

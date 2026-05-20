@@ -21,6 +21,7 @@ import {
   type PipelineDAG,
   type PipelineJoinSchemaGuidance,
   type PipelineNode,
+  type PipelineParameter,
   type PipelineRun,
   type PipelineVersion,
   type PipelineUnionSchemaGuidance,
@@ -42,6 +43,7 @@ import { composeUnionSql, newUnionDraft, type UnionDraft } from '@/lib/component
 import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/OutputDrawer';
 import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
 import { PipelineDetailsDrawer } from '@/lib/components/pipeline/PipelineDetailsDrawer';
+import { PipelineParametersModal } from '@/lib/components/pipeline/PipelineParametersModal';
 import { PipelineVersionViewerDrawer } from '@/lib/components/pipeline/PipelineVersionViewerDrawer';
 import { previewDataset } from '@/lib/api/datasets';
 import { ensureExpectationChangesReviewed, guardPipelineRunWithExpectationGates } from '@/lib/api/data-expectations';
@@ -299,6 +301,8 @@ export function PipelineEditPage() {
   const [outputNodeId, setOutputNodeId] = useState<string | null>(null);
   const [deployOpen, setDeployOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [parametersOpen, setParametersOpen] = useState(false);
+  const [parametersBusy, setParametersBusy] = useState(false);
   const [versionViewer, setVersionViewer] = useState<{
     mode: 'details' | 'changes';
     version: PipelineVersion;
@@ -868,6 +872,21 @@ export function PipelineEditPage() {
     }
   }
 
+  async function saveParameters(next: PipelineParameter[]) {
+    if (!pipeline) return;
+    setParametersBusy(true);
+    setError('');
+    try {
+      const updated = await updatePipeline(pipeline.id, { parameters: next });
+      setPipeline(updated);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Parameters save failed');
+      throw cause;
+    } finally {
+      setParametersBusy(false);
+    }
+  }
+
   function findPreviousVersion(target: PipelineVersion): PipelineVersion | null {
     const lower = versions.filter((entry) => entry.version_number < target.version_number);
     if (lower.length === 0) return null;
@@ -1017,6 +1036,23 @@ export function PipelineEditPage() {
             </div>
             <button type="button" onClick={() => setAipOpen(true)} disabled={aipBusy} className="of-button">
               <Glyph name="sparkles" size={12} /> AIP Generate
+            </button>
+            <button
+              type="button"
+              onClick={() => setParametersOpen(true)}
+              className="of-button"
+              title="Pipeline parameters"
+            >
+              <em style={{ fontFamily: 'var(--font-mono)', fontStyle: 'normal' }}>(x)</em>{' '}
+              Parameters
+              {pipeline.parameters && pipeline.parameters.length > 0 && (
+                <span
+                  className="of-chip"
+                  style={{ marginLeft: 6, fontSize: 10, padding: '0 4px' }}
+                >
+                  {pipeline.parameters.length}
+                </span>
+              )}
             </button>
             <button type="button" onClick={() => void runValidate()} disabled={busy} className="of-button">
               Validate
@@ -1412,6 +1448,14 @@ export function PipelineEditPage() {
         version={versionViewer?.version ?? null}
         previousVersion={versionViewer?.previous ?? null}
         onClose={() => setVersionViewer(null)}
+      />
+
+      <PipelineParametersModal
+        open={parametersOpen}
+        parameters={pipeline.parameters ?? []}
+        busy={parametersBusy}
+        onClose={() => setParametersOpen(false)}
+        onSave={(next) => saveParameters(next)}
       />
     </section>
   );

@@ -228,6 +228,16 @@ export interface DistributedConfig {
   runner_image?: string | null;
 }
 
+export type PipelineParameterType = 'string' | 'integer' | 'float' | 'boolean';
+
+export interface PipelineParameter {
+  name: string;
+  type: PipelineParameterType;
+  default_value?: unknown;
+  description?: string;
+  required?: boolean;
+}
+
 export interface Pipeline {
   id: string;
   name: string;
@@ -236,6 +246,7 @@ export interface Pipeline {
   dag: PipelineDAG;
   draft_dag?: PipelineDAG;
   published_dag?: PipelineDAG | null;
+  parameters?: PipelineParameter[] | null;
   branch_name?: string;
   draft_updated_at?: string | null;
   published_at?: string | null;
@@ -518,6 +529,7 @@ export function updatePipeline(id: string, body: {
   distributed?: DistributedConfig;
   compute_profile_id?: string;
   project_id?: string;
+  parameters?: PipelineParameter[];
 }) {
   return api.put<Pipeline>(`/pipelines/${id}`, body);
 }

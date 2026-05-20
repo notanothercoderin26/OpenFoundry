@@ -415,6 +415,11 @@ func planFromPipeline(ctx context.Context, pipeline *models.Pipeline, runID uuid
 	if len(nodes) == 0 {
 		return executor.Plan{}, errors.New("pipeline must define at least one node")
 	}
+	if substituted, err := substitutePipelineParametersOnModel(pipeline, nodes); err != nil {
+		return executor.Plan{}, err
+	} else {
+		nodes = substituted
+	}
 	reachable := map[string]struct{}{}
 	if req.FromNodeID != nil && strings.TrimSpace(*req.FromNodeID) != "" {
 		var ok bool
