@@ -686,7 +686,7 @@ export function VertexPage() {
     let cancelled = false;
     listVertexScenarios(analysisRid)
       .then((scenarios) => {
-        if (!cancelled) setSavedScenarios(scenarios);
+        if (!cancelled) setSavedScenarios(scenarios ?? []);
       })
       .catch(() => {
         if (!cancelled) setSavedScenarios([]);
@@ -1068,27 +1068,33 @@ export function VertexPage() {
     ungroupEdgeGrouping(id);
   }
 
-  // Initial catalog load.
+  // Initial catalog load. Each call has its own .catch fallback so a
+  // 502/504 on one endpoint doesn't blank the whole page — downstream
+  // useMemos assume the state stays as arrays.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       setLoading(true);
       setLoadError('');
       try {
+        const emptyTypes = { data: [] as ObjectType[], total: 0, page: 1, per_page: 200 };
+        const emptyLens = { data: [] as QuiverVisualFunction[], total: 0, page: 1, per_page: 100 };
         const [typesResponse, lensResponse] = await Promise.all([
-          listObjectTypes({ per_page: 200 }),
-          listQuiverVisualFunctions({ per_page: 100, include_shared: true }).catch(() => ({
-            data: [] as QuiverVisualFunction[],
-            total: 0,
-            page: 1,
-            per_page: 100,
-          })),
+          listObjectTypes({ per_page: 200 }).catch((cause) => {
+            if (!cancelled) {
+              setLoadError(cause instanceof Error ? cause.message : 'Failed to load object types');
+            }
+            return emptyTypes;
+          }),
+          listQuiverVisualFunctions({ per_page: 100, include_shared: true }).catch(() => emptyLens),
         ]);
         if (cancelled) return;
-        setObjectTypes(typesResponse.data);
-        setVisualFunctions(lensResponse.data);
-        if (typesResponse.data[0]) {
-          setRootTypeId((current) => current || typesResponse.data[0].id);
+        const types = typesResponse?.data ?? [];
+        const lenses = lensResponse?.data ?? [];
+        setObjectTypes(types);
+        setVisualFunctions(lenses);
+        if (types[0]) {
+          setRootTypeId((current) => current || types[0].id);
         }
       } catch (cause) {
         if (!cancelled) setLoadError(cause instanceof Error ? cause.message : 'Failed to load Vertex');
@@ -1139,8 +1145,14 @@ export function VertexPage() {
         depth,
         limit: 120,
       });
-      setGraph(next);
-      setSelectedNodeId(next.nodes[0]?.id ?? '');
+      // Normalise the response shape — downstream useMemos iterate
+      // `graph.nodes` / `graph.edges` directly, so they must be arrays
+      // even when the backend returns a malformed body.
+      const safeNext = next
+        ? { ...next, nodes: next.nodes ?? [], edges: next.edges ?? [] }
+        : null;
+      setGraph(safeNext);
+      setSelectedNodeId(safeNext?.nodes[0]?.id ?? '');
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : 'Failed to load Vertex graph');
       setGraph(null);
