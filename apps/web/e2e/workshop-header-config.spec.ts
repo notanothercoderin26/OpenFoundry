@@ -2,87 +2,36 @@ import type { Page } from '@playwright/test';
 
 import { test, expect } from './fixtures/base';
 import { mockAuth } from './fixtures/mocks';
-
-const now = '2026-05-11T00:00:00Z';
+import { defineWorkshopApp, mockWorkshopApp } from './fixtures/workshop';
 
 function buildApp(workshopHeader: Record<string, unknown>) {
-  return {
-    app: {
-      id: 'header-config-demo',
-      name: 'Header Config Demo',
-      slug: 'header-config-demo',
-      description: 'Header subtitle text',
-      status: 'published',
-      pages: [
-        {
-          id: 'main',
-          name: 'Main',
-          path: '/',
-          description: '',
-          visible: true,
-          layout: { kind: 'grid', columns: 12, gap: '16px', max_width: '1280px' },
-          widgets: [
-            {
-              id: 'placeholder',
-              widget_type: 'text',
-              title: '',
-              description: '',
-              position: { x: 0, y: 0, width: 12, height: 1 },
-              props: { content: 'Body content' },
-              binding: null,
-              events: [],
-              children: [],
-            },
-          ],
-          sections: [],
-          overlays: [],
-        },
-      ],
-      theme: {
-        name: 'Header Config Demo',
-        primary_color: '#0f766e',
-        accent_color: '#c2410c',
-        background_color: '#f8fafc',
-        surface_color: '#ffffff',
-        text_color: '#0f172a',
-        heading_font: 'Inter',
-        body_font: 'Inter',
-        border_radius: 8,
-        logo_url: null,
+  return defineWorkshopApp({
+    id: 'header-config-demo',
+    slug: 'header-config-demo',
+    name: 'Header Config Demo',
+    description: 'Header subtitle text',
+    pages: [
+      {
+        id: 'main',
+        name: 'Main',
+        widgets: [
+          {
+            id: 'placeholder',
+            widget_type: 'text',
+            title: '',
+            description: '',
+            position: { x: 0, y: 0, width: 12, height: 1 },
+            props: { content: 'Body content' },
+            binding: null,
+            events: [],
+            children: [],
+          },
+        ],
+        overlays: [],
       },
-      settings: {
-        home_page_id: 'main',
-        navigation_style: 'none',
-        max_width: '1280px',
-        show_branding: false,
-        custom_css: null,
-        builder_experience: 'workshop',
-        ontology_source_type_id: null,
-        object_set_variables: [],
-        workshop_variables: [],
-        consumer_mode: { enabled: false, allow_guest_access: false, portal_title: null, portal_subtitle: null, primary_cta_label: null, primary_cta_url: null },
-        interactive_workshop: { enabled: false, title: null, subtitle: null, briefing_template: null, primary_scenario_widget_id: null, primary_agent_widget_id: null, suggested_questions: [], scenario_presets: [] },
-        workshop_header: workshopHeader,
-        slate: {
-          enabled: false,
-          framework: 'react',
-          package_name: '',
-          entry_file: '',
-          sdk_import: '',
-          workspace: { enabled: false, repository_id: null, layout: '', runtime: '', dev_command: '', preview_command: '', files: [] },
-          quiver_embed: { enabled: false, primary_type_id: null, secondary_type_id: null, join_field: null, secondary_join_field: null, date_field: null, metric_field: null, group_field: null, selected_group: null },
-        },
-      },
-      template_key: null,
-      created_by: 'e2e',
-      published_version_id: 'version-1',
-      created_at: now,
-      updated_at: now,
-    },
-    embed: { url: '/apps/runtime/header-config-demo', iframe_html: '' },
-    published_version_number: 1,
-    published_at: now,
-  };
+    ],
+    settingsOverrides: { workshop_header: workshopHeader },
+  });
 }
 
 async function stubCommonRoutes(page: Page) {
@@ -105,9 +54,7 @@ test('Workshop runtime renders a vertical, collapsible, icon-mode header with fa
     logo_position: 'top',
   });
   await stubCommonRoutes(page);
-  await page.route('**/api/v1/apps/public/header-config-demo', async (route) => {
-    await route.fulfill({ json: appResponse });
-  });
+  await mockWorkshopApp(page, 'header-config-demo', appResponse);
 
   await page.goto('/apps/runtime/header-config-demo');
 
@@ -152,9 +99,7 @@ test('Workshop runtime renders a vertical, collapsible, icon-mode header with fa
 
 test('Workshop runtime hides header entirely when workshop_header.enabled is false', async ({ page }) => {
   await stubCommonRoutes(page);
-  await page.route('**/api/v1/apps/public/header-config-demo', async (route) => {
-    await route.fulfill({ json: buildApp({ enabled: false }) });
-  });
+  await mockWorkshopApp(page, 'header-config-demo', buildApp({ enabled: false }));
 
   await page.goto('/apps/runtime/header-config-demo');
 
