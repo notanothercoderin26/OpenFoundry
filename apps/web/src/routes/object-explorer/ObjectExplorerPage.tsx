@@ -68,6 +68,7 @@ import { useAuth } from '@/lib/stores/auth';
 
 import { Tabs } from '@/lib/components/Tabs';
 
+import { AppTabsBar, type AppTabsBarSavedItem } from './components/AppTabsBar';
 import { PanelHeader } from './components/atoms';
 import { BrowseGroupsGrid } from './components/BrowseGroupsGrid';
 import { ExplorationsHighlight } from './components/ExplorationsHighlight';
@@ -116,6 +117,7 @@ import {
   rollbackTo,
   type PivotHistory,
 } from './pivotState';
+import { makeExplorationTab, makeListTab, makeSearchTab, useExplorerTabs } from './tabs';
 
 type ObjectExplorerTab = 'overview' | 'objects' | 'types' | 'artifacts';
 
@@ -194,6 +196,7 @@ export function ObjectExplorerPage() {
   const [objectSetError, setObjectSetError] = useState('');
 
   const [activeTab, setActiveTab] = useState<ObjectExplorerTab>('overview');
+  const explorerTabs = useExplorerTabs();
   const [sideNavSelection, setSideNavSelection] = useState<SideNavSelection>({ kind: 'all' });
   const [groupsPage, setGroupsPage] = useState(0);
   const [favoriteTypeIds, setFavoriteTypeIds] = useState<Set<string>>(() => new Set(readFavoriteTypeIds()));
@@ -203,6 +206,29 @@ export function ObjectExplorerPage() {
   useEffect(() => {
     setRecents(readRecents());
   }, []);
+
+  // Reflect the active workspace tab into the page state. Switching to
+  // the Overview tab clears any in-flight search; switching to a search
+  // tab rehydrates its query so the underlying results panel reruns.
+  useEffect(() => {
+    const tab = explorerTabs.activeTab;
+    if (tab.kind === 'overview') {
+      setSearchQuery('');
+      setSearchResults([]);
+      setHasSearched(false);
+      setActiveTab('overview');
+    } else if (tab.kind === 'search' && tab.query) {
+      setSearchQuery(tab.query);
+      setActiveTab('objects');
+    } else if (tab.kind === 'exploration' && tab.resourceId) {
+      setPendingShareId(tab.resourceId);
+      setActiveTab('artifacts');
+    } else if (tab.kind === 'list' && tab.resourceId) {
+      setPendingShareId(tab.resourceId);
+      setActiveTab('artifacts');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [explorerTabs.activeTabId]);
 
   function toggleFavoriteType(typeId: string) {
     setFavoriteTypeIds((current) => {
@@ -824,6 +850,7 @@ export function ObjectExplorerPage() {
       setHasSearched(false);
       return;
     }
+    explorerTabs.open(makeSearchTab(query));
     setSearchLoading(true);
     setSearchError('');
     setHasSearched(true);
@@ -1206,8 +1233,67 @@ export function ObjectExplorerPage() {
     void selectRecent(item);
   }
 
+  const savedExplorationMenuItems: AppTabsBarSavedItem[] = useMemo(
+    () =>
+      visibleObjectSets
+        .filter((set) => objectExplorerSavedArtifactKind(set) !== 'list')
+        .slice(0, 50)
+        .map((set) => ({
+          id: set.id,
+          label: set.name || set.id,
+          meta: typeById.get(set.base_object_type_id)?.display_name,
+        })),
+    [visibleObjectSets, typeById],
+  );
+
+  const savedListMenuItems: AppTabsBarSavedItem[] = useMemo(
+    () =>
+      visibleObjectSets
+        .filter((set) => objectExplorerSavedArtifactKind(set) === 'list')
+        .slice(0, 50)
+        .map((set) => ({
+          id: set.id,
+          label: set.name || set.id,
+          meta: typeById.get(set.base_object_type_id)?.display_name,
+        })),
+    [visibleObjectSets, typeById],
+  );
+
+  function handleTabActivate(tabId: string) {
+    explorerTabs.activate(tabId);
+  }
+
+  function handleTabClose(tabId: string) {
+    explorerTabs.close(tabId);
+  }
+
+  function handleOpenExplorationFromMenu(item: AppTabsBarSavedItem) {
+    const set = visibleObjectSets.find((candidate) => candidate.id === item.id);
+    if (!set) return;
+    explorerTabs.open(makeExplorationTab(set.id, item.label));
+    void openSavedExploration(set);
+  }
+
+  function handleOpenListFromMenu(item: AppTabsBarSavedItem) {
+    const set = visibleObjectSets.find((candidate) => candidate.id === item.id);
+    if (!set) return;
+    explorerTabs.open(makeListTab(set.id, item.label));
+    void openSavedExploration(set);
+  }
+
   return (
     <section className="oe of-page" style={{ display: 'grid', gap: 12 }}>
+      <AppTabsBar
+        tabs={explorerTabs.tabs}
+        activeTabId={explorerTabs.activeTabId}
+        savedExplorations={savedExplorationMenuItems}
+        savedLists={savedListMenuItems}
+        onActivate={handleTabActivate}
+        onClose={handleTabClose}
+        onNewExploration={explorerTabs.openNewOverview}
+        onOpenExploration={handleOpenExplorationFromMenu}
+        onOpenList={handleOpenListFromMenu}
+      />
       <HeaderToolbar
         visibleObjectTypes={visibleObjectTypes}
         visibleObjectSets={visibleObjectSets}
