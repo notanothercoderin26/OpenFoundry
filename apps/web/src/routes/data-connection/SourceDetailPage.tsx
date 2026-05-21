@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties, RefObject } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { Tabs } from '@/lib/components/Tabs';
+import { ComputeTypePopover } from '@/lib/components/data-connection/ComputeTypePopover';
 import { VirtualTablesTab } from '@/lib/components/data-connection/VirtualTablesTab';
 import { Breadcrumb } from '@/lib/components/ui/Breadcrumb';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
@@ -457,6 +458,8 @@ export function SourceDetailPage() {
   const [tab, setTab] = useState<Tab>('overview');
   const [outerTab, setOuterTab] = useState<OuterTab>('overview');
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [computePopoverOpen, setComputePopoverOpen] = useState(false);
+  const computePillRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     const expected = TAB_TO_OUTER[tab];
@@ -2794,8 +2797,22 @@ export function SourceDetailPage() {
         <>
           <SourceSetupHeader
             worker={source.worker}
-            onComputeClick={() => {
-              // Phase 5 popover will be wired here.
+            pillRef={computePillRef}
+            onComputeClick={() => setComputePopoverOpen((value) => !value)}
+          />
+          <ComputeTypePopover
+            open={computePopoverOpen}
+            anchorRef={computePillRef}
+            source={source}
+            onClose={() => setComputePopoverOpen(false)}
+            onSourceUpdated={(next) => {
+              setSource(next);
+              setComputePopoverOpen(false);
+            }}
+            onMigrateClick={() => {
+              setComputePopoverOpen(false);
+              // Phase 7 wizard will be opened from here.
+              window.alert('Migrate to Foundry worker wizard arrives in Phase 7.');
             }}
           />
 
@@ -5707,9 +5724,10 @@ function OutputFolderPanel({ value, onChange, onSave, busy }: OutputFolderPanelP
 interface SourceSetupHeaderProps {
   worker: SourceWorker;
   onComputeClick: () => void;
+  pillRef?: RefObject<HTMLButtonElement | null>;
 }
 
-function SourceSetupHeader({ worker, onComputeClick }: SourceSetupHeaderProps) {
+function SourceSetupHeader({ worker, onComputeClick, pillRef }: SourceSetupHeaderProps) {
   return (
     <div
       style={{
@@ -5731,6 +5749,7 @@ function SourceSetupHeader({ worker, onComputeClick }: SourceSetupHeaderProps) {
         Source Setup
       </h2>
       <button
+        ref={pillRef}
         type="button"
         onClick={onComputeClick}
         aria-haspopup="dialog"
