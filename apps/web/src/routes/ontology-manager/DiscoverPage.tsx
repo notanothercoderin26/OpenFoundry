@@ -1,16 +1,18 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import {
-  listFavoriteGroups,
-  listFavoriteObjectTypes,
-  listFavorites,
-  listRecentObjectTypes,
-  toggleFavorite,
   type LinkType,
   type ObjectType,
+  type OntologyHomepageSectionId,
   type OntologyObjectTypeGroup,
   type OntologyResourceRegistryEntry,
+  listRecentObjectTypes,
 } from "@/lib/api/ontology";
+import {
+  useFavorites,
+  useHomepageConfig,
+  useToggleFavorite,
+} from "@/lib/hooks/useDiscover";
 import { ontologyGroupColor } from "@components/ontology/groupColors";
 import { GroupChip } from "@components/ui/GroupChip";
 import {
@@ -29,9 +31,7 @@ interface DiscoverPageProps {
   objectTypeGroups: OntologyObjectTypeGroup[];
   linkTypes: LinkType[];
   registry: OntologyResourceRegistryEntry[];
-  /** Default items per section (Customize homepage). */
-  itemsPerSection?: number;
-  /** Configure-homepage button click. Opens a modal in the parent page. */
+  /** Configure-homepage button click. Opens the Customize modal in the parent. */
   onConfigure?: () => void;
   /** "See all →" click on the Recently-viewed section. */
   onSeeAllRecent?: () => void;
@@ -39,6 +39,8 @@ interface DiscoverPageProps {
   onSeeAllFavorites?: () => void;
   /** "See all →" click on the Favourite type groups section. */
   onSeeAllGroups?: () => void;
+  /** "See all →" click on a per-group section. */
+  onSeeAllGroup?: (group: OntologyObjectTypeGroup) => void;
   /** Click on an object-type result card. The page maps it to a navigation. */
   onPickObjectType: (objectType: ObjectType) => void;
   /** Click on a type-group card. */
@@ -46,8 +48,7 @@ interface DiscoverPageProps {
 }
 
 /* Hash the object type id into a stable mock instance count until a real
- * server-side count lands. Same hash always yields the same number so the
- * Discover page reads the same way across sessions. */
+ * server-side count lands. */
 function mockInstanceCount(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
@@ -104,11 +105,6 @@ function dependentCountFor(
   return entry?.linked_resource_count;
 }
 
-/**
- * Convert a link-type cardinality into the badge label Foundry paints on the
- * arrow head. We render the target-side multiplicity since that's what the
- * captures show.
- */
 function cardinalityArrow(cardinality: string): string {
   switch (cardinality) {
     case "one_to_one":
@@ -128,42 +124,54 @@ export function DiscoverPage({
   objectTypeGroups,
   linkTypes,
   registry,
-  itemsPerSection = 6,
   onConfigure,
   onSeeAllRecent,
   onSeeAllFavorites,
   onSeeAllGroups,
+  onSeeAllGroup,
   onPickObjectType,
   onPickGroup,
 }: DiscoverPageProps) {
-  /* `tick` bumps on every favourite toggle so the recent/favorites memos
-   * re-read localStorage after the write. */
-  const [tick, setTick] = useState(0);
+  const { data: config } = useHomepageConfig(ontologyId);
+  const itemsPerSection = config.itemsPerSection;
+
+  const { data: favObjectTypeIds = [] } = useFavorites(
+    ontologyId,
+    "object-type",
+  );
+  const { data: favGroupIds = [] } = useFavorites(ontologyId, "group");
+  const toggleObject = useToggleFavorite(ontologyId, "object-type");
+  const toggleGroup = useToggleFavorite(ontologyId, "group");
+
+  const objectFavoriteIds = useMemo(
+    () => new Set(favObjectTypeIds),
+    [favObjectTypeIds],
+  );
+  const groupFavoriteIds = useMemo(
+    () => new Set(favGroupIds),
+    [favGroupIds],
+  );
 
   const recent = useMemo(
     () => listRecentObjectTypes(ontologyId, objectTypes, itemsPerSection),
-    [ontologyId, objectTypes, itemsPerSection, tick],
+    [ontologyId, objectTypes, itemsPerSection],
   );
 
   const favoriteObjectTypes = useMemo(
-    () => listFavoriteObjectTypes(ontologyId, objectTypes, itemsPerSection),
-    [ontologyId, objectTypes, itemsPerSection, tick],
+    () =>
+      objectTypes
+        .filter((entry) => objectFavoriteIds.has(entry.id))
+        .slice(0, itemsPerSection),
+    [objectTypes, objectFavoriteIds, itemsPerSection],
   );
 
   const favoriteGroups = useMemo(
-    () => listFavoriteGroups(ontologyId, objectTypeGroups, itemsPerSection),
-    [ontologyId, objectTypeGroups, itemsPerSection, tick],
+    () =>
+      objectTypeGroups
+        .filter((entry) => groupFavoriteIds.has(entry.id))
+        .slice(0, itemsPerSection),
+    [objectTypeGroups, groupFavoriteIds, itemsPerSection],
   );
-
-  const objectFavoriteIds = useMemo(() => {
-    void tick;
-    return new Set(listFavorites(ontologyId, "object-type"));
-  }, [ontologyId, tick]);
-
-  const groupFavoriteIds = useMemo(() => {
-    void tick;
-    return new Set(listFavorites(ontologyId, "group"));
-  }, [ontologyId, tick]);
 
   /* ------- Fallbacks for users without favourites / recent activity ------ */
 
@@ -195,62 +203,95 @@ export function DiscoverPage({
       .slice(0, itemsPerSection);
   }, [favoriteObjectTypes, objectTypes, registry, itemsPerSection]);
 
-  const toggleObject = (id: string) => {
-    toggleFavorite(ontologyId, "object-type", id);
-    setTick((t) => t + 1);
-  };
-
-  const toggleGroup = (id: string) => {
-    toggleFavorite(ontologyId, "group", id);
-    setTick((t) => t + 1);
-  };
-
-  const recentItems = recentlyModified ?? recent;
-  const favoriteItems = prominentObjectTypes ?? favoriteObjectTypes;
-
-  const recentTitle = recentlyModified
-    ? "Recently modified"
-    : "Recently viewed object types";
-  const favoritesTitle = prominentObjectTypes
-    ? "Prominent object types"
-    : "Favorite object types";
-
   return (
     <div className="flex flex-col gap-8">
-      <DiscoverSection
-        title={recentTitle}
-        total={recentItems.length}
-        onConfigure={onConfigure}
-        onSeeAll={onSeeAllRecent}
-        items={recentItems}
-        emptyMessage="Open an object type and it will land here next time."
-        renderCard={(objectType) => renderObjectCard(objectType)}
-      />
-
-      <DiscoverSection
-        title={favoritesTitle}
-        total={favoriteItems.length}
-        onConfigure={onConfigure}
-        onSeeAll={onSeeAllFavorites}
-        items={favoriteItems}
-        emptyMessage="Star an object type to keep it pinned at the top of Discover."
-        renderCard={(objectType) =>
-          renderObjectCard(objectType, !prominentObjectTypes)
-        }
-      />
-
-      <DiscoverSection
-        title="Favourite type groups"
-        total={favoriteGroups.length}
-        onConfigure={onConfigure}
-        onSeeAll={onSeeAllGroups}
-        items={favoriteGroups}
-        emptyMessage="Star a group to surface its object types as a mini graph."
-        columns={2}
-        renderCard={(group) => renderGroupCard(group)}
-      />
+      {config.sections
+        .filter((section) => section.visible)
+        .map((section) => renderSection(section.id))}
     </div>
   );
+
+  function renderSection(id: OntologyHomepageSectionId) {
+    if (id === "recent") {
+      const items = recentlyModified ?? recent;
+      const title = recentlyModified
+        ? "Recently modified"
+        : "Recently viewed object types";
+      return (
+        <DiscoverSection
+          key={id}
+          title={title}
+          total={items.length}
+          onConfigure={onConfigure}
+          onSeeAll={onSeeAllRecent}
+          items={items}
+          emptyMessage="Open an object type and it will land here next time."
+          renderCard={(objectType) => renderObjectCard(objectType)}
+        />
+      );
+    }
+
+    if (id === "favorite-object-types") {
+      const items = prominentObjectTypes ?? favoriteObjectTypes;
+      const title = prominentObjectTypes
+        ? "Prominent object types"
+        : "Favorite object types";
+      return (
+        <DiscoverSection
+          key={id}
+          title={title}
+          total={items.length}
+          onConfigure={onConfigure}
+          onSeeAll={onSeeAllFavorites}
+          items={items}
+          emptyMessage="Star an object type to keep it pinned at the top of Discover."
+          renderCard={(objectType) =>
+            renderObjectCard(objectType, !prominentObjectTypes)
+          }
+        />
+      );
+    }
+
+    if (id === "favorite-groups") {
+      return (
+        <DiscoverSection
+          key={id}
+          title="Favourite type groups"
+          total={favoriteGroups.length}
+          onConfigure={onConfigure}
+          onSeeAll={onSeeAllGroups}
+          items={favoriteGroups}
+          emptyMessage="Star a group to surface its object types as a mini graph."
+          columns={2}
+          renderCard={(group) => renderGroupCard(group)}
+        />
+      );
+    }
+
+    if (id.startsWith("group:")) {
+      const groupId = id.slice(6);
+      const group = objectTypeGroups.find((entry) => entry.id === groupId);
+      if (!group) return null;
+      const memberIds = new Set(group.object_type_ids ?? []);
+      const members = objectTypes
+        .filter((entry) => memberIds.has(entry.id))
+        .slice(0, itemsPerSection);
+      return (
+        <DiscoverSection
+          key={id}
+          title={group.display_name}
+          total={members.length}
+          onConfigure={onConfigure}
+          onSeeAll={onSeeAllGroup ? () => onSeeAllGroup(group) : undefined}
+          items={members}
+          emptyMessage="No object types in this group yet."
+          renderCard={(objectType) => renderObjectCard(objectType)}
+        />
+      );
+    }
+
+    return null;
+  }
 
   function renderObjectCard(objectType: ObjectType, showProminent = false) {
     const context = groupContextFor(objectType, objectTypeGroups);
@@ -277,7 +318,7 @@ export function DiscoverPage({
         }
         description={objectType.description}
         favorite={objectFavoriteIds.has(objectType.id)}
-        onToggleFavorite={() => toggleObject(objectType.id)}
+        onToggleFavorite={() => toggleObject.mutate(objectType.id)}
         onClick={() => onPickObjectType(objectType)}
       />
     );
@@ -353,7 +394,7 @@ export function DiscoverPage({
           </div>
           <StarFavoriteButton
             value={favorite}
-            onChange={() => toggleGroup(group.id)}
+            onChange={() => toggleGroup.mutate(group.id)}
             size="sm"
             className="-mr-1"
           />
@@ -376,7 +417,12 @@ export function DiscoverPage({
         </div>
 
         <div className="border-t border-of-border pt-2">
-          <GroupChip name={group.display_name} count={memberCount} color={color} size="sm" />
+          <GroupChip
+            name={group.display_name}
+            count={memberCount}
+            color={color}
+            size="sm"
+          />
         </div>
       </div>
     );

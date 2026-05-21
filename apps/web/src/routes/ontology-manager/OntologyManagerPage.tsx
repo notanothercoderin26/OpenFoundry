@@ -110,6 +110,11 @@ import {
   type OntologyCommandResult,
 } from "@/lib/components/ontology/OntologyCommandPalette";
 import { DiscoverPage } from "@/routes/ontology-manager/DiscoverPage";
+import { CustomizeHomepageModal } from "@/lib/components/ontology/CustomizeHomepageModal";
+import {
+  useHomepageConfig,
+  useUpdateHomepageConfig,
+} from "@/lib/hooks/useDiscover";
 
 /**
  * When true, render the legacy 18-entry navigation panel below the curated
@@ -407,7 +412,10 @@ export function OntologyManagerPage() {
   const resourceSearchIndexRef = useRef<OntologyResourceSearchIndex | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
+  const [customizeOpen, setCustomizeOpen] = useState(false);
   const navigate = useNavigate();
+  const { data: homepageConfig } = useHomepageConfig(ontology.id);
+  const updateHomepage = useUpdateHomepageConfig(ontology.id);
 
   useEffect(() => {
     if (!newMenuOpen && !branchMenuOpen) return;
@@ -1962,9 +1970,7 @@ export function OntologyManagerPage() {
               onSeeAllRecent={() => setSection("types")}
               onSeeAllFavorites={() => setSection("types")}
               onSeeAllGroups={() => setSection("groups")}
-              onConfigure={() => {
-                /* TODO: Customize-homepage modal (next iteration). */
-              }}
+              onConfigure={() => setCustomizeOpen(true)}
             />
           )}
 
@@ -2872,6 +2878,15 @@ export function OntologyManagerPage() {
           setPaletteOpen(false);
           setPaletteQuery("");
         }}
+      />
+
+      <CustomizeHomepageModal
+        open={customizeOpen}
+        onClose={() => setCustomizeOpen(false)}
+        config={homepageConfig}
+        groups={objectTypeGroups}
+        objectTypes={objectTypes}
+        onApply={(next) => updateHomepage.mutate(next)}
       />
     </section>
   );
