@@ -420,6 +420,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionDetailPage')).FunctionDetailPage }),
       },
       {
+        path: 'dev/components',
+        lazy: async () => ({ Component: (await import('./routes/dev/ComponentsGalleryPage')).ComponentsGalleryPage }),
+      },
+      {
         path: 'functions',
         loader: redirectTo('/compute-modules'),
       },
