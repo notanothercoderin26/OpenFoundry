@@ -1,0 +1,290 @@
+# Canonical declarative spec for the Geopolitical Intelligence PoC
+# notification routing. SOURCE OF TRUTH for:
+#
+#   notification-alerting-service       POST /api/v1/notifications/subscriptions
+#                                       (one row per (event_type, channel, target))
+#
+# Foundry-native framing
+# -----------------------
+# Per Palantir's Action Types pages, notifications + webhooks are
+# post-commit SIDE EFFECTS of action submissions. OpenFoundry routes
+# them through notification-alerting-service which fans out by
+# `event_type` to N subscriptions, each carrying its own template,
+# channel, SLA, and escalation target. References:
+#
+#   - https://www.palantir.com/docs/foundry/action-types/notifications/
+#   - https://www.palantir.com/docs/foundry/action-types/webhooks
+#
+# Engine constraints
+# ------------------
+# The Subscription wire type in
+# services/notification-alerting-service/internal/models/subscription.go
+# carries `template` as inline JSON (NOT a separate template registry).
+# Subscriptions reference shared templates BY ID in this YAML; the
+# register script inlines the matching template body into each
+# Subscription POST so the two stay consistent.
+#
+# Supported channels (per SubscriptionChannel enum):
+#   in_app | email | webhook | slack | teams
+#
+# SLA semantics
+# -------------
+# `sla_seconds` is the grace window; if a delivery is still pending
+# after that, the dispatcher fans out a second delivery to
+# `escalation_target`. The actor-alert SLA matches the
+# actor_alert_sla_minutes parameter from
+# `workflows-geopolitica.yaml §parameters` (5 minutes).
+#
+# Marking interaction with Item 3
+# --------------------------------
+# Marcos's user grants in `markings-geopolitica.yaml` deliberately
+# OMIT MARKING:OFAC + MARKING:ENRICHED-PII. The producer
+# (workflow-automation-service) is responsible for filtering events
+# by recipient markings BEFORE submitting to /internal/events; this
+# YAML's `recipient_marking_required` field documents the
+# expectation alongside each subscription so the producer wiring
+# stays honest.
+#
+# Email redaction
+# ---------------
+# Per the PoC pitfall ("Email NO lleva PII"), every email
+# subscription below relies on the service's `strict` redaction mode
+# (default per services/notification-alerting-service/internal/
+# service/redaction.go). The email body becomes a link-only stub;
+# the rich content is only visible in-platform under the user's own
+# markings. The runbook documents how to override per-target if a
+# customer explicitly accepts the risk.
+
+notification_routing:
+  schema_version: geopolitica.notification-routing.v1
+
+  # ──────────────────────────────────────────────────────────────────
+  # Operator-supplied knobs. The register script substitutes
+  # ${var}-style placeholders below from env. NEVER ship real
+  # webhook URLs or Slack tokens here in git.
+  # ──────────────────────────────────────────────────────────────────
+  parameters:
+    sofia_email:             sofia.gomez@acme-intel.demo
+    marcos_email:            marcos.fernandez@acme-intel.demo
+    escalation_manager_email: intel-manager@acme-intel.demo
+    compliance_webhook_url:   "http://localhost:7100/_mock/compliance-cases"   # mailhog/captures during PoC; HTTPS in prod
+    compliance_slack_webhook_url: "https://hooks.slack.com/services/REPLACE/COMPLIANCE/TOKEN"
+    actor_alert_sla_seconds:  300                                              # 5 min, matches workflows asset
+    case_assignment_sla_seconds: 900                                           # 15 min
+    redaction_mode:           strict                                           # default; see header comment
+
+  # ──────────────────────────────────────────────────────────────────
+  # Shared templates. Each is inlined by the register script into the
+  # Subscription `template` field at POST time. The subject/body
+  # support Go-template interpolation over the event payload.
+  # ──────────────────────────────────────────────────────────────────
+  templates:
+
+    - id: actor-alert-raised
+      subject: "[OpenFoundry Intel] {{ .alert.actor.display_name }} appeared in event"
+      body: |
+        Watchlist match.
+
+        Actor:    {{ .alert.actor.display_name }} ({{ .alert.actor.kind }})
+        Country:  {{ .alert.actor.country_iso2 }}
+        Sanctioned: {{ .alert.actor.is_sanctioned }}
+        Event:    {{ .alert.triggering_event.title }}
+        Time:     {{ .alert.triggering_event.event_time_utc }}
+        Due by:   {{ .alert.due_at_utc }}
+
+        Open in OpenFoundry: {{ .platform_base_url }}/apps/geopolitical-intel-workbench?alert_id={{ .alert.id }}
+      content_mime: text/plain
+
+    - id: actor-alert-escalation
+      subject: "[OpenFoundry Intel] ESCALATION — alert {{ .alert.id }} unacknowledged"
+      body: |
+        SLA breach.
+
+        Alert {{ .alert.id }} on actor {{ .alert.actor.display_name }} has been
+        open for {{ .alert.minutes_overdue }} minutes without acknowledgement.
+
+        Acknowledge: {{ .platform_base_url }}/apps/geopolitical-intel-workbench?alert_id={{ .alert.id }}
+      content_mime: text/plain
+
+    - id: investigation-case-opened
+      subject: "[Investigation] Case #{{ .case.id }} opened on {{ .case.subject }}"
+      body: |
+        Investigation case assigned.
+
+        Case:     {{ .case.id }}
+        Title:    {{ .case.title }}
+        Priority: {{ .case.priority }}
+        Subject:  {{ .case.subject }} ({{ .case.actor_id }})
+        Opener:   {{ .case.opened_by }}
+
+        Open: {{ .platform_base_url }}/apps/geopolitical-intel-workbench?case_id={{ .case.id }}
+      content_mime: text/plain
+
+    - id: investigation-case-opened-webhook
+      # Webhook payloads are JSON, not subject+body. The register
+      # script ships this object as-is in Subscription.template.
+      mode: webhook_json
+      payload:
+        event:      case_opened
+        case_id:    "{{ .case.id }}"
+        actor_id:   "{{ .case.actor_id }}"
+        priority:   "{{ .case.priority }}"
+        opened_by:  "{{ .case.opened_by }}"
+        link:       "{{ .platform_base_url }}/apps/geopolitical-intel-workbench?case_id={{ .case.id }}"
+
+  # ──────────────────────────────────────────────────────────────────
+  # Subscriptions. The 5 rows below cover the full demo: Sofía gets
+  # in-app + email for actor alerts; Marcos gets a compliance-only
+  # case-opened email; the SLA escalation goes to the manager;
+  # the compliance Slack webhook receives every case-opened event.
+  # Marcos is DELIBERATELY NOT subscribed to OFAC-marked actor
+  # alerts — the producer filters by recipient markings before
+  # emitting the event (recipient_marking_required surfaces the
+  # contract).
+  # ──────────────────────────────────────────────────────────────────
+  subscriptions:
+
+    - id: sofia-actor-alert-inapp
+      event_type: actor.alert.raised
+      channel:    in_app
+      target:     "${sofia_email}"
+      template_ref: actor-alert-raised
+      sla_seconds: "${actor_alert_sla_seconds}"
+      escalation_target: "${escalation_manager_email}"
+      enabled:    true
+      recipient_marking_required: []          # in-app is sandboxed by the UI layer; no producer-side filter
+      note: "Sofía's primary channel — Workshop in-app feed."
+
+    - id: sofia-actor-alert-email
+      event_type: actor.alert.raised
+      channel:    email
+      target:     "${sofia_email}"
+      template_ref: actor-alert-raised
+      sla_seconds: "${actor_alert_sla_seconds}"
+      escalation_target: "${escalation_manager_email}"
+      enabled:    true
+      recipient_marking_required: []          # email body is REDACTED by default per redaction_mode=strict
+      note: "Sofía's secondary channel — email link-only stub."
+
+    - id: actor-alert-manager-escalation
+      event_type: actor.alert.escalated
+      channel:    email
+      target:     "${escalation_manager_email}"
+      template_ref: actor-alert-escalation
+      enabled:    true
+      note: "Manager escalation when the SLA on actor.alert.raised expires."
+
+    - id: marcos-case-opened-email
+      event_type: investigation.case.opened
+      channel:    email
+      target:     "${marcos_email}"
+      template_ref: investigation-case-opened
+      sla_seconds: "${case_assignment_sla_seconds}"
+      escalation_target: "${escalation_manager_email}"
+      enabled:    true
+      recipient_marking_required: []          # case payloads carry no OFAC marking — Marcos may read
+      note: "Marcos receives every assigned case; compliance role."
+
+    - id: compliance-case-opened-webhook
+      event_type: investigation.case.opened
+      channel:    webhook
+      target:     "${compliance_webhook_url}"
+      template_ref: investigation-case-opened-webhook
+      hmac_secret_env: COMPLIANCE_WEBHOOK_HMAC_SECRET   # operator-supplied; register script reads from env
+      enabled:    true
+      note: "Compliance team Slack/Mattermost via generic webhook; HMAC signed."
+
+  # ──────────────────────────────────────────────────────────────────
+  # Producer-side marking filter (documents the contract the
+  # workflow-automation-service producer must honour BEFORE emitting
+  # `actor.alert.raised` events). The notification service does not
+  # know about ontology markings — it dispatches whatever events it
+  # receives. The producer is the security boundary.
+  # ──────────────────────────────────────────────────────────────────
+  producer_marking_contract:
+
+    - event_type: actor.alert.raised
+      filter: |
+        For each subscription targeting `email` or `webhook`, the
+        producer MUST drop the event when the alert's underlying
+        Actor or NewsArticle carries a marking the recipient lacks.
+        Concretely: an OFAC-only alert MUST NOT be emitted to
+        Marcos because Marcos lacks MARKING:OFAC per
+        markings-geopolitica.yaml. In-app deliveries are exempt
+        because the in-app feed re-checks markings at render time.
+      reference_user_grants: PoC/geopolitica/assets/markings-geopolitica.yaml
+
+    - event_type: investigation.case.opened
+      filter: |
+        Case-opened events do NOT carry source markings (the case
+        is a derived object). All compliance recipients receive
+        them. Sensitive evidence attachments are gated at the
+        Workshop / API layer when the user opens the case.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Webhook retry policy — documented as the operator contract.
+  # The dispatcher reads `max_attempts` from
+  # notification-alerting-service's config and applies exponential
+  # backoff. These values match the demo acceptance criterion
+  # ("3 attempts con backoff").
+  # ──────────────────────────────────────────────────────────────────
+  webhook_retry_policy:
+    max_attempts: 3
+    backoff_seconds: [2, 8, 30]
+    timeout_seconds: 10
+    expected_status_codes: [200, 201, 202, 204]
+    note: |
+      Configured in notification-alerting-service deployment env.
+      Surfaced here so the operator sees the contract alongside the
+      subscriptions; this YAML does not POST the config (it lives
+      at the deployment layer).
+
+  # ──────────────────────────────────────────────────────────────────
+  # Engine-mapping notes — gaps surfaced honestly per 00-contract.
+  # ──────────────────────────────────────────────────────────────────
+  engine_mapping_notes:
+
+    template_registry_absent:
+      summary: |
+        notification-alerting-service stores `template` as inline
+        JSON on each Subscription; there is no separate template
+        registry endpoint. The register script inlines a
+        SHARED template body from `templates[]` into each
+        Subscription that references it via template_ref. If the
+        template_ref does not resolve, the register script fails
+        loudly rather than POST an empty template.
+
+    marking_filter_in_producer:
+      summary: |
+        The notification service trusts whatever event it receives.
+        Marking-based recipient filtering lives in the producer
+        (workflow-automation-service). The PoC contract is
+        documented under `producer_marking_contract`; the demo's
+        UC-7 (Marcos vs OFAC) relies on the producer honouring it.
+
+    hmac_secret_lifecycle:
+      summary: |
+        The HMAC secret for the compliance webhook is operator-
+        supplied via env (`COMPLIANCE_WEBHOOK_HMAC_SECRET`). The
+        register script never logs or commits it; rotation is a
+        notification-alerting-service admin task, out of scope
+        for this asset.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Acceptance — operator ticks each box during rehearsal.
+  # ──────────────────────────────────────────────────────────────────
+  acceptance:
+    - id: templates-resolved
+      check: "Every subscriptions[*].template_ref resolves to a templates[*].id (smoke test enforces this at make test)."
+    - id: subscriptions-persisted
+      check: "GET /api/v1/notifications/subscriptions returns the 5 rows above with enabled=true."
+    - id: alert-roundtrip
+      check: "POST /internal/events with event_type=actor.alert.raised → 2 deliveries persist for Sofía (in_app + email); 0 for Marcos."
+    - id: sla-escalation
+      check: "Withhold acknowledgement for actor_alert_sla_seconds → manager escalation email dispatched + delivery row status=escalated."
+    - id: case-opened-fanout
+      check: "POST /internal/events with event_type=investigation.case.opened → 2 deliveries (Marcos email + compliance webhook)."
+    - id: webhook-retry-on-500
+      check: "Mock webhook returning 500 → 3 attempts visible in deliveries; final status=failed; LastError captured."
+    - id: marcos-ofac-redaction
+      check: "An OFAC-marked alert NEVER produces a delivery to marcos-case-opened-email (producer filter); Sofía receives the redacted-body email per redaction_mode=strict."

@@ -1,6 +1,8 @@
 # 08 — AIP Chatbot — copilot and prompts
 
 > The copilot is implemented as a Foundry **AIP Chatbot** with tools that map to Foundry's published categories: Object query, Action, Function, Update application variable, Command, and Request clarification. The OpenFoundry implementation is `agent-runtime-service` + `retrieval-context-service` + `llm-catalog-service`. The customer must hear **AIP Chatbot**, not *"MCP agent"*.
+>
+> The canonical declarative spec — system prompt + provider catalog + the 13 tools below — lives in [`assets/agent-config.yaml`](assets/agent-config.yaml). That file is the source of truth the operator POSTs to `agent-runtime-service`; this document is the human-readable explainer. If the two disagree, the YAML wins.
 
 The copilot must inherit the **same security boundary** as the UI user: same roles, same markings. If Marcos cannot read a `NewsArticle.url` in the table, the AIP chatbot **also** cannot read it when asked.
 

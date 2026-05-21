@@ -90,6 +90,8 @@ This file lists every pipeline node, its inputs, outputs, schedule, and the Data
 
 This transform is the **most important pipeline in the PoC**. It is the place where OpenFoundry has to show it can do the same thing a Foundry team would do: a versioned, lineage-aware, Data-Health-monitored ER step that produces the canonical `Actor` table.
 
+> The match rules, merge strategy, and FusionJob configs are the declarative SOT in [`assets/er-rules-geopolitica.yaml`](assets/er-rules-geopolitica.yaml). The operator registers them via [`infra/scripts/poc-geopolitica/register-er-rules.sh`](../../infra/scripts/poc-geopolitica/register-er-rules.sh). Where the engine does not support a primitive the PoC narrative wants (e.g. `union_unique`, `weighted_average`), the YAML's `engine_mapping_notes` section documents the gap and the stand-in — that file wins on drift.
+
 ### Inputs
 - `stg.actor_seeds`
 
