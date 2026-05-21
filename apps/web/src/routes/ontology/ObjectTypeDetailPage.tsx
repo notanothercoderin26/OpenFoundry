@@ -30,6 +30,7 @@ import {
   schemaOnlyObjectInstance,
   saveRestrictedViewBackingConfig,
   updateObjectType,
+  updateProperty,
   validateInterfaceActionRestrictions,
   validateMultiDatasourcePrimaryKeys,
   bindingDatasourceProvenance,
@@ -692,6 +693,50 @@ export function ObjectTypeDetailPage() {
           titleKeyName={type.title_property}
           bindings={objectTypeBindings}
           datasets={datasets}
+          valueTypes={valueTypes}
+          onPropertyUpdate={async (propertyId, patch) => {
+            const body: Parameters<typeof updateProperty>[2] = {};
+            if (patch.display_name !== undefined)
+              body.display_name = patch.display_name;
+            if (patch.description !== undefined)
+              body.description = patch.description;
+            if (patch.value_type_id !== undefined)
+              body.value_type_id = patch.value_type_id;
+            if (patch.required !== undefined) body.required = patch.required;
+            if (patch.unique_constraint !== undefined)
+              body.unique_constraint = patch.unique_constraint;
+            if (Object.keys(body).length === 0) return;
+            try {
+              const updated = await updateProperty(type.id, propertyId, body);
+              setProperties((current) =>
+                current.map((item) =>
+                  item.id === propertyId ? updated : item,
+                ),
+              );
+            } catch {
+              // Swallow the failure; the field reverts on next selection.
+            }
+          }}
+          onMakeTitle={async (propertyName) => {
+            try {
+              const updated = await updateObjectType(type.id, {
+                title_property: propertyName,
+              });
+              setType(updated);
+            } catch {
+              /* noop */
+            }
+          }}
+          onMakePrimaryKey={async (propertyName) => {
+            try {
+              const updated = await updateObjectType(type.id, {
+                primary_key_property: propertyName,
+              });
+              setType(updated);
+            } catch {
+              /* noop */
+            }
+          }}
         />
       )}
 

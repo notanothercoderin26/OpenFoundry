@@ -2,11 +2,13 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import type {
   ObjectTypeBinding,
+  OntologyValueType,
   Property,
 } from "@/lib/api/ontology";
 import type { Dataset } from "@/lib/api/datasets";
 import { Badge } from "@components/ui/Badge";
 import { Glyph } from "@components/ui/Glyph";
+import { SidePanelTabs } from "@components/ui/SidePanelTabs";
 
 /* ------------------------------------------------------------------------- */
 /* Shared property-type icon                                                  */
@@ -98,9 +100,17 @@ export interface PropertyEditorProps {
   titleKeyName?: string | null;
   bindings?: ObjectTypeBinding[];
   datasets?: Dataset[];
+  /** Available value-types, used by the General tab Value-type select. */
+  valueTypes?: OntologyValueType[];
   onCreate?: () => void;
   onPropertySelect?: (property: Property) => void;
   onPropertyDelete?: (property: Property) => void;
+  /** Persist a partial update to the selected property. */
+  onPropertyUpdate?: (id: string, patch: Partial<Property>) => void;
+  /** Promote the given property as the object type's title property. */
+  onMakeTitle?: (propertyName: string) => void;
+  /** Promote the given property as the object type's primary key. */
+  onMakePrimaryKey?: (propertyName: string) => void;
   /** Bulk action handler when one or more rows are checkbox-selected. */
   onBulkAction?: (
     action: "delete" | "hide" | "show",
@@ -118,9 +128,13 @@ export function PropertyEditor({
   titleKeyName,
   bindings,
   datasets,
+  valueTypes,
   onCreate,
   onPropertySelect,
   onPropertyDelete,
+  onPropertyUpdate,
+  onMakeTitle,
+  onMakePrimaryKey,
   onBulkAction,
   onPreviewObjects,
   onPreviewTable,
@@ -200,6 +214,18 @@ export function PropertyEditor({
             property={selected}
             isPrimaryKey={primaryKeyName === selected.name}
             isTitle={titleKeyName === selected.name}
+            currentPrimaryKeyName={primaryKeyName ?? null}
+            currentTitleName={titleKeyName ?? null}
+            valueTypes={valueTypes}
+            onUpdate={
+              onPropertyUpdate
+                ? (patch) => onPropertyUpdate(selected.id, patch)
+                : undefined
+            }
+            onMakeTitle={onMakeTitle ? () => onMakeTitle(selected.name) : undefined}
+            onMakePrimaryKey={
+              onMakePrimaryKey ? () => onMakePrimaryKey(selected.name) : undefined
+            }
             onDelete={onPropertyDelete ? () => onPropertyDelete(selected) : undefined}
             onClose={() => setSelectedId(null)}
           />
@@ -507,21 +533,42 @@ function FilterButton() {
 /* Drawer                                                                     */
 /* ------------------------------------------------------------------------- */
 
+type DrawerTab =
+  | "general"
+  | "display"
+  | "interaction"
+  | "details"
+  | "advanced";
+
 interface DrawerProps {
   property: Property;
   isPrimaryKey: boolean;
   isTitle: boolean;
+  currentPrimaryKeyName?: string | null;
+  currentTitleName?: string | null;
+  valueTypes?: OntologyValueType[];
   onClose: () => void;
   onDelete?: () => void;
+  onUpdate?: (patch: Partial<Property>) => void;
+  onMakeTitle?: () => void;
+  onMakePrimaryKey?: () => void;
 }
 
 function PropertyEditorDrawer({
   property,
   isPrimaryKey,
   isTitle,
+  currentPrimaryKeyName,
+  currentTitleName,
+  valueTypes,
   onClose,
   onDelete,
+  onUpdate,
+  onMakeTitle,
+  onMakePrimaryKey,
 }: DrawerProps) {
+  const [tab, setTab] = useState<DrawerTab>("general");
+
   return (
     <aside
       className={[
@@ -558,14 +605,337 @@ function PropertyEditorDrawer({
         ) : null}
       </header>
 
+      <SidePanelTabs
+        tabs={[
+          { id: "general", label: "General" },
+          { id: "display", label: "Display" },
+          { id: "interaction", label: "Interaction" },
+          { id: "details", label: "Details" },
+          { id: "advanced", label: "Advanced" },
+        ]}
+        active={tab}
+        onChange={setTab}
+        className="px-3"
+      />
+
       <div className="flex-1 min-h-0 overflow-y-auto p-3">
-        <p className="text-of-13 text-of-text-muted">
-          Detail editor (General / Display / Interaction / Details / Advanced)
-          lands in the next iteration. Selected property:{" "}
-          <span className="font-mono">{property.name}</span>.
-        </p>
+        {tab === "general" ? (
+          <GeneralTab
+            property={property}
+            isPrimaryKey={isPrimaryKey}
+            isTitle={isTitle}
+            currentPrimaryKeyName={currentPrimaryKeyName ?? null}
+            currentTitleName={currentTitleName ?? null}
+            valueTypes={valueTypes ?? []}
+            onUpdate={onUpdate}
+            onMakeTitle={onMakeTitle}
+            onMakePrimaryKey={onMakePrimaryKey}
+          />
+        ) : (
+          <TabPlaceholder name={tab} />
+        )}
       </div>
     </aside>
+  );
+}
+
+function TabPlaceholder({ name }: { name: DrawerTab }) {
+  return (
+    <p className="text-of-13 text-of-text-muted">
+      {name[0].toUpperCase() + name.slice(1)} tab lands in the next iteration.
+    </p>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* General tab                                                                */
+/* ------------------------------------------------------------------------- */
+
+interface GeneralTabProps {
+  property: Property;
+  isPrimaryKey: boolean;
+  isTitle: boolean;
+  currentPrimaryKeyName: string | null;
+  currentTitleName: string | null;
+  valueTypes: OntologyValueType[];
+  onUpdate?: (patch: Partial<Property>) => void;
+  onMakeTitle?: () => void;
+  onMakePrimaryKey?: () => void;
+}
+
+const BASE_TYPE_OPTIONS = [
+  { value: "string", label: "String" },
+  { value: "integer", label: "Integer" },
+  { value: "double", label: "Double" },
+  { value: "boolean", label: "Boolean" },
+  { value: "date", label: "Date" },
+  { value: "datetime", label: "Datetime" },
+  { value: "geo", label: "Geo" },
+];
+
+function GeneralTab({
+  property,
+  isPrimaryKey,
+  isTitle,
+  currentPrimaryKeyName,
+  currentTitleName,
+  valueTypes,
+  onUpdate,
+  onMakeTitle,
+  onMakePrimaryKey,
+}: GeneralTabProps) {
+  const readOnly = !onUpdate;
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Overview ------------------------------------------------------- */}
+      <section className="flex flex-col gap-3">
+        <h4 className="text-of-12 font-of-semibold uppercase tracking-wide text-of-text-soft m-0">
+          Overview
+        </h4>
+
+        <Field label="Name">
+          <TextInput
+            value={property.display_name ?? ""}
+            onChange={(value) => onUpdate?.({ display_name: value })}
+            readOnly={readOnly}
+            placeholder={property.name}
+          />
+        </Field>
+
+        <Field label="Description">
+          <TextArea
+            value={property.description ?? ""}
+            onChange={(value) => onUpdate?.({ description: value })}
+            readOnly={readOnly}
+          />
+        </Field>
+
+        <Field label="Base type">
+          <Select
+            value={property.base_type ?? property.property_type ?? "string"}
+            onChange={(value) => onUpdate?.({ base_type: value })}
+            options={BASE_TYPE_OPTIONS}
+            readOnly={readOnly}
+            leading={<PropertyTypeIcon property={property} size={16} />}
+          />
+        </Field>
+
+        <Field
+          label="Allow multiple"
+          help="When enabled, this property accepts an array of values."
+          inline
+        >
+          <Switch
+            checked={Boolean(property.is_array)}
+            onChange={(value) => onUpdate?.({ is_array: value })}
+            disabled={readOnly}
+          />
+        </Field>
+
+        <Field label="Value type">
+          <Select
+            value={property.value_type_id ?? ""}
+            onChange={(value) =>
+              onUpdate?.({ value_type_id: value || null })
+            }
+            options={[
+              { value: "", label: "Select a value type" },
+              ...valueTypes.map((entry) => ({
+                value: entry.id,
+                label: entry.display_name || entry.name,
+              })),
+            ]}
+            readOnly={readOnly}
+          />
+        </Field>
+
+        <Field label="Status" inline>
+          <Badge variant="experimental" />
+        </Field>
+      </section>
+
+      {/* Configuration -------------------------------------------------- */}
+      <section className="flex flex-col gap-3 border-t border-of-border pt-4">
+        <h4 className="text-of-12 font-of-semibold uppercase tracking-wide text-of-text-soft m-0">
+          Configuration
+        </h4>
+
+        <KeyToggleRow
+          label="Title key"
+          checked={isTitle}
+          onChange={() => onMakeTitle?.()}
+          disabled={!onMakeTitle}
+          current={currentTitleName}
+          fallback="ICAO"
+        />
+
+        <KeyToggleRow
+          label="Primary key"
+          checked={isPrimaryKey}
+          onChange={() => onMakePrimaryKey?.()}
+          disabled={!onMakePrimaryKey}
+          current={currentPrimaryKeyName}
+        />
+      </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Form primitives                                                            */
+/* ------------------------------------------------------------------------- */
+
+function Field({
+  label,
+  help,
+  inline,
+  children,
+}: {
+  label: string;
+  help?: string;
+  inline?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className={inline ? "flex items-center gap-3" : "flex flex-col gap-1"}>
+      <label className="inline-flex items-center gap-1 text-of-12 text-of-text-muted">
+        {label}
+        {help ? (
+          <span title={help} aria-hidden>
+            <Glyph name="help" size={11} tone="currentColor" />
+          </span>
+        ) : null}
+      </label>
+      <div className={inline ? "ml-auto" : ""}>{children}</div>
+    </div>
+  );
+}
+
+function TextInput({
+  value,
+  onChange,
+  readOnly,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  readOnly?: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      readOnly={readOnly}
+      placeholder={placeholder}
+      className={[
+        "w-full h-8 px-2 rounded-of-sm border border-of-border bg-of-surface-raised",
+        "text-of-13 text-of-text placeholder:text-of-text-soft",
+        "focus:outline-none focus:border-of-accent focus:ring-2 focus:ring-of-accent-soft",
+        readOnly ? "bg-of-surface" : "",
+      ].join(" ")}
+    />
+  );
+}
+
+function TextArea({
+  value,
+  onChange,
+  readOnly,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  readOnly?: boolean;
+}) {
+  return (
+    <textarea
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      readOnly={readOnly}
+      rows={3}
+      className={[
+        "w-full px-2 py-1.5 rounded-of-sm border border-of-border bg-of-surface-raised",
+        "text-of-13 text-of-text placeholder:text-of-text-soft resize-y",
+        "focus:outline-none focus:border-of-accent focus:ring-2 focus:ring-of-accent-soft",
+        readOnly ? "bg-of-surface" : "",
+      ].join(" ")}
+    />
+  );
+}
+
+function Select({
+  value,
+  onChange,
+  options,
+  readOnly,
+  leading,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  readOnly?: boolean;
+  leading?: ReactNode;
+}) {
+  return (
+    <span
+      className={[
+        "inline-flex w-full items-center gap-1.5 h-8 px-2 rounded-of-sm",
+        "border border-of-border bg-of-surface-raised",
+        readOnly ? "bg-of-surface" : "",
+      ].join(" ")}
+    >
+      {leading}
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={readOnly}
+        className="flex-1 min-w-0 bg-transparent border-0 outline-none text-of-13 text-of-text appearance-none disabled:cursor-default"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <Glyph name="chevron-down" size={11} tone="var(--of-text-muted)" />
+    </span>
+  );
+}
+
+function KeyToggleRow({
+  label,
+  checked,
+  onChange,
+  disabled,
+  current,
+  fallback,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+  current?: string | null;
+  fallback?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <span className="text-of-13 text-of-text font-of-medium">{label}</span>
+        <Switch
+          checked={checked}
+          onChange={onChange}
+          disabled={disabled}
+        />
+      </div>
+      {current ? (
+        <span className="text-of-12 text-of-text-muted">
+          Current:{" "}
+          <span className="font-mono text-of-text">{current ?? fallback ?? "—"}</span>
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -692,19 +1062,23 @@ function PropertyEditorFooter({
 function Switch({
   checked,
   onChange,
+  disabled,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={[
         "relative inline-flex items-center w-7 h-4 rounded-full transition-colors",
         checked ? "bg-of-accent" : "bg-of-border-strong",
+        disabled ? "opacity-50 cursor-not-allowed" : "",
       ].join(" ")}
     >
       <span
