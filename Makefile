@@ -35,7 +35,7 @@ help: ## Show this help.
 tools: ## Install pinned dev tools (buf, golangci-lint, sqlc, etc.) into ./bin.
 	@mkdir -p $(BIN_DIR)
 	GOBIN=$(PWD)/$(BIN_DIR) $(GO) install github.com/bufbuild/buf/cmd/buf@v1.47.2
-	GOBIN=$(PWD)/$(BIN_DIR) $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.62.2
+	GOBIN=$(PWD)/$(BIN_DIR) $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 	GOBIN=$(PWD)/$(BIN_DIR) $(GO) install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.27.0
 	GOBIN=$(PWD)/$(BIN_DIR) $(GO) install mvdan.cc/gofumpt@latest
 	@echo "Tools installed to $(PWD)/$(BIN_DIR). Add it to your PATH."
