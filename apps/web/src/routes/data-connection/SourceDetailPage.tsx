@@ -4,6 +4,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { Tabs } from '@/lib/components/Tabs';
 import { VirtualTablesTab } from '@/lib/components/data-connection/VirtualTablesTab';
+import { Breadcrumb } from '@/lib/components/ui/Breadcrumb';
+import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import {
   capabilityLabel,
   connectorCategoryLabel,
@@ -206,6 +208,68 @@ import {
 import type { VirtualTableProvider } from '@/lib/api/virtual-tables';
 
 type Tab = 'overview' | 'health' | 'retries' | 'configuration' | 'credentials' | 'networking' | 'explore' | 'syncs' | 'streams' | 'exports' | 'webhooks' | 'virtual-tables' | 'code-imports' | 'permissions' | 'history' | 'capabilities' | 'media-syncs';
+
+type OuterTab = 'overview' | 'connection-settings' | 'edit-syncs' | 'explore-source' | 'logs';
+
+const OUTER_TABS: { id: OuterTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'connection-settings', label: 'Connection settings' },
+  { id: 'edit-syncs', label: 'Edit syncs' },
+  { id: 'explore-source', label: 'Explore source' },
+  { id: 'logs', label: 'Logs' },
+];
+
+const TAB_TO_OUTER: Record<Tab, OuterTab> = {
+  overview: 'overview',
+  health: 'overview',
+  retries: 'overview',
+  configuration: 'connection-settings',
+  credentials: 'connection-settings',
+  networking: 'connection-settings',
+  capabilities: 'connection-settings',
+  permissions: 'connection-settings',
+  syncs: 'edit-syncs',
+  streams: 'edit-syncs',
+  exports: 'edit-syncs',
+  webhooks: 'edit-syncs',
+  'virtual-tables': 'edit-syncs',
+  'code-imports': 'edit-syncs',
+  'media-syncs': 'edit-syncs',
+  explore: 'explore-source',
+  history: 'logs',
+};
+
+const OUTER_DEFAULT_TAB: Record<OuterTab, Tab> = {
+  overview: 'overview',
+  'connection-settings': 'configuration',
+  'edit-syncs': 'syncs',
+  'explore-source': 'explore',
+  logs: 'history',
+};
+
+const OVERVIEW_SUBS: { id: Tab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'health', label: 'Health' },
+  { id: 'retries', label: 'Retries' },
+];
+
+const CONNECTION_SETTINGS_SIDEBAR: { id: Tab; label: string }[] = [
+  { id: 'configuration', label: 'Connection details' },
+  { id: 'credentials', label: 'Credentials' },
+  { id: 'networking', label: 'Networking' },
+  { id: 'capabilities', label: 'Capabilities' },
+  { id: 'permissions', label: 'Permissions' },
+];
+
+const EDIT_SYNCS_SUBS: { id: Tab; label: string }[] = [
+  { id: 'syncs', label: 'Syncs' },
+  { id: 'streams', label: 'Streams' },
+  { id: 'exports', label: 'Exports' },
+  { id: 'webhooks', label: 'Webhooks' },
+  { id: 'virtual-tables', label: 'Virtual tables' },
+  { id: 'media-syncs', label: 'Media syncs' },
+  { id: 'code-imports', label: 'Code imports' },
+];
 
 const WORKER_CHOICES: SourceWorker[] = ['foundry', 'agent'];
 const CREDENTIAL_KINDS: CredentialKind[] = [
@@ -2037,55 +2101,137 @@ export function SourceDetailPage() {
   const actionableHealthChecks = renderedHealthSummary ? dataConnectionActionableHealthChecks(renderedHealthSummary) : [];
   const editWorkerCompatibility = registryEntry ? validateConnectorWorker(registryEntry, editWorker) : null;
   const unavailableForEditWorker = registryEntry ? unavailableCapabilitiesForWorker(registryEntry, editWorker) : [];
-  const tabs: Array<Tab | { id: Tab; label: string }> = [
-    'overview',
-    'health',
-    'retries',
-    'configuration',
-    'credentials',
-    'networking',
-    'explore',
-    { id: 'syncs', label: 'Syncs' },
-    { id: 'streams', label: 'Streams' },
-    'exports',
-    'webhooks',
-    { id: 'virtual-tables', label: 'Virtual tables' },
-    { id: 'code-imports', label: 'Code imports' },
-    'permissions',
-    'history',
-    'capabilities',
-  ];
-  if (connectorSupportsMediaSync(source.connector_type)) tabs.push({ id: 'media-syncs', label: 'Media syncs' });
+  const outerTab: OuterTab = TAB_TO_OUTER[tab];
+  const editSyncsSubs = connectorSupportsMediaSync(source.connector_type)
+    ? EDIT_SYNCS_SUBS
+    : EDIT_SYNCS_SUBS.filter((item) => item.id !== 'media-syncs');
+  const runningCount = 0;
+  const successCount = (usage.sync_count ?? 0) + (usage.export_count ?? 0);
+  const failureCount = sourceAgentFailures.length;
+
+  function selectOuter(next: OuterTab) {
+    if (outerTab === next) return;
+    selectTab(OUTER_DEFAULT_TAB[next]);
+  }
 
   return (
-    <section className="of-page" style={{ padding: 24, display: 'grid', gap: 16 }}>
-      <Link to="/data-connection" style={{ color: 'var(--text-muted)', fontSize: 13 }}>← Sources</Link>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <div>
-          <h1 className="of-heading-xl">{source.name}</h1>
-          <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+    <section className="of-page" style={{ padding: 0, display: 'grid', gap: 0 }}>
+      <div style={{ padding: '20px 32px 0' }}>
+        <Breadcrumb
+          items={[
+            { label: 'Data Connection', href: '/data-connection' },
+            { label: source.name },
+          ]}
+        />
+      </div>
+
+      <header
+        style={{
+          padding: '12px 32px 0',
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 16,
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: 'var(--text-strong)', lineHeight: 1.2 }}>
+            {source.name}
+          </h1>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
             {source.id} · {source.connector_type} · worker: {source.worker} · status: {source.status}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button type="button" onClick={() => void testConnection()} disabled={busy} className="of-button">Test connection</button>
-          <button type="button" onClick={() => setEditOpen((open) => !open)} disabled={busy} className="of-button">Edit</button>
-          <button type="button" onClick={() => void duplicateSource()} disabled={busy || !duplicateName.trim()} className="of-button">Duplicate</button>
-          <button type="button" onClick={() => void archiveSource()} disabled={busy} className="of-button" style={{ color: '#92400e', borderColor: '#fde68a' }}>Archive</button>
-          <button type="button" onClick={() => void deleteSource()} disabled={busy} className="of-button" style={{ color: '#b91c1c', borderColor: '#fecaca' }}>
-            Delete
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <StatusChip icon="run" count={runningCount} tone="info" label="Running runs" />
+          <StatusChip icon="check" count={successCount} tone="success" label="Successful runs" />
+          <StatusChip icon="x" count={failureCount} tone="danger" label="Failed runs" />
+          <button
+            type="button"
+            className="of-button"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}
+            aria-label="Help"
+          >
+            <Glyph name="help" size={14} tone="currentColor" />
+            Help
           </button>
         </div>
       </header>
 
+      <div
+        style={{
+          padding: '16px 32px 0',
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: 16,
+          borderBottom: '1px solid var(--border-subtle)',
+          marginTop: 16,
+        }}
+      >
+        <nav
+          aria-label="Source tabs"
+          style={{ display: 'flex', gap: 4, overflowX: 'auto' }}
+        >
+          {OUTER_TABS.map((item) => {
+            const active = outerTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => selectOuter(item.id)}
+                aria-current={active ? 'page' : undefined}
+                style={{
+                  padding: '8px 14px',
+                  border: 0,
+                  background: 'transparent',
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 500,
+                  color: active ? 'var(--text-strong)' : 'var(--text-muted)',
+                  cursor: 'pointer',
+                  borderBottom: active ? '2px solid var(--status-info)' : '2px solid transparent',
+                  marginBottom: -1,
+                  whiteSpace: 'nowrap',
+                  font: 'inherit',
+                }}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingBottom: 6 }}>
+          <ActionLink icon="trash" label="Move to trash" onClick={() => void archiveSource()} disabled={busy} />
+          <ActionLink
+            icon="lineage"
+            label="Explore lineage"
+            onClick={() => navigate(`/lineage?source=${encodeURIComponent(source.id)}`)}
+          />
+          <ActionLink icon="share" label="Share" onClick={() => setEditOpen((open) => !open)} />
+        </div>
+      </div>
+
       {error && (
-        <div className="of-status-danger" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
+        <div
+          className="of-status-danger"
+          style={{ margin: '12px 32px 0', padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
+        >
           {error}
         </div>
       )}
 
       {testResult && (
-        <div style={{ padding: 10, background: testResult.success ? '#d1fae5' : '#fee2e2', borderRadius: 8, fontSize: 12, display: 'grid', gap: 6 }}>
+        <div
+          style={{
+            margin: '12px 32px 0',
+            padding: 10,
+            background: testResult.success ? '#d1fae5' : '#fee2e2',
+            borderRadius: 8,
+            fontSize: 12,
+            display: 'grid',
+            gap: 6,
+          }}
+        >
           <div>
             <strong>{testResult.success ? '✓' : '✗'}</strong> {testResult.message}
             {testResult.latency_ms !== null && ` · ${testResult.latency_ms}ms`}
@@ -2103,7 +2249,111 @@ export function SourceDetailPage() {
         </div>
       )}
 
-      <Tabs tabs={tabs} active={tab} onChange={selectTab} />
+      {/* Legacy hidden tabs nav, kept as fallback selector; rendered offscreen */}
+      <div style={{ position: 'absolute', left: -9999, top: -9999, pointerEvents: 'none' }} aria-hidden="true">
+        <Tabs
+          tabs={[
+            'overview', 'health', 'retries', 'configuration', 'credentials', 'networking',
+            'explore', { id: 'syncs', label: 'Syncs' }, { id: 'streams', label: 'Streams' },
+            'exports', 'webhooks', { id: 'virtual-tables', label: 'Virtual tables' },
+            { id: 'code-imports', label: 'Code imports' }, 'permissions', 'history', 'capabilities',
+            ...(connectorSupportsMediaSync(source.connector_type) ? [{ id: 'media-syncs' as Tab, label: 'Media syncs' }] : []),
+          ]}
+          active={tab}
+          onChange={selectTab}
+        />
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          gap: 16,
+          padding: 24,
+          alignItems: 'flex-start',
+        }}
+      >
+        {outerTab === 'connection-settings' && (
+          <aside
+            aria-label="Connection settings sections"
+            style={{
+              width: 240,
+              flexShrink: 0,
+              background: 'var(--bg-default)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              padding: 8,
+            }}
+          >
+            {CONNECTION_SETTINGS_SIDEBAR.map((item) => {
+              const active = tab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => selectTab(item.id)}
+                  aria-current={active ? 'page' : undefined}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '8px 12px',
+                    margin: '1px 0',
+                    border: 0,
+                    background: active ? 'var(--bg-hover)' : 'transparent',
+                    color: active ? 'var(--text-link)' : 'var(--text-default)',
+                    fontSize: 13,
+                    fontWeight: active ? 600 : 500,
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    font: 'inherit',
+                  }}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </aside>
+        )}
+
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {(outerTab === 'overview' || outerTab === 'edit-syncs') && (
+            <nav
+              aria-label="Section sub-tabs"
+              style={{
+                display: 'flex',
+                gap: 4,
+                borderBottom: '1px solid var(--border-subtle)',
+                overflowX: 'auto',
+              }}
+            >
+              {(outerTab === 'overview' ? OVERVIEW_SUBS : editSyncsSubs).map((item) => {
+                const active = tab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => selectTab(item.id)}
+                    aria-current={active ? 'page' : undefined}
+                    style={{
+                      padding: '6px 12px',
+                      border: 0,
+                      background: 'transparent',
+                      fontSize: 12,
+                      fontWeight: active ? 600 : 500,
+                      color: active ? 'var(--text-strong)' : 'var(--text-muted)',
+                      cursor: 'pointer',
+                      borderBottom: active ? '2px solid var(--status-info)' : '2px solid transparent',
+                      marginBottom: -1,
+                      whiteSpace: 'nowrap',
+                      font: 'inherit',
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
 
       {editOpen && (
         <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
@@ -2145,9 +2395,16 @@ export function SourceDetailPage() {
               reason={editWorkerCompatibility.reason}
             />
           )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button type="button" onClick={() => setEditOpen(false)} disabled={busy} className="of-button">Cancel</button>
-            <button type="button" onClick={() => void saveConfiguration()} disabled={busy || !editName.trim() || (editWorkerCompatibility ? !editWorkerCompatibility.valid : false)} className="of-button of-button--primary">Save changes</button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" onClick={() => void testConnection()} disabled={busy} className="of-button" style={{ fontSize: 12 }}>Test connection</button>
+              <button type="button" onClick={() => void duplicateSource()} disabled={busy || !duplicateName.trim()} className="of-button" style={{ fontSize: 12 }}>Duplicate</button>
+              <button type="button" onClick={() => void deleteSource()} disabled={busy} className="of-button" style={{ fontSize: 12, color: '#b91c1c', borderColor: '#fecaca' }}>Delete</button>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={() => setEditOpen(false)} disabled={busy} className="of-button">Cancel</button>
+              <button type="button" onClick={() => void saveConfiguration()} disabled={busy || !editName.trim() || (editWorkerCompatibility ? !editWorkerCompatibility.valid : false)} className="of-button of-button--primary">Save changes</button>
+            </div>
           </div>
         </section>
       )}
@@ -3905,6 +4162,8 @@ export function SourceDetailPage() {
           <VirtualMediaHandoffPanel descriptor={virtualMediaHandoff} />
         </section>
       )}
+        </div>
+      </div>
 
       {bulkDialogOpen && (
         <div role="dialog" aria-modal="true" aria-labelledby="source-bulk-register-title" style={dialogBackdropStyle}>
@@ -5229,3 +5488,80 @@ const dialogPanelStyle: CSSProperties = {
   gap: 12,
   boxShadow: 'var(--shadow-popover)',
 };
+
+interface StatusChipProps {
+  icon: GlyphName;
+  count: number;
+  tone: 'success' | 'danger' | 'info';
+  label: string;
+}
+
+function StatusChip({ icon, count, tone, label }: StatusChipProps) {
+  const palette =
+    tone === 'success'
+      ? { color: 'var(--status-success)', bg: 'var(--status-success-bg)' }
+      : tone === 'danger'
+        ? { color: 'var(--status-danger)', bg: 'var(--status-danger-bg)' }
+        : { color: 'var(--status-info)', bg: 'var(--status-info-bg)' };
+  return (
+    <span
+      title={label}
+      aria-label={`${label}: ${count}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '3px 8px',
+        borderRadius: 12,
+        fontSize: 12,
+        fontWeight: 600,
+        color: palette.color,
+        background: palette.bg,
+        fontVariantNumeric: 'tabular-nums',
+      }}
+    >
+      <Glyph name={icon} size={12} tone="currentColor" />
+      {count}
+    </span>
+  );
+}
+
+interface ActionLinkProps {
+  icon: GlyphName;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}
+
+function ActionLink({ icon, label, onClick, disabled }: ActionLinkProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '6px 10px',
+        border: 0,
+        background: 'transparent',
+        color: disabled ? 'var(--text-soft)' : 'var(--text-default)',
+        fontSize: 13,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        borderRadius: 'var(--radius-md)',
+        font: 'inherit',
+      }}
+      onMouseEnter={(e) => {
+        if (!disabled)
+          (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-hover)';
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+      }}
+    >
+      <Glyph name={icon} size={14} tone="currentColor" />
+      {label}
+    </button>
+  );
+}
