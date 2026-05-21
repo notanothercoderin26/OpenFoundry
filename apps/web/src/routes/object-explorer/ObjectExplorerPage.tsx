@@ -1388,7 +1388,6 @@ export function ObjectExplorerPage() {
                     objectSets={visibleObjectSets}
                     typeById={typeById}
                     onOpen={(set) => void openSavedExploration(set)}
-                    onSeeAll={() => setActiveTab('artifacts')}
                   />
                   <BrowseGroupsGrid
                     groups={explorerGroups}

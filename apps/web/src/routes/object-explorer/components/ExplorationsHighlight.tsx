@@ -4,60 +4,78 @@ import {
   type ObjectType,
 } from '@/lib/api/ontology';
 
-import { EmptyState, PanelHeader } from './atoms';
-import { numberFormatter } from '../state';
+import { iconBackground } from '../iconPalette';
+import './ExplorationsHighlight.css';
 
-interface ExplorationsHighlightProps {
+export interface ExplorationsHighlightProps {
   objectSets: ObjectSetDefinition[];
   typeById: Map<string, ObjectType>;
   onOpen: (set: ObjectSetDefinition) => void;
-  onSeeAll: () => void;
+  /** Maximum cards rendered in the highlight grid. Excess sets are
+   *  reachable from the sidebar's "My explorations & lists" entry. */
+  limit?: number;
 }
 
-export function ExplorationsHighlight({ objectSets, typeById, onOpen, onSeeAll }: ExplorationsHighlightProps) {
-  const featured = objectSets.slice(0, 6);
+const DEFAULT_LIMIT = 6;
+
+export function ExplorationsHighlight({
+  objectSets,
+  typeById,
+  onOpen,
+  limit = DEFAULT_LIMIT,
+}: ExplorationsHighlightProps) {
+  if (objectSets.length === 0) return null;
+  const featured = objectSets.slice(0, limit);
+
   return (
-    <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <PanelHeader label="My explorations & lists" value={`${objectSets.length}`} />
-        {objectSets.length > featured.length && (
-          <button type="button" className="of-button of-button--ghost" onClick={onSeeAll} style={{ fontSize: 12 }}>
-            See all
-          </button>
-        )}
+    <section className="oe-highlight" aria-label="My explorations and lists">
+      <div className="oe-eyebrow-divider">
+        <span className="oe-eyebrow">My explorations &amp; lists</span>
+        <span className="oe-chip">{objectSets.length}</span>
       </div>
-      {featured.length === 0 ? (
-        <EmptyState label="Save an exploration or list from the Objects tab to see it pinned here." compact />
-      ) : (
-        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))' }}>
-          {featured.map((set) => {
-            const typeLabel = typeById.get(set.base_object_type_id)?.display_name ?? set.base_object_type_id;
-            const kind = objectExplorerSavedArtifactKind(set);
-            return (
-              <button
-                key={set.id}
-                type="button"
-                onClick={() => onOpen(set)}
-                className="of-panel-muted"
-                style={{ padding: 10, display: 'grid', gap: 6, textAlign: 'left', cursor: 'pointer', border: '1px solid var(--border-subtle)' }}
+      <div className="oe-highlight__grid">
+        {featured.map((set) => {
+          const type = typeById.get(set.base_object_type_id);
+          const kind = objectExplorerSavedArtifactKind(set);
+          return (
+            <button
+              key={set.id}
+              type="button"
+              className="oe-card oe-highlight__card"
+              onClick={() => onOpen(set)}
+              title={type?.display_name || set.base_object_type_id}
+            >
+              <span
+                className="oe-type-icon"
+                style={{ background: iconBackground(set.base_object_type_id, type?.color ?? null) }}
+                aria-hidden="true"
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                  <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {set.name}
-                  </strong>
-                  <span className="of-chip">{kind}</span>
-                </div>
-                <p className="of-text-muted" style={{ margin: 0, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {typeLabel}
-                </p>
-                <span className="of-text-muted" style={{ fontSize: 11 }}>
-                  {numberFormatter.format(set.materialized_row_count)} rows
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+                {kind === 'list' ? <ListGlyph /> : <ExploreGlyph />}
+              </span>
+              <span className="oe-highlight__card-label">{set.name}</span>
+            </button>
+          );
+        })}
+      </div>
     </section>
+  );
+}
+
+function ListGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="2" y="3" width="12" height="2" rx="0.5" fill="currentColor" />
+      <rect x="2" y="7" width="12" height="2" rx="0.5" fill="currentColor" />
+      <rect x="2" y="11" width="12" height="2" rx="0.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ExploreGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
   );
 }
