@@ -11,8 +11,18 @@ import {
   type Property,
 } from '@/lib/api/ontology';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
+import { ObservabilityPanel } from '@/lib/components/ontology/ObservabilityPanel';
 
-type SectionKey = 'overview' | 'rules' | 'parameters' | 'user-interface' | 'capabilities' | 'security' | 'automations' | 'history';
+type SectionKey =
+  | 'overview'
+  | 'logic'
+  | 'parameters'
+  | 'user-interface'
+  | 'capabilities'
+  | 'security'
+  | 'automations'
+  | 'observability'
+  | 'history';
 
 interface SidebarEntry {
   id: SectionKey;
@@ -23,12 +33,13 @@ interface SidebarEntry {
 
 const SIDEBAR: SidebarEntry[] = [
   { id: 'overview', label: 'Overview', icon: 'home' },
-  { id: 'rules', label: 'Rules', icon: 'pencil' },
+  { id: 'logic', label: 'Logic', icon: 'pencil' },
   { id: 'parameters', label: 'Parameters', icon: 'list' },
   { id: 'user-interface', label: 'User Interface', icon: 'view-grid' },
   { id: 'capabilities', label: 'Capabilities', icon: 'badge-check' },
   { id: 'security', label: 'Security & Submission Criteria', icon: 'shield' },
   { id: 'automations', label: 'Automations', icon: 'run', disabled: true },
+  { id: 'observability', label: 'Observability', icon: 'pie-chart' },
   { id: 'history', label: 'History', icon: 'autosaved' },
 ];
 
@@ -339,6 +350,13 @@ export function ActionTypeDetailPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          ) : section === 'observability' ? (
+            <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+              <ObservabilityPanel
+                seedId={action.id}
+                title={`${action.display_name || action.name} usage`}
+              />
             </div>
           ) : (
             <div style={{ padding: 24, textAlign: 'center' }}>
