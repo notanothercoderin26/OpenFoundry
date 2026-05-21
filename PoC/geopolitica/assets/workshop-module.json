@@ -80,7 +80,11 @@
         "kind": "object_set",
         "name": "Filtered actor set",
         "object_type_id": "Actor",
-        "source_widget_id": "actor-filter-list"
+        "source_widget_id": "actor-filter-list",
+        "metadata": {
+          "use_search_backend": true,
+          "_comment_use_search_backend": "B03 G2 — route Workshop reads for this object_set through POST /api/v1/ontology/search (Vespa-backed) instead of the Cassandra-backed object-database query. Required for Act 4 in 11-guion-demo.md against GDELT-scale rows. Honoured by resolveUseSearchBackend() in apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts."
+        }
       },
       {
         "id": "selectedTimeWindow",

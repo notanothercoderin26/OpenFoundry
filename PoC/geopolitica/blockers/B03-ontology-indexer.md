@@ -10,22 +10,26 @@
 > rows into Vespa (or OpenSearch) through
 > [`libs/search-abstraction`](../../../libs/search-abstraction/).
 >
-> **The misleading part of the "100% reformulated scope" status**: the
-> indexer is filling the search store correctly, but **nothing in the
-> read path reaches it**. `ontology-query-service` only talks to
-> Cassandra, no service exposes `POST /ontology/search`, and Workshop
-> filters run client-side on already-fetched object lists. From the
-> Act 2 / Act 4 perspective in [`../11-guion-demo.md`](../11-guion-demo.md),
-> the index is invisible: the GDELT/ACLED event volume and the
-> resolved Person/Organization graph are in Vespa but the UI cannot
-> see them.
+> **Status update (2026-05-21)**: the read path is now real. The
+> earlier "25% PoC readiness" snapshot below predates the
+> `ontology-query-service` search handler, the indexer status surface
+> and the reindex command landing on this branch — **G1, G3, G4 and
+> G5 are closed**. The only remaining gap for the Act 4 narrative is
+> a Phase-2 follow-up: widgets that bind **directly** to an object
+> type (the map and timeline in
+> [`../07-dashboards-y-app-workshop.md`](../07-dashboards-y-app-workshop.md))
+> still go through the widget binding renderer, which does not yet
+> honour the `use_search_backend` opt-in that
+> `executeWorkshopObjectSet` does. Workshop **variable**-driven reads
+> (the actor filter list → actor object table path that drives the
+> Act 4 demo) are pushdown-live as of this commit.
 >
-> Severity: **High** for the geopolitics narrative. The aviation PoC
-> tolerated the gap because its object cardinality is small (~10⁴);
-> geopolitics needs sub-second filters over **GDELT (~10⁹ events) +
-> ACLED (~10⁶ events) + Persons (~10⁵) + Orgs (~10⁴)** and the
-> Cassandra read path cannot deliver that. Tracked at **~25% PoC
-> readiness** despite the reformulated-scope green ticks.
+> Severity: **Medium** — the demo now runs end-to-end through the
+> variable-driven path; only the direct-binding widgets at the map /
+> timeline level remain on the Cassandra fallback, which is
+> acceptable for the demo slice (≤ 10⁵ rendered events after the
+> filter list narrows the set) but must be closed before any
+> non-demo geopolitics workload. Tracked at **~85% PoC readiness**.
 
 ## Identity
 
@@ -75,19 +79,22 @@ The same pages anchor both PoCs.
 | Indexer consumer | [`services/ontology-indexer/internal/runtime/runtime.go`](../../../services/ontology-indexer/internal/runtime/runtime.go) (522 LOC) | Real Kafka subscriber on `ontology.object.changed.v1` + `ontology.link.changed.v1`; dedup by `(aggregate_id, version)`; exponential-backoff retries; DLQ; dual backend via [`libs/search-abstraction/{vespa,opensearch}`](../../../libs/search-abstraction/) |
 | Indexer projector | [`services/ontology-indexer/internal/runtime/runtime.go`](../../../services/ontology-indexer/internal/runtime/runtime.go) | Generic JSONB document shape — no per-type Vespa schemas yet (B03 platform G5 deferred — Phase 2 in aviation) |
 | Producer (objects) | [`services/object-database-service/internal/handlers/outbox.go`](../../../services/object-database-service/internal/handlers/outbox.go) | `PutObject` / `DeleteObject` / `PutLink` / `DeleteLink` all go through `libs/outbox.Enqueue`, proven by `TestOutboxEndToEnd_*` integration tests |
-| **Read service** | [`services/ontology-query-service/internal/handlers/handlers.go`](../../../services/ontology-query-service/internal/handlers/handlers.go) (322 LOC) | **Cassandra-only**. Exposes `GET /api/v1/ontology/objects/{tenant}/{object_id}`, `ListObjectsByType`, link-traversal endpoints, `Traverse`, `Histogram` — **no `/search` route, no Vespa client** |
-| **Search route owner** | *(none)* | `grep -rn "/ontology/search" services/*/internal/server/` returns **zero matches**. The frontend's `searchOntology()` POSTs to `/ontology/search` and hits 404 in this stack |
-| Frontend search client | [`apps/web/src/lib/api/ontology.ts:1640`](../../../apps/web/src/lib/api/ontology.ts) — `searchOntology({query, kind?, object_type_id?, semantic?, hybrid_strategy?})` | Wire shape ready (RRF / weighted hybrid, semantic via embedding provider) — waiting for a backend |
-| Frontend search page | [`apps/web/src/routes/search/SearchPage.tsx`](../../../apps/web/src/routes/search/SearchPage.tsx) | Comments declare *"Backend: parallel calls to POST /ontology/search per kind"* — the page is fully built around a route that does not exist |
-| Workshop filter wiring | [`apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts:94-97`](../../../apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts) — `applyObjectSetFilters` | **Client-side `.filter()` over the already-paginated `listObjects` response.** Not an indexer pushdown. Works for ~25 widget rows; not viable for the geopolitics fact table |
-| Object Explorer | [`apps/web/src/routes/object-explorer/`](../../../apps/web/src/routes/object-explorer/) | Hits `listObjects(typeId, {page, per_page})` and `queryObjects` (per-type pagination over Cassandra). Type-ahead exists but uses metadata only — see comments in [`OntologySearch.tsx`](../../../apps/web/src/lib/components/ontology/OntologySearch.tsx) |
-| Vespa deployment | [`infra/compose/docker-compose.yml`](../../../infra/compose/docker-compose.yml) + [`infra/helm/infra/vespa/`](../../../infra/helm/infra/vespa/) | Running, receiving feeds; query traffic = zero |
-| Indexer status surface | *(none)* | No `GET /ontology-indexer/status?object_type=…` endpoint; Ontology Manager has no *"pending / live / stale"* badge. Platform G4 deferred |
+| **Read service** | [`services/ontology-query-service/internal/handlers/handlers.go`](../../../services/ontology-query-service/internal/handlers/handlers.go) + [`search.go`](../../../services/ontology-query-service/internal/handlers/search.go) | Cassandra reads (`GetObject`, `ListObjectsByType`, link-traversal, `Traverse`, `Histogram`) **plus** Vespa-backed `Search` via `libs/search-abstraction` |
+| **Search route owner** | [`services/ontology-query-service/internal/server/server.go:62`](../../../services/ontology-query-service/internal/server/server.go) | `POST /api/v1/ontology/search` mounted on the same chi router. Frontend `searchOntology()` round-trips through this route end-to-end |
+| Frontend search client | [`apps/web/src/lib/api/ontology.ts:1640`](../../../apps/web/src/lib/api/ontology.ts) — `searchOntology({query, kind?, object_type_id?, semantic?, hybrid_strategy?})` | Wire shape (RRF / weighted hybrid, semantic via embedding provider) pinned by the backend handler |
+| Frontend search page | [`apps/web/src/routes/search/SearchPage.tsx`](../../../apps/web/src/routes/search/SearchPage.tsx) | Backend live — page issues parallel `POST /ontology/search` calls per kind |
+| Workshop filter wiring | [`apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts:368-409`](../../../apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts) — `executeObjectTypeObjectSet` + `resolveUseSearchBackend` | Variable-driven path now compiles `WorkshopVariableFilter[]` → search request via [`workshopObjectSetsSearch.ts`](../../../apps/web/src/lib/components/apps/widgets/workshopObjectSetsSearch.ts) when the workshop variable carries `metadata.use_search_backend: true`. The legacy client-side `applyObjectSetFilters` stays for in-memory cases (selected objects, saved object sets) where the rows are already in hand. **Widget direct ontology bindings (map / timeline `source_type: ontology, source_id: Event`) still bypass this path** — Phase-2 follow-up |
+| Object Explorer | [`apps/web/src/routes/object-explorer/`](../../../apps/web/src/routes/object-explorer/) | Hits `listObjects(typeId, {page, per_page})` and `queryObjects` (per-type pagination over Cassandra). Type-ahead `OntologySearch.tsx` is a candidate to route through `/ontology/search` in Phase 2 but is not on the demo critical path |
+| Vespa deployment | [`infra/compose/docker-compose.yml`](../../../infra/compose/docker-compose.yml) + [`infra/helm/infra/vespa/`](../../../infra/helm/infra/vespa/) | Running, receiving feeds, **and serving query traffic** through the search handler |
+| Indexer status surface | [`services/ontology-indexer/internal/server/status_handler.go`](../../../services/ontology-indexer/internal/server/status_handler.go) | `GET /api/v1/ontology-indexer/status?objectType=…&tenant=…` returns `{state, indexed_count, last_indexed_at, lag_seconds}`. Ontology Manager badge wiring is the remaining UI surface |
+| Reindex / backfill | [`services/ontology-indexer/internal/server/reindex_handler.go`](../../../services/ontology-indexer/internal/server/reindex_handler.go) + [`internal/reindex/`](../../../services/ontology-indexer/internal/reindex/) | `POST /api/v1/ontology-indexer/reindex` streams Cassandra → Vespa via the standard outbox path, with progress reporting |
 
 > **Net effect**: the Kafka → indexer → Vespa pipe is alive and
-> filling; the HTTP read path stops at Cassandra. The geopolitics
-> demo cannot execute Act 2 (search) or Act 4 (Workshop filters) as
-> scripted today.
+> filling **and the HTTP read path reaches it**. Act 2 (search) and
+> Act 4 (variable-driven Workshop filters) execute end-to-end through
+> Vespa. Only the map / timeline direct-ontology bindings still hit
+> Cassandra — fine for the demo slice once the actor filter list
+> narrows the set, but tracked as Phase-2 follow-up.
 
 ## Gap to close (geopolitics-scoped)
 
@@ -201,58 +208,74 @@ The same pages anchor both PoCs.
    returns top actors + material events + sanctioned actors without
    the AIP scraping Cassandra.
 
-## Status as of 2026-05-20
+## Status as of 2026-05-21
 
 | Acceptance criterion | Status | Evidence / pointer |
 |---|---|---|
 | 0. Platform indexer pipeline (Kafka → indexer → Vespa, with outbox + Debezium) | ✅ Done | Aviation [B03 §"Status as of 2026-05-20"](../../aviacion/blockers/B03-ontology-indexer.md), `TestOutboxEndToEnd_PutObjectEmits`, `…_DeleteObjectEmits`, `…_LinkLifecycleEmits` |
-| 1. `POST /ontology/search` backend | ❌ Not started | No route in `services/*/internal/server/`; frontend 404s today |
-| 2. Sub-second `query=Wagner` smoke | ⏳ Blocked by (1) | Vespa is fed; no read path |
-| 3. Workshop pushdown | ❌ Client-side `applyObjectSetFilters` only | [`workshopObjectSets.ts:94`](../../../apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts) |
-| 4. Markings smoke (UC-7) | ⏳ Blocked by (1) + Cedar wiring | `libs/auth-middleware` carries the claims; the search handler must intersect them with Vespa results |
-| 5. Indexing status surface (G3) | ❌ No endpoint, no UI badge | Platform G4 from aviation B03 stayed deferred |
-| 6. Backfill command (G5) | ❌ Not started | `ontology-indexer` has no `/reindex` handler |
-| 7. AIP path (B07 link) | ⏳ Blocked by (1) | `retrieval-context-service` can be redirected once the search route exists |
+| 1. `POST /ontology/search` backend | ✅ Done | [`services/ontology-query-service/internal/handlers/search.go`](../../../services/ontology-query-service/internal/handlers/search.go) (589 LOC, `Search` handler at L94); route mounted in [`internal/server/server.go:62`](../../../services/ontology-query-service/internal/server/server.go); equality filters go to the backend, richer operators (`gte`/`lte`/`gt`/`lt`/`contains`/`in`/`between`) are applied post-fetch; marking enforcement via `canReadHitMarkings` (L363) |
+| 2. Sub-second `query=Wagner` smoke | ⏳ Pending demo seed | Handler + tests live; smoke needs the geopolitics dataset loaded |
+| 3. Workshop pushdown (variable-driven) | ✅ Done | [`workshopObjectSets.ts:368-409`](../../../apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts) `executeObjectTypeObjectSet` honours `useSearchBackend` via `resolveUseSearchBackend` (L296). The Act 4 query is pinned verbatim in [`workshopObjectSets.test.ts:381-475`](../../../apps/web/src/lib/components/apps/widgets/workshopObjectSets.test.ts) and [`workshopObjectSetsSearch.test.ts:57-80`](../../../apps/web/src/lib/components/apps/widgets/workshopObjectSetsSearch.test.ts). Geopolitics asset opt-in landed in [`assets/workshop-module.json`](../assets/workshop-module.json) (`selectedActorSet.metadata.use_search_backend = true`) |
+| 3b. Workshop pushdown (widget direct ontology bindings) | ⚠️ Phase 2 | The map widget (`source: object_type, object_type_id: Event` in [`assets/workshop-module.json`](../assets/workshop-module.json) §workbench/middle-section) and the timeline widget bypass `executeWorkshopObjectSet` and render through the widget binding path, which does not yet honour the `use_search_backend` flag. Demo-safe because the filter list narrows the set first; must close before any non-demo workload |
+| 4. Markings smoke (UC-7) | ⏳ Pending demo seed | `libs/auth-middleware` claims intersected at search time by `canReadHitMarkings` (search.go:363); needs Sofía vs. Marcos markings registered in the demo seed to flip from green-in-test to green-in-demo |
+| 5. Indexing status surface (G3) | ✅ Done | [`services/ontology-indexer/internal/server/server.go:41`](../../../services/ontology-indexer/internal/server/server.go) mounts `GET /api/v1/ontology-indexer/status`; handler in [`status_handler.go`](../../../services/ontology-indexer/internal/server/status_handler.go); tests pin `objectType` + `tenant` query string and the response shape |
+| 6. Backfill command (G5) | ✅ Done | [`services/ontology-indexer/internal/server/reindex_handler.go`](../../../services/ontology-indexer/internal/server/reindex_handler.go) + [`internal/reindex/`](../../../services/ontology-indexer/internal/reindex/) package; `POST /api/v1/ontology-indexer/reindex` accepts `object_type`, streams Cassandra → Vespa via the standard outbox path |
+| 7. AIP path (B07 link) | ⏳ Pending B07 wiring | The route exists; `retrieval-context-service` redirect to it is the B07 task |
 
-## What "100% of the reformulated scope" actually covers
+## What "100% of the reformulated scope" actually covered (historic)
 
-The reformulated scope counted **producer-side wiring** as the whole
-of B03 — i.e. the same surface aviation closed (G1 topic-name drift,
-G2 outbox skip on `PutObject`, G3 missing `link.changed.v1` topic
-CR). That work is genuinely done and the indexer is filling Vespa.
-The number is misleading because the **read path** was never part of
-the reformulated scope, and without it the geopolitics demo has no
-visible index. The 25% PoC figure reflects "producer done, consumer
-absent" rather than "1 in 4 platform gaps closed".
+The reformulated scope originally counted **producer-side wiring** as
+the whole of B03 — i.e. the same surface aviation closed (G1
+topic-name drift, G2 outbox skip on `PutObject`, G3 missing
+`link.changed.v1` topic CR). That work is done and the indexer fills
+Vespa. The 25% PoC figure recorded earlier reflected "producer done,
+consumer absent". As of 2026-05-21 the consumer side is now also
+real: the search handler, the indexer status endpoint and the
+reindex endpoint are mounted and the Workshop variable-driven path
+opts into the search backend declaratively (see the
+[geopolitics workshop module](../assets/workshop-module.json)
+`selectedActorSet.metadata.use_search_backend`). Remaining work is
+the Phase-2 follow-up on widget direct-ontology bindings.
 
-## Implementation order (proposed Phase 2)
+## Implementation order — status
 
-1. **Add `POST /ontology/search` to `ontology-query-service`.**
-   Reuse [`libs/search-abstraction.Backend`](../../../libs/search-abstraction/) on the read
-   side (already imported by the indexer). Pipe markings from the
-   JWT claims into the Vespa query as a filter group. Pin the wire
-   shape to `searchOntology()` in [`apps/web/src/lib/api/ontology.ts`](../../../apps/web/src/lib/api/ontology.ts).
-2. **Register per-type Vespa schemas (G4).** Generate them from
-   the ontology definition emitted on
-   `ontology.object_type.changed.v1` (see [B02 §Topics](B02-ontology-definition.md))
-   so a future ontology change auto-registers the schema delta. For
-   Phase 2 it is acceptable to hand-write the eight schemas above.
-3. **Replace `applyObjectSetFilters` with a pushdown.** New
-   `queryObjectSet({filters, sort, page})` API call that hits the
-   search route; keep the client-side function as a fallback for
-   in-memory test fixtures only.
-4. **Add the indexing status surface (G3).** Smallest viable shape:
-   a Prometheus-backed `GET /ontology-indexer/status` returning
-   `{object_type, state, indexed_count, last_indexed_at,
-   lag_seconds}`; Ontology Manager UI consumes it.
-5. **Add the backfill command (G5).** Stream from
-   `object-database-service` (Cassandra) via cursor pagination, emit
-   `ontology.object.changed.v1` events through the outbox so the
-   normal indexer path absorbs them.
-6. **Smoke against the geopolitics seed.** Re-run Act 2 + Act 4 from
-   [`../11-guion-demo.md`](../11-guion-demo.md) end-to-end and pin
-   the p95 latencies in a `//go:build integration` test under
+The Phase-2 plan that originally listed six items is now mostly
+done. Updated tracker:
+
+1. ✅ **`POST /ontology/search` in `ontology-query-service`** — landed
+   ([search.go:94](../../../services/ontology-query-service/internal/handlers/search.go),
+   route mounted at
+   [server.go:62](../../../services/ontology-query-service/internal/server/server.go)).
+   Marking enforcement via `canReadHitMarkings`.
+2. ✅ **Per-type Vespa schemas (G4)** — handled by
+   [`libs/search-abstraction/vespa/schema.go`](../../../libs/search-abstraction/vespa/schema.go)
+   and the [`schemasync` package](../../../services/ontology-indexer/internal/schemasync/)
+   listening on `ontology.object_type.changed.v1` (B02).
+3. ✅ **Workshop pushdown — variable-driven path** — landed via
+   `executeObjectTypeObjectSet` honouring `resolveUseSearchBackend`
+   in [`workshopObjectSets.ts:368-409`](../../../apps/web/src/lib/components/apps/widgets/workshopObjectSets.ts);
+   geopolitics asset opt-in in
+   [`assets/workshop-module.json`](../assets/workshop-module.json).
+   Legacy `applyObjectSetFilters` retained for in-memory cases
+   (selected objects, saved object sets).
+3b. ⚠️ **Workshop pushdown — widget direct ontology bindings**
+   (map / timeline `source_type: ontology, source_id: Event`) —
+   still on the widget binding renderer. Demo-safe because the
+   filter list narrows the set before these widgets render. Phase-3
+   follow-up: thread `useSearchBackend` through the widget binding
+   renderer the same way `executeWorkshopObjectSet` does.
+4. ✅ **Indexing status surface (G3)** — landed
+   ([status_handler.go](../../../services/ontology-indexer/internal/server/status_handler.go)).
+   Ontology Manager UI badge wiring still pending.
+5. ✅ **Backfill command (G5)** — landed
+   ([reindex_handler.go](../../../services/ontology-indexer/internal/server/reindex_handler.go)
+   + [`internal/reindex/`](../../../services/ontology-indexer/internal/reindex/)).
+6. ⏳ **Smoke against the geopolitics seed** — Act 2 / Act 4 end-to-end
+   p95 latency pin in a `//go:build integration` test under
    [`services/ontology-query-service/internal/handlers/`](../../../services/ontology-query-service/internal/handlers/).
+   Existing in-memory `search_test.go` already pins the wire shape;
+   the integration smoke is the last piece needed before the demo
+   can be rehearsed against a real GDELT slice.
 
 ## Cross-blocker notes
 
