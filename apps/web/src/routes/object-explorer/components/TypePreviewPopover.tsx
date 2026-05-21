@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 
 import {
   objectExplorerLinkedTargetForType,
@@ -6,15 +6,23 @@ import {
   type ObjectType,
 } from '@/lib/api/ontology';
 
-import { EmptyState, PanelHeader } from './atoms';
+import { iconBackground } from '../iconPalette';
 import { useTypeProperties } from '../queries';
+import {
+  classifyPropertyKind,
+  propertyKindGlyph,
+  propertyKindLabel,
+} from '../propertyKind';
+import './TypePreviewPopover.css';
 
-interface TypePreviewPopoverProps {
+export interface TypePreviewPopoverProps {
   typeId: string;
   typeById: Map<string, ObjectType>;
   linkTypes: LinkType[];
   onClose: () => void;
   onStartExploration: (typeId: string) => void;
+  /** Optional handler for the "View →" link in the Properties header. */
+  onViewProperties?: (typeId: string) => void;
 }
 
 export function TypePreviewPopover({
@@ -23,154 +31,222 @@ export function TypePreviewPopover({
   linkTypes,
   onClose,
   onStartExploration,
+  onViewProperties,
 }: TypePreviewPopoverProps) {
   const objectType = typeById.get(typeId);
   const propertiesQuery = useTypeProperties(typeId);
   const properties = propertiesQuery.data ?? objectType?.properties ?? [];
 
   const linkedTargets = useMemo(() => {
-    if (!objectType) return [] as Array<{ linkType: LinkType; targetType: ObjectType | null }>;
+    if (!objectType) return [];
     return linkTypes
       .map((linkType) => {
         const target = objectExplorerLinkedTargetForType(linkType, typeId);
         if (!target) return null;
-        return { linkType, targetType: typeById.get(target.target_object_type_id) ?? null };
+        return {
+          linkType,
+          targetType: typeById.get(target.target_object_type_id) ?? null,
+          targetTypeId: target.target_object_type_id,
+        };
       })
-      .filter((entry): entry is { linkType: LinkType; targetType: ObjectType | null } => Boolean(entry));
+      .filter((entry): entry is { linkType: LinkType; targetType: ObjectType | null; targetTypeId: string } =>
+        Boolean(entry),
+      );
   }, [linkTypes, objectType, typeById, typeId]);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   if (!objectType) return null;
 
+  const name = objectType.display_name || objectType.name;
   const titleProperty = objectType.title_property;
   const primaryKey = objectType.primary_key_property || objectType.primary_key;
+  const visibility = (objectType.visibility ?? 'normal').toLowerCase();
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`Preview ${objectType.display_name || objectType.name}`}
+      aria-label={`Preview ${name}`}
       onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(15, 22, 36, 0.45)',
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        padding: '60px 16px 16px',
-        zIndex: 50,
-      }}
+      className="oe oe-preview__backdrop"
     >
-      <article
-        onClick={(event) => event.stopPropagation()}
-        className="of-panel"
-        style={{
-          width: 'min(100%, 480px)',
-          maxHeight: 'calc(100vh - 80px)',
-          overflow: 'auto',
-          padding: 16,
-          display: 'grid',
-          gap: 12,
-        }}
-      >
-        <header style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-          <div style={{ minWidth: 0 }}>
-            <p className="of-eyebrow">Object Type</p>
-            <h2 className="of-heading-md" style={{ marginTop: 4 }}>
-              {objectType.display_name || objectType.name}
-            </h2>
-            <p className="of-text-muted" style={{ margin: '4px 0 0', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-              {objectType.name}
-            </p>
+      <article className="oe-preview" onClick={(event) => event.stopPropagation()}>
+        <header className="oe-preview__header">
+          <span
+            className="oe-type-icon oe-type-icon--lg"
+            style={{ background: iconBackground(objectType.id, objectType.color) }}
+            aria-hidden="true"
+          >
+            {initialFor(name)}
+          </span>
+          <div className="oe-preview__heading">
+            <h2 className="oe-preview__name">{name}</h2>
+            <span className="oe-preview__sublabel">Object Type</span>
           </div>
-          <button type="button" className="of-button of-button--ghost" onClick={onClose} aria-label="Close preview">
-            ✕
+          <button
+            type="button"
+            className="oe-preview__close"
+            onClick={onClose}
+            aria-label="Close preview"
+          >
+            <CloseGlyph />
           </button>
         </header>
 
-        {objectType.description && (
-          <section>
-            <PanelHeader label="Description" />
-            <p style={{ margin: '4px 0 0', fontSize: 13, lineHeight: 1.4 }}>{objectType.description}</p>
+        <div className="oe-preview__body">
+          <section className="oe-preview__section">
+            <div className="oe-preview__section-header">
+              <span className="oe-preview__section-label">Description</span>
+            </div>
+            <p className="oe-preview__text">
+              {objectType.description?.trim() || (
+                <span className="oe-preview__empty">No description.</span>
+              )}
+            </p>
           </section>
-        )}
 
-        <section>
-          <PanelHeader label="Properties" value={`${properties.length}`} />
-          {propertiesQuery.isLoading && properties.length === 0 ? (
-            <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>Loading properties…</p>
-          ) : properties.length === 0 ? (
-            <EmptyState label="No properties available." compact />
-          ) : (
-            <ul style={{ margin: '6px 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: 4 }}>
-              {properties.slice(0, 12).map((property) => {
-                const tags: string[] = [];
-                if (property.name === titleProperty) tags.push('Title');
-                if (property.name === primaryKey) tags.push('Primary key');
-                return (
-                  <li
-                    key={property.id || property.name}
-                    style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, padding: '2px 0' }}
-                  >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {property.display_name || property.name}
-                    </span>
-                    <span style={{ display: 'flex', gap: 4 }}>
-                      {tags.map((tag) => (
-                        <span key={tag} className="of-chip">{tag}</span>
-                      ))}
-                    </span>
-                  </li>
-                );
-              })}
-              {properties.length > 12 && (
-                <li className="of-text-muted" style={{ fontSize: 11 }}>
-                  +{properties.length - 12} more
-                </li>
-              )}
-            </ul>
-          )}
-        </section>
+          <section className="oe-preview__section">
+            <div className="oe-preview__section-header">
+              <span className="oe-preview__section-label">Visibility</span>
+              <span className="oe-preview__visibility" data-state={visibility}>
+                {capitalize(visibility)}
+              </span>
+            </div>
+          </section>
 
-        <section>
-          <PanelHeader label="Linked object types" value={`${linkedTargets.length}`} />
-          {linkedTargets.length === 0 ? (
-            <EmptyState label="No linked object types." compact />
-          ) : (
-            <ul style={{ margin: '6px 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: 4 }}>
-              {linkedTargets.slice(0, 10).map(({ linkType, targetType }) => (
-                <li
-                  key={linkType.id}
-                  style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, padding: '2px 0' }}
+          <section className="oe-preview__section">
+            <div className="oe-preview__section-header">
+              <span className="oe-preview__section-label">
+                Properties <span className="oe-preview__section-count">({properties.length})</span>
+              </span>
+              {onViewProperties && properties.length > 0 && (
+                <button
+                  type="button"
+                  className="oe-preview__section-link"
+                  onClick={() => onViewProperties(typeId)}
                 >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {targetType?.display_name || targetType?.name || linkType.target_type_id || 'Unknown'}
-                  </span>
-                  <span className="of-text-muted" style={{ fontSize: 11 }}>
-                    {linkType.display_name || linkType.name}
-                  </span>
-                </li>
-              ))}
-              {linkedTargets.length > 10 && (
-                <li className="of-text-muted" style={{ fontSize: 11 }}>
-                  +{linkedTargets.length - 10} more
-                </li>
+                  View →
+                </button>
               )}
-            </ul>
-          )}
-        </section>
+            </div>
+            {propertiesQuery.isLoading && properties.length === 0 ? (
+              <p className="oe-preview__empty">Loading properties…</p>
+            ) : properties.length === 0 ? (
+              <p className="oe-preview__empty">No properties available.</p>
+            ) : (
+              <div className="oe-preview__scroll">
+                <ul className="oe-preview__list">
+                  {properties.map((property) => {
+                    const kind = classifyPropertyKind(property.property_type);
+                    const isTitle = property.name === titleProperty;
+                    const isPrimary = property.name === primaryKey;
+                    return (
+                      <li key={property.id || property.name} className="oe-preview__row">
+                        <span
+                          className="oe-preview__property-icon"
+                          title={propertyKindLabel(kind)}
+                          aria-label={propertyKindLabel(kind)}
+                        >
+                          {propertyKindGlyph(kind)}
+                        </span>
+                        <span className="oe-preview__row-label">
+                          {property.display_name || property.name}
+                        </span>
+                        <span className="oe-preview__row-tags">
+                          {isTitle && (
+                            <span className="oe-preview__tag" data-kind="title">
+                              Title
+                            </span>
+                          )}
+                          {isPrimary && (
+                            <span className="oe-preview__tag" data-kind="primary">
+                              Primary key
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+          </section>
 
-        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button type="button" className="of-button" onClick={onClose}>Close</button>
+          <section className="oe-preview__section">
+            <div className="oe-preview__section-header">
+              <span className="oe-preview__section-label">
+                Linked object types <span className="oe-preview__section-count">({linkedTargets.length})</span>
+              </span>
+            </div>
+            {linkedTargets.length === 0 ? (
+              <p className="oe-preview__empty">No linked object types.</p>
+            ) : (
+              <ul className="oe-preview__list">
+                {linkedTargets.map(({ linkType, targetType, targetTypeId }) => {
+                  const targetName = targetType?.display_name || targetType?.name || targetTypeId;
+                  const seed = targetType?.id ?? targetTypeId;
+                  const missing = !targetType;
+                  return (
+                    <li key={linkType.id} className="oe-preview__row">
+                      <span
+                        className="oe-type-icon oe-type-icon--sm"
+                        style={{ background: iconBackground(seed, targetType?.color ?? null) }}
+                        aria-hidden="true"
+                      >
+                        {initialFor(targetName)}
+                      </span>
+                      <span className="oe-preview__row-label">{targetName}</span>
+                      {missing && (
+                        <span
+                          className="oe-preview__warning"
+                          title="Linked object type is unresolved"
+                          aria-label="Linked object type is unresolved"
+                        >
+                          ⚠
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        <footer className="oe-preview__footer">
           <button
             type="button"
-            className="of-button of-button--primary"
+            className="oe-preview__primary-btn"
             onClick={() => onStartExploration(objectType.id)}
           >
-            Start exploration →
+            Start exploring →
           </button>
         </footer>
       </article>
     </div>
+  );
+}
+
+function initialFor(name: string) {
+  const cleaned = name.replace(/^\[[^\]]+\]\s*/, '').trim();
+  return (cleaned.charAt(0) || '?').toUpperCase();
+}
+
+function capitalize(value: string) {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+}
+
+function CloseGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="m2 2 8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
   );
 }

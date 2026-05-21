@@ -1,0 +1,217 @@
+/* AppTabsBar — top chrome with workspace tabs on the left and the
+ * Explorations / Lists dropdowns on the right. Styled to sit flush
+ * against the page bg so the active tab visually melts into the
+ * content area underneath. */
+
+.oe-appbar {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+  height: 32px;
+  padding: 0 12px;
+  background: #ebf1f5;
+  border-bottom: 1px solid var(--oe-border-default);
+}
+
+.oe-appbar__tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.oe-appbar__tabs::-webkit-scrollbar { height: 0; }
+
+.oe-appbar__tab {
+  appearance: none;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 0 10px 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--oe-text-muted);
+  font: inherit;
+  font-size: var(--oe-fs-body);
+  white-space: nowrap;
+  cursor: pointer;
+  border-right: 1px solid transparent;
+  border-left: 1px solid transparent;
+}
+
+.oe-appbar__tab:hover {
+  color: var(--oe-text-strong);
+  background: rgba(16, 22, 26, 0.04);
+}
+
+.oe-appbar__tab[aria-selected='true'] {
+  background: var(--oe-bg-page);
+  color: var(--oe-text-strong);
+  border-left-color: var(--oe-border-default);
+  border-right-color: var(--oe-border-default);
+}
+
+/* Bleed over the divider so the active tab feels attached to the page. */
+.oe-appbar__tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 -1px 0;
+  height: 1px;
+  background: var(--oe-bg-page);
+}
+
+.oe-appbar__tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oe-appbar__tab-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+}
+
+.oe-appbar__tab-close {
+  appearance: none;
+  margin-left: 2px;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  border-radius: var(--oe-radius-sm);
+  color: var(--oe-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 80ms ease, background 80ms ease;
+}
+
+.oe-appbar__tab:hover .oe-appbar__tab-close,
+.oe-appbar__tab[aria-selected='true'] .oe-appbar__tab-close {
+  opacity: 1;
+}
+
+.oe-appbar__tab-close:hover {
+  background: rgba(16, 22, 26, 0.10);
+  color: var(--oe-text-strong);
+}
+
+.oe-appbar__new {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--oe-text-muted);
+  font: inherit;
+  font-size: var(--oe-fs-body);
+  cursor: pointer;
+}
+
+.oe-appbar__new:hover {
+  color: var(--oe-text-strong);
+  background: rgba(16, 22, 26, 0.04);
+}
+
+.oe-appbar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.oe-appbar__menu {
+  position: relative;
+  display: inline-block;
+}
+
+.oe-appbar__menu-trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  height: 24px;
+  border: 1px solid var(--oe-border-default);
+  border-radius: var(--oe-radius-md);
+  background: var(--oe-bg-panel);
+  color: var(--oe-text-default);
+  font: inherit;
+  font-size: var(--oe-fs-body);
+  cursor: pointer;
+}
+
+.oe-appbar__menu-trigger:hover { border-color: var(--oe-border-strong); }
+
+.oe-appbar__menu-trigger-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--oe-text-muted);
+}
+
+.oe-appbar__menu-trigger-caret {
+  width: 12px;
+  height: 12px;
+  color: var(--oe-text-muted);
+}
+
+.oe-appbar__menu-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  z-index: 30;
+}
+
+.oe-appbar__menu-empty {
+  padding: 12px;
+  color: var(--oe-text-muted);
+  font-size: var(--oe-fs-small);
+  text-align: center;
+}
+
+.oe-appbar__menu-item {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--oe-radius-md);
+  background: transparent;
+  color: var(--oe-text-default);
+  font: inherit;
+  font-size: var(--oe-fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.oe-appbar__menu-item:hover { background: var(--oe-bg-panel-hover); }
+
+.oe-appbar__menu-item-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oe-appbar__menu-item-meta {
+  flex: 0 0 auto;
+  color: var(--oe-text-muted);
+  font-size: var(--oe-fs-small);
+}

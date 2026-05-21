@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
+import './styles.css';
+
 import {
   buildObjectCommentThread,
   buildCoreObjectViews,
@@ -38,7 +40,6 @@ import {
   objectExplorerShareSlug,
   objectCommentThreadKey,
   objectViewConfiguredHref,
-  objectViewFullHref,
   objectViewTitle,
   queryObjects,
   redactObjectViewResponseForObjectViewPermissions,
@@ -64,12 +65,12 @@ import {
 } from '@/lib/api/ontology';
 import { useAuth } from '@/lib/stores/auth';
 
-import { Tabs } from '@/lib/components/Tabs';
-
+import { AppTabsBar, type AppTabsBarSavedItem } from './components/AppTabsBar';
+import { ExplorerTabs, type ExplorerTabDefinition } from './components/ExplorerTabs';
 import { PanelHeader } from './components/atoms';
 import { BrowseGroupsGrid } from './components/BrowseGroupsGrid';
 import { ExplorationsHighlight } from './components/ExplorationsHighlight';
-import { HeaderToolbar } from './components/HeaderToolbar';
+import { ExplorerHero } from './components/ExplorerHero';
 import { PropertyFiltersPanel } from './components/PropertyFiltersPanel';
 import { LinkedFilterPanel } from './components/LinkedFilterPanel';
 import { PivotBreadcrumb } from './components/PivotBreadcrumb';
@@ -79,9 +80,12 @@ import { RecentObjectsList } from './components/RecentObjectsList';
 import { AffordancesPanel } from './components/AffordancesPanel';
 import { ObjectPreviewPanel } from './components/ObjectPreviewPanel';
 import { SavedExplorationsPanel } from './components/SavedExplorationsPanel';
-import { SideNavGroups, type SideNavSelection } from './components/SideNavGroups';
+import { SearchAroundPopover } from './components/SearchAroundPopover';
+import { SearchResultsView } from './components/SearchResultsView';
+import { SideNavBrowse, type SideNavSelection } from './components/SideNavBrowse';
+import { SideNavSearch, type SearchSideNavSelection } from './components/SideNavSearch';
 import { TypePreviewPopover } from './components/TypePreviewPopover';
-import { objectExplorerKeys, useObjectExplorerInitialData, useTypeProperties } from './queries';
+import { objectExplorerKeys, useObjectExplorerInitialData, useObjectTypeCounts, useTypeProperties } from './queries';
 import {
   DEFAULT_LINKED_FILTER,
   DEFAULT_PROPERTY_FILTER,
@@ -114,15 +118,32 @@ import {
   rollbackTo,
   type PivotHistory,
 } from './pivotState';
+import { makeExplorationTab, makeListTab, makeSearchTab, makeTypeTab, useExplorerTabs } from './tabs';
+import { useExplorerUrlSelection } from './useUrlSelection';
 
 type ObjectExplorerTab = 'overview' | 'objects' | 'types' | 'artifacts';
 
-const TAB_DEFINITIONS: ReadonlyArray<{ id: ObjectExplorerTab; label: string }> = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'objects', label: 'Objects' },
-  { id: 'types', label: 'Object types' },
-  { id: 'artifacts', label: 'Artifacts' },
-];
+function buildTabDefinitions(searchActive: boolean, counts: {
+  all: number;
+  objects: number;
+  types: number;
+  artifacts: number;
+}): ReadonlyArray<ExplorerTabDefinition<ObjectExplorerTab>> {
+  if (!searchActive) {
+    return [
+      { id: 'overview', label: 'Overview' },
+      { id: 'objects', label: 'Objects' },
+      { id: 'types', label: 'Object types' },
+      { id: 'artifacts', label: 'Artifacts' },
+    ];
+  }
+  return [
+    { id: 'overview', label: 'All', count: counts.all },
+    { id: 'objects', label: 'Objects', count: counts.objects },
+    { id: 'types', label: 'Object types', count: counts.types },
+    { id: 'artifacts', label: 'Artifacts', count: counts.artifacts },
+  ];
+}
 
 
 export function ObjectExplorerPage() {
@@ -144,7 +165,7 @@ export function ObjectExplorerPage() {
   const [searchKindFilter, setSearchKindFilter] = useState('object_instance');
   const [searchTypeFilter, setSearchTypeFilter] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
+  const [, setSearchLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [filterTypeId, setFilterTypeId] = useState('');
@@ -155,8 +176,6 @@ export function ObjectExplorerPage() {
   const [pivotDepth, setPivotDepth] = useState(1);
   const [pivotHistory, setPivotHistory] = useState<PivotHistory>([]);
   const [explorationContext, setExplorationContext] = useState<ExplorationContext | null>(null);
-  const [directOpenTypeId, setDirectOpenTypeId] = useState('');
-  const [directOpenObjectId, setDirectOpenObjectId] = useState('');
 
   const [recents, setRecents] = useState<RecentItem[]>([]);
   const [selectedObject, setSelectedObject] = useState<ObjectViewResponse | null>(null);
@@ -192,15 +211,72 @@ export function ObjectExplorerPage() {
   const [objectSetError, setObjectSetError] = useState('');
 
   const [activeTab, setActiveTab] = useState<ObjectExplorerTab>('overview');
+  const explorerTabs = useExplorerTabs();
+  const urlSelection = useExplorerUrlSelection();
   const [sideNavSelection, setSideNavSelection] = useState<SideNavSelection>({ kind: 'all' });
+  const [searchSideNavSelection, setSearchSideNavSelection] = useState<SearchSideNavSelection>({ kind: 'all' });
   const [groupsPage, setGroupsPage] = useState(0);
   const [favoriteTypeIds, setFavoriteTypeIds] = useState<Set<string>>(() => new Set(readFavoriteTypeIds()));
   const [previewTypeId, setPreviewTypeId] = useState<string | null>(null);
+  const [searchAroundState, setSearchAroundState] = useState<{ result: SearchResult; anchor: HTMLElement } | null>(null);
   const [scopeTypeIds, setScopeTypeIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     setRecents(readRecents());
   }, []);
+
+  // Reflect the active workspace tab into the page state. Switching to
+  // the Overview tab clears any in-flight search; switching to a search
+  // tab rehydrates its query so the underlying results panel reruns.
+  useEffect(() => {
+    const tab = explorerTabs.activeTab;
+    if (tab.kind === 'overview') {
+      setSearchQuery('');
+      setSearchResults([]);
+      setHasSearched(false);
+      setActiveTab('overview');
+    } else if (tab.kind === 'search' && tab.query) {
+      setSearchQuery(tab.query);
+      setActiveTab('objects');
+    } else if (tab.kind === 'type' && tab.resourceId) {
+      setActiveTab('objects');
+      void browseType(tab.resourceId);
+    } else if (tab.kind === 'exploration' && tab.resourceId) {
+      setPendingShareId(tab.resourceId);
+      setActiveTab('artifacts');
+    } else if (tab.kind === 'list' && tab.resourceId) {
+      setPendingShareId(tab.resourceId);
+      setActiveTab('artifacts');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [explorerTabs.activeTabId]);
+
+  // Apply the URL's ?tab=… on mount and any time the URL changes
+  // externally (browser back/forward, link share). Page-driven tab
+  // changes flow back to the URL via the writeTab effect below.
+  useEffect(() => {
+    const fromUrl = urlSelection.readTab();
+    if (fromUrl && fromUrl !== activeTab) setActiveTab(fromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSelection.readTab]);
+
+  useEffect(() => {
+    urlSelection.writeTab(activeTab);
+  }, [activeTab, urlSelection]);
+
+  // Same dance for ?group=<id>: read on mount/back-forward, write
+  // whenever the user picks a different group in the sidebar.
+  useEffect(() => {
+    const fromUrl = urlSelection.readGroup();
+    if (!fromUrl) return;
+    if (sideNavSelection.kind === 'group' && sideNavSelection.groupId === fromUrl) return;
+    setSideNavSelection({ kind: 'group', groupId: fromUrl });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSelection.readGroup]);
+
+  useEffect(() => {
+    urlSelection.writeGroup(sideNavSelection);
+  }, [sideNavSelection, urlSelection]);
 
   function toggleFavoriteType(typeId: string) {
     setFavoriteTypeIds((current) => {
@@ -266,6 +342,11 @@ export function ObjectExplorerPage() {
     () => visibleObjectTypes.filter((type) => instanceAccessByTypeId.get(type.id)?.can_view_instances ?? true),
     [instanceAccessByTypeId, visibleObjectTypes],
   );
+  const countableTypeIds = useMemo(
+    () => objectTypesWithVisibleRows.map((type) => type.id),
+    [objectTypesWithVisibleRows],
+  );
+  const countsByType = useObjectTypeCounts(countableTypeIds);
   const visibleObjectSets = useMemo(
     () => objectExplorerVisibleObjectSets(objectSets, objectTypes, principal),
     [objectSets, objectTypes, principal],
@@ -316,9 +397,8 @@ export function ObjectExplorerPage() {
     if (!fallback) return;
     if (!filterTypeId || !visibleObjectTypeIds.has(filterTypeId)) setFilterTypeId(fallback);
     if (!newSetType || !visibleObjectTypeIds.has(newSetType)) setNewSetType(fallback);
-    if (!directOpenTypeId || !visibleObjectTypeIds.has(directOpenTypeId)) setDirectOpenTypeId(fallback);
     if (searchTypeFilter && !visibleObjectTypeIds.has(searchTypeFilter)) setSearchTypeFilter('');
-  }, [directOpenTypeId, filterTypeId, newSetType, objectTypesWithVisibleRows, searchTypeFilter, visibleObjectTypeIds, visibleObjectTypes]);
+  }, [filterTypeId, newSetType, objectTypesWithVisibleRows, searchTypeFilter, visibleObjectTypeIds, visibleObjectTypes]);
 
   useEffect(() => {
     const fallbackLinkId = linkedFilterLinks[0]?.id ?? '';
@@ -799,22 +879,6 @@ export function ObjectExplorerPage() {
     }
   }
 
-  async function openDirectObject() {
-    const objectId = directOpenObjectId.trim();
-    if (!directOpenTypeId || !objectId) return;
-    await selectResult({
-      kind: 'object_instance',
-      id: objectId,
-      object_type_id: directOpenTypeId,
-      title: objectId,
-      subtitle: typeById.get(directOpenTypeId)?.display_name ?? directOpenTypeId,
-      snippet: '',
-      score: 1,
-      route: objectViewFullHref(directOpenTypeId, objectId),
-      metadata: {},
-    });
-  }
-
   async function runSearch() {
     const query = searchQuery.trim();
     if (!query) {
@@ -822,6 +886,7 @@ export function ObjectExplorerPage() {
       setHasSearched(false);
       return;
     }
+    explorerTabs.open(makeSearchTab(query));
     setSearchLoading(true);
     setSearchError('');
     setHasSearched(true);
@@ -1204,32 +1269,101 @@ export function ObjectExplorerPage() {
     void selectRecent(item);
   }
 
+  const savedExplorationMenuItems: AppTabsBarSavedItem[] = useMemo(
+    () =>
+      visibleObjectSets
+        .filter((set) => objectExplorerSavedArtifactKind(set) !== 'list')
+        .slice(0, 50)
+        .map((set) => ({
+          id: set.id,
+          label: set.name || set.id,
+          meta: typeById.get(set.base_object_type_id)?.display_name,
+        })),
+    [visibleObjectSets, typeById],
+  );
+
+  const savedListMenuItems: AppTabsBarSavedItem[] = useMemo(
+    () =>
+      visibleObjectSets
+        .filter((set) => objectExplorerSavedArtifactKind(set) === 'list')
+        .slice(0, 50)
+        .map((set) => ({
+          id: set.id,
+          label: set.name || set.id,
+          meta: typeById.get(set.base_object_type_id)?.display_name,
+        })),
+    [visibleObjectSets, typeById],
+  );
+
+  const tabDefinitions = useMemo(() => {
+    const searchActive = hasSearched && searchQuery.trim().length > 0;
+    let objects = 0;
+    let types = 0;
+    let artifacts = 0;
+    for (const result of searchResults) {
+      if (result.kind === 'object_instance') objects += 1;
+      else if (result.kind === 'object_type') types += 1;
+      else artifacts += 1;
+    }
+    return buildTabDefinitions(searchActive, {
+      all: searchResults.length,
+      objects,
+      types,
+      artifacts,
+    });
+  }, [hasSearched, searchQuery, searchResults]);
+
+  function handleTabActivate(tabId: string) {
+    explorerTabs.activate(tabId);
+  }
+
+  function handleTabClose(tabId: string) {
+    explorerTabs.close(tabId);
+  }
+
+  function handleOpenExplorationFromMenu(item: AppTabsBarSavedItem) {
+    const set = visibleObjectSets.find((candidate) => candidate.id === item.id);
+    if (!set) return;
+    explorerTabs.open(makeExplorationTab(set.id, item.label));
+    void openSavedExploration(set);
+  }
+
+  function handleOpenListFromMenu(item: AppTabsBarSavedItem) {
+    const set = visibleObjectSets.find((candidate) => candidate.id === item.id);
+    if (!set) return;
+    explorerTabs.open(makeListTab(set.id, item.label));
+    void openSavedExploration(set);
+  }
+
   return (
-    <section className="of-page" style={{ display: 'grid', gap: 12 }}>
-      <HeaderToolbar
+    <section className="oe of-page" style={{ display: 'grid', gap: 12 }}>
+      <AppTabsBar
+        tabs={explorerTabs.tabs}
+        activeTabId={explorerTabs.activeTabId}
+        savedExplorations={savedExplorationMenuItems}
+        savedLists={savedListMenuItems}
+        onActivate={handleTabActivate}
+        onClose={handleTabClose}
+        onNewExploration={explorerTabs.openNewOverview}
+        onOpenExploration={handleOpenExplorationFromMenu}
+        onOpenList={handleOpenListFromMenu}
+      />
+      <ExplorerHero
         visibleObjectTypes={visibleObjectTypes}
         visibleObjectSets={visibleObjectSets}
-        searchResultsCount={searchResults.length}
         visibleRecents={visibleRecents}
         groups={explorerGroups}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
-        searchMode={searchMode}
-        setSearchMode={setSearchMode}
-        searchKindFilter={searchKindFilter}
-        setSearchKindFilter={setSearchKindFilter}
         scopeTypeIds={scopeTypeIds}
         setScopeTypeIds={setScopeTypeIds}
-        searchLoading={searchLoading}
+        countsByType={countsByType}
         onRunSearch={() => void runSearch()}
         onSelectTypeFromTypeahead={handleTypeaheadType}
         onSelectSavedSetFromTypeahead={handleTypeaheadSavedSet}
         onSelectRecentFromTypeahead={handleTypeaheadRecent}
-        directOpenTypeId={directOpenTypeId}
-        setDirectOpenTypeId={setDirectOpenTypeId}
-        directOpenObjectId={directOpenObjectId}
-        setDirectOpenObjectId={setDirectOpenObjectId}
-        onOpenDirectObject={() => void openDirectObject()}
+        onClickExplore={() => setActiveTab('types')}
+        onClickResults={() => setActiveTab('objects')}
       />
 
       {pageError && (
@@ -1244,44 +1378,89 @@ export function ObjectExplorerPage() {
         </section>
       ) : (
         <>
-          <Tabs tabs={TAB_DEFINITIONS} active={activeTab} onChange={setActiveTab} />
+          <ExplorerTabs tabs={tabDefinitions} active={activeTab} onChange={setActiveTab} />
 
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(200px, 240px) minmax(0, 1fr)', alignItems: 'start' }}>
-            <SideNavGroups
-              groups={explorerGroups}
-              selection={sideNavSelection}
-              onSelect={(next) => {
-                setSideNavSelection(next);
-                if (next.kind === 'explorations') setActiveTab('artifacts');
-                else if (activeTab === 'artifacts') setActiveTab('overview');
-              }}
-              favoritesCount={favoriteTypeIds.size}
-              explorationsCount={visibleObjectSets.length}
-              page={groupsPage}
-              onChangePage={setGroupsPage}
-            />
+            {hasSearched && searchQuery.trim().length > 0 ? (
+              <SideNavSearch
+                searchResults={searchResults}
+                groups={explorerGroups}
+                typeById={typeById}
+                selection={searchSideNavSelection}
+                onSelect={(next) => {
+                  setSearchSideNavSelection(next);
+                  if (next.kind === 'all') {
+                    setScopeTypeIds(new Set());
+                    setActiveTab('overview');
+                  } else if (next.kind === 'type') {
+                    setScopeTypeIds(new Set([next.typeId]));
+                    setActiveTab('objects');
+                  } else if (next.kind === 'group') {
+                    const group = explorerGroups.find((entry) => entry.id === next.groupId);
+                    setScopeTypeIds(new Set(group?.object_type_ids ?? []));
+                    setActiveTab('types');
+                  } else if (next.kind === 'artifacts') {
+                    setActiveTab('artifacts');
+                  }
+                }}
+                onViewAllObjectTypeFilters={() => setActiveTab('objects')}
+                onViewAllGroupFilters={() => setActiveTab('types')}
+              />
+            ) : (
+              <SideNavBrowse
+                groups={explorerGroups}
+                selection={sideNavSelection}
+                onSelect={(next) => {
+                  setSideNavSelection(next);
+                  if (next.kind === 'explorations') setActiveTab('artifacts');
+                  else if (activeTab === 'artifacts') setActiveTab('overview');
+                }}
+                favoritesCount={favoriteTypeIds.size}
+                explorationsCount={visibleObjectSets.length}
+                page={groupsPage}
+                onChangePage={setGroupsPage}
+              />
+            )}
 
             <div style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
-              {activeTab === 'overview' && (
+              {hasSearched && searchQuery.trim().length > 0 ? (
+                <SearchResultsView
+                  results={searchResults}
+                  typeById={typeById}
+                  query={searchQuery}
+                  activeTab={activeTab}
+                  onOpenResult={(result) => void selectResult(result)}
+                  onExploreType={(typeId) => {
+                    const type = typeById.get(typeId);
+                    explorerTabs.open(makeTypeTab(typeId, type?.display_name || type?.name || typeId));
+                  }}
+                  onChangeActiveTab={(next) => setActiveTab(next)}
+                  onSearchAround={(result, anchor) => setSearchAroundState({ result, anchor })}
+                  countsByType={countsByType}
+                  favoriteTypeIds={favoriteTypeIds}
+                />
+              ) : (
+                <>
+                  {activeTab === 'overview' && (
                 <>
                   <ExplorationsHighlight
                     objectSets={visibleObjectSets}
                     typeById={typeById}
                     onOpen={(set) => void openSavedExploration(set)}
-                    onSeeAll={() => setActiveTab('artifacts')}
                   />
                   <BrowseGroupsGrid
                     groups={explorerGroups}
                     linkTypes={linkTypes}
                     accessForType={accessForType}
                     onBrowse={(typeId) => {
-                      setActiveTab('objects');
-                      void browseType(typeId);
+                      const type = typeById.get(typeId);
+                      explorerTabs.open(makeTypeTab(typeId, type?.display_name || type?.name || typeId));
                     }}
                     onPreviewType={previewType}
                     favoriteTypeIds={favoriteTypeIds}
                     onToggleFavorite={toggleFavoriteType}
                     selection={sideNavSelection}
+                    countsByType={countsByType}
                   />
                 </>
               )}
@@ -1292,13 +1471,14 @@ export function ObjectExplorerPage() {
                   linkTypes={linkTypes}
                   accessForType={accessForType}
                   onBrowse={(typeId) => {
-                    setActiveTab('objects');
-                    void browseType(typeId);
+                    const type = typeById.get(typeId);
+                    explorerTabs.open(makeTypeTab(typeId, type?.display_name || type?.name || typeId));
                   }}
                   onPreviewType={previewType}
                   favoriteTypeIds={favoriteTypeIds}
                   onToggleFavorite={toggleFavoriteType}
                   selection={sideNavSelection}
+                  countsByType={countsByType}
                 />
               )}
 
@@ -1453,6 +1633,8 @@ export function ObjectExplorerPage() {
                   onEvaluateSet={(id, mode) => void evaluateSet(id, mode)}
                 />
               )}
+                </>
+              )}
             </div>
           </div>
         </>
@@ -1467,6 +1649,28 @@ export function ObjectExplorerPage() {
           onStartExploration={startExplorationFromPreview}
         />
       )}
+
+      <SearchAroundPopover
+        anchor={searchAroundState?.anchor ?? null}
+        sourceObjectTypeId={searchAroundState?.result.object_type_id ?? null}
+        linkTypes={linkTypes}
+        typeById={typeById}
+        onClose={() => setSearchAroundState(null)}
+        onSelect={(option) => {
+          if (!searchAroundState) return;
+          const result = searchAroundState.result;
+          const label = `Search for "${result.title || result.id}" ↔ ${option.label}`;
+          explorerTabs.open({
+            id: `search-around:${result.id}:${option.linkType.id}`,
+            kind: 'search',
+            label,
+            query: result.title || result.id,
+          });
+          setActiveTab('objects');
+          setScopeTypeIds(new Set([option.targetTypeId]));
+          setSearchAroundState(null);
+        }}
+      />
     </section>
   );
 }

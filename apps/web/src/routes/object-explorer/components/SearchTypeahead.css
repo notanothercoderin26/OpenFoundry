@@ -1,0 +1,119 @@
+/* SearchTypeahead — dropdown anchored to the hero search bar with a
+ * highlighted "Search for ..." action on top, a flat list of capped
+ * suggestions and an optional "View all results" footer. */
+
+.oe-typeahead {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  padding: 4px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.oe-typeahead__row {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--oe-radius-md);
+  background: transparent;
+  color: var(--oe-text-default);
+  font: inherit;
+  font-size: var(--oe-fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.oe-typeahead__row:hover { background: var(--oe-bg-panel-hover); }
+
+.oe-typeahead__row--search {
+  background: var(--oe-bg-eyebrow-line);
+}
+
+.oe-typeahead__row--search:hover { background: #d9e0e8; }
+
+.oe-typeahead__row--search .oe-typeahead__icon {
+  color: var(--oe-text-muted);
+}
+
+.oe-typeahead__icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--oe-radius-sm);
+  color: var(--oe-text-on-accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.oe-typeahead__label {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.oe-typeahead__label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oe-typeahead__row--search .oe-typeahead__label-text strong {
+  font-weight: 600;
+}
+
+.oe-typeahead__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--oe-radius-pill);
+  font-size: var(--oe-fs-eyebrow);
+  font-weight: 500;
+  background: rgba(217, 130, 43, 0.14);
+  color: var(--oe-status-warning);
+  flex: 0 0 auto;
+}
+
+.oe-typeahead__badge[data-kind='deprecated'] {
+  background: rgba(205, 66, 70, 0.14);
+  color: var(--oe-status-danger);
+}
+
+.oe-typeahead__footer {
+  margin: 2px 0 0;
+  padding: 6px 10px;
+  border-top: 1px solid var(--oe-bg-eyebrow-line);
+  text-align: center;
+}
+
+.oe-typeahead__footer button {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--oe-fs-body);
+  color: var(--oe-text-link);
+  cursor: pointer;
+}
+
+.oe-typeahead__footer button:hover { text-decoration: underline; }
+
+.oe-typeahead__empty {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: var(--oe-fs-small);
+  color: var(--oe-text-muted);
+  text-align: center;
+}

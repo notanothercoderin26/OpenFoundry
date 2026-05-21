@@ -1,0 +1,121 @@
+/* ExplorerHero — the centered landing block above the tabs. */
+
+.oe-hero {
+  display: block;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 48px 16px 24px;
+  text-align: left;
+}
+
+.oe-hero .oe-hero-title { margin-bottom: 6px; }
+.oe-hero .oe-hero-subtitle { margin-bottom: 24px; }
+
+.oe-hero__inline-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0 2px;
+  color: var(--oe-text-link);
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+}
+
+.oe-hero__inline-link:hover {
+  color: var(--oe-text-link-hover);
+  text-decoration: underline;
+}
+
+.oe-hero__searchbar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 40px;
+  background: var(--oe-bg-panel);
+  border: 1px solid var(--oe-border-default);
+  border-radius: var(--oe-radius-md);
+  padding: 0 4px 0 0;
+  transition: border-color 80ms ease, box-shadow 80ms ease;
+}
+
+.oe-hero__searchbar:hover { border-color: var(--oe-border-strong); }
+
+.oe-hero__searchbar[data-focused='true'] {
+  border-color: var(--oe-border-focus);
+  box-shadow: 0 0 0 1px var(--oe-border-focus);
+}
+
+.oe-hero__searchbar-scope {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 4px 4px 4px;
+}
+
+/* Strip the ScopeFilter trigger border so it reads as a chip inside the
+ * search bar instead of a sibling button with its own outline. */
+.oe-hero__searchbar-scope > *,
+.oe-hero__searchbar-scope button {
+  border-radius: var(--oe-radius-sm);
+}
+
+.oe-hero__searchbar-divider {
+  display: inline-block;
+  width: 1px;
+  height: 20px;
+  background: var(--oe-border-default);
+  flex: 0 0 auto;
+}
+
+.oe-hero__searchbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--oe-text-muted);
+  padding: 0 8px 0 10px;
+  flex: 0 0 auto;
+}
+
+.oe-hero__searchbar-input-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.oe-hero__searchbar-input {
+  width: 100%;
+  height: 38px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--oe-text-default);
+  font: inherit;
+  font-size: var(--oe-fs-body);
+  padding: 0;
+}
+
+.oe-hero__searchbar-input::placeholder { color: var(--oe-text-muted); }
+
+.oe-hero__searchbar-help {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  border: none;
+  border-radius: var(--oe-radius-sm);
+  background: transparent;
+  color: var(--oe-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.oe-hero__searchbar-help:hover {
+  background: rgba(16, 22, 26, 0.06);
+  color: var(--oe-text-strong);
+}
