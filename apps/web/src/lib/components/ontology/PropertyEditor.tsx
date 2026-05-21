@@ -1,11 +1,13 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import type {
   ObjectTypeBinding,
   OntologyValueType,
   Property,
+  PropertyConditionalFormattingRule,
 } from "@/lib/api/ontology";
-import type { Dataset } from "@/lib/api/datasets";
+import { previewDataset, type Dataset } from "@/lib/api/datasets";
 import { Badge } from "@components/ui/Badge";
 import { Glyph } from "@components/ui/Glyph";
 import { SidePanelTabs } from "@components/ui/SidePanelTabs";
@@ -208,6 +210,7 @@ export function PropertyEditor({
           onSelect={select}
           onCreate={onCreate}
           onBulkAction={onBulkAction}
+          onUpdate={onPropertyUpdate}
         />
         {selected ? (
           <PropertyEditorDrawer
@@ -267,6 +270,8 @@ interface TableProps {
     action: "delete" | "hide" | "show",
     propertyIds: string[],
   ) => void;
+  /** Forwarded from the parent so per-row inline dropdowns can patch. */
+  onUpdate?: (id: string, patch: Partial<Property>) => void;
 }
 
 function PropertyEditorTable({
@@ -284,6 +289,7 @@ function PropertyEditorTable({
   onSelect,
   onCreate,
   onBulkAction,
+  onUpdate,
 }: TableProps) {
   const allChecked = properties.length > 0 && checked.size === properties.length;
   const checkedIds = useMemo(() => Array.from(checked), [checked]);
@@ -444,18 +450,38 @@ function PropertyEditorTable({
                             : "Active"}
                       </Badge>
                     </td>
-                    <td className="px-2 py-2 align-middle">
-                      <VisibilityCell visibility={visibility} />
+                    <td
+                      className="px-2 py-2 align-middle"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <VisibilityDropdown
+                        value={visibility}
+                        onChange={
+                          onUpdate
+                            ? (next) =>
+                                onUpdate(property.id, { display_mode: next })
+                            : undefined
+                        }
+                      />
                     </td>
-                    <td className="px-2 py-2 align-middle">
-                      <span className="inline-flex items-center gap-1 text-of-13 text-of-text">
-                        {formatter}
-                        <Glyph
-                          name="chevron-down"
-                          size={11}
-                          tone="var(--of-text-muted)"
-                        />
-                      </span>
+                    <td
+                      className="px-2 py-2 align-middle"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <FormatterDropdown
+                        value={typeof formatter === "string" ? formatter : "No formatting"}
+                        onChange={
+                          onUpdate
+                            ? (next) =>
+                                onUpdate(property.id, {
+                                  value_formatting:
+                                    next === "No formatting"
+                                      ? {}
+                                      : ({ type: next } as Record<string, unknown>),
+                                })
+                            : undefined
+                        }
+                      />
                     </td>
                     <td className="px-2 py-2 align-middle text-of-13 text-of-text font-mono truncate">
                       {column ?? <span className="text-of-text-soft">—</span>}
@@ -481,11 +507,85 @@ function PropertyEditorTable({
   );
 }
 
-function VisibilityCell({ visibility }: { visibility: string }) {
-  const v = visibility.toLowerCase();
-  if (v === "hidden") return <Badge variant="visibility-hidden" />;
-  if (v === "prominent") return <Badge variant="visibility-prominent" />;
-  return <Badge variant="visibility-normal" />;
+function VisibilityDropdown({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange?: (next: string) => void;
+}) {
+  return (
+    <CellDropdown
+      value={value}
+      onChange={onChange}
+      leading={<Glyph name="eye" size={12} tone="var(--of-text-muted)" />}
+      options={[
+        { value: "normal", label: "Normal" },
+        { value: "hidden", label: "Hidden" },
+        { value: "prominent", label: "Prominent" },
+      ]}
+    />
+  );
+}
+
+function FormatterDropdown({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange?: (next: string) => void;
+}) {
+  return (
+    <CellDropdown
+      value={value}
+      onChange={onChange}
+      options={[
+        { value: "No formatting", label: "No formatting" },
+        { value: "currency", label: "Currency" },
+        { value: "percentage", label: "Percentage" },
+        { value: "date", label: "Date" },
+        { value: "duration", label: "Duration" },
+      ]}
+    />
+  );
+}
+
+function CellDropdown({
+  value,
+  onChange,
+  options,
+  leading,
+}: {
+  value: string;
+  onChange?: (next: string) => void;
+  options: Array<{ value: string; label: string }>;
+  leading?: ReactNode;
+}) {
+  const hasValue = options.some((option) => option.value === value);
+  return (
+    <span
+      className={[
+        "inline-flex items-center gap-1 h-7 px-2 rounded-of-sm",
+        "border border-transparent bg-transparent",
+        "hover:border-of-border hover:bg-of-surface-raised",
+      ].join(" ")}
+    >
+      {leading}
+      <select
+        value={hasValue ? value : options[0].value}
+        onChange={(event) => onChange?.(event.target.value)}
+        disabled={!onChange}
+        className="bg-transparent border-0 outline-none text-of-13 text-of-text appearance-none pr-3 disabled:cursor-default"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <Glyph name="chevron-down" size={11} tone="var(--of-text-muted)" />
+    </span>
+  );
 }
 
 function SearchBox({
@@ -631,19 +731,17 @@ function PropertyEditorDrawer({
             onMakeTitle={onMakeTitle}
             onMakePrimaryKey={onMakePrimaryKey}
           />
+        ) : tab === "display" ? (
+          <DisplayTab property={property} onUpdate={onUpdate} />
+        ) : tab === "interaction" ? (
+          <InteractionTab property={property} onUpdate={onUpdate} />
+        ) : tab === "details" ? (
+          <DetailsTab property={property} />
         ) : (
-          <TabPlaceholder name={tab} />
+          <AdvancedTab property={property} onUpdate={onUpdate} />
         )}
       </div>
     </aside>
-  );
-}
-
-function TabPlaceholder({ name }: { name: DrawerTab }) {
-  return (
-    <p className="text-of-13 text-of-text-muted">
-      {name[0].toUpperCase() + name.slice(1)} tab lands in the next iteration.
-    </p>
   );
 }
 
@@ -971,12 +1069,17 @@ function PropertyEditorFooter({
   const datasetName = dataset?.name ?? binding?.dataset_id ?? "No dataset bound";
 
   const mappedColumns = useMemo(() => {
-    const set = new Set<string>();
+    const map = new Map<string, { propertyName: string; displayName: string }>();
     for (const property of properties) {
       const column = propertyColumn(property);
-      if (column) set.add(column);
+      if (column) {
+        map.set(column, {
+          propertyName: property.name,
+          displayName: property.display_name || property.name,
+        });
+      }
     }
-    return set;
+    return map;
   }, [properties]);
 
   return (
@@ -1042,19 +1145,20 @@ function PropertyEditorFooter({
         </div>
       </header>
 
-      <div className="px-3 py-2 text-of-12 text-of-text-muted">
-        {binding ? (
-          <>
-            <span className="font-of-medium text-of-text">
-              {mappedColumns.size}
-            </span>{" "}
-            columns mapped to properties.
-            {showMapped ? null : " Toggle off to see unmapped columns too."}
-          </>
-        ) : (
-          "Bind a dataset to preview rows here."
-        )}
-      </div>
+      {binding ? (
+        <DataPreviewTable
+          datasetId={binding.dataset_id}
+          mappedColumns={
+            showMapped
+              ? mappedColumns
+              : new Map()
+          }
+        />
+      ) : (
+        <p className="px-3 py-3 text-of-12 text-of-text-muted">
+          Bind a dataset to preview rows here.
+        </p>
+      )}
     </section>
   );
 }
@@ -1124,4 +1228,453 @@ function propertyStatus(property: Property): string {
     return status;
   }
   return "experimental";
+}
+
+/* ------------------------------------------------------------------------- */
+/* Display / Interaction / Details / Advanced tabs                            */
+/* ------------------------------------------------------------------------- */
+
+const VISIBILITY_OPTIONS = [
+  { value: "normal", label: "Normal" },
+  { value: "hidden", label: "Hidden" },
+  { value: "prominent", label: "Prominent" },
+];
+
+interface TabContext {
+  property: Property;
+  onUpdate?: (patch: Partial<Property>) => void;
+}
+
+function DisplayTab({ property, onUpdate }: TabContext) {
+  const readOnly = !onUpdate;
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-3">
+        <SectionLabel>Visibility</SectionLabel>
+        <Field label="Object view display mode">
+          <Select
+            value={(property.display_mode ?? "normal") as string}
+            onChange={(value) => onUpdate?.({ display_mode: value })}
+            options={VISIBILITY_OPTIONS}
+            readOnly={readOnly}
+            leading={<Glyph name="eye" size={12} tone="var(--of-text-muted)" />}
+          />
+        </Field>
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-of-border pt-4">
+        <SectionLabel>Base formatter</SectionLabel>
+        <JsonField
+          help="Controls how the property value is formatted in object views."
+          value={property.value_formatting ?? {}}
+          onChange={(value) =>
+            onUpdate?.({ value_formatting: value as Record<string, unknown> })
+          }
+          readOnly={readOnly}
+          placeholder='{ "type": "no-formatting" }'
+        />
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-of-border pt-4">
+        <SectionLabel>Conditional formatting</SectionLabel>
+        <JsonField
+          help="Array of rules that override the base formatter based on the property value."
+          value={property.conditional_formatting ?? []}
+          onChange={(value) =>
+            onUpdate?.({
+              conditional_formatting:
+                value as unknown as PropertyConditionalFormattingRule[],
+            })
+          }
+          readOnly={readOnly}
+          placeholder="[]"
+          mustBeArray
+        />
+      </section>
+    </div>
+  );
+}
+
+function InteractionTab({ property, onUpdate }: TabContext) {
+  const readOnly = !onUpdate;
+  const flag = (
+    label: string,
+    key: keyof Property,
+    help?: string,
+  ) => (
+    <Field label={label} inline help={help}>
+      <Switch
+        checked={Boolean(property[key])}
+        onChange={(value) =>
+          onUpdate?.({ [key]: value } as Partial<Property>)
+        }
+        disabled={readOnly}
+      />
+    </Field>
+  );
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-3">
+        <SectionLabel>Constraints</SectionLabel>
+        {flag(
+          "Required",
+          "required",
+          "Reject inserts and updates that don't carry a value.",
+        )}
+        {flag(
+          "Unique",
+          "unique_constraint",
+          "Enforce uniqueness across object instances.",
+        )}
+      </section>
+      <section className="flex flex-col gap-3 border-t border-of-border pt-4">
+        <SectionLabel>Query surface</SectionLabel>
+        {flag("Searchable", "searchable")}
+        {flag("Filterable", "filterable")}
+        {flag("Sortable", "sortable")}
+        {flag("Aggregatable", "aggregatable")}
+      </section>
+    </div>
+  );
+}
+
+function DetailsTab({ property }: { property: Property }) {
+  /* Read-only metadata view — these fields are derived from the property
+   * schema and aren't meant to be edited from the drawer. */
+  return (
+    <div className="flex flex-col gap-3">
+      <SectionLabel>Type metadata</SectionLabel>
+      <ReadonlyRow label="Property type" value={property.property_type} />
+      <ReadonlyRow label="Base type" value={property.base_type ?? "—"} />
+      <ReadonlyRow label="Type family" value={property.type_family ?? "—"} />
+      <ReadonlyRow
+        label="Type display name"
+        value={property.type_display_name ?? "—"}
+      />
+      <ReadonlyRow label="Value shape" value={property.value_shape ?? "—"} />
+      <ReadonlyRow
+        label="Array item type"
+        value={property.array_item_type ?? "—"}
+      />
+      <SectionLabel className="mt-4">Semantic hints</SectionLabel>
+      {property.semantic_hints && property.semantic_hints.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {property.semantic_hints.map((hint) => (
+            <span
+              key={hint}
+              className={[
+                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-of-sm",
+                "border border-of-border bg-of-surface text-of-12 text-of-text",
+              ].join(" ")}
+            >
+              {hint}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <span className="text-of-13 text-of-text-muted">None</span>
+      )}
+    </div>
+  );
+}
+
+function AdvancedTab({ property, onUpdate }: TabContext) {
+  const readOnly = !onUpdate;
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-3">
+        <SectionLabel>Default value</SectionLabel>
+        <JsonField
+          help="Default value applied to new objects when no value is supplied."
+          value={property.default_value ?? null}
+          onChange={(value) => onUpdate?.({ default_value: value })}
+          readOnly={readOnly}
+          placeholder="null"
+          allowNull
+        />
+      </section>
+      <section className="flex flex-col gap-3 border-t border-of-border pt-4">
+        <SectionLabel>Time</SectionLabel>
+        <Field
+          label="Time-dependent"
+          inline
+          help="Track historical values keyed by a timestamp."
+        >
+          <Switch
+            checked={Boolean(property.time_dependent)}
+            onChange={(value) => onUpdate?.({ time_dependent: value })}
+            disabled={readOnly}
+          />
+        </Field>
+      </section>
+      <section className="flex flex-col gap-3 border-t border-of-border pt-4">
+        <SectionLabel>Reducer metadata</SectionLabel>
+        <JsonField
+          help="Reducer hints — used by Quiver and downstream analytics."
+          value={property.reducer_metadata ?? {}}
+          onChange={(value) =>
+            onUpdate?.({ reducer_metadata: value as Record<string, unknown> })
+          }
+          readOnly={readOnly}
+          placeholder='{ "default_reducer": "sum" }'
+        />
+      </section>
+    </div>
+  );
+}
+
+function SectionLabel({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <h4
+      className={[
+        "text-of-12 font-of-semibold uppercase tracking-wide text-of-text-soft m-0",
+        className ?? "",
+      ].join(" ")}
+    >
+      {children}
+    </h4>
+  );
+}
+
+function ReadonlyRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-3 min-h-6">
+      <span className="text-of-12 text-of-text-muted">{label}</span>
+      <span className="text-of-13 text-of-text font-mono truncate" title={typeof value === "string" ? value : undefined}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* JSON editor primitive                                                      */
+/* ------------------------------------------------------------------------- */
+
+interface JsonFieldProps {
+  value: unknown;
+  onChange: (value: unknown) => void;
+  readOnly?: boolean;
+  placeholder?: string;
+  help?: string;
+  mustBeArray?: boolean;
+  allowNull?: boolean;
+}
+
+function JsonField({
+  value,
+  onChange,
+  readOnly,
+  placeholder,
+  help,
+  mustBeArray,
+  allowNull,
+}: JsonFieldProps) {
+  const initial = useMemo(
+    () => stringifyJson(value, allowNull),
+    [value, allowNull],
+  );
+  const [draft, setDraft] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(initial);
+    setError(null);
+  }, [initial]);
+
+  const commit = () => {
+    if (readOnly) return;
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      if (allowNull) {
+        onChange(null);
+        setError(null);
+        return;
+      }
+      setError("Required");
+      return;
+    }
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (mustBeArray && !Array.isArray(parsed)) {
+        setError("Must be a JSON array");
+        return;
+      }
+      setError(null);
+      onChange(parsed);
+    } catch {
+      setError("Invalid JSON");
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      {help ? (
+        <span className="text-of-12 text-of-text-muted">{help}</span>
+      ) : null}
+      <textarea
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          if (error) setError(null);
+        }}
+        onBlur={commit}
+        placeholder={placeholder}
+        readOnly={readOnly}
+        rows={4}
+        spellCheck={false}
+        className={[
+          "w-full px-2 py-1.5 rounded-of-sm border bg-of-surface-raised",
+          "text-of-12 text-of-text font-mono resize-y",
+          "focus:outline-none focus:ring-2 focus:ring-of-accent-soft",
+          error ? "border-of-danger" : "border-of-border focus:border-of-accent",
+          readOnly ? "bg-of-surface" : "",
+        ].join(" ")}
+      />
+      {error ? (
+        <span className="text-of-12 text-of-danger">{error}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function stringifyJson(value: unknown, allowNull?: boolean): string {
+  if (value === null || value === undefined) return allowNull ? "" : "null";
+  if (typeof value === "string") {
+    /* Some properties roundtrip JSON-encoded strings directly. */
+    try {
+      JSON.parse(value);
+      return value;
+    } catch {
+      return JSON.stringify(value, null, 2);
+    }
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Source dataset row preview (footer body)                                   */
+/* ------------------------------------------------------------------------- */
+
+interface DataPreviewProps {
+  datasetId: string;
+  /** Map column name → property's display name when the column is bound. */
+  mappedColumns: Map<string, { propertyName: string; displayName: string }>;
+}
+
+export function DataPreviewTable({ datasetId, mappedColumns }: DataPreviewProps) {
+  const query = useQuery({
+    queryKey: ["dataset-preview", datasetId, 6],
+    queryFn: () => previewDataset(datasetId, { limit: 6 }),
+    staleTime: 60_000,
+  });
+
+  if (query.isLoading) {
+    return (
+      <p className="px-3 py-3 text-of-12 text-of-text-muted">
+        Loading preview…
+      </p>
+    );
+  }
+  if (query.isError || !query.data) {
+    return (
+      <p className="px-3 py-3 text-of-12 text-of-text-muted">
+        Preview unavailable.
+      </p>
+    );
+  }
+  const rows = query.data.rows ?? [];
+  const columns = query.data.columns ?? [];
+  if (columns.length === 0) {
+    return (
+      <p className="px-3 py-3 text-of-12 text-of-text-muted">
+        No columns to preview.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full border-collapse">
+        <thead className="bg-of-surface text-of-12 text-of-text-muted">
+          <tr>
+            {columns.map((column) => {
+              const mapping = mappedColumns.get(column.name);
+              return (
+                <th
+                  key={column.name}
+                  className="text-left px-2 py-1.5 border-b border-of-border font-of-medium"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-of-12 text-of-text font-of-semibold">
+                      {column.name}
+                    </span>
+                    <span className="text-of-12 text-of-text-muted font-of-medium">
+                      {column.data_type ?? column.field_type ?? "Value"}
+                    </span>
+                    {mapping ? (
+                      <span
+                        className={[
+                          "mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-of-sm w-fit",
+                          "bg-of-accent-soft text-of-accent text-of-12",
+                        ].join(" ")}
+                        title={`Mapped to ${mapping.propertyName}`}
+                      >
+                        <Glyph
+                          name="link"
+                          size={10}
+                          tone="var(--of-accent)"
+                        />
+                        {mapping.displayName}
+                      </span>
+                    ) : null}
+                  </div>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody className="text-of-12 text-of-text">
+          {rows.length === 0 ? (
+            <tr>
+              <td
+                colSpan={columns.length}
+                className="px-2 py-3 text-of-text-muted text-center"
+              >
+                No rows in dataset.
+              </td>
+            </tr>
+          ) : (
+            rows.map((row, index) => (
+              <tr key={index} className="border-b border-of-border">
+                {columns.map((column) => (
+                  <td
+                    key={column.name}
+                    className="px-2 py-1 align-top font-mono truncate max-w-[160px]"
+                  >
+                    {formatCell(row[column.name])}
+                  </td>
+                ))}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function formatCell(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
