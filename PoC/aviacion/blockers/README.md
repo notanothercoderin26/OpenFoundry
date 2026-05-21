@@ -1,10 +1,17 @@
 # PoC blockers — Foundry-native parity references
 
-> Date: 2026-05-20
-> Status: **inventory frozen**. Each blocker below is a service-level gap that
-> prevents the Aviation/MRO PoC ([../README.md](../README.md)) from being
-> executed end-to-end against the Foundry-native contract
+> Date: 2026-05-20 (inventory frozen) — Phase 1 closure landed on the same
+> date and shifted the actual severity of B01/B02/B04/B06; see the
+> per-blocker *Status as of 2026-05-20* sections and the **Current
+> severity** column in the index table below.
+>
+> Each blocker below is a service-level gap that prevents the
+> Aviation/MRO PoC ([../README.md](../README.md)) from being executed
+> end-to-end against the Foundry-native contract
 > ([../00-contrato-foundry-native.md](../00-contrato-foundry-native.md)).
+> The earliest entries (severity in the original inventory) are kept for
+> traceability; the platform-level work has progressed since and the
+> *current* severity is what an executing agent should plan against.
 
 This folder gives an AI agent — or a senior engineer — a **single jump-off
 point per blocker** that combines:
@@ -72,19 +79,30 @@ above and the paths will resolve.
 
 ## Blocker index
 
-| ID | Title | OpenFoundry service | Launcher app(s) | PoC act(s) | 1-to-1 checklist | Severity |
-|---|---|---|---|---|---|---|
-| [B01](B01-workshop-backend.md) | Workshop backend (app composition) is a stub | `application-composition-service` | #28 Workshop (`/apps`) | Act 4 | [foundry-workshop-pipeline-1to1-checklist.md](../../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) | **Critical** |
-| [B02](B02-ontology-definition.md) | Ontology definition service is a stub | `ontology-definition-service` | #2 Ontology Manager (`/ontology-manager`) | Act 2 | [foundry-ontology-manager-object-views-1to1-checklist.md](../../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md) | **Critical** |
-| [B03](B03-ontology-indexer.md) | Ontology indexer is a stub | `ontology-indexer` | #2 Ontology Manager → "Ontology Indexing" tab, impacts #3 Object Explorer | Act 2, Act 4 | [foundry-ontology-manager-object-views-1to1-checklist.md](../../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md) | High |
-| [B04](B04-llm-catalog.md) | LLM catalog service is a stub | `llm-catalog-service` | #27 Model Catalog (`/model-catalog`), feeds #19-#26 AI family | Act 5 | [foundry-aip-document-analyst-catalog-1to1-checklist.md](../../../docs/migration/foundry-aip-document-analyst-catalog-1to1-checklist.md) | **Critical** |
-| [B05](B05-notifications.md) | Notification & alerting service is a stub | `notification-alerting-service` | Cross-cutting: #36 Operational Rules, #37 Dynamic Schedules, #38 Approvals | Act 5, Act 6 | [foundry-automate-rules-1to1-checklist.md](../../../docs/migration/foundry-automate-rules-1to1-checklist.md) | High |
-| [B06](B06-iceberg-e2e.md) | Iceberg end-to-end is in Phase A/B | `pipeline-runtime` lib + `iceberg-catalog-service` + `pipeline-runner-spark` | #5 Pipeline Builder (`/pipelines`), Iceberg Tables tab, #7 Data Lineage | Act 1, Act 3 | [foundry-workshop-pipeline-1to1-checklist.md](../../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) | High |
-| [B07](B07-agent-runtime-tool-routing.md) | Agent runtime is partial: tool routing depends on stub ontology | `agent-runtime-service` + `retrieval-context-service` | #20 AI Assist, #21 AI Analyst, #22 AI Threads, #26 AI Operator | Act 5 | [foundry-aip-agents-threads-assist-1to1-checklist.md](../../../docs/migration/foundry-aip-agents-threads-assist-1to1-checklist.md) | **Critical** |
+| ID | Title | OpenFoundry service | Launcher app(s) | PoC act(s) | 1-to-1 checklist | Original severity | Current severity (post 2026-05-20) |
+|---|---|---|---|---|---|---|---|
+| [B01](B01-workshop-backend.md) | Workshop backend (app composition) is a stub | `application-composition-service` | #28 Workshop (`/apps`) | Act 4 | [foundry-workshop-pipeline-1to1-checklist.md](../../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) | Critical | **Medium** — platform durable storage, publish lifecycle and `?branch=` shipped (`apps` / `app_versions` tables, `PublishApp` endpoint, migration `20260520120000_app_branches.sql`); remaining gaps are AC#6 action-button → action-type wiring and AC#7 aviation demo module. See the *Status as of 2026-05-20* section inside [B01](B01-workshop-backend.md). |
+| [B02](B02-ontology-definition.md) | Ontology definition + outbox events on the data bus | `ontology-definition-service` (+ `ontology-actions-service`) | #2 Ontology Manager (`/ontology-manager`) | Act 2 | [foundry-ontology-manager-object-views-1to1-checklist.md](../../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md) | Critical | **✅ Closed (Phase 1)** — 9/9 acceptance criteria done: outbox table `0008_ontology_schema_outbox.sql`, 12 outbox sites in `batch_save.go`, Debezium connector wired, action-type CRUD lifted, integration tests pass. See *Status as of 2026-05-20 (Phase 1 closure)* in [B02](B02-ontology-definition.md). |
+| [B03](B03-ontology-indexer.md) | Ontology indexer is a stub | `ontology-indexer` | #2 Ontology Manager → "Ontology Indexing" tab, impacts #3 Object Explorer | Act 2, Act 4 | [foundry-ontology-manager-object-views-1to1-checklist.md](../../../docs/migration/foundry-ontology-manager-object-views-1to1-checklist.md) | High | **High** — producer side done platform-wide; read path (`POST /ontology/search` + Workshop pushdown + indexing status surface) still missing. Geopolitics PoC tracks this at ~25 % PoC readiness; aviation tolerates more degradation, urbana fits in Postgres + pgvector. |
+| [B04](B04-llm-catalog.md) | LLM catalog service is a stub | `llm-catalog-service` | #27 Model Catalog (`/model-catalog`), feeds #19-#26 AI family | Act 5 | [foundry-aip-document-analyst-catalog-1to1-checklist.md](../../../docs/migration/foundry-aip-document-analyst-catalog-1to1-checklist.md) | Critical | **✅ Closed** — 6/6 acceptance criteria done: quotas + features migration, provider Prober (Ollama/OpenAI/Azure/Anthropic), `LlmCatalogPage`, `ChatbotModelPicker`, edge-gateway routing. See *Status as of 2026-05-20* in [B04](B04-llm-catalog.md). |
+| [B05](B05-notifications.md) | Notification & alerting service is a stub | `notification-alerting-service` | Cross-cutting: #36 Operational Rules, #37 Dynamic Schedules, #38 Approvals | Act 5, Act 6 | [foundry-automate-rules-1to1-checklist.md](../../../docs/migration/foundry-automate-rules-1to1-checklist.md) | High | High (unchanged in this snapshot — no Phase 1 *Status* section). |
+| [B06](B06-iceberg-e2e.md) | Iceberg end-to-end is in Phase A/B | `pipeline-runtime` lib + `iceberg-catalog-service` + `pipeline-runner-spark` | #5 Pipeline Builder (`/pipelines`), Iceberg Tables tab, #7 Data Lineage | Act 1, Act 3 | [foundry-workshop-pipeline-1to1-checklist.md](../../../docs/migration/foundry-workshop-pipeline-1to1-checklist.md) | High | **✅ Mostly closed** — AC#1/#2/#3/#5 done (`IcebergHTTPWriter`, `IcebergHTTPReader`, `LineageWriter`, `iceberg_table_rows` table + `InsertRowsForSnapshot`, `dataset_health_events` + `CheckEventsPanel`). AC#4 (Spark transactional read/write) and AC#6 (≤90 s cold-time benchmark) explicitly *out of scope* of this commit. See *Status as of 2026-05-20* in [B06](B06-iceberg-e2e.md). |
+| [B07](B07-agent-runtime-tool-routing.md) | Agent runtime is partial: tool routing depends on stub ontology | `agent-runtime-service` + `retrieval-context-service` | #20 AI Assist, #21 AI Analyst, #22 AI Threads, #26 AI Operator | Act 5 | [foundry-aip-agents-threads-assist-1to1-checklist.md](../../../docs/migration/foundry-aip-agents-threads-assist-1to1-checklist.md) | Critical | Critical (unchanged in this snapshot — no Phase 1 *Status* section). |
 
-Severity legend: **Critical** = the PoC narrative cannot continue past this
-gap; **High** = the gap can be worked around with degraded behavior but the
-"Foundry-native" claim breaks.
+Severity legend:
+
+- **Critical** — the PoC narrative cannot continue past this gap.
+- **High** — the gap can be worked around with degraded behavior but the
+  "Foundry-native" claim breaks.
+- **Medium** — platform-level work landed; only PoC-specific content
+  (demo module authoring, last-mile wiring) is still outstanding.
+- **✅ Closed** — every acceptance criterion the file lists is done and
+  the *Status as of …* section enumerates the supporting evidence.
+
+The *Original severity* column is the inventory at the time this folder
+was first written; the *Current severity (post 2026-05-20)* column is
+what an executing agent should plan against. When a B0X file does not
+have a *Status as of …* section the two columns agree.
 
 ---
 
