@@ -55,6 +55,10 @@ import { VertexEventCapabilityEditor } from '@/lib/components/ontology/VertexEve
 import { LinkTypeEdgeDirectionEditor } from '@/lib/components/ontology/LinkTypeEdgeDirectionEditor';
 import { ObjectExplorer } from '@/lib/components/ontology/ObjectExplorer';
 import { PropertyPanel } from '@/lib/components/ontology/PropertyPanel';
+import {
+  ObjectTypeMetadataPanel,
+  ObjectTypePropertiesPanel,
+} from '@/lib/components/ontology/ObjectTypeOverview';
 import { SaveAsAppModal } from '@/lib/components/apps/SaveAsAppModal';
 import { Tabs } from '@/lib/components/Tabs';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
@@ -219,13 +223,6 @@ const DEPENDENT_KINDS: Array<{ id: DependentKind; label: string; icon: GlyphName
   { id: 'use-cases', label: 'Use cases', icon: 'list', tone: '#5c7080', emptyTitle: 'No use cases', emptyBody: 'Document operational workflows.' },
   { id: 'workshop', label: 'Workshop', icon: 'object', tone: '#7c5dd6', emptyTitle: 'No Workshop modules', emptyBody: 'Workshop enables users to build interactive and high-quality applications for operational users.', createLabel: 'Create your first' },
 ];
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
 
 function propertyCountLabel(count: number) {
   return `${count} propert${count === 1 ? 'y' : 'ies'}`;
@@ -637,25 +634,18 @@ export function ObjectTypeDetailPage() {
       />
 
       {tab === 'overview' && (
-        <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
-          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-            <div>
-              <p className="of-eyebrow">Identifier</p>
-              <p style={{ margin: '4px 0 0', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{type.name}</p>
-            </div>
-            <div>
-              <p className="of-eyebrow">Primary key</p>
-              <p style={{ margin: '4px 0 0', fontSize: 12 }}>{type.primary_key_property ?? '-'}</p>
-            </div>
-            <div>
-              <p className="of-eyebrow">Owner</p>
-              <p style={{ margin: '4px 0 0', fontFamily: 'var(--font-mono)', fontSize: 12, overflowWrap: 'anywhere' }}>{type.owner_id}</p>
-            </div>
-            <div>
-              <p className="of-eyebrow">Updated</p>
-              <p style={{ margin: '4px 0 0', fontSize: 12 }}>{formatDate(type.updated_at)}</p>
-            </div>
-          </div>
+        <section style={{ display: 'grid', gap: 16 }}>
+          <ObjectTypeMetadataPanel
+            objectType={type}
+            ontologyName="Ontology"
+          />
+          <ObjectTypePropertiesPanel
+            properties={properties}
+            primaryKeyPropertyName={type.primary_key_property}
+            titleKeyPropertyName={type.title_property}
+            onNew={() => setTab('properties')}
+            onPick={() => setTab('properties')}
+          />
           <ObjectTypeGraph
             currentTypeId={type.id}
             links={links}
@@ -663,9 +653,6 @@ export function ObjectTypeDetailPage() {
             selectedLinkId={selectedLink?.id ?? null}
             onSelectLink={(link) => { setSelectedLinkId(link.id); setLinkDetailTab('overview'); void loadTab('links'); }}
           />
-          <pre style={{ padding: 12, background: 'var(--bg-subtle)', fontSize: 11, fontFamily: 'var(--font-mono)', borderRadius: 8, overflow: 'auto' }}>
-            {JSON.stringify(type, null, 2)}
-          </pre>
 
           <div
             style={{
