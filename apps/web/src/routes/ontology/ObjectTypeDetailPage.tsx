@@ -56,6 +56,8 @@ import { LinkTypeEdgeDirectionEditor } from '@/lib/components/ontology/LinkTypeE
 import { ObjectExplorer } from '@/lib/components/ontology/ObjectExplorer';
 import { PropertyPanel } from '@/lib/components/ontology/PropertyPanel';
 import {
+  ObjectTypeActionsPanel,
+  ObjectTypeLinkGraphPanel,
   ObjectTypeMetadataPanel,
   ObjectTypePropertiesPanel,
 } from '@/lib/components/ontology/ObjectTypeOverview';
@@ -646,12 +648,23 @@ export function ObjectTypeDetailPage() {
             onNew={() => setTab('properties')}
             onPick={() => setTab('properties')}
           />
-          <ObjectTypeGraph
-            currentTypeId={type.id}
+          <ObjectTypeActionsPanel
+            objectTypeName={type.display_name}
+            actionTypes={actions.filter((action) => action.object_type_id === type.id)}
+            onNew={() => setTab('actions')}
+            onPick={() => setTab('actions')}
+          />
+          <ObjectTypeLinkGraphPanel
+            currentType={type}
             links={links}
             typeById={typeById}
             selectedLinkId={selectedLink?.id ?? null}
-            onSelectLink={(link) => { setSelectedLinkId(link.id); setLinkDetailTab('overview'); void loadTab('links'); }}
+            onSelectLink={(link) => {
+              setSelectedLinkId(link.id);
+              setLinkDetailTab('overview');
+              void loadTab('links');
+            }}
+            onNewLink={() => setTab('links')}
           />
 
           <div

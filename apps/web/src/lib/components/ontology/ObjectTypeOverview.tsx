@@ -1,6 +1,13 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
+import type { Core, ElementDefinition, StylesheetStyle } from "cytoscape";
 
-import type { ObjectType, Property } from "@/lib/api/ontology";
+import type {
+  ActionType,
+  LinkType,
+  ObjectType,
+  Property,
+} from "@/lib/api/ontology";
+import { CytoscapeCanvas } from "@components/CytoscapeCanvas";
 import { Badge } from "@components/ui/Badge";
 import { Glyph } from "@components/ui/Glyph";
 
@@ -553,4 +560,473 @@ function PropertyTypeIcon({ property }: { property: Property }) {
       {a.glyph ? <Glyph name={a.glyph} size={12} tone={a.fg} /> : a.label}
     </span>
   );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Action types panel                                                         */
+/* ------------------------------------------------------------------------- */
+
+interface ObjectTypeActionsPanelProps {
+  objectTypeName: string;
+  actionTypes: ActionType[];
+  onNew?: () => void;
+  onPick?: (action: ActionType) => void;
+}
+
+export function ObjectTypeActionsPanel({
+  objectTypeName,
+  actionTypes,
+  onNew,
+  onPick,
+}: ObjectTypeActionsPanelProps) {
+  return (
+    <section
+      className={[
+        "p-4 bg-of-surface-raised border border-of-border rounded-of-md shadow-of-card",
+        "flex flex-col gap-3",
+      ].join(" ")}
+      aria-label="Action types"
+    >
+      <header className="flex items-center gap-2">
+        <h3 className="text-of-16 font-of-semibold text-of-text">
+          Action types
+        </h3>
+        <span className="text-of-13 text-of-text-muted tabular-nums">
+          {actionTypes.length}
+        </span>
+        {onNew ? (
+          <button
+            type="button"
+            onClick={onNew}
+            className={[
+              "ml-auto inline-flex items-center gap-1 h-7 px-2 rounded-of-sm",
+              "text-of-13 font-of-medium text-of-accent hover:bg-of-accent-soft",
+            ].join(" ")}
+          >
+            <Glyph name="plus" size={12} tone="currentColor" />
+            New
+          </button>
+        ) : null}
+      </header>
+
+      <div
+        className={[
+          "flex items-center gap-2 px-2 py-1.5 -mx-1",
+          "bg-of-surface rounded-of-sm border border-of-border",
+        ].join(" ")}
+      >
+        <span className="text-of-12 text-of-text-muted">References</span>
+        <span className="text-of-12 font-of-semibold text-of-text truncate">
+          {objectTypeName}
+        </span>
+        <span className="ml-auto text-of-12 text-of-text-muted tabular-nums">
+          {actionTypes.length}
+        </span>
+      </div>
+
+      {actionTypes.length === 0 ? (
+        <p className="px-2 py-4 text-of-13 text-of-text-muted">
+          No action types reference this object type yet.
+        </p>
+      ) : (
+        <ul className="list-none p-0 m-0 flex flex-col gap-px">
+          {actionTypes.map((action) => (
+            <li key={action.id}>
+              <ActionRow action={action} onClick={onPick} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ActionRow({
+  action,
+  onClick,
+}: {
+  action: ActionType;
+  onClick?: (action: ActionType) => void;
+}) {
+  const cls = [
+    "group w-full flex items-center gap-2 px-2 h-9 rounded-of-sm text-left",
+    onClick ? "cursor-pointer hover:bg-of-surface-muted" : "",
+  ].join(" ");
+  return (
+    <button
+      type="button"
+      className={cls}
+      onClick={onClick ? () => onClick(action) : undefined}
+      disabled={!onClick}
+    >
+      <span
+        className={[
+          "shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-of-sm",
+          "bg-of-accent-soft text-of-accent",
+        ].join(" ")}
+        aria-hidden
+      >
+        <Glyph name="pencil" size={12} tone="var(--of-accent)" />
+      </span>
+      <span className="text-of-13 text-of-text truncate flex-1">
+        {action.display_name || action.name}
+      </span>
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Link types graph panel                                                     */
+/* ------------------------------------------------------------------------- */
+
+interface ObjectTypeLinkGraphPanelProps {
+  currentType: ObjectType;
+  links: LinkType[];
+  typeById: Map<string, ObjectType>;
+  selectedLinkId?: string | null;
+  onSelectLink?: (link: LinkType) => void;
+  onNewLink?: () => void;
+}
+
+type LinkPanelMode = "graph" | "list";
+
+export function ObjectTypeLinkGraphPanel({
+  currentType,
+  links,
+  typeById,
+  selectedLinkId,
+  onSelectLink,
+  onNewLink,
+}: ObjectTypeLinkGraphPanelProps) {
+  const [mode, setMode] = useState<LinkPanelMode>("graph");
+  const [cy, setCy] = useState<Core | null>(null);
+
+  const { elements, stylesheet, layout } = useMemo(
+    () => buildLinkGraph(currentType, links, typeById),
+    [currentType, links, typeById],
+  );
+
+  return (
+    <section
+      className={[
+        "p-4 bg-of-surface-raised border border-of-border rounded-of-md shadow-of-card",
+        "flex flex-col gap-3",
+      ].join(" ")}
+      aria-label="Link types"
+    >
+      <header className="flex items-center gap-2">
+        <h3 className="text-of-16 font-of-semibold text-of-text">Link types</h3>
+        <span className="text-of-13 text-of-text-muted tabular-nums">
+          {links.length}
+        </span>
+        {onNewLink ? (
+          <button
+            type="button"
+            onClick={onNewLink}
+            className={[
+              "ml-auto inline-flex items-center gap-1 h-7 px-2 rounded-of-sm",
+              "text-of-13 font-of-medium text-of-accent hover:bg-of-accent-soft",
+            ].join(" ")}
+          >
+            <Glyph name="plus" size={12} tone="currentColor" />
+            New
+          </button>
+        ) : null}
+        <ModeToggle mode={mode} onChange={setMode} className={onNewLink ? "" : "ml-auto"} />
+      </header>
+
+      {mode === "graph" ? (
+        <div className="relative rounded-of-sm border border-of-border bg-of-surface overflow-hidden">
+          <div className="absolute top-2 left-2 z-10 flex flex-col gap-1">
+            <CanvasButton
+              ariaLabel="Zoom in"
+              onClick={() => cy?.zoom({ level: cy.zoom() * 1.2, renderedPosition: { x: 0, y: 0 } })}
+            >
+              <Glyph name="plus" size={14} tone="currentColor" />
+            </CanvasButton>
+            <CanvasButton
+              ariaLabel="Zoom out"
+              onClick={() => cy?.zoom({ level: cy.zoom() / 1.2, renderedPosition: { x: 0, y: 0 } })}
+            >
+              <Glyph name="x" size={14} tone="currentColor" />
+            </CanvasButton>
+            <CanvasButton ariaLabel="Fit to view" onClick={() => cy?.fit(undefined, 40)}>
+              <Glyph name="move" size={14} tone="currentColor" />
+            </CanvasButton>
+          </div>
+          <CytoscapeCanvas
+            elements={elements}
+            stylesheet={stylesheet}
+            layout={layout}
+            height={280}
+            onReady={(instance) => {
+              setCy(instance);
+              if (onSelectLink) {
+                instance.on("tap", "edge", (event) => {
+                  const id = event.target.id() as string;
+                  const link = links.find((entry) => entry.id === id);
+                  if (link) onSelectLink(link);
+                });
+              }
+            }}
+          />
+          {onNewLink ? (
+            <button
+              type="button"
+              onClick={onNewLink}
+              className={[
+                "absolute bottom-3 right-3 z-10",
+                "inline-flex items-center gap-1.5 h-8 px-3 rounded-of-sm",
+                "bg-of-surface-raised border border-of-border shadow-of-popover",
+                "text-of-13 font-of-medium text-of-accent hover:bg-of-accent-soft",
+              ].join(" ")}
+            >
+              <Glyph name="plus" size={12} tone="currentColor" />
+              Create new link type
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <LinkList
+          links={links}
+          typeById={typeById}
+          selectedLinkId={selectedLinkId ?? null}
+          onSelect={onSelectLink}
+        />
+      )}
+    </section>
+  );
+}
+
+function ModeToggle({
+  mode,
+  onChange,
+  className,
+}: {
+  mode: LinkPanelMode;
+  onChange: (next: LinkPanelMode) => void;
+  className?: string;
+}) {
+  const wrap = [
+    "inline-flex h-7 rounded-of-sm overflow-hidden",
+    "border border-of-border bg-of-surface-raised",
+  ];
+  if (className) wrap.push(className);
+
+  return (
+    <div className={wrap.join(" ")} role="group" aria-label="View mode">
+      <ToggleButton
+        active={mode === "graph"}
+        onClick={() => onChange("graph")}
+        ariaLabel="Graph view"
+      >
+        <Glyph name="graph" size={14} tone="currentColor" />
+      </ToggleButton>
+      <ToggleButton
+        active={mode === "list"}
+        onClick={() => onChange("list")}
+        ariaLabel="List view"
+      >
+        <Glyph name="list" size={14} tone="currentColor" />
+      </ToggleButton>
+    </div>
+  );
+}
+
+function ToggleButton({
+  active,
+  onClick,
+  ariaLabel,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  ariaLabel: string;
+  children: ReactNode;
+}) {
+  const cls = [
+    "inline-flex items-center justify-center w-7 h-full transition-colors",
+    active
+      ? "bg-of-accent-soft text-of-accent"
+      : "text-of-text-muted hover:text-of-text",
+  ].join(" ");
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      aria-label={ariaLabel}
+      className={cls}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CanvasButton({
+  ariaLabel,
+  onClick,
+  children,
+}: {
+  ariaLabel: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className={[
+        "inline-flex items-center justify-center w-7 h-7 rounded-of-sm",
+        "bg-of-surface-raised border border-of-border shadow-of-sm",
+        "text-of-text-muted hover:text-of-text hover:border-of-border-strong",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+function LinkList({
+  links,
+  typeById,
+  selectedLinkId,
+  onSelect,
+}: {
+  links: LinkType[];
+  typeById: Map<string, ObjectType>;
+  selectedLinkId: string | null;
+  onSelect?: (link: LinkType) => void;
+}) {
+  if (links.length === 0) {
+    return (
+      <p className="px-2 py-4 text-of-13 text-of-text-muted">
+        No link types yet.
+      </p>
+    );
+  }
+  return (
+    <ul className="list-none p-0 m-0 flex flex-col gap-px">
+      {links.map((link) => {
+        const selected = link.id === selectedLinkId;
+        const source =
+          typeById.get(link.source_type_id)?.display_name ?? link.source_type_id;
+        const target =
+          typeById.get(link.target_type_id)?.display_name ?? link.target_type_id;
+        const cls = [
+          "w-full flex items-center gap-2 px-2 h-9 rounded-of-sm text-left",
+          selected
+            ? "bg-of-accent-soft text-of-accent"
+            : "text-of-text hover:bg-of-surface-muted",
+        ].join(" ");
+        return (
+          <li key={link.id}>
+            <button
+              type="button"
+              onClick={onSelect ? () => onSelect(link) : undefined}
+              className={cls}
+            >
+              <Glyph name="link" size={12} tone="currentColor" />
+              <span className="text-of-13 font-of-medium truncate">
+                {source} → {target}
+              </span>
+              <span className="ml-auto text-of-12 text-of-text-muted truncate">
+                {link.display_name}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function buildLinkGraph(
+  currentType: ObjectType,
+  links: LinkType[],
+  typeById: Map<string, ObjectType>,
+): {
+  elements: ElementDefinition[];
+  stylesheet: StylesheetStyle[];
+  layout: { name: string; roots?: string; padding?: number; spacingFactor?: number };
+} {
+  const nodeIds = new Set<string>([currentType.id]);
+  const elements: ElementDefinition[] = [];
+
+  for (const link of links) {
+    nodeIds.add(link.source_type_id);
+    nodeIds.add(link.target_type_id);
+  }
+
+  for (const nodeId of nodeIds) {
+    const ot = typeById.get(nodeId);
+    elements.push({
+      data: {
+        id: nodeId,
+        label: ot?.display_name ?? ot?.name ?? nodeId,
+      },
+      classes: nodeId === currentType.id ? "central" : "neighbor",
+    });
+  }
+
+  for (const link of links) {
+    elements.push({
+      data: {
+        id: link.id,
+        source: link.source_type_id,
+        target: link.target_type_id,
+        label: link.display_name,
+      },
+    });
+  }
+
+  const stylesheet = [
+    {
+      selector: "node",
+      style: {
+        shape: "round-rectangle",
+        "background-color": "#ffffff",
+        "border-width": 1,
+        "border-color": "#e5e8eb",
+        label: "data(label)",
+        "text-valign": "center",
+        "text-halign": "center",
+        "font-size": 11,
+        "font-family": "var(--font-sans)",
+        color: "#1c2127",
+        width: "label",
+        height: 28,
+        padding: 8,
+      },
+    },
+    {
+      selector: "node.central",
+      style: {
+        "background-color": "#e8f0fb",
+        "border-color": "#215db0",
+        "border-width": 2,
+      },
+    },
+    {
+      selector: "edge",
+      style: {
+        width: 1,
+        "line-color": "#cdd2d8",
+        "curve-style": "straight",
+        "target-arrow-shape": "none",
+      },
+    },
+  ] as unknown as StylesheetStyle[];
+
+  return {
+    elements,
+    stylesheet,
+    layout: {
+      name: "breadthfirst",
+      roots: `#${currentType.id}`,
+      padding: 30,
+      spacingFactor: 1.2,
+    },
+  };
 }
