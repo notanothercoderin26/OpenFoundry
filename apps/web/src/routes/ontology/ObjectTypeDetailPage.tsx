@@ -61,9 +61,14 @@ import {
   ObjectTypeDependentsPanel,
   ObjectTypeLinkGraphPanel,
   ObjectTypeMetadataPanel,
+  ObjectTypeOverviewHeader,
   ObjectTypePropertiesPanel,
   ObjectTypeUsagePanel,
 } from '@/lib/components/ontology/ObjectTypeOverview';
+import {
+  useFavorites,
+  useToggleFavorite,
+} from '@/lib/hooks/useDiscover';
 import { SaveAsAppModal } from '@/lib/components/apps/SaveAsAppModal';
 import { Tabs } from '@/lib/components/Tabs';
 import { Glyph } from '@/lib/components/ui/Glyph';
@@ -206,6 +211,19 @@ function objectTypeDatasourcePayload(
     restricted_view_indexed_at: restrictedView.indexed_at ?? null,
   };
 }
+/**
+ * Stable mock instance count derived from the object-type id. Used by the
+ * Overview header subtitle until a real "objects materialized" endpoint
+ * lands. Same id always yields the same number so demos read consistently.
+ */
+function mockInstanceCount(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
+  const positive = Math.abs(h);
+  const buckets = [5, 12, 80, 2_000, 16_000, 34_000, 40_000];
+  return buckets[positive % buckets.length];
+}
+
 function propertyCountLabel(count: number) {
   return `${count} propert${count === 1 ? 'y' : 'ies'}`;
 }
@@ -326,6 +344,13 @@ export function ObjectTypeDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // The object type detail route doesn't yet receive the parent ontology id
+  // through context, so favourites are scoped to a stable fallback bucket.
+  // Once the page consumes an ontology context, swap this for the real id.
+  const favoritesScope = 'default';
+  const { data: favoriteIds = [] } = useFavorites(favoritesScope, 'object-type');
+  const toggleObjectFavorite = useToggleFavorite(favoritesScope, 'object-type');
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('overview');
   const [saveAsOpen, setSaveAsOpen] = useState(false);
@@ -557,40 +582,18 @@ export function ObjectTypeDetailPage() {
 
   return (
     <section className="of-page" style={{ padding: 24, display: 'grid', gap: 16 }}>
-      <Link to="/ontology" style={{ color: 'var(--text-muted)', fontSize: 13 }}>Back to ontology</Link>
-
-      <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
-          <div
-            aria-hidden="true"
-            style={{
-              width: 56,
-              height: 56,
-              background: type.color || '#4d8cf0',
-              borderRadius: 8,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              fontSize: 24,
-              flexShrink: 0,
-            }}
-          >
-            {type.icon || type.display_name.slice(0, 1).toUpperCase()}
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <h1 className="of-heading-xl">{type.display_name}</h1>
-            <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12, overflowWrap: 'anywhere' }}>
-              {type.id} / name: {type.name} / pk: {type.primary_key_property ?? '-'}
-            </p>
-            {type.description && <p style={{ margin: '8px 0 0', maxWidth: 760 }}>{type.description}</p>}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Link to="/object-link-types" className="of-button">Manage schema</Link>
-          <Link to="/action-types" className="of-button">Action types</Link>
-        </div>
-      </header>
+      <ObjectTypeOverviewHeader
+        objectType={type}
+        instanceCount={mockInstanceCount(type.id)}
+        favorite={favoriteIds.includes(type.id)}
+        onToggleFavorite={() => toggleObjectFavorite.mutate(type.id)}
+        onActions={() => {
+          /* TODO: surface a context menu (rename/delete/duplicate). */
+        }}
+        onOpenIn={() => navigate('/ontology')}
+        onEditGroups={() => navigate('/ontology-manager?section=groups')}
+        onBack={() => navigate('/ontology')}
+      />
 
       {error && (
         <div className="of-status-danger" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>

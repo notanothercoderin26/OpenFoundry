@@ -6,6 +6,7 @@ import type {
   LinkType,
   ObjectType,
   ObjectTypeBinding,
+  OntologyObjectTypeGroup,
   Property,
 } from "@/lib/api/ontology";
 import type { Dataset } from "@/lib/api/datasets";
@@ -13,6 +14,10 @@ import { CytoscapeCanvas } from "@components/CytoscapeCanvas";
 import { EChartCanvas } from "@components/EChartCanvas";
 import { Badge } from "@components/ui/Badge";
 import { Glyph, type GlyphName } from "@components/ui/Glyph";
+import { GroupChip } from "@components/ui/GroupChip";
+import { ResourceIcon } from "@components/ui/ResourceIcon";
+import { StarFavoriteButton } from "@components/ui/StarFavoriteButton";
+import { ontologyGroupColor } from "@components/ontology/groupColors";
 
 /* ------------------------------------------------------------------------- */
 /* Helpers                                                                    */
@@ -1673,4 +1678,182 @@ function buildUsageOptions(series: UsageSeries) {
       },
     ],
   };
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overview header                                                            */
+/* ------------------------------------------------------------------------- */
+
+interface ObjectTypeOverviewHeaderProps {
+  objectType: ObjectType;
+  /** Resolved group definitions; used to fetch counts for the group chip. */
+  objectTypeGroups?: OntologyObjectTypeGroup[];
+  /** Total instances in the object type's data set. */
+  instanceCount?: number;
+  favorite?: boolean;
+  onToggleFavorite?: () => void;
+  onActions?: () => void;
+  onOpenIn?: () => void;
+  onEditGroups?: () => void;
+  /** Back-link callback. Renders only when provided. */
+  onBack?: () => void;
+}
+
+export function ObjectTypeOverviewHeader({
+  objectType,
+  objectTypeGroups,
+  instanceCount,
+  favorite = false,
+  onToggleFavorite,
+  onActions,
+  onOpenIn,
+  onEditGroups,
+  onBack,
+}: ObjectTypeOverviewHeaderProps) {
+  const groupName = objectType.group_names?.[0];
+  const extraGroups = (objectType.group_names?.length ?? 0) - 1;
+  const groupDef = groupName
+    ? objectTypeGroups?.find(
+        (entry) =>
+          entry.name === groupName || entry.display_name === groupName,
+      )
+    : undefined;
+  const groupColor = ontologyGroupColor(
+    groupDef?.display_name ?? groupName ?? objectType.display_name,
+  );
+  const groupCount =
+    groupDef?.object_type_count ?? groupDef?.object_type_ids?.length ?? 0;
+
+  return (
+    <header
+      className={[
+        "flex flex-col gap-2 px-1",
+        // Sticky header keeps the title visible while scrolling the
+        // long Overview panel stack; offsets match the shell top bar.
+      ].join(" ")}
+    >
+      {onBack ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className={[
+            "self-start inline-flex items-center gap-1 h-6 px-1 -ml-1 rounded-of-sm",
+            "text-of-12 font-of-medium text-of-text-muted hover:text-of-text",
+          ].join(" ")}
+        >
+          <Glyph name="chevron-left" size={12} tone="currentColor" />
+          Object types
+        </button>
+      ) : null}
+
+      <div className="flex items-start gap-3 min-w-0">
+        <ResourceIcon
+          glyph="cube"
+          color={groupColor}
+          size="lg"
+          tone="soft"
+        />
+        <div className="flex flex-col min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h1 className="text-of-24 font-of-semibold text-of-text truncate m-0">
+              {objectType.display_name || objectType.name}
+            </h1>
+            {onToggleFavorite ? (
+              <StarFavoriteButton
+                value={favorite}
+                onChange={onToggleFavorite}
+                size="md"
+                stopPropagation={false}
+              />
+            ) : null}
+          </div>
+          <p className="text-of-13 text-of-text-muted m-0">
+            Object type
+            {instanceCount != null ? (
+              <>
+                <span className="mx-1">·</span>
+                <span className="tabular-nums">
+                  {formatInstanceCount(instanceCount)}
+                </span>
+              </>
+            ) : null}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <HeaderActionButton onClick={onActions}>
+            Actions
+            <Glyph name="chevron-down" size={11} tone="currentColor" />
+          </HeaderActionButton>
+          <HeaderActionButton onClick={onOpenIn}>
+            Open in
+            <Glyph name="chevron-down" size={11} tone="currentColor" />
+          </HeaderActionButton>
+        </div>
+      </div>
+
+      {(groupName || onEditGroups) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {groupName ? (
+            <GroupChip
+              name={groupDef?.display_name ?? groupName}
+              count={groupCount}
+              color={groupColor}
+              size="sm"
+            />
+          ) : null}
+          {extraGroups > 0 ? (
+            <span className="text-of-12 text-of-text-muted">
+              +{extraGroups} more
+            </span>
+          ) : null}
+          {onEditGroups ? (
+            <button
+              type="button"
+              onClick={onEditGroups}
+              className={[
+                "inline-flex items-center gap-1 h-6 px-1.5 rounded-of-sm",
+                "text-of-12 font-of-medium text-of-accent hover:bg-of-accent-soft",
+              ].join(" ")}
+            >
+              <Glyph name="pencil" size={11} tone="currentColor" />
+              Edit groups
+            </button>
+          ) : null}
+        </div>
+      )}
+    </header>
+  );
+}
+
+function HeaderActionButton({
+  onClick,
+  children,
+}: {
+  onClick?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className={[
+        "inline-flex items-center gap-1.5 h-8 px-3 rounded-of-sm",
+        "border border-of-border bg-of-surface-raised text-of-13 font-of-medium text-of-text",
+        "hover:border-of-border-strong disabled:opacity-60 disabled:cursor-default",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+function formatInstanceCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M objects`;
+  if (n >= 1_000) {
+    const k = n / 1_000;
+    return `${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k objects`;
+  }
+  return `${n} object${n === 1 ? "" : "s"}`;
 }
