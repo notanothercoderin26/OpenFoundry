@@ -621,6 +621,14 @@ export interface UpdateSourceRequest {
   config?: Record<string, unknown>;
 }
 
+export interface MigrateToFoundryWorkerRequest {
+  representative_agent_id?: string;
+  certificates?: string[];
+  driver_id?: string;
+  egress_policy_ids?: string[];
+  acknowledged: boolean;
+}
+
 export interface DuplicateSourceRequest {
   name: string;
   description?: string;
@@ -3562,6 +3570,32 @@ export const dataConnection = {
   },
   deleteConnectorAgent(id: string): Promise<void> {
     return api.delete(`${BASE}/agents/${id}`);
+  },
+
+  async listSourceAgents(sourceId: string): Promise<ConnectorAgent[]> {
+    const res = await api.get<ApiListEnvelope<ConnectorAgent> | ConnectorAgent[]>(
+      `${BASE}/sources/${encodeURIComponent(sourceId)}/agents`,
+    );
+    return listItems(res);
+  },
+  assignAgentToSource(sourceId: string, agentId: string): Promise<ConnectorAgent> {
+    return api.post(`${BASE}/sources/${encodeURIComponent(sourceId)}/agents`, {
+      agent_id: agentId,
+    });
+  },
+  unassignAgentFromSource(sourceId: string, agentId: string): Promise<void> {
+    return api.delete(
+      `${BASE}/sources/${encodeURIComponent(sourceId)}/agents/${encodeURIComponent(agentId)}`,
+    );
+  },
+  migrateToFoundryWorker(
+    sourceId: string,
+    body: MigrateToFoundryWorkerRequest,
+  ): Promise<Source> {
+    return api.post(
+      `${BASE}/sources/${encodeURIComponent(sourceId)}/migrate-to-foundry-worker`,
+      body,
+    );
   },
 
   // Egress policy bindings -------------------------------------------------

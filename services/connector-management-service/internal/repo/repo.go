@@ -140,6 +140,29 @@ func (r *Repo) DeleteConnection(ctx context.Context, id uuid.UUID) (bool, error)
 	return cmd.RowsAffected() > 0, nil
 }
 
+// MigrateConnectionToFoundryWorker snapshots the source's current config into
+// `previous_config_snapshot`, stamps `migrated_at = NOW()`, and merges
+// `worker = "foundry"` into the active config. Callers have a 30-day window
+// to revert by copying `previous_config_snapshot` back over `config`.
+func (r *Repo) MigrateConnectionToFoundryWorker(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (*models.Connection, error) {
+	row := r.Pool.QueryRow(ctx,
+		`UPDATE connections
+		 SET previous_config_snapshot = config,
+		     migrated_at = NOW(),
+		     config = config || '{"worker": "foundry"}'::jsonb,
+		     updated_at = NOW()
+		 WHERE id = $1 AND owner_id = $2
+		 RETURNING id, name, connector_type, config, status,
+		           owner_id, last_sync_at, created_at, updated_at`,
+		id, ownerID,
+	)
+	v, err := scanConnection(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
 type rowLikeT interface{ Scan(...any) error }
 
 func scanConnection(r rowLikeT) (*models.Connection, error) {

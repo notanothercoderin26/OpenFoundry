@@ -7,7 +7,8 @@ export type GlyphName =
   | 'tag' | 'trash' | 'star' | 'star-filled' | 'eye' | 'lock' | 'shield' | 'shield-plus'
   | 'external-link' | 'info' | 'duplicate' | 'asterisk' | 'autosaved' | 'cover-page'
   | 'pie-chart' | 'project' | 'undo' | 'circle-x' | 'add-user' | 'tour' | 'pencil'
-  | 'move' | 'badge-check' | 'view-grid' | 'login';
+  | 'move' | 'badge-check' | 'view-grid' | 'login'
+  | 'mail' | 'apps-grid' | 'filter' | 'back-arrow' | 'share' | 'lineage' | 'book-open';
 
 interface GlyphProps {
   name?: GlyphName;
@@ -94,6 +95,32 @@ const PATHS: Record<string, string[]> = {
   pencil: ['M4 20l1-4 11-11 3 3-11 11z', 'M14 7l3 3'],
   move: ['M12 4.5v15', 'M4.5 12h15', 'M9 7l3-3 3 3', 'M9 17l3 3 3-3', 'M7 9l-3 3 3 3', 'M17 9l3 3-3 3'],
   login: ['M14 5h4a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4', 'M10 8l-4 4 4 4', 'M15 12H6'],
+  mail: ['M4.5 6.5h15v11h-15z', 'M4.5 7l7.5 6 7.5-6'],
+  'apps-grid': [
+    'M5.5 5.5h.01', 'M12 5.5h.01', 'M18.5 5.5h.01',
+    'M5.5 12h.01', 'M12 12h.01', 'M18.5 12h.01',
+    'M5.5 18.5h.01', 'M12 18.5h.01', 'M18.5 18.5h.01',
+  ],
+  filter: ['M4.5 6h15l-5.6 7v5.5l-3.8-1.8v-3.7z'],
+  'back-arrow': ['M19 12H5', 'M11 6l-6 6 6 6'],
+  share: [
+    'M4.5 12a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0z',
+    'M15 5a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0z',
+    'M15 19a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0z',
+    'M9.4 10.8l5.7-3.6',
+    'M9.4 13.2l5.7 3.6',
+  ],
+  lineage: [
+    'M3.5 8.5h5v5h-5z',
+    'M15.5 4.5h5v5h-5z',
+    'M15.5 14.5h5v5h-5z',
+    'M8.5 10l7-3',
+    'M8.5 12l7 5',
+  ],
+  'book-open': [
+    'M4 6c2-1 5-1 8 0v13c-3-1-6-1-8 0z',
+    'M20 6c-2-1-5-1-8 0v13c3-1 6-1 8 0z',
+  ],
 };
 
 export function Glyph({ name = 'cube', size = 18, strokeWidth = 1.8, tone = null, filled }: GlyphProps) {
