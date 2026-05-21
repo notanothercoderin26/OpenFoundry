@@ -1,0 +1,349 @@
+# Canonical declarative spec for the Geopolitical Intelligence PoC
+# entity-resolution rules — 2 MatchRules (Person, Organization),
+# 1 MergeStrategy (canonical Actor golden record), 1 FusionJob.
+# SOURCE OF TRUTH for the rows the operator POSTs to
+# entity-resolution-service via:
+#
+#   POST /api/v1/fusion/rules               (NOTE: real route — NOT /fusion/match-rules)
+#   POST /api/v1/fusion/merge-strategies
+#   POST /api/v1/fusion/jobs
+#   POST /api/v1/fusion/jobs/{id}/run
+#
+# Foundry-native framing
+# -----------------------
+# Per Palantir's Data Health page, an ER transform's precision and
+# recall are surfaced as Data Health checks. The publisher cabling
+# is closed (Gap 2); this asset is its parameterisation. References:
+#
+#   - https://www.palantir.com/docs/foundry/observability/data-health/
+#   - PoC/geopolitica/06-pipelines-y-transformaciones.md §"entity resolution"
+#
+# Engine constraints (do NOT touch the ER engine — closed in Gap 2)
+# ------------------------------------------------------------------
+# The engine ports the Rust fusion_base implementation. It only
+# understands the primitives below; the YAML uses those names
+# verbatim. Anywhere the PoC narrative wants something the engine
+# does not implement (e.g. "union_unique", "weighted_average"), the
+# YAML picks the closest supported primitive AND documents the gap
+# under `engine_mapping_notes` so the operator surfaces it honestly.
+#
+# Supported comparators (services/entity-resolution-service/internal/domain/engine/comparator.go):
+#   exact | email_exact | phone_exact | levenshtein | jaro_winkler |
+#   soundex | metaphone | phonetic
+#
+# Supported blocking strategy_types (.../engine/blocking.go):
+#   key-based | sorted-neighborhood | lsh
+#
+# Supported survivorship strategies (.../domain/merge.go):
+#   source_priority | highest_confidence | most_common | (default = longest non-empty)
+#
+# Thresholds (per user spec)
+# ---------------------------
+# review_threshold = 0.75 → between 0.75 and 0.92 → review queue
+# auto_merge_threshold = 0.92 → ≥ 0.92 → auto-merge
+# Stricter than the 0.65/0.85 in 06-pipelines; the tighter window
+# is intentional so the demo's review queue is non-trivial.
+
+er_rules:
+  schema_version: geopolitica.er-rules.v1
+
+  # ──────────────────────────────────────────────────────────────────
+  # MatchRule #1 — Person dedup across OFAC / EU / OpenSanctions / Wikidata
+  # ──────────────────────────────────────────────────────────────────
+  match_rules:
+
+    - name: actor-person-cross-source
+      description: |
+        Resolve Person candidates emerging from OFAC SDN, EU
+        Consolidated, OpenSanctions, and Wikidata into a single
+        canonical Actor row. The Wikidata Q-ID exact-match is the
+        hardest signal (weight 1.0 — agreement alone clears the
+        auto-merge threshold). Jaro-Winkler on display_name plus
+        country and birth-date give the soft signals.
+      entity_type: person
+      status: active
+
+      # Engine supports key-based | sorted-neighborhood | lsh. The
+      # PoC narrative ("3-char name prefix + country") maps best to
+      # sorted-neighborhood with country+name as the key — sorting
+      # groups similar names within each country bucket and the
+      # window catches near-neighbours. Window of 8 keeps blocks
+      # small (O(n·k) pairs) without missing late-arriving variants.
+      blocking_strategy:
+        strategy_type: sorted-neighborhood
+        key_fields: [country_iso3, display_name]
+        window_size: 8
+        bucket_count: 24
+
+      conditions:
+        - field: wikidata_qid
+          comparator: exact
+          weight: 1.0
+          threshold: 1.0
+          required: false   # not every source carries a Q-ID; soft hard-rule
+
+        - field: display_name
+          comparator: jaro_winkler
+          weight: 0.4
+          threshold: 0.92
+          required: true
+
+        - field: birth_date
+          comparator: exact
+          weight: 0.3
+          threshold: 1.0
+          required: false
+
+        - field: country_iso3
+          comparator: exact
+          weight: 0.1
+          threshold: 1.0
+          required: false
+
+      review_threshold: 0.75
+      auto_merge_threshold: 0.92
+
+    # ──────────────────────────────────────────────────────────────
+    # MatchRule #2 — Organization dedup (companies, armed groups,
+    # government bodies) — different blocking, looser name threshold
+    # because organisation aliases drift more than person names.
+    # ──────────────────────────────────────────────────────────────
+    - name: actor-organization-cross-source
+      description: |
+        Resolve Organization / ArmedGroup / GovernmentBody candidates
+        into a canonical Actor row. Names drift more than person
+        names ("Wagner Group" vs "PMC Wagner"), so the JW threshold
+        is lower and the country signal carries more weight.
+      entity_type: organization
+      status: active
+
+      blocking_strategy:
+        strategy_type: sorted-neighborhood
+        key_fields: [country_iso3, display_name]
+        window_size: 12
+        bucket_count: 24
+
+      conditions:
+        - field: wikidata_qid
+          comparator: exact
+          weight: 1.0
+          threshold: 1.0
+          required: false
+
+        - field: display_name
+          comparator: jaro_winkler
+          weight: 0.5
+          threshold: 0.90
+          required: true
+
+        - field: country_iso3
+          comparator: exact
+          weight: 0.2
+          threshold: 1.0
+          required: false
+
+      review_threshold: 0.75
+      auto_merge_threshold: 0.92
+
+  # ──────────────────────────────────────────────────────────────────
+  # MergeStrategy — canonical Actor golden record. Source priority
+  # encodes the trust ordering established in 03-datasets:
+  #   wikidata    — canonical labels + Q-IDs (CC0, well-curated)
+  #   ofac        — US Treasury-authoritative sanctions attribution
+  #   eu          — EU-authoritative sanctions attribution
+  #   opensanctions — broad aggregator; lowest priority for canonical fields
+  # The same priority list is intentionally reused for `is_sanctioned`
+  # because the sanctions sources (OFAC/EU/OpenSanctions) are the only
+  # ones that ever set it true — `source_priority` over those is the
+  # engine-supported way to express "any sanctions source wins".
+  # ──────────────────────────────────────────────────────────────────
+  merge_strategies:
+
+    - name: actor-golden-record
+      description: |
+        Survivorship rules for the canonical Actor row produced by
+        the Person + Organization fusion jobs. Source priority is
+        Wikidata > OFAC > EU > OpenSanctions for canonical fields;
+        is_sanctioned uses the sanctions-source-only priority.
+      entity_type: person       # also used by the organization job; engine treats this as a label
+      status: active
+      default_strategy: highest_confidence   # applies when a rule's strategy is left blank
+
+      rules:
+        - field: display_name
+          strategy: source_priority
+          source_priority: [wikidata, ofac, eu, opensanctions]
+          fallback: longest_non_empty
+          # PoC intent: "most_recent_non_null". Engine has no
+          # recency primitive; source_priority with Wikidata first
+          # is the closest stand-in (Wikidata labels are the most
+          # canonical we have).
+
+        - field: country_iso3
+          strategy: most_common
+          source_priority: []
+          fallback: ""
+
+        - field: is_sanctioned
+          strategy: source_priority
+          source_priority: [ofac, eu, opensanctions]
+          fallback: ""
+          # PoC intent: "any_true". Engine has no boolean-union
+          # primitive; source_priority over the three sanctions
+          # sources approximates it — if any of OFAC/EU/OpenSanctions
+          # has the row, that row's is_sanctioned wins.
+
+        - field: aliases
+          strategy: source_priority
+          source_priority: [wikidata, opensanctions, ofac, eu]
+          fallback: longest_non_empty
+          # PoC intent: "union_unique" of all source aliases. Engine
+          # picks ONE row's aliases rather than unioning. See
+          # `engine_mapping_notes.aliases_union` below for the
+          # post-projection step that recovers union semantics in
+          # the pipeline.
+
+        - field: confidence
+          strategy: highest_confidence
+          source_priority: []
+          fallback: ""
+          # PoC intent: "weighted_average". Engine has no weighted
+          # average; picking the highest-confidence row's confidence
+          # is the engine-supported stand-in.
+
+        - field: birth_date
+          strategy: source_priority
+          source_priority: [wikidata, ofac, eu, opensanctions]
+          fallback: ""
+
+        - field: wikidata_qid
+          strategy: source_priority
+          source_priority: [wikidata, opensanctions, ofac, eu]
+          fallback: ""
+
+  # ──────────────────────────────────────────────────────────────────
+  # FusionJob — one per entity_type. Both jobs share the merge
+  # strategy above (the engine's `entity_type` on MergeStrategy is a
+  # label, not an enforced filter). Source bindings reuse the
+  # SourceLabel naming established in Gap 2 (loader.go) and the
+  # canonical source slugs from PoC/geopolitica/03-datasets.
+  # ──────────────────────────────────────────────────────────────────
+  fusion_jobs:
+
+    - name: actor-canonical-resolution-person
+      description: Person canonical resolution across OFAC / EU / OpenSanctions / Wikidata.
+      entity_type: person
+      match_rule_ref: actor-person-cross-source
+      merge_strategy_ref: actor-golden-record
+      config:
+        source_labels: [ofac, eu, opensanctions, wikidata]
+        record_count: 50_000
+        review_sampling_rate: 0.25
+        sources:
+          - source_label: ofac
+            object_type_id: Person
+            display_property: name
+            default_confidence: 0.95
+          - source_label: eu
+            object_type_id: Person
+            display_property: name
+            default_confidence: 0.92
+          - source_label: opensanctions
+            object_type_id: Person
+            display_property: caption
+            default_confidence: 0.80
+          - source_label: wikidata
+            object_type_id: Person
+            record_id_property: wikidata_qid
+            display_property: label
+            default_confidence: 0.98
+
+    - name: actor-canonical-resolution-organization
+      description: Organization / ArmedGroup / GovernmentBody canonical resolution across the same four sources.
+      entity_type: organization
+      match_rule_ref: actor-organization-cross-source
+      merge_strategy_ref: actor-golden-record
+      config:
+        source_labels: [ofac, eu, opensanctions, wikidata]
+        record_count: 30_000
+        review_sampling_rate: 0.25
+        sources:
+          - source_label: ofac
+            object_type_id: Organization
+            display_property: name
+            default_confidence: 0.95
+          - source_label: eu
+            object_type_id: Organization
+            display_property: name
+            default_confidence: 0.92
+          - source_label: opensanctions
+            object_type_id: Organization
+            display_property: caption
+            default_confidence: 0.80
+          - source_label: wikidata
+            object_type_id: Organization
+            record_id_property: wikidata_qid
+            display_property: label
+            default_confidence: 0.98
+
+  # ──────────────────────────────────────────────────────────────────
+  # Engine-mapping gaps — surfaced explicitly so the demo narrative
+  # can address them honestly per the 00-contract "do not oversell"
+  # rule. Each item points at a future PR if/when the engine grows
+  # the missing primitive.
+  # ──────────────────────────────────────────────────────────────────
+  engine_mapping_notes:
+
+    aliases_union:
+      poc_intent: union_unique of aliases across all merged source rows
+      engine_supported: false
+      stand_in: source_priority [wikidata, opensanctions, ofac, eu]
+      post_projection: |
+        In the curated.actor projector (pipeline-build-service), after
+        the engine emits the golden row, a follow-up Spark step
+        unions all source aliases per cluster and overwrites
+        Actor.aliases with the deduped union. Engine selection is
+        only the seed value.
+
+    confidence_weighted_average:
+      poc_intent: weighted average of per-row confidence weighted by source priority
+      engine_supported: false
+      stand_in: highest_confidence
+      post_projection: |
+        Out of scope for the PoC. Demo footnote: "Confidence shown
+        is the highest of the merged rows; weighted-average is on
+        the roadmap once entity-resolution-service exposes a custom
+        aggregation hook."
+
+    non_latin_name_matching:
+      poc_intent: transliteration-aware match for Cyrillic / Arabic / Hebrew names
+      engine_supported: partial
+      stand_in: jaro_winkler over the romanised display_name
+      post_projection: |
+        The bronze decoders romanise non-Latin display names BEFORE
+        emitting the EntityRecord. Matching on the romanised form is
+        good enough for the demo's focus countries (UA, RU, SD, SY)
+        but is documented as a known limitation. True transliteration
+        would require an external ICU / Unidecode stage.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Acceptance — operator runs the register + run sequence in the
+  # runbook and ticks each box.
+  # ──────────────────────────────────────────────────────────────────
+  acceptance:
+    - id: rules-created
+      check: "GET /api/v1/fusion/rules returns 2 rows (actor-person-cross-source, actor-organization-cross-source)."
+    - id: merge-strategy-created
+      check: "GET /api/v1/fusion/merge-strategies returns ≥ 1 row named actor-golden-record."
+    - id: jobs-created
+      check: "GET /api/v1/fusion/jobs returns 2 rows referencing the two match rules + the shared merge strategy."
+    - id: run-produces-clusters
+      check: "POST /api/v1/fusion/jobs/{id}/run completes without 5xx; response cluster_ids length > 0 and golden_record_ids length > 0."
+    - id: golden-record-count
+      check: "Person job: ~5000 golden records from ~30000 input candidates (within ±20%)."
+    - id: review-queue-non-trivial
+      check: "GET /api/v1/fusion/review-queue returns 200–500 borderline cases scoring in [0.75, 0.92)."
+    - id: data-health-precision
+      check: "Data Health surface for the ER node shows precision_estimate ≥ 0.85 and recall_estimate ≥ 0.70."
+    - id: workshop-cluster-table
+      check: "Workshop module renders the review queue as an Object Table backed by the FusionJob's clusters."
