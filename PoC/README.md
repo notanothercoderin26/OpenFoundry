@@ -8,6 +8,7 @@ Each PoC lives in its own folder, with the same 14-document structure (00 → 13
 |---|---|---|---|---|
 | [`aviacion/`](aviacion/) | Civil aviation — fleet operations + MRO maintenance | Airbus Skywise / Foundry MRO | Docs ready, awaiting MVP | [`aviacion/README.md`](aviacion/README.md) |
 | [`geopolitica/`](geopolitica/) | Geopolitical intelligence — actors, events, sanctions | Foundry / Gotham-style intelligence workflows | Docs ready, awaiting MVP | [`geopolitica/README.md`](geopolitica/README.md) |
+| [`seguridad-urbana/`](seguridad-urbana/) | Urban public-safety operational intelligence — incidents, neighborhoods, shifts, reinforcement zones | Foundry / public-safety operational intelligence deployments (LAPD/NYPD-style) | Docs ready, awaiting MVP | [`seguridad-urbana/README.md`](seguridad-urbana/README.md) |
 
 ---
 
@@ -17,6 +18,7 @@ Each PoC lives in its own folder, with the same 14-document structure (00 → 13
 |---|---|
 | Airline, MRO provider, airport authority, defense maintenance | **aviacion** |
 | National intelligence agency, sanctions compliance, financial intelligence unit, defense analyst, NGO conflict monitoring | **geopolitica** |
+| Municipal police force, regional public-safety analytics, metropolitan emergency-management agency | **seguridad-urbana** |
 | Anyone interested in *both* | Run **aviacion** first; it is the most "operational" narrative and easier to anchor on KPIs. Use **geopolitica** as a second meeting if the customer wants to see graph+entity-resolution workloads. |
 
 ## Common ground (read once, applies to both)
