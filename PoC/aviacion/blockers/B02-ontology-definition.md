@@ -56,6 +56,18 @@ because the platform emits **schema-change events** on the data bus.
 
 ## Current OpenFoundry surface (evidence)
 
+> ⚠️ **Historical snapshot — superseded.** This section describes the
+> service **as it was when this file was first written, before the
+> outbox + Debezium work landed**. It is preserved so a future reader
+> can audit the gap-closure trail. For the **current** state of the
+> service — outbox table, Debezium connector, integration tests,
+> action-type CRUD lifted into `ontology-actions-service`, OpenAPI
+> spec — jump to *Status as of 2026-05-20 (Phase 1 closure)* further
+> down this file. Every row of the table below whose state the
+> Phase 1 work touches is annotated there with the migration / file /
+> test that closes it.
+
+
 | Layer | File | State |
 |---|---|---|
 | Service main | [services/ontology-definition-service/cmd/ontology-definition-service/main.go](../../../services/ontology-definition-service/cmd/ontology-definition-service/main.go) | 75 LOC, real bootstrap: pgxpool, JWT, tracing, metrics, probes, server |
