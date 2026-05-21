@@ -80,9 +80,9 @@ jobs:
           - tenancy-organizations-service
           - workflow-automation-service
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -90,7 +90,7 @@ jobs:
       # Tag policy: branch ref (e.g. `main`), semver on tag push (e.g.
       # `1.2.3`), and the commit SHA. We intentionally do NOT emit a
       # `latest` tag — production deploys pin to an immutable SHA.
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v6
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
@@ -100,7 +100,7 @@ jobs:
             type=sha
       - name: Assert service Dockerfile exists
         run: test -f "services/${{ matrix.service }}/Dockerfile"
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: services/${{ matrix.service }}/Dockerfile

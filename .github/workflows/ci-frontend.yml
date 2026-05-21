@@ -73,21 +73,21 @@ jobs:
             --shard=${{ matrix.shard }}/4
       - name: Upload HTML report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-${{ matrix.browser }}-shard${{ matrix.shard }}
           path: apps/web/playwright-report
           retention-days: 14
       - name: Upload traces, screenshots & videos
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-traces-${{ matrix.browser }}-shard${{ matrix.shard }}
           path: apps/web/test-results
           retention-days: 14
       - name: Upload JUnit results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-junit-${{ matrix.browser }}-shard${{ matrix.shard }}
           path: apps/web/test-results/junit.xml
