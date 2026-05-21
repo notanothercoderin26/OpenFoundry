@@ -54,7 +54,7 @@ import { ObjectDetailDrawer } from '@/lib/components/ontology/ObjectDetailDrawer
 import { VertexEventCapabilityEditor } from '@/lib/components/ontology/VertexEventCapabilityEditor';
 import { LinkTypeEdgeDirectionEditor } from '@/lib/components/ontology/LinkTypeEdgeDirectionEditor';
 import { ObjectExplorer } from '@/lib/components/ontology/ObjectExplorer';
-import { PropertyPanel } from '@/lib/components/ontology/PropertyPanel';
+import { PropertyEditor } from '@/lib/components/ontology/PropertyEditor';
 import {
   ObjectTypeActionsPanel,
   ObjectTypeDataPanel,
@@ -222,10 +222,6 @@ function mockInstanceCount(id: string): number {
   const positive = Math.abs(h);
   const buckets = [5, 12, 80, 2_000, 16_000, 34_000, 40_000];
   return buckets[positive % buckets.length];
-}
-
-function propertyCountLabel(count: number) {
-  return `${count} propert${count === 1 ? 'y' : 'ies'}`;
 }
 
 function typeName(typeById: Map<string, ObjectType>, id: string) {
@@ -690,20 +686,13 @@ export function ObjectTypeDetailPage() {
       )}
 
       {tab === 'properties' && (
-        <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 10 }}>
-          <p className="of-eyebrow">{propertyCountLabel(properties.length)}</p>
-          {properties.map((property) => (
-            <PropertyPanel
-              key={property.id}
-              property={property}
-              typeId={type.id}
-              isPrimaryKey={type.primary_key_property === property.name}
-              valueTypes={valueTypes}
-              onUpdated={(updated) => setProperties((current) => current.map((item) => (item.id === updated.id ? updated : item)))}
-            />
-          ))}
-          {properties.length === 0 && <p className="of-text-muted">No properties.</p>}
-        </section>
+        <PropertyEditor
+          properties={properties}
+          primaryKeyName={type.primary_key_property}
+          titleKeyName={type.title_property}
+          bindings={objectTypeBindings}
+          datasets={datasets}
+        />
       )}
 
       {tab === 'objects' && (
