@@ -80,7 +80,8 @@ import { RecentObjectsList } from './components/RecentObjectsList';
 import { AffordancesPanel } from './components/AffordancesPanel';
 import { ObjectPreviewPanel } from './components/ObjectPreviewPanel';
 import { SavedExplorationsPanel } from './components/SavedExplorationsPanel';
-import { SideNavGroups, type SideNavSelection } from './components/SideNavGroups';
+import { SideNavBrowse, type SideNavSelection } from './components/SideNavBrowse';
+import { SideNavSearch, type SearchSideNavSelection } from './components/SideNavSearch';
 import { TypePreviewPopover } from './components/TypePreviewPopover';
 import { objectExplorerKeys, useObjectExplorerInitialData, useTypeProperties } from './queries';
 import {
@@ -209,6 +210,7 @@ export function ObjectExplorerPage() {
   const [activeTab, setActiveTab] = useState<ObjectExplorerTab>('overview');
   const explorerTabs = useExplorerTabs();
   const [sideNavSelection, setSideNavSelection] = useState<SideNavSelection>({ kind: 'all' });
+  const [searchSideNavSelection, setSearchSideNavSelection] = useState<SearchSideNavSelection>({ kind: 'all' });
   const [groupsPage, setGroupsPage] = useState(0);
   const [favoriteTypeIds, setFavoriteTypeIds] = useState<Set<string>>(() => new Set(readFavoriteTypeIds()));
   const [previewTypeId, setPreviewTypeId] = useState<string | null>(null);
@@ -1338,19 +1340,46 @@ export function ObjectExplorerPage() {
           <ExplorerTabs tabs={tabDefinitions} active={activeTab} onChange={setActiveTab} />
 
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(200px, 240px) minmax(0, 1fr)', alignItems: 'start' }}>
-            <SideNavGroups
-              groups={explorerGroups}
-              selection={sideNavSelection}
-              onSelect={(next) => {
-                setSideNavSelection(next);
-                if (next.kind === 'explorations') setActiveTab('artifacts');
-                else if (activeTab === 'artifacts') setActiveTab('overview');
-              }}
-              favoritesCount={favoriteTypeIds.size}
-              explorationsCount={visibleObjectSets.length}
-              page={groupsPage}
-              onChangePage={setGroupsPage}
-            />
+            {hasSearched && searchQuery.trim().length > 0 ? (
+              <SideNavSearch
+                searchResults={searchResults}
+                groups={explorerGroups}
+                typeById={typeById}
+                selection={searchSideNavSelection}
+                onSelect={(next) => {
+                  setSearchSideNavSelection(next);
+                  if (next.kind === 'all') {
+                    setScopeTypeIds(new Set());
+                    setActiveTab('overview');
+                  } else if (next.kind === 'type') {
+                    setScopeTypeIds(new Set([next.typeId]));
+                    setActiveTab('objects');
+                  } else if (next.kind === 'group') {
+                    const group = explorerGroups.find((entry) => entry.id === next.groupId);
+                    setScopeTypeIds(new Set(group?.object_type_ids ?? []));
+                    setActiveTab('types');
+                  } else if (next.kind === 'artifacts') {
+                    setActiveTab('artifacts');
+                  }
+                }}
+                onViewAllObjectTypeFilters={() => setActiveTab('objects')}
+                onViewAllGroupFilters={() => setActiveTab('types')}
+              />
+            ) : (
+              <SideNavBrowse
+                groups={explorerGroups}
+                selection={sideNavSelection}
+                onSelect={(next) => {
+                  setSideNavSelection(next);
+                  if (next.kind === 'explorations') setActiveTab('artifacts');
+                  else if (activeTab === 'artifacts') setActiveTab('overview');
+                }}
+                favoritesCount={favoriteTypeIds.size}
+                explorationsCount={visibleObjectSets.length}
+                page={groupsPage}
+                onChangePage={setGroupsPage}
+              />
+            )}
 
             <div style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
               {activeTab === 'overview' && (

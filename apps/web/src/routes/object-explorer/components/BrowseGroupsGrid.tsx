@@ -5,7 +5,7 @@ import type { buildObjectExplorerTypeGroups } from '@/lib/api/ontology';
 
 import { EmptyState, PanelHeader } from './atoms';
 import { GroupGraphView } from './GroupGraphView';
-import type { SideNavSelection } from './SideNavGroups';
+import type { SideNavSelection } from './SideNavBrowse';
 
 type ExplorerGroup = ReturnType<typeof buildObjectExplorerTypeGroups>[number];
 type GroupView = 'list' | 'graph';
