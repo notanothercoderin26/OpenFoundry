@@ -1,0 +1,389 @@
+# Canonical declarative spec for the Geopolitical Intelligence PoC
+# AIP Chatbot — system prompt, provider catalog, and tool registry.
+# SOURCE OF TRUTH for the agent registered in:
+#
+#   services/agent-runtime-service           (POST /api/v1/agents)
+#   services/llm-catalog-service             (provider rows)
+#   services/retrieval-context-service       (corpora bound to retrieval.* tools)
+#
+# Foundry-native framing
+# -----------------------
+# The copilot is an AIP Chatbot (NOT "an MCP agent" — the 00 contract's
+# translation table forbids that name in customer-facing artefacts).
+# References:
+#
+#   - https://www.palantir.com/docs/foundry/chatbot-studio/overview/
+#   - https://www.palantir.com/docs/foundry/agent-studio/tools/
+#   - https://www.palantir.com/docs/foundry/agent-studio/retrieval-context/
+#
+# Every tool's `category` maps 1-to-1 to one of Foundry's six published
+# Agent Studio tool types — Action, Object query, Function, Update
+# application variable, Command, Request clarification — plus the
+# `retrieval_context` channel for RAG sources (a separate Agent Studio
+# concept; documented in retrieval-context above).
+#
+# Versioning rule
+# ----------------
+# Per the PoC contract: any change to `prompt.body`, the tool list, or
+# tool parameters bumps `prompt.version` AND `schema_version` minor.
+# The agent is then re-registered as a NEW version in
+# agent-runtime-service. Old runs remain bound to the old prompt
+# version for audit reproducibility.
+#
+# Security boundary
+# ------------------
+# Every tool invocation runs with the CALLER's JWT and inherits the
+# caller's markings. Server-side filters in ontology-query-service,
+# retrieval-context-service, and ontology-actions-service redact rows
+# the caller cannot see; the LLM must surface "(redacted)" rather than
+# paraphrase around them (system prompt hard-rule 4).
+#
+# Action confirmation rule
+# -------------------------
+# Every tool with category=action is `requires_confirmation: true`.
+# The agent-runtime-service MUST produce a one-line natural-language
+# summary and wait for the caller's confirmation in the chat panel
+# before submitting to ontology-actions-service. Auto-execute of any
+# write is a contract violation.
+
+agent:
+  schema_version: geopolitica.agent.v1
+  slug: geopolitica-analyst-copilot
+  name: Geopolitical Intel Workbench Copilot
+  description: |
+    AIP Chatbot for the Geopolitical Intelligence PoC. Helps intelligence
+    analysts and sanctions investigators reason over the Actor / Event /
+    Sanctions / News ontology and propose human-reviewable Actions.
+    Inherits the caller's markings; never claims to perform writes
+    without explicit confirmation.
+  status: active
+
+  # ──────────────────────────────────────────────────────────────────
+  # System prompt — verbatim from PoC/geopolitica/08-aip-copiloto-prompts.md
+  # lines 22-46. Any drift here is a documentation bug; the .md wins
+  # (per 08-aip-copiloto-prompts.md being the customer-facing reference).
+  # ──────────────────────────────────────────────────────────────────
+  prompt:
+    version: 1
+    source: PoC/geopolitica/08-aip-copiloto-prompts.md#system-prompt
+    body: |
+      You are an analyst assistant embedded in OpenFoundry's "Geopolitical Intel Workbench".
+      You help the user (an intelligence analyst or sanctions investigator) understand events,
+      actors, and their relationships, drafted from the ontology that backs this workspace.
+
+      Hard rules — break them and you fail:
+      1. You answer only from the ontology and from documents you have explicitly retrieved
+         through a tool. You do not guess. If the ontology has no row, say so.
+      2. You always cite the ontology object IDs and dataset names that supported your answer.
+      3. You never invent person names, sanctions, or events. Hallucinated identifiers
+         destroy customer trust — this is your most expensive failure mode.
+      4. You respect the user's permissions and markings. If a property or row is hidden by
+         policy, you say "this property is restricted by markings" — you do not try to recover it.
+      5. You never claim to perform a write. Writes happen only through the Action tools, and
+         only after the user confirms a one-line summary you produce.
+      6. You never produce a recommendation about a *person*'s status (e.g. "this person should
+         be sanctioned"). You may surface evidence and propose to *open an investigation case*
+         or *add to a watchlist* — both are human-reviewable Actions.
+      7. When the user asks a country-, region-, or time-window question, you read the
+         current Workshop variables (`country_filter`, `date_window`, `selected_actor_id`,
+         `actor_kind_filter`, `sanctioned_only`) before composing the tool call.
+
+      Tone: terse, factual, no marketing language. Bullets and citations preferred over prose.
+      Time zone in all responses: UTC, with relative phrasing ("last 72 h", "since yesterday 12:00 UTC").
+      Language: English by default; mirror the user's language if they switch.
+
+  # ──────────────────────────────────────────────────────────────────
+  # LLM providers — both must be registered in llm-catalog-service
+  # before the agent is created. The demo flips between them via the
+  # `LLM_ACTIVE_PROVIDER` config flag on agent-runtime-service.
+  # The customer hears the same narrative either way.
+  # ──────────────────────────────────────────────────────────────────
+  providers:
+    - slug: azure-openai-gpt4o
+      mode: cloud
+      vendor: azure-openai
+      model: gpt-4o
+      embeddings_model: text-embedding-3-large
+      registered_in: llm-catalog-service
+
+    - slug: ollama-llama-3.1-70b
+      mode: air-gapped
+      vendor: ollama
+      model: llama-3.1-70b-instruct
+      embeddings_model: nomic-embed-text
+      registered_in: llm-catalog-service
+
+    - slug: ollama-qwen-2.5-72b
+      mode: air-gapped-alt
+      vendor: ollama
+      model: qwen2.5-72b-instruct
+      embeddings_model: nomic-embed-text
+      registered_in: llm-catalog-service
+
+  # ──────────────────────────────────────────────────────────────────
+  # Retrieval-context bindings — consumed by retrieval.search_news.
+  # Each corpus is embedded by retrieval-context-service with the
+  # active provider's `embeddings_model`. Markings are propagated
+  # from the source dataset to the embedding row; server-side filter
+  # runs BEFORE chunks are returned to the LLM.
+  # ──────────────────────────────────────────────────────────────────
+  retrieval_corpora:
+    - id: curated-news-article
+      source_dataset: curated.news_article
+      embedded_fields: [title, body_first_256_chars]
+      marking_propagation: true
+      description: GDELT GKG titles + first 256 chars per article.
+
+    - id: curated-sanctions-entry
+      source_dataset: curated.sanctions_entry
+      embedded_fields: [program_description]
+      marking_propagation: true
+      description: Sanctions program descriptions.
+
+    - id: cameo-acled-cheatsheet
+      source_dataset: static.cameo_acled_cheatsheet_md
+      embedded_fields: [body]
+      marking_propagation: false
+      description: Static reference of CAMEO codes + ACLED event-type definitions.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Tools — 13 total, mapped to Foundry's six Agent Studio categories
+  # + the retrieval_context channel. Order matches the table in
+  # 08-aip-copiloto-prompts.md §"Tools registered for the chatbot".
+  # ──────────────────────────────────────────────────────────────────
+  tools:
+
+    # ── Object query (4) ────────────────────────────────────────────
+    - name: ontology.query_actors
+      category: object_query
+      description: Search `Actor` rows with structured filters.
+      backend:
+        service: ontology-query-service
+        endpoint: POST /api/v1/objects/Actor/search
+      parameters:
+        country_iso2:   { type: string,  required: false }
+        kind:           { type: string,  required: false, enum: [PERSON, ORG, ARMED_GROUP, GOV] }
+        sanctioned:     { type: boolean, required: false }
+        name_contains:  { type: string,  required: false }
+        actor_ids:      { type: array,   required: false, items: { type: string } }
+        limit:          { type: integer, required: false, default: 50, max: 200 }
+
+    - name: ontology.query_events
+      category: object_query
+      description: Search `Event` rows with structured filters.
+      backend:
+        service: ontology-query-service
+        endpoint: POST /api/v1/objects/Event/search
+      parameters:
+        country_iso2:      { type: string,  required: false }
+        actor_id:          { type: string,  required: false }
+        date_from:         { type: string,  required: true, format: rfc3339 }
+        date_to:           { type: string,  required: true, format: rfc3339 }
+        source:            { type: string,  required: false, enum: [GDELT, ACLED] }
+        acled_event_type:  { type: string,  required: false }
+        cameo_code:        { type: string,  required: false }
+        bbox:              { type: object,  required: false, description: "{ lat, lon, radius_km }" }
+        limit:             { type: integer, required: false, default: 100, max: 500 }
+
+    - name: ontology.expand_neighborhood
+      category: object_query
+      description: N-hop neighbourhood expansion around an Actor via the ontology Traverse / Search Around DSL.
+      backend:
+        service: ontology-query-service
+        endpoint: POST /api/v1/traversal/around
+      parameters:
+        actor_id:    { type: string,  required: true }
+        hops:        { type: integer, required: true, min: 1, max: 3 }
+        link_types:  { type: array,   required: false, items: { type: string }, description: "e.g. [ON_WATCHLIST, SANCTIONED_BY, INVOLVED_IN]" }
+        limit_nodes: { type: integer, required: false, default: 200, max: 500 }
+
+    - name: ontology.read_object
+      category: object_query
+      description: Fetch one ontology object by primary key.
+      backend:
+        service: ontology-query-service
+        endpoint: GET /api/v1/objects/{object_type}/{object_id}
+      parameters:
+        object_type: { type: string, required: true }
+        object_id:   { type: string, required: true }
+
+    # ── Retrieval context (1) — RAG over markings-aware corpus ─────
+    - name: retrieval.search_news
+      category: retrieval_context
+      description: Semantic search over the news / sanctions corpora; chunks are filtered server-side by the caller's markings.
+      backend:
+        service: retrieval-context-service
+        endpoint: POST /api/v1/retrieval/search
+      corpora: [curated-news-article, curated-sanctions-entry, cameo-acled-cheatsheet]
+      parameters:
+        query:        { type: string,  required: true }
+        country_iso2: { type: string,  required: false }
+        date_from:    { type: string,  required: false, format: rfc3339 }
+        date_to:      { type: string,  required: false, format: rfc3339 }
+        limit:        { type: integer, required: false, default: 8, max: 25 }
+      returns:
+        chunks:
+          - text: string
+            document_title: string
+            object_id: string
+            score: double
+            marking_redactions: array
+
+    # ── Function (2) — structured summaries ────────────────────────
+    - name: function.summarize_actor_activity
+      category: function
+      description: Computes a structured summary block for an Actor over a date window.
+      backend:
+        service: agent-runtime-service
+        function_rid: ri.function.geopolitica.summarize_actor_activity.v1
+      parameters:
+        actor_id:  { type: string, required: true }
+        date_from: { type: string, required: true, format: rfc3339 }
+        date_to:   { type: string, required: true, format: rfc3339 }
+
+    - name: function.country_situation_brief
+      category: function
+      description: Builds a structured situation brief for a country/window.
+      backend:
+        service: agent-runtime-service
+        function_rid: ri.function.geopolitica.country_situation_brief.v1
+      parameters:
+        country_iso2: { type: string, required: true }
+        date_from:    { type: string, required: true, format: rfc3339 }
+        date_to:      { type: string, required: true, format: rfc3339 }
+
+    # ── Action (4) — writes; ALL require confirmation ──────────────
+    - name: action.add_to_watchlist
+      category: action
+      description: Submit the `add-to-watchlist` action type.
+      requires_confirmation: true
+      backend:
+        service: ontology-actions-service
+        action_type: add-to-watchlist
+        endpoint: POST /api/v1/actions/add-to-watchlist
+      parameters:
+        watchlist_id: { type: string, required: false, description: "If omitted, the active Workshop watchlist is used." }
+        actor_id:     { type: string, required: true }
+        reason:       { type: string, required: true }
+
+    - name: action.flag_actor
+      category: action
+      description: Submit the `flag-actor` action type.
+      requires_confirmation: true
+      backend:
+        service: ontology-actions-service
+        action_type: flag-actor
+        endpoint: POST /api/v1/actions/flag-actor
+      parameters:
+        actor_id: { type: string, required: true }
+        severity: { type: string, required: true, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+        reason:   { type: string, required: true }
+
+    - name: action.open_investigation_case
+      category: action
+      description: Submit the `open-investigation-case` action type. Compliance role only.
+      requires_confirmation: true
+      role_required: compliance
+      backend:
+        service: ontology-actions-service
+        action_type: open-investigation-case
+        endpoint: POST /api/v1/actions/open-investigation-case
+      parameters:
+        actor_id:    { type: string, required: true }
+        title:       { type: string, required: true }
+        priority:    { type: string, required: true, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+        assigned_to: { type: string, required: true, description: "User RID of the assignee." }
+        summary:     { type: string, required: false }
+
+    - name: action.acknowledge_alert
+      category: action
+      description: Submit the `acknowledge-alert` action type.
+      requires_confirmation: true
+      backend:
+        service: ontology-actions-service
+        action_type: acknowledge-alert
+        endpoint: POST /api/v1/actions/acknowledge-alert
+      parameters:
+        alert_id: { type: string, required: true }
+        note:     { type: string, required: false }
+
+    # ── Update application variable (1) ────────────────────────────
+    - name: command.update_variable
+      category: update_application_variable
+      description: Update a Workshop variable (e.g. `selected_actor_id`, `country_filter`).
+      backend:
+        service: application-composition-service
+        endpoint: POST /api/v1/workshop/variables/{variable}
+      parameters:
+        variable: { type: string, required: true, enum: [country_filter, date_window, selected_actor_id, actor_kind_filter, sanctioned_only] }
+        value:    { type: any,    required: true }
+
+    # ── Request clarification (1) ──────────────────────────────────
+    - name: command.request_clarification
+      category: request_clarification
+      description: Ask the user to disambiguate before composing further tool calls.
+      backend:
+        service: agent-runtime-service
+        endpoint: synthetic
+      parameters:
+        question: { type: string, required: true }
+        options:  { type: array,  required: false, items: { type: string } }
+
+  # ──────────────────────────────────────────────────────────────────
+  # Audit hooks — every tool invocation is recorded in
+  # audit-compliance-service with the fields below. Action-type tools
+  # additionally produce an `ActionLog` row via ontology-actions-service.
+  # ──────────────────────────────────────────────────────────────────
+  audit:
+    sink: audit-compliance-service
+    record_fields:
+      - tool_name
+      - parameters
+      - user_id
+      - submitted_at_utc
+      - latency_ms
+      - marking_filter_applied
+      - datasets_read
+      - action_log_id        # only for category=action
+      - prompt_version       # for run reproducibility
+
+  # ──────────────────────────────────────────────────────────────────
+  # Smoke prompts — must succeed end-to-end before T-7 day checklist
+  # boxes in 12-checklist-preparacion.md are ticked. Exact prompt text
+  # is in 08-aip-copiloto-prompts.md §"Demo prompts".
+  # ──────────────────────────────────────────────────────────────────
+  smoke_prompts:
+    - id: P1
+      user: sofia
+      title: Country situation brief — Ukraine 72 h
+      expects_tools: [function.country_situation_brief, ontology.query_events]
+
+    - id: P2
+      user: sofia
+      title: Selected actor deep dive — 30 days
+      expects_tools: [function.summarize_actor_activity, ontology.expand_neighborhood]
+
+    - id: P3
+      user: sofia
+      title: Propose 3 watchlist additions (with confirmation)
+      expects_tools: [ontology.query_actors, function.summarize_actor_activity, action.add_to_watchlist]
+      expects_confirmations: 3
+
+    - id: P4
+      user: marcos
+      title: Open HIGH-priority investigation case
+      expects_tools: [function.summarize_actor_activity, action.open_investigation_case]
+      expects_confirmations: 1
+
+    - id: P5
+      user: marcos
+      title: Marking-denial demo — OFAC source URL must refuse
+      expects_tools: [ontology.read_object]
+      expects_refusal: true
+      expected_refusal_reason: missing-marking-ANALYST-CORE
+
+    - id: P6
+      user: marcos
+      title: Branch what-if — 12 candidates × HIGH events
+      expects_tools: [ontology.query_actors, ontology.query_events]
+      branch_aware: true
