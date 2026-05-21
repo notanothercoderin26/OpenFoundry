@@ -1,0 +1,162 @@
+/* GroupGraphView — Cytoscape canvas wrapped with floating overlays:
+ * a top-left tool palette (Layout / Remove), a top-right legend,
+ * bottom-left zoom controls, and context popovers on node / edge tap. */
+
+.oe-graph {
+  position: relative;
+  background: var(--oe-bg-panel);
+  border: 1px solid var(--oe-border-default);
+  border-radius: var(--oe-radius-md);
+  overflow: hidden;
+}
+
+.oe-graph__canvas {
+  position: relative;
+}
+
+.oe-graph__toolbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.oe-graph__legend {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--oe-bg-panel);
+  border: 1px solid var(--oe-border-default);
+  border-radius: var(--oe-radius-md);
+  font-size: var(--oe-fs-small);
+  color: var(--oe-text-muted);
+}
+
+.oe-graph__legend-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.oe-graph__legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--oe-border-default);
+}
+
+.oe-graph__legend-swatch[data-kind='type'] { background: #ffffff; }
+.oe-graph__legend-swatch[data-kind='group'] { background: #e6effd; }
+
+.oe-graph__zoom {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 2;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px;
+  background: var(--oe-bg-panel);
+  border: 1px solid var(--oe-border-default);
+  border-radius: var(--oe-radius-md);
+}
+
+.oe-graph__icon-btn {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--oe-bg-panel);
+  border: 1px solid var(--oe-border-default);
+  border-radius: var(--oe-radius-sm);
+  color: var(--oe-text-default);
+  font: inherit;
+  font-size: var(--oe-fs-small);
+  cursor: pointer;
+  padding: 0;
+  gap: 4px;
+}
+
+.oe-graph__icon-btn:hover { border-color: var(--oe-border-strong); }
+
+.oe-graph__icon-btn--text {
+  width: auto;
+  padding: 0 8px;
+  gap: 4px;
+}
+
+.oe-graph__zoom-btn {
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--oe-text-default);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: var(--oe-radius-sm);
+}
+
+.oe-graph__zoom-btn:hover { background: var(--oe-bg-panel-hover); }
+
+.oe-graph__popover {
+  position: absolute;
+  z-index: 5;
+  min-width: 180px;
+  background: var(--oe-bg-panel);
+  border: 1px solid var(--oe-border-default);
+  border-radius: var(--oe-radius-md);
+  box-shadow: var(--oe-shadow-popover);
+  padding: 4px;
+}
+
+.oe-graph__popover-heading {
+  margin: 4px 8px 6px;
+  font-size: var(--oe-fs-small);
+  color: var(--oe-text-muted);
+}
+
+.oe-graph__menu-item {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--oe-text-default);
+  font: inherit;
+  font-size: var(--oe-fs-body);
+  text-align: left;
+  border-radius: var(--oe-radius-md);
+  cursor: pointer;
+}
+
+.oe-graph__menu-item:hover { background: var(--oe-bg-panel-hover); }
+
+.oe-graph__menu-empty {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: var(--oe-fs-small);
+  color: var(--oe-text-muted);
+}
+
+.oe-graph__empty {
+  padding: 24px;
+  text-align: center;
+  font-size: var(--oe-fs-small);
+  color: var(--oe-text-muted);
+}

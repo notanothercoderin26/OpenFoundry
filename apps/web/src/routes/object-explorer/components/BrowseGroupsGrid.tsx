@@ -1,16 +1,21 @@
 import { useState } from 'react';
 
-import type { LinkType, ObjectInstanceViewPolicy } from '@/lib/api/ontology';
-import type { buildObjectExplorerTypeGroups } from '@/lib/api/ontology';
+import type {
+  buildObjectExplorerTypeGroups,
+  LinkType,
+  ObjectInstanceViewPolicy,
+  ObjectType,
+} from '@/lib/api/ontology';
 
-import { EmptyState, PanelHeader } from './atoms';
+import { iconBackground } from '../iconPalette';
 import { GroupGraphView } from './GroupGraphView';
 import type { SideNavSelection } from './SideNavBrowse';
+import './BrowseGroupsGrid.css';
 
 type ExplorerGroup = ReturnType<typeof buildObjectExplorerTypeGroups>[number];
 type GroupView = 'list' | 'graph';
 
-interface BrowseGroupsGridProps {
+export interface BrowseGroupsGridProps {
   groups: ExplorerGroup[];
   linkTypes: LinkType[];
   accessForType: (typeId: string | null | undefined) => ObjectInstanceViewPolicy;
@@ -19,31 +24,50 @@ interface BrowseGroupsGridProps {
   favoriteTypeIds: Set<string>;
   onToggleFavorite: (typeId: string) => void;
   selection: SideNavSelection;
+  /** Per-type object count for the card chip. When undefined, no chip
+   *  is rendered. */
+  countsByType?: Map<string, number>;
 }
 
-function filterGroupsForSelection(groups: ExplorerGroup[], selection: SideNavSelection, favoriteTypeIds: Set<string>): ExplorerGroup[] {
+const FAVORITES_GROUP_ID = 'favorites';
+
+function buildFavoritesGroup(groups: ExplorerGroup[], favoriteTypeIds: Set<string>): ExplorerGroup | null {
+  if (favoriteTypeIds.size === 0) return null;
+  const seen = new Set<string>();
+  const favoriteTypes: ObjectType[] = [];
+  for (const group of groups) {
+    for (const type of group.object_types) {
+      if (!favoriteTypeIds.has(type.id) || seen.has(type.id)) continue;
+      seen.add(type.id);
+      favoriteTypes.push(type);
+    }
+  }
+  if (favoriteTypes.length === 0) return null;
+  return {
+    id: FAVORITES_GROUP_ID,
+    name: FAVORITES_GROUP_ID,
+    display_name: 'Favorites',
+    description: 'Object types you starred.',
+    object_types: favoriteTypes,
+    object_type_ids: favoriteTypes.map((type) => type.id),
+  };
+}
+
+function sectionsForSelection(
+  groups: ExplorerGroup[],
+  favoriteTypeIds: Set<string>,
+  selection: SideNavSelection,
+): ExplorerGroup[] {
+  if (selection.kind === 'favorites') {
+    const fav = buildFavoritesGroup(groups, favoriteTypeIds);
+    return fav ? [fav] : [];
+  }
   if (selection.kind === 'group') {
     return groups.filter((group) => group.id === selection.groupId);
   }
-  if (selection.kind === 'favorites') {
-    const favoriteTypes = groups.flatMap((group) => group.object_types.filter((type) => favoriteTypeIds.has(type.id)));
-    if (favoriteTypes.length === 0) return [];
-    const seen = new Set<string>();
-    const unique = favoriteTypes.filter((type) => {
-      if (seen.has(type.id)) return false;
-      seen.add(type.id);
-      return true;
-    });
-    return [
-      {
-        id: 'favorites',
-        display_name: 'Favorites',
-        description: 'Object types you starred.',
-        object_types: unique,
-      } as ExplorerGroup,
-    ];
-  }
-  return groups;
+  // 'all' (and any other browse selection that should show everything)
+  const fav = buildFavoritesGroup(groups, favoriteTypeIds);
+  return fav ? [fav, ...groups] : groups;
 }
 
 export function BrowseGroupsGrid({
@@ -55,128 +79,252 @@ export function BrowseGroupsGrid({
   favoriteTypeIds,
   onToggleFavorite,
   selection,
+  countsByType,
 }: BrowseGroupsGridProps) {
   const [viewByGroup, setViewByGroup] = useState<Record<string, GroupView>>({});
-  const visibleGroups = filterGroupsForSelection(groups, selection, favoriteTypeIds);
-  const headerLabel = selection.kind === 'favorites'
-    ? 'Favorites'
-    : selection.kind === 'group'
-    ? visibleGroups[0]?.display_name ?? 'Group'
-    : 'Browse object type groups';
+  const [hiddenGroupIds, setHiddenGroupIds] = useState<Set<string>>(() => new Set());
+  const sections = sectionsForSelection(groups, favoriteTypeIds, selection).filter(
+    (group) => !hiddenGroupIds.has(group.id),
+  );
 
   function viewFor(groupId: string): GroupView {
     return viewByGroup[groupId] ?? 'list';
   }
 
-  function setView(groupId: string, next: GroupView) {
-    setViewByGroup((current) => ({ ...current, [groupId]: next }));
+  if (sections.length === 0) {
+    return (
+      <p className="oe-browse__empty">
+        {selection.kind === 'favorites'
+          ? 'No favorite object types yet. Click ☆ on a type to add it.'
+          : 'No visible object type groups.'}
+      </p>
+    );
   }
 
   return (
-    <section className="of-panel" style={{ padding: 12, display: 'grid', gap: 12 }}>
-      <PanelHeader label={headerLabel} value={`${visibleGroups.length}`} />
-      <div style={{ display: 'grid', gap: 12 }}>
-        {visibleGroups.map((group) => {
-          const view = viewFor(group.id);
-          return (
-            <article key={group.id} className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
-              <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                <div style={{ minWidth: 0 }}>
-                  <strong>{group.display_name}</strong>
-                  {group.description ? (
-                    <p className="of-text-muted" style={{ margin: '2px 0 0', fontSize: 11 }}>
-                      {group.description}
-                    </p>
-                  ) : null}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ display: 'inline-flex', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
-                    <button
-                      type="button"
-                      onClick={() => setView(group.id, 'list')}
-                      className={view === 'list' ? 'of-button of-button--primary' : 'of-button of-button--ghost'}
-                      style={{ border: 0, borderRadius: 0, fontSize: 11, padding: '2px 8px', minHeight: 26 }}
-                      aria-pressed={view === 'list'}
-                    >
-                      List
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setView(group.id, 'graph')}
-                      className={view === 'graph' ? 'of-button of-button--primary' : 'of-button of-button--ghost'}
-                      style={{ border: 0, borderRadius: 0, fontSize: 11, padding: '2px 8px', minHeight: 26 }}
-                      aria-pressed={view === 'graph'}
-                    >
-                      Graph
-                    </button>
-                  </div>
-                  <span className="of-chip">{group.object_types.length}</span>
-                </div>
-              </header>
+    <div className="oe-browse">
+      {sections.map((group) => {
+        const view = viewFor(group.id);
+        const isFavoritesSection = group.id === FAVORITES_GROUP_ID;
+        return (
+          <section key={group.id} className="oe-browse-group" aria-label={group.display_name}>
+            <header className="oe-browse-group__header">
+              <div className="oe-browse-group__title">
+                <span className="oe-eyebrow">{group.display_name}</span>
+                <span className="oe-chip">{group.object_types.length}</span>
+              </div>
+              <ListGraphToggle
+                value={view}
+                onChange={(next) => setViewByGroup((current) => ({ ...current, [group.id]: next }))}
+              />
+            </header>
 
-              {view === 'list' ? (
-                <div style={{ display: 'grid', gap: 4 }}>
-                  {group.object_types.slice(0, 12).map((type) => {
-                    const access = accessForType(type.id);
-                    const isFavorite = favoriteTypeIds.has(type.id);
-                    return (
-                      <div key={type.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <button
-                          type="button"
-                          onClick={() => onBrowse(type.id)}
-                          disabled={!access.can_view_instances}
-                          className="of-button"
-                          style={{ flex: 1, fontSize: 12, justifyContent: 'flex-start' }}
-                          title={access.can_view_instances ? `Browse ${type.display_name || type.name}` : access.reason}
-                        >
-                          {type.display_name || type.name}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onPreviewType(type.id)}
-                          className="of-button of-button--ghost"
-                          aria-label={`Preview ${type.display_name || type.name}`}
-                          title="Preview"
-                          style={{ padding: '2px 6px', minWidth: 28 }}
-                        >
-                          ⓘ
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onToggleFavorite(type.id)}
-                          className="of-button of-button--ghost"
-                          aria-pressed={isFavorite}
-                          aria-label={isFavorite ? `Remove ${type.display_name || type.name} from favorites` : `Add ${type.display_name || type.name} to favorites`}
-                          title={isFavorite ? 'Remove favorite' : 'Add to favorites'}
-                          style={{ padding: '2px 6px', minWidth: 28, color: isFavorite ? '#f1b400' : undefined }}
-                        >
-                          {isFavorite ? '★' : '☆'}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <GroupGraphView
-                  objectTypes={group.object_types}
-                  linkTypes={linkTypes}
-                  onSelectType={onPreviewType}
-                />
-              )}
-            </article>
-          );
-        })}
-        {visibleGroups.length === 0 && (
-          <EmptyState
-            label={
-              selection.kind === 'favorites'
-                ? 'No favorite object types yet. Click ☆ on a type to add it.'
-                : 'No visible object type groups.'
-            }
-            compact
-          />
-        )}
+            {view === 'list' ? (
+              <div className="oe-browse-group__grid">
+                {group.object_types.map((type) => (
+                  <ObjectTypeCard
+                    key={type.id}
+                    type={type}
+                    count={countsByType?.get(type.id)}
+                    showDescription={isFavoritesSection}
+                    favorited={favoriteTypeIds.has(type.id)}
+                    disabled={!accessForType(type.id).can_view_instances}
+                    accessReason={accessForType(type.id).reason}
+                    onBrowse={() => onBrowse(type.id)}
+                    onPreview={() => onPreviewType(type.id)}
+                    onToggleFavorite={() => onToggleFavorite(type.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <GroupGraphView
+                groupDisplayName={group.display_name}
+                objectTypes={group.object_types}
+                linkTypes={linkTypes}
+                onPreviewType={onPreviewType}
+                onExploreType={onBrowse}
+                onRemoveGroup={
+                  group.id === FAVORITES_GROUP_ID
+                    ? undefined
+                    : () => setHiddenGroupIds((current) => new Set(current).add(group.id))
+                }
+              />
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function ListGraphToggle({ value, onChange }: { value: GroupView; onChange: (next: GroupView) => void }) {
+  return (
+    <div className="oe-toggle" role="group" aria-label="Group view">
+      <button
+        type="button"
+        className="oe-toggle__btn"
+        aria-pressed={value === 'list'}
+        onClick={() => onChange('list')}
+      >
+        <ListGlyph />
+        List
+      </button>
+      <button
+        type="button"
+        className="oe-toggle__btn"
+        aria-pressed={value === 'graph'}
+        onClick={() => onChange('graph')}
+      >
+        <GraphGlyph />
+        Graph
+      </button>
+    </div>
+  );
+}
+
+interface ObjectTypeCardProps {
+  type: ObjectType;
+  count: number | undefined;
+  showDescription: boolean;
+  favorited: boolean;
+  disabled: boolean;
+  accessReason?: string;
+  onBrowse: () => void;
+  onPreview: () => void;
+  onToggleFavorite: () => void;
+}
+
+function ObjectTypeCard({
+  type,
+  count,
+  showDescription,
+  favorited,
+  disabled,
+  accessReason,
+  onBrowse,
+  onPreview,
+  onToggleFavorite,
+}: ObjectTypeCardProps) {
+  const name = type.display_name || type.name;
+  return (
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      data-disabled={disabled}
+      className="oe-type-card"
+      onClick={() => (disabled ? undefined : onBrowse())}
+      onKeyDown={(event) => {
+        if (disabled) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onBrowse();
+        }
+      }}
+      title={disabled ? accessReason : `Explore ${name}`}
+    >
+      <span
+        className="oe-type-icon"
+        style={{ background: iconBackground(type.id, type.color) }}
+        aria-hidden="true"
+      >
+        {initialFor(name)}
+      </span>
+      <div className="oe-type-card__body">
+        <div className="oe-type-card__title-row">
+          <span className="oe-type-card__title">{name}</span>
+          {count !== undefined && <span className="oe-chip">{formatCount(count)}</span>}
+        </div>
+        {showDescription && type.description ? (
+          <p className="oe-type-card__description">{type.description}</p>
+        ) : null}
       </div>
-    </section>
+      <div className="oe-type-card__actions" onClick={(event) => event.stopPropagation()}>
+        <button
+          type="button"
+          className="oe-type-card__icon-btn"
+          aria-label={`Preview ${name}`}
+          data-tooltip="Preview"
+          onClick={onPreview}
+        >
+          <InfoGlyph />
+        </button>
+        <button
+          type="button"
+          className="oe-type-card__icon-btn oe-type-card__fav"
+          aria-pressed={favorited}
+          data-active={favorited}
+          aria-label={favorited ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
+          onClick={onToggleFavorite}
+        >
+          {favorited ? <StarFilledGlyph /> : <StarOutlineGlyph />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function initialFor(name: string) {
+  const cleaned = name.replace(/^\[[^\]]+\]\s*/, '').trim();
+  return (cleaned.charAt(0) || '?').toUpperCase();
+}
+
+function formatCount(value: number) {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(2).replace(/\.?0+$/, '')}k`;
+  return `${value}`;
+}
+
+function ListGlyph() {
+  return (
+    <svg className="oe-toggle__icon" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="2" y="3" width="12" height="2" rx="0.5" fill="currentColor" />
+      <rect x="2" y="7" width="12" height="2" rx="0.5" fill="currentColor" />
+      <rect x="2" y="11" width="12" height="2" rx="0.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function GraphGlyph() {
+  return (
+    <svg className="oe-toggle__icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="4" cy="4" r="1.8" fill="currentColor" />
+      <circle cx="12" cy="4" r="1.8" fill="currentColor" />
+      <circle cx="8" cy="12" r="1.8" fill="currentColor" />
+      <path d="M4 4l4 8M12 4l-4 8M4 4h8" stroke="currentColor" strokeWidth="1" />
+    </svg>
+  );
+}
+
+function InfoGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="8" cy="5" r="0.9" fill="currentColor" />
+      <path d="M8 7v5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function StarOutlineGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="m8 2 1.86 3.78 4.14.6-3 2.93.71 4.13L8 11.43 4.29 13.4 5 9.31 2 6.38l4.14-.6L8 2Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function StarFilledGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="m8 2 1.86 3.78 4.14.6-3 2.93.71 4.13L8 11.43 4.29 13.4 5 9.31 2 6.38l4.14-.6L8 2Z"
+        fill="currentColor"
+      />
+    </svg>
   );
 }
