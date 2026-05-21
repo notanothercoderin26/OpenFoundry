@@ -207,7 +207,13 @@ import {
 } from '@/lib/api/data-connection';
 import type { VirtualTableProvider } from '@/lib/api/virtual-tables';
 
-type Tab = 'overview' | 'health' | 'retries' | 'configuration' | 'credentials' | 'networking' | 'explore' | 'syncs' | 'streams' | 'exports' | 'webhooks' | 'virtual-tables' | 'code-imports' | 'permissions' | 'history' | 'capabilities' | 'media-syncs';
+type Tab =
+  | 'overview' | 'health' | 'retries'
+  | 'name-location' | 'configuration' | 'credentials' | 'networking' | 'capabilities' | 'permissions'
+  | 'export-config' | 'code-import-config' | 'output-folder'
+  | 'explore'
+  | 'syncs' | 'streams' | 'exports' | 'webhooks' | 'virtual-tables' | 'code-imports' | 'media-syncs'
+  | 'history';
 
 type OuterTab = 'overview' | 'connection-settings' | 'edit-syncs' | 'explore-source' | 'logs';
 
@@ -223,11 +229,15 @@ const TAB_TO_OUTER: Record<Tab, OuterTab> = {
   overview: 'overview',
   health: 'overview',
   retries: 'overview',
+  'name-location': 'connection-settings',
   configuration: 'connection-settings',
   credentials: 'connection-settings',
   networking: 'connection-settings',
   capabilities: 'connection-settings',
   permissions: 'connection-settings',
+  'export-config': 'connection-settings',
+  'code-import-config': 'connection-settings',
+  'output-folder': 'connection-settings',
   syncs: 'edit-syncs',
   streams: 'edit-syncs',
   exports: 'edit-syncs',
@@ -254,11 +264,11 @@ const OVERVIEW_SUBS: { id: Tab; label: string }[] = [
 ];
 
 const CONNECTION_SETTINGS_SIDEBAR: { id: Tab; label: string }[] = [
+  { id: 'name-location', label: 'Name and location' },
   { id: 'configuration', label: 'Connection details' },
-  { id: 'credentials', label: 'Credentials' },
-  { id: 'networking', label: 'Networking' },
-  { id: 'capabilities', label: 'Capabilities' },
-  { id: 'permissions', label: 'Permissions' },
+  { id: 'export-config', label: 'Export configuration' },
+  { id: 'code-import-config', label: 'Code import configuration' },
+  { id: 'output-folder', label: 'Output folder' },
 ];
 
 const EDIT_SYNCS_SUBS: { id: Tab; label: string }[] = [
@@ -445,6 +455,13 @@ export function SourceDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
+  const [outerTab, setOuterTab] = useState<OuterTab>('overview');
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    const expected = TAB_TO_OUTER[tab];
+    setOuterTab((current) => (current === expected ? current : expected));
+  }, [tab]);
   const [source, setSource] = useState<Source | null>(null);
   const [agents, setAgents] = useState<ConnectorAgent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2101,7 +2118,6 @@ export function SourceDetailPage() {
   const actionableHealthChecks = renderedHealthSummary ? dataConnectionActionableHealthChecks(renderedHealthSummary) : [];
   const editWorkerCompatibility = registryEntry ? validateConnectorWorker(registryEntry, editWorker) : null;
   const unavailableForEditWorker = registryEntry ? unavailableCapabilitiesForWorker(registryEntry, editWorker) : [];
-  const outerTab: OuterTab = TAB_TO_OUTER[tab];
   const editSyncsSubs = connectorSupportsMediaSync(source.connector_type)
     ? EDIT_SYNCS_SUBS
     : EDIT_SYNCS_SUBS.filter((item) => item.id !== 'media-syncs');
@@ -2111,6 +2127,7 @@ export function SourceDetailPage() {
 
   function selectOuter(next: OuterTab) {
     if (outerTab === next) return;
+    setOuterTab(next);
     selectTab(OUTER_DEFAULT_TAB[next]);
   }
 
@@ -2264,12 +2281,15 @@ export function SourceDetailPage() {
         />
       </div>
 
+      <div style={{ display: 'flex', alignItems: 'stretch', minHeight: 0 }}>
       <div
         style={{
           display: 'flex',
           gap: 16,
           padding: 24,
           alignItems: 'flex-start',
+          flex: 1,
+          minWidth: 0,
         }}
       >
         {outerTab === 'connection-settings' && (
@@ -2720,15 +2740,76 @@ export function SourceDetailPage() {
         </section>
       )}
 
+      {tab === 'name-location' && (
+        <NameLocationPanel
+          source={source}
+          name={editName}
+          description={editDescription}
+          projectRid={editProjectRid}
+          folderRid={editFolderRid}
+          ownerId={editOwnerId}
+          onNameChange={setEditName}
+          onDescriptionChange={setEditDescription}
+          onProjectRidChange={setEditProjectRid}
+          onFolderRidChange={setEditFolderRid}
+          onOwnerIdChange={setEditOwnerId}
+          onSave={() => void saveConfiguration()}
+          busy={busy}
+        />
+      )}
+
+      {tab === 'export-config' && (
+        <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 8 }}>
+          <p className="of-eyebrow">Export configuration</p>
+          <h2 className="of-section-title" style={{ marginTop: 4 }}>Source-level export settings</h2>
+          <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+            Manage default destinations, formats, and scheduling defaults for exports from this source.
+            For per-export details, switch to <strong>Edit syncs › Exports</strong>.
+          </p>
+        </section>
+      )}
+
+      {tab === 'code-import-config' && (
+        <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 8 }}>
+          <p className="of-eyebrow">Code import configuration</p>
+          <h2 className="of-section-title" style={{ marginTop: 4 }}>Source-level code-import settings</h2>
+          <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+            Configure which language runtimes, virtual-table providers, and destination conventions are
+            allowed when this source is imported into transforms or compute modules.
+            For per-import management, switch to <strong>Edit syncs › Code imports</strong>.
+          </p>
+        </section>
+      )}
+
+      {tab === 'output-folder' && (
+        <OutputFolderPanel
+          value={editOutputLocation}
+          onChange={setEditOutputLocation}
+          onSave={() => void saveConfiguration()}
+          busy={busy}
+        />
+      )}
+
       {tab === 'configuration' && (
-        <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 14 }}>
-          <div>
-            <p className="of-eyebrow">Configuration</p>
-            <h2 className="of-section-title" style={{ marginTop: 4 }}>Source configuration metadata</h2>
-            <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
-              Secrets remain write-only; this page shows safe metadata and editable source routing fields.
-            </p>
-          </div>
+        <>
+          <SourceSetupHeader
+            worker={source.worker}
+            onComputeClick={() => {
+              // Phase 5 popover will be wired here.
+            }}
+          />
+
+          <SelectAgentsPlaceholder agents={sourceAgents} />
+
+          <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 14 }}>
+            <div>
+              <p className="of-eyebrow">Connection settings</p>
+              <h2 className="of-section-title" style={{ marginTop: 4 }}>Server URL, ports, schema</h2>
+              <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+                Secrets remain write-only; this card surfaces the safe configuration fields the API
+                returns under <code>connectionConfig</code>.
+              </p>
+            </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, fontSize: 12 }}>
             <RegistryField label="Name" value={source.name} />
             <RegistryField label="Description" value={source.description ?? 'No description'} />
@@ -2753,7 +2834,8 @@ export function SourceDetailPage() {
               supported_capabilities: capabilities,
             }, null, 2)}
           </pre>
-        </section>
+          </section>
+        </>
       )}
 
       {tab === 'explore' && (
@@ -4164,6 +4246,8 @@ export function SourceDetailPage() {
       )}
         </div>
       </div>
+      <PreviewRail open={previewOpen} onToggle={() => setPreviewOpen((value) => !value)} source={source} />
+      </div>
 
       {bulkDialogOpen && (
         <div role="dialog" aria-modal="true" aria-labelledby="source-bulk-register-title" style={dialogBackdropStyle}>
@@ -5523,6 +5607,373 @@ function StatusChip({ icon, count, tone, label }: StatusChipProps) {
       <Glyph name={icon} size={12} tone="currentColor" />
       {count}
     </span>
+  );
+}
+
+interface NameLocationPanelProps {
+  source: Source;
+  name: string;
+  description: string;
+  projectRid: string;
+  folderRid: string;
+  ownerId: string;
+  onNameChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  onProjectRidChange: (value: string) => void;
+  onFolderRidChange: (value: string) => void;
+  onOwnerIdChange: (value: string) => void;
+  onSave: () => void;
+  busy: boolean;
+}
+
+function NameLocationPanel({
+  source,
+  name,
+  description,
+  projectRid,
+  folderRid,
+  ownerId,
+  onNameChange,
+  onDescriptionChange,
+  onProjectRidChange,
+  onFolderRidChange,
+  onOwnerIdChange,
+  onSave,
+  busy,
+}: NameLocationPanelProps) {
+  return (
+    <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 14 }}>
+      <div>
+        <p className="of-eyebrow">Name and location</p>
+        <h2 className="of-section-title" style={{ marginTop: 4 }}>{source.name}</h2>
+        <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+          Source id <code>{source.id}</code>.
+        </p>
+      </div>
+      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <LabeledInput label="Name" value={name} onChange={onNameChange} />
+        <LabeledInput label="Description" value={description} onChange={onDescriptionChange} />
+        <LabeledInput label="Project RID" value={projectRid} onChange={onProjectRidChange} />
+        <LabeledInput label="Folder RID" value={folderRid} onChange={onFolderRidChange} />
+        <LabeledInput label="Owner ID" value={ownerId} onChange={onOwnerIdChange} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={busy || !name.trim()}
+          className="of-button of-button--primary"
+        >
+          Save changes
+        </button>
+      </div>
+    </section>
+  );
+}
+
+interface OutputFolderPanelProps {
+  value: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  busy: boolean;
+}
+
+function OutputFolderPanel({ value, onChange, onSave, busy }: OutputFolderPanelProps) {
+  return (
+    <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 14 }}>
+      <div>
+        <p className="of-eyebrow">Output folder</p>
+        <h2 className="of-section-title" style={{ marginTop: 4 }}>Default output location</h2>
+        <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+          Discovered assets, exports, and sync outputs default to this folder when no explicit
+          destination is provided.
+        </p>
+      </div>
+      <LabeledInput label="Folder path or RID" value={value} onChange={onChange} />
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={busy}
+          className="of-button of-button--primary"
+        >
+          Save changes
+        </button>
+      </div>
+    </section>
+  );
+}
+
+interface SourceSetupHeaderProps {
+  worker: SourceWorker;
+  onComputeClick: () => void;
+}
+
+function SourceSetupHeader({ worker, onComputeClick }: SourceSetupHeaderProps) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        padding: '4px 4px 12px',
+      }}
+    >
+      <h2
+        style={{
+          margin: 0,
+          fontSize: 18,
+          fontWeight: 600,
+          color: 'var(--text-strong)',
+        }}
+      >
+        Source Setup
+      </h2>
+      <button
+        type="button"
+        onClick={onComputeClick}
+        aria-haspopup="dialog"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '4px 10px',
+          fontSize: 12,
+          fontWeight: 600,
+          background: 'var(--bg-chip)',
+          color: 'var(--text-strong)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 12,
+          cursor: 'pointer',
+          font: 'inherit',
+        }}
+        title="Change compute type"
+      >
+        <span style={{ color: 'var(--text-muted)' }}>Compute:</span>
+        <span>{workerLabel(worker)}</span>
+        <Glyph name="chevron-down" size={12} tone="currentColor" />
+      </button>
+    </div>
+  );
+}
+
+interface SelectAgentsPlaceholderProps {
+  agents: ConnectorAgent[];
+}
+
+function SelectAgentsPlaceholder({ agents }: SelectAgentsPlaceholderProps) {
+  return (
+    <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
+      <div>
+        <p className="of-eyebrow">Select agents</p>
+        <h2 className="of-section-title" style={{ marginTop: 4 }}>
+          {agents.length} agent{agents.length === 1 ? '' : 's'} assigned
+        </h2>
+      </div>
+      {agents.length === 0 ? (
+        <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+          No agents are assigned to this source yet. Assignment will move into this card in a
+          later phase along with the Add another agent / Create new agent actions.
+        </p>
+      ) : (
+        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
+          {agents.map((agent) => (
+            <li
+              key={agent.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '8px 12px',
+                background: 'var(--bg-panel-muted)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: 13,
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  background: 'var(--badge-healthy-bg)',
+                  color: 'var(--badge-healthy-text)',
+                  borderRadius: 10,
+                }}
+              >
+                {connectorAgentHealthLabel(agent)}
+              </span>
+              <strong style={{ color: 'var(--text-strong)' }}>{agent.name}</strong>
+              <span className="of-text-muted" style={{ fontSize: 12 }}>
+                owner {agent.owner_id}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+interface PreviewRailProps {
+  open: boolean;
+  onToggle: () => void;
+  source: Source;
+}
+
+function PreviewRail({ open, onToggle, source }: PreviewRailProps) {
+  const railWidth = open ? 360 : 36;
+  return (
+    <aside
+      aria-label="Preview source"
+      style={{
+        width: railWidth,
+        flexShrink: 0,
+        background: 'var(--bg-default)',
+        borderLeft: '1px solid var(--border-subtle)',
+        transition: 'width 160ms ease',
+        display: 'flex',
+        flexDirection: 'row',
+        position: 'relative',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        title={open ? 'Hide preview' : 'Show preview'}
+        style={{
+          width: 36,
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
+          gap: 10,
+          padding: '14px 0',
+          background: 'var(--bg-panel-muted)',
+          color: 'var(--text-muted)',
+          border: 0,
+          borderRight: open ? '1px solid var(--border-subtle)' : 'none',
+          cursor: 'pointer',
+          font: 'inherit',
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-strong)';
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)';
+        }}
+      >
+        <Glyph
+          name={open ? 'chevron-right' : 'chevron-left'}
+          size={14}
+          tone="currentColor"
+        />
+        <span
+          style={{
+            writingMode: 'vertical-rl',
+            transform: 'rotate(180deg)',
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: '0.02em',
+          }}
+        >
+          Preview source
+        </span>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            overflow: 'auto',
+          }}
+        >
+          <div>
+            <p className="of-eyebrow">Preview</p>
+            <h3
+              style={{
+                margin: '4px 0 0',
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--text-strong)',
+              }}
+            >
+              {source.name}
+            </h3>
+            <p className="of-text-muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+              {source.connector_type} · {source.worker} · {source.status}
+            </p>
+          </div>
+          <PreviewField label="Project RID" value={source.project_rid ?? '—'} />
+          <PreviewField label="Folder RID" value={source.folder_rid ?? '—'} />
+          <PreviewField label="Owner" value={source.owner_id ?? '—'} />
+          <PreviewField label="Network policy" value={source.network_policy_id ?? '—'} />
+          <PreviewField
+            label="Default output"
+            value={source.default_output_location ?? '—'}
+          />
+          <div>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 11,
+                color: 'var(--text-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                fontWeight: 600,
+              }}
+            >
+              Raw config
+            </p>
+            <pre
+              style={{
+                margin: '4px 0 0',
+                padding: 8,
+                background: 'var(--bg-panel-muted)',
+                borderRadius: 4,
+                fontSize: 11,
+                fontFamily: 'var(--font-mono)',
+                overflow: 'auto',
+                maxHeight: 240,
+              }}
+            >
+              {JSON.stringify(source, null, 2)}
+            </pre>
+          </div>
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function PreviewField({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'grid', gap: 2 }}>
+      <span
+        style={{
+          fontSize: 11,
+          color: 'var(--text-muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </span>
+      <span style={{ fontSize: 13, color: 'var(--text-strong)', overflowWrap: 'anywhere' }}>
+        {value}
+      </span>
+    </div>
   );
 }
 
