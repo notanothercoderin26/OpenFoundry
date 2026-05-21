@@ -166,9 +166,13 @@ vet: ## Run `go vet`.
 .PHONY: ci
 ci: tidy vet lint contracts-check docs-drift-check test ## Run the full CI gate locally.
 
+.PHONY: quality-report
+quality-report: ## Aggregate vet, lint backlog, coverage, vuln, complexity, drift, frontend tsc into quality-report.md.
+	@tools/quality-report.sh
+
 .PHONY: clean
 clean: ## Remove build artifacts.
-	rm -rf $(BIN_DIR) $(COVERAGE_FILE) coverage.html
+	rm -rf $(BIN_DIR) $(COVERAGE_FILE) coverage.html quality-report.md
 
 # ---------------------------------------------------------------------------
 # GitOps (ArgoCD)
