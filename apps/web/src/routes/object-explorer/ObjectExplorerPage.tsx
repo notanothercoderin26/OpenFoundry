@@ -85,7 +85,7 @@ import { SearchResultsView } from './components/SearchResultsView';
 import { SideNavBrowse, type SideNavSelection } from './components/SideNavBrowse';
 import { SideNavSearch, type SearchSideNavSelection } from './components/SideNavSearch';
 import { TypePreviewPopover } from './components/TypePreviewPopover';
-import { objectExplorerKeys, useObjectExplorerInitialData, useTypeProperties } from './queries';
+import { objectExplorerKeys, useObjectExplorerInitialData, useObjectTypeCounts, useTypeProperties } from './queries';
 import {
   DEFAULT_LINKED_FILTER,
   DEFAULT_PROPERTY_FILTER,
@@ -342,6 +342,11 @@ export function ObjectExplorerPage() {
     () => visibleObjectTypes.filter((type) => instanceAccessByTypeId.get(type.id)?.can_view_instances ?? true),
     [instanceAccessByTypeId, visibleObjectTypes],
   );
+  const countableTypeIds = useMemo(
+    () => objectTypesWithVisibleRows.map((type) => type.id),
+    [objectTypesWithVisibleRows],
+  );
+  const countsByType = useObjectTypeCounts(countableTypeIds);
   const visibleObjectSets = useMemo(
     () => objectExplorerVisibleObjectSets(objectSets, objectTypes, principal),
     [objectSets, objectTypes, principal],
@@ -1352,6 +1357,7 @@ export function ObjectExplorerPage() {
         setSearchQuery={setSearchQuery}
         scopeTypeIds={scopeTypeIds}
         setScopeTypeIds={setScopeTypeIds}
+        countsByType={countsByType}
         onRunSearch={() => void runSearch()}
         onSelectTypeFromTypeahead={handleTypeaheadType}
         onSelectSavedSetFromTypeahead={handleTypeaheadSavedSet}
@@ -1430,6 +1436,8 @@ export function ObjectExplorerPage() {
                   }}
                   onChangeActiveTab={(next) => setActiveTab(next)}
                   onSearchAround={(result, anchor) => setSearchAroundState({ result, anchor })}
+                  countsByType={countsByType}
+                  favoriteTypeIds={favoriteTypeIds}
                 />
               ) : (
                 <>
@@ -1452,6 +1460,7 @@ export function ObjectExplorerPage() {
                     favoriteTypeIds={favoriteTypeIds}
                     onToggleFavorite={toggleFavoriteType}
                     selection={sideNavSelection}
+                    countsByType={countsByType}
                   />
                 </>
               )}
@@ -1469,6 +1478,7 @@ export function ObjectExplorerPage() {
                   favoriteTypeIds={favoriteTypeIds}
                   onToggleFavorite={toggleFavoriteType}
                   selection={sideNavSelection}
+                  countsByType={countsByType}
                 />
               )}
 

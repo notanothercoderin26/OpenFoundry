@@ -1,6 +1,7 @@
 import type { ObjectType, SearchResult } from '@/lib/api/ontology';
 
 import { iconBackground } from '../iconPalette';
+import { isProminentType } from '../prominence';
 import { SearchResultRow } from './SearchResultRow';
 
 export interface SearchResultObjectsSectionProps {
@@ -8,6 +9,8 @@ export interface SearchResultObjectsSectionProps {
   typeById: Map<string, ObjectType>;
   query: string;
   initialRowsPerType?: number;
+  countsByType?: Map<string, number>;
+  favoriteTypeIds?: Set<string>;
   onOpenResult: (result: SearchResult) => void;
   onExploreType: (typeId: string) => void;
   onViewAllObjects: () => void;
@@ -23,6 +26,8 @@ export function SearchResultObjectsSection({
   typeById,
   query,
   initialRowsPerType = DEFAULT_ROWS_PER_TYPE,
+  countsByType,
+  favoriteTypeIds,
   onOpenResult,
   onExploreType,
   onViewAllObjects,
@@ -30,7 +35,7 @@ export function SearchResultObjectsSection({
   favoriteResultIds,
   onToggleFavorite,
 }: SearchResultObjectsSectionProps) {
-  const grouped = groupByType(results);
+  const grouped = groupByType(results, typeById, { counts: countsByType, favorites: favoriteTypeIds });
 
   if (grouped.length === 0) {
     return (
@@ -109,7 +114,11 @@ export function SearchResultObjectsSection({
   );
 }
 
-function groupByType(results: SearchResult[]): Array<{ typeId: string | null; items: SearchResult[] }> {
+function groupByType(
+  results: SearchResult[],
+  typeById: Map<string, ObjectType>,
+  ctx: { counts?: Map<string, number>; favorites?: Set<string> },
+): Array<{ typeId: string | null; items: SearchResult[] }> {
   const buckets = new Map<string | null, SearchResult[]>();
   for (const result of results) {
     const key = result.object_type_id ?? null;
@@ -119,7 +128,14 @@ function groupByType(results: SearchResult[]): Array<{ typeId: string | null; it
   }
   return Array.from(buckets.entries())
     .map(([typeId, items]) => ({ typeId, items }))
-    .sort((left, right) => right.items.length - left.items.length);
+    .sort((left, right) => {
+      const leftType = left.typeId ? typeById.get(left.typeId) : undefined;
+      const rightType = right.typeId ? typeById.get(right.typeId) : undefined;
+      const leftProminent = leftType ? isProminentType(leftType, ctx) : false;
+      const rightProminent = rightType ? isProminentType(rightType, ctx) : false;
+      if (leftProminent !== rightProminent) return leftProminent ? -1 : 1;
+      return right.items.length - left.items.length;
+    });
 }
 
 function initialFor(name: string) {

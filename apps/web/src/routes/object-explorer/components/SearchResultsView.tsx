@@ -15,6 +15,7 @@ export interface SearchResultsViewProps {
   query: string;
   activeTab: SearchResultsTab;
   countsByType?: Map<string, number>;
+  favoriteTypeIds?: Set<string>;
   onOpenResult: (result: SearchResult) => void;
   onExploreType: (typeId: string) => void;
   onChangeActiveTab: (next: SearchResultsTab) => void;
@@ -29,6 +30,7 @@ export function SearchResultsView({
   query,
   activeTab,
   countsByType,
+  favoriteTypeIds,
   onOpenResult,
   onExploreType,
   onChangeActiveTab,
@@ -45,6 +47,8 @@ export function SearchResultsView({
           results={buckets.objects}
           typeById={typeById}
           query={query}
+          countsByType={countsByType}
+          favoriteTypeIds={favoriteTypeIds}
           onOpenResult={onOpenResult}
           onExploreType={onExploreType}
           onViewAllObjects={() => onChangeActiveTab('objects')}

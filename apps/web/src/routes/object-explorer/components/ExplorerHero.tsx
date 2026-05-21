@@ -18,6 +18,7 @@ export interface ExplorerHeroProps {
   setSearchQuery: (value: string) => void;
   scopeTypeIds: Set<string>;
   setScopeTypeIds: (next: Set<string>) => void;
+  countsByType?: Map<string, number>;
   onRunSearch: () => void;
   onSelectTypeFromTypeahead: (typeId: string) => void;
   onSelectSavedSetFromTypeahead: (set: ObjectSetDefinition) => void;
@@ -35,6 +36,7 @@ export function ExplorerHero({
   setSearchQuery,
   scopeTypeIds,
   setScopeTypeIds,
+  countsByType,
   onRunSearch,
   onSelectTypeFromTypeahead,
   onSelectSavedSetFromTypeahead,
@@ -65,6 +67,7 @@ export function ExplorerHero({
             visibleObjectTypes={visibleObjectTypes}
             selectedTypeIds={scopeTypeIds}
             onChangeSelected={setScopeTypeIds}
+            countsByType={countsByType}
           />
         </div>
         <span className="oe-hero__searchbar-divider" />

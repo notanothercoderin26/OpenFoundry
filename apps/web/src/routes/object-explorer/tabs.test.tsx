@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ReactNode } from 'react';
 
 import { makeExplorationTab, makeSearchTab, makeTypeTab, useExplorerTabs } from './tabs';
@@ -17,6 +17,9 @@ function wrapperWith(initial: string) {
 }
 
 describe('useExplorerTabs', () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
   it('starts with a single overview tab', () => {
     const { result } = renderHook(() => useExplorerTabs(), { wrapper });
     expect(result.current.tabs).toHaveLength(1);
@@ -108,5 +111,30 @@ describe('useExplorerTabs', () => {
     act(() => result.current.open(makeTypeTab('aircraft', '[Example Data] Aircraft')));
     expect(result.current.activeTab.id).toBe('type:aircraft');
     expect(result.current.tabs.find((t) => t.id === 'type:aircraft')?.label).toBe('[Example Data] Aircraft');
+  });
+});
+
+describe('useExplorerTabs · persistence', () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
+  it('persists the open tab list across remounts', () => {
+    const first = renderHook(() => useExplorerTabs(), { wrapper });
+    act(() => first.result.current.open(makeSearchTab('pass')));
+    act(() => first.result.current.open(makeTypeTab('aircraft', 'Aircraft')));
+    first.unmount();
+
+    const second = renderHook(() => useExplorerTabs(), { wrapper });
+    const ids = second.result.current.tabs.map((tab) => tab.id);
+    expect(ids).toContain('search:pass');
+    expect(ids).toContain('type:aircraft');
+  });
+
+  it('does not persist the Overview tab', () => {
+    const { result, unmount } = renderHook(() => useExplorerTabs(), { wrapper });
+    act(() => result.current.open(makeSearchTab('pass')));
+    unmount();
+    const raw = window.localStorage.getItem('of.object-explorer.tabs') ?? '[]';
+    expect(JSON.parse(raw).find((t: { kind: string }) => t.kind === 'overview')).toBeUndefined();
   });
 });

@@ -32,6 +32,46 @@ export interface ExplorerTab {
 
 const OVERVIEW_TAB: ExplorerTab = { id: 'overview', kind: 'overview', label: 'New exploration' };
 
+const STORAGE_KEY = 'of.object-explorer.tabs';
+const STORAGE_MAX_TABS = 10;
+
+function readStoredTabs(): ExplorerTab[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const tabs: ExplorerTab[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') continue;
+      const candidate = entry as Partial<ExplorerTab>;
+      if (!candidate.id || !candidate.kind || !candidate.label) continue;
+      if (candidate.kind === 'overview') continue;
+      tabs.push({
+        id: String(candidate.id),
+        kind: candidate.kind as ExplorerTabKind,
+        label: String(candidate.label),
+        query: typeof candidate.query === 'string' ? candidate.query : undefined,
+        resourceId: typeof candidate.resourceId === 'string' ? candidate.resourceId : undefined,
+      });
+    }
+    return tabs.slice(-STORAGE_MAX_TABS);
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredTabs(tabs: ExplorerTab[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    const persistable = tabs.filter((tab) => tab.kind !== 'overview').slice(-STORAGE_MAX_TABS);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
+  } catch {
+    // Swallow quota / SecurityError — persistence is best-effort.
+  }
+}
+
 export function makeSearchTab(query: string): ExplorerTab {
   const trimmed = query.trim();
   return {
@@ -150,6 +190,12 @@ export function useExplorerTabs(): ExplorerTabsApi {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  // Persist the open tab list (sans Overview) so a refresh keeps the
+  // tabs reachable even when the URL only points at the active one.
+  useEffect(() => {
+    writeStoredTabs(tabs);
+  }, [tabs]);
+
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? OVERVIEW_TAB,
     [tabs, activeTabId],
@@ -159,9 +205,13 @@ export function useExplorerTabs(): ExplorerTabsApi {
 }
 
 function buildInitialTabs(params: URLSearchParams): ExplorerTab[] {
+  const stored = readStoredTabs();
   const fromUrl = paramsToTab(params);
-  if (!fromUrl || fromUrl.kind === 'overview') return [OVERVIEW_TAB];
-  return [OVERVIEW_TAB, fromUrl];
+  const tabs: ExplorerTab[] = [OVERVIEW_TAB, ...stored];
+  if (fromUrl && fromUrl.kind !== 'overview' && !tabs.some((tab) => tab.id === fromUrl.id)) {
+    tabs.push(fromUrl);
+  }
+  return tabs;
 }
 
 function readActiveTabId(params: URLSearchParams, tabs: ExplorerTab[]): string {

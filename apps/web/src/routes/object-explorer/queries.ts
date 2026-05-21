@@ -3,6 +3,7 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import {
   listActionTypes,
   listLinkTypes,
+  listObjects,
   listObjectSets,
   listObjectTypeGroups,
   listObjectTypes,
@@ -26,6 +27,7 @@ export const objectExplorerKeys = {
   linkTypes: () => [...objectExplorerKeys.all, 'link-types'] as const,
   actionTypes: () => [...objectExplorerKeys.all, 'action-types'] as const,
   properties: (typeId: string) => [...objectExplorerKeys.all, 'properties', typeId] as const,
+  objectCount: (typeId: string) => [...objectExplorerKeys.all, 'object-count', typeId] as const,
 };
 
 export interface ObjectExplorerInitialData {
@@ -94,4 +96,28 @@ export function useTypeProperties(typeId: string) {
     queryFn: () => listProperties(typeId),
     enabled: Boolean(typeId),
   });
+}
+
+// Per-type object count. The platform has no batch endpoint, so we fire a
+// minimal listObjects(typeId, per_page=1) per id in parallel and let
+// TanStack Query cache + dedupe the answers. Long staleTime is fine —
+// counts are eventually consistent and the UI only uses them for chips
+// and proportion bars.
+export function useObjectTypeCounts(typeIds: string[]): Map<string, number> {
+  const results = useQueries({
+    queries: typeIds.map((typeId) => ({
+      queryKey: objectExplorerKeys.objectCount(typeId),
+      queryFn: () => listObjects(typeId, { per_page: 1 }).then((res) => res.total),
+      enabled: Boolean(typeId),
+      staleTime: 5 * 60 * 1000,
+      gcTime: 30 * 60 * 1000,
+      retry: false,
+    })),
+  });
+  const counts = new Map<string, number>();
+  for (let index = 0; index < typeIds.length; index += 1) {
+    const value = results[index]?.data;
+    if (typeof value === 'number') counts.set(typeIds[index], value);
+  }
+  return counts;
 }
