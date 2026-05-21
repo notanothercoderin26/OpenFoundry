@@ -65,9 +65,8 @@ import {
 } from '@/lib/api/ontology';
 import { useAuth } from '@/lib/stores/auth';
 
-import { Tabs } from '@/lib/components/Tabs';
-
 import { AppTabsBar, type AppTabsBarSavedItem } from './components/AppTabsBar';
+import { ExplorerTabs, type ExplorerTabDefinition } from './components/ExplorerTabs';
 import { PanelHeader } from './components/atoms';
 import { BrowseGroupsGrid } from './components/BrowseGroupsGrid';
 import { ExplorationsHighlight } from './components/ExplorationsHighlight';
@@ -120,12 +119,27 @@ import { makeExplorationTab, makeListTab, makeSearchTab, useExplorerTabs } from 
 
 type ObjectExplorerTab = 'overview' | 'objects' | 'types' | 'artifacts';
 
-const TAB_DEFINITIONS: ReadonlyArray<{ id: ObjectExplorerTab; label: string }> = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'objects', label: 'Objects' },
-  { id: 'types', label: 'Object types' },
-  { id: 'artifacts', label: 'Artifacts' },
-];
+function buildTabDefinitions(searchActive: boolean, counts: {
+  all: number;
+  objects: number;
+  types: number;
+  artifacts: number;
+}): ReadonlyArray<ExplorerTabDefinition<ObjectExplorerTab>> {
+  if (!searchActive) {
+    return [
+      { id: 'overview', label: 'Overview' },
+      { id: 'objects', label: 'Objects' },
+      { id: 'types', label: 'Object types' },
+      { id: 'artifacts', label: 'Artifacts' },
+    ];
+  }
+  return [
+    { id: 'overview', label: 'All', count: counts.all },
+    { id: 'objects', label: 'Objects', count: counts.objects },
+    { id: 'types', label: 'Object types', count: counts.types },
+    { id: 'artifacts', label: 'Artifacts', count: counts.artifacts },
+  ];
+}
 
 
 export function ObjectExplorerPage() {
@@ -1239,6 +1253,24 @@ export function ObjectExplorerPage() {
     [visibleObjectSets, typeById],
   );
 
+  const tabDefinitions = useMemo(() => {
+    const searchActive = hasSearched && searchQuery.trim().length > 0;
+    let objects = 0;
+    let types = 0;
+    let artifacts = 0;
+    for (const result of searchResults) {
+      if (result.kind === 'object_instance') objects += 1;
+      else if (result.kind === 'object_type') types += 1;
+      else artifacts += 1;
+    }
+    return buildTabDefinitions(searchActive, {
+      all: searchResults.length,
+      objects,
+      types,
+      artifacts,
+    });
+  }, [hasSearched, searchQuery, searchResults]);
+
   function handleTabActivate(tabId: string) {
     explorerTabs.activate(tabId);
   }
@@ -1303,7 +1335,7 @@ export function ObjectExplorerPage() {
         </section>
       ) : (
         <>
-          <Tabs tabs={TAB_DEFINITIONS} active={activeTab} onChange={setActiveTab} />
+          <ExplorerTabs tabs={tabDefinitions} active={activeTab} onChange={setActiveTab} />
 
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(200px, 240px) minmax(0, 1fr)', alignItems: 'start' }}>
             <SideNavGroups
