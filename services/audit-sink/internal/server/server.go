@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/services/audit-sink/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/audit-sink/internal/runtime"
@@ -34,12 +35,19 @@ type Server struct {
 //
 // `h` may be nil — in writer-only deployments (no Postgres pool) the
 // API routes are skipped and only /healthz + /metrics are served.
-func New(addr, serviceName, version string, m *runtime.Metrics, h *handlers.Handlers) *Server {
+//
+// `jwt` is required when `h` is non-nil: every /api/v1/audit/* route
+// is fronted by [authmw.Middleware], so an unauthenticated caller can
+// neither forge audit events via POST nor exfiltrate the audit ledger
+// via GET. Health + metrics remain public for kubelet probes and
+// Prometheus scrape.
+func New(addr, serviceName, version string, m *runtime.Metrics, h *handlers.Handlers, jwt *authmw.JWTConfig) *Server {
 	r := chi.NewRouter()
 	r.Get("/healthz", healthHandler(serviceName, version))
 	r.Handle("/metrics", promhttp.HandlerFor(m.Registry, promhttp.HandlerOpts{Registry: m.Registry}))
 	if h != nil {
 		r.Route("/api/v1/audit", func(r chi.Router) {
+			r.Use(authmw.Middleware(jwt))
 			r.Get("/events", h.QueryEvents)
 			r.Get("/events/export", h.ExportEvents)
 			r.Post("/events", h.RecordEvent)

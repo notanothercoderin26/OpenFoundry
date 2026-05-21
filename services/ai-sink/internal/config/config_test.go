@@ -10,6 +10,7 @@ func TestFromEnvResolvesIcebergTableWriterURL(t *testing.T) {
 	t.Setenv("ICEBERG_CATALOG_URL", "http://lakekeeper:8181")
 	t.Setenv("AI_SINK_TABLE_WRITER_URL", "http://ai-table-writer:8080")
 	t.Setenv("ICEBERG_WAREHOUSE", "wh")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "test-secret")
 
 	cfg, err := FromEnv()
 	if err != nil {
@@ -29,6 +30,7 @@ func TestFromEnvResolvesIcebergTableWriterURL(t *testing.T) {
 func TestFromEnvFallsBackToCatalogURLForCoLocatedTableWriter(t *testing.T) {
 	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 	t.Setenv("ICEBERG_CATALOG_URL", "http://co-located:8181")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "test-secret")
 
 	cfg, err := FromEnv()
 	if err != nil {
@@ -42,6 +44,7 @@ func TestFromEnvFallsBackToCatalogURLForCoLocatedTableWriter(t *testing.T) {
 func TestFromEnvJSONLModeDoesNotRequireIcebergCatalog(t *testing.T) {
 	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 	t.Setenv("AI_SINK_JSONL_DIR", t.TempDir())
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "test-secret")
 
 	cfg, err := FromEnv()
 	if err != nil {
@@ -62,5 +65,20 @@ func TestFromEnvRequiresIcebergCatalogForIcebergMode(t *testing.T) {
 	var missing *MissingEnvError
 	if !errors.As(err, &missing) || missing.Key != "ICEBERG_CATALOG_URL" {
 		t.Fatalf("FromEnv() error = %v, want missing ICEBERG_CATALOG_URL", err)
+	}
+}
+
+// FromEnv must refuse to boot without OPENFOUNDRY_JWT_SECRET so the
+// /api/v1/ai/* write-through POST can never be mounted unauthenticated.
+func TestFromEnvRequiresJWTSecret(t *testing.T) {
+	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+	t.Setenv("ICEBERG_CATALOG_URL", "http://lakekeeper:8181")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "")
+	t.Setenv("JWT_SECRET", "")
+
+	_, err := FromEnv()
+	var missing *MissingEnvError
+	if !errors.As(err, &missing) || missing.Key != "OPENFOUNDRY_JWT_SECRET" {
+		t.Fatalf("FromEnv() error = %v, want missing OPENFOUNDRY_JWT_SECRET", err)
 	}
 }

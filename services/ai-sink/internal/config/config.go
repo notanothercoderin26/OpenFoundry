@@ -49,6 +49,12 @@ type Config struct {
 	// `<table>.jsonl` per table inside. Empty string selects the
 	// Iceberg writer instead.
 	JSONLWriterDir string
+
+	// JWTSecret is the shared HS256 secret the /api/v1/ai/* routes
+	// validate bearer tokens against. Required — the surface includes
+	// a write-through POST that lands AI events, which must never
+	// accept unauthenticated callers.
+	JWTSecret string
 }
 
 // BatchPolicy mirrors the Rust shape.
@@ -93,6 +99,11 @@ func FromEnv() (*Config, error) {
 		policy.MaxWait = v
 	}
 
+	jwtSecret := defaultStr(os.Getenv("OPENFOUNDRY_JWT_SECRET"), os.Getenv("JWT_SECRET"))
+	if jwtSecret == "" {
+		return nil, &MissingEnvError{Key: "OPENFOUNDRY_JWT_SECRET"}
+	}
+
 	cfg := &Config{
 		DataBus:        dbCfg,
 		CatalogURL:     catalogURL,
@@ -101,6 +112,7 @@ func FromEnv() (*Config, error) {
 		BatchPolicy:    policy,
 		MetricsAddr:    defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090"),
 		JSONLWriterDir: jsonlDir,
+		JWTSecret:      jwtSecret,
 	}
 	cfg.Service.Name = "ai-sink"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")

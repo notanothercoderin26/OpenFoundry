@@ -26,6 +26,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	databus "github.com/openfoundry/openfoundry-go/libs/event-bus-data"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/action-log-sink/internal/config"
@@ -88,7 +89,8 @@ func main() {
 	if store != nil {
 		h = &handlers.Handlers{Repo: store}
 	}
-	httpSrv := server.New(cfg.MetricsAddr, cfg.Service.Name, cfg.Service.Version, metrics, h)
+	jwt := authmw.NewJWTConfig(cfg.JWTSecret).WithEnvDefaults()
+	httpSrv := server.New(cfg.MetricsAddr, cfg.Service.Name, cfg.Service.Version, metrics, h, jwt)
 
 	log.Info("action-log-sink starting Kafka -> Writer runtime",
 		slog.String("topic", config.SourceTopic),

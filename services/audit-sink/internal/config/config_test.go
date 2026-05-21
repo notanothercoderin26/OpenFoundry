@@ -24,6 +24,7 @@ func TestFromEnvAllowsExplicitJSONLDevModeWithoutIcebergCatalog(t *testing.T) {
 	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 	t.Setenv("AUDIT_SINK_JSONL_PATH", "-")
 	t.Setenv("ICEBERG_CATALOG_URL", "")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "test-secret")
 
 	cfg, err := FromEnv()
 	if err != nil {
@@ -41,6 +42,7 @@ func TestFromEnvSelectsIcebergProductionModeWhenJSONLUnset(t *testing.T) {
 	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 	t.Setenv("AUDIT_SINK_JSONL_PATH", "")
 	t.Setenv("ICEBERG_CATALOG_URL", "http://lakekeeper:8181")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "test-secret")
 
 	cfg, err := FromEnv()
 	if err != nil {
@@ -51,5 +53,22 @@ func TestFromEnvSelectsIcebergProductionModeWhenJSONLUnset(t *testing.T) {
 	}
 	if cfg.CatalogURL != "http://lakekeeper:8181" {
 		t.Fatalf("CatalogURL = %q", cfg.CatalogURL)
+	}
+}
+
+// FromEnv must refuse to boot without OPENFOUNDRY_JWT_SECRET. The
+// /api/v1/audit/* surface includes a write-through POST that lands
+// events into the audit ledger; mounting it without an authentication
+// secret would let any in-cluster caller forge audit records.
+func TestFromEnvRequiresJWTSecret(t *testing.T) {
+	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+	t.Setenv("ICEBERG_CATALOG_URL", "http://lakekeeper:8181")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "")
+	t.Setenv("JWT_SECRET", "")
+
+	_, err := FromEnv()
+	var missing *MissingEnvError
+	if !errors.As(err, &missing) || missing.Key != "OPENFOUNDRY_JWT_SECRET" {
+		t.Fatalf("FromEnv() error = %v, want missing OPENFOUNDRY_JWT_SECRET", err)
 	}
 }

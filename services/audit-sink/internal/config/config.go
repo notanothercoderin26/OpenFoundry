@@ -53,6 +53,13 @@ type Config struct {
 	// JSONL-file fallback (development / staging). When empty, the
 	// runtime uses the production Iceberg writer.
 	JSONLWriterPath string
+
+	// JWTSecret is the shared HS256 secret the /api/v1/audit/* routes
+	// validate bearer tokens against. Sourced from OPENFOUNDRY_JWT_SECRET
+	// (with JWT_SECRET as legacy fallback). Required — the API surface
+	// includes a write-through POST that mints audit events, so an
+	// unauthenticated boot is a security incident, not a convenience.
+	JWTSecret string
 }
 
 // BatchPolicy mirrors the Rust BatchPolicy.
@@ -97,6 +104,11 @@ func FromEnv() (*Config, error) {
 		policy.MaxWait = v
 	}
 
+	jwtSecret := defaultStr(os.Getenv("OPENFOUNDRY_JWT_SECRET"), os.Getenv("JWT_SECRET"))
+	if jwtSecret == "" {
+		return nil, &MissingEnvError{Key: "OPENFOUNDRY_JWT_SECRET"}
+	}
+
 	cfg := &Config{
 		DataBus:         dbCfg,
 		CatalogURL:      catalogURL,
@@ -104,6 +116,7 @@ func FromEnv() (*Config, error) {
 		BatchPolicy:     policy,
 		MetricsAddr:     defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090"),
 		JSONLWriterPath: jsonlPath,
+		JWTSecret:       jwtSecret,
 	}
 	cfg.Service.Name = "audit-sink"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")

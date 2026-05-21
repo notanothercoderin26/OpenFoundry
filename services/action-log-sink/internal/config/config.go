@@ -53,6 +53,12 @@ type Config struct {
 	// JSONLWriterPath, when non-empty, selects the JSONL dev writer
 	// instead of the Iceberg HTTP adapter.
 	JSONLWriterPath string
+
+	// JWTSecret is the shared HS256 secret the /api/v1/action-log/*
+	// routes validate bearer tokens against. Required — the surface
+	// includes a write-through POST that lands action-log events,
+	// which must never accept unauthenticated callers.
+	JWTSecret string
 }
 
 // BatchPolicy mirrors ai-sink. ShouldFlush is read by the runtime
@@ -98,6 +104,11 @@ func FromEnv() (*Config, error) {
 		policy.MaxWait = v
 	}
 
+	jwtSecret := defaultStr(os.Getenv("OPENFOUNDRY_JWT_SECRET"), os.Getenv("JWT_SECRET"))
+	if jwtSecret == "" {
+		return nil, &MissingEnvError{Key: "OPENFOUNDRY_JWT_SECRET"}
+	}
+
 	cfg := &Config{
 		DataBus:         dbCfg,
 		CatalogURL:      catalogURL,
@@ -106,6 +117,7 @@ func FromEnv() (*Config, error) {
 		BatchPolicy:     policy,
 		MetricsAddr:     defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090"),
 		JSONLWriterPath: jsonlPath,
+		JWTSecret:       jwtSecret,
 	}
 	cfg.Service.Name = "action-log-sink"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")

@@ -12,6 +12,7 @@ func TestFromEnv_happy(t *testing.T) {
 	t.Setenv("ICEBERG_WAREHOUSE", "openfoundry")
 	t.Setenv("ACTION_LOG_SINK_BATCH_MAX_RECORDS", "5000")
 	t.Setenv("ACTION_LOG_SINK_BATCH_MAX_WAIT_SECONDS", "10")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "test-secret")
 
 	cfg, err := FromEnv()
 	if err != nil {
@@ -69,6 +70,7 @@ func TestFromEnv_databaseURLSatisfiesWriterRequirement(t *testing.T) {
 	t.Setenv("ICEBERG_CATALOG_URL", "")
 	t.Setenv("ACTION_LOG_SINK_JSONL_PATH", "")
 	t.Setenv("DATABASE_URL", "postgresql://x")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "test-secret")
 	cfg, err := FromEnv()
 	if err != nil {
 		t.Fatalf("FromEnv: %v", err)
@@ -82,6 +84,7 @@ func TestFromEnv_jsonlSkipsCatalogRequirement(t *testing.T) {
 	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 	t.Setenv("ICEBERG_CATALOG_URL", "")
 	t.Setenv("ACTION_LOG_SINK_JSONL_PATH", "/tmp/out.jsonl")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "test-secret")
 	cfg, err := FromEnv()
 	if err != nil {
 		t.Fatalf("FromEnv: %v", err)
@@ -101,6 +104,21 @@ func TestFromEnv_invalidBatchMaxRecords(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ACTION_LOG_SINK_BATCH_MAX_RECORDS") {
 		t.Errorf("error should name the key: %v", err)
+	}
+}
+
+// FromEnv must refuse to boot without OPENFOUNDRY_JWT_SECRET so the
+// /api/v1/action-log/* write-through POST can never be mounted
+// unauthenticated.
+func TestFromEnv_requiresJWTSecret(t *testing.T) {
+	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+	t.Setenv("ICEBERG_CATALOG_URL", "http://c.example")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "")
+	t.Setenv("JWT_SECRET", "")
+	_, err := FromEnv()
+	var me *MissingEnvError
+	if !errors.As(err, &me) || me.Key != "OPENFOUNDRY_JWT_SECRET" {
+		t.Fatalf("expected missing OPENFOUNDRY_JWT_SECRET, got %v", err)
 	}
 }
 
