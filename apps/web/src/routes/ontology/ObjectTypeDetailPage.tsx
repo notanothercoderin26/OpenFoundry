@@ -70,6 +70,7 @@ import {
   useFavorites,
   useToggleFavorite,
 } from '@/lib/hooks/useDiscover';
+import { useObjectTypeDependents } from '@/lib/hooks/useOntologyData';
 import { SaveAsAppModal } from '@/lib/components/apps/SaveAsAppModal';
 import { Tabs } from '@/lib/components/Tabs';
 import { Glyph } from '@/lib/components/ui/Glyph';
@@ -348,6 +349,11 @@ export function ObjectTypeDetailPage() {
   const favoritesScope = 'default';
   const { data: favoriteIds = [] } = useFavorites(favoritesScope, 'object-type');
   const toggleObjectFavorite = useToggleFavorite(favoritesScope, 'object-type');
+  const { data: dependentsResponse } = useObjectTypeDependents(id);
+  const dependentsByKind = useMemo(
+    () => (dependentsResponse?.by_kind ?? {}) as Record<string, Array<{ id: string; label: string; href?: string; hint?: string }>>,
+    [dependentsResponse],
+  );
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('overview');
   const [saveAsOpen, setSaveAsOpen] = useState(false);
@@ -660,7 +666,7 @@ export function ObjectTypeDetailPage() {
             onNewLink={() => setTab('links')}
           />
           <ObjectTypeDependentsPanel
-            dependents={{}}
+            dependents={dependentsByKind}
             onCreate={(kind) => {
               if (kind === 'workshop') setSaveAsOpen(true);
             }}

@@ -3,8 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import {
   getFunctionPackage,
-  listFunctionPackages,
   type FunctionPackage,
+  type FunctionVersionEntry,
 } from "@/lib/api/ontology";
 import { Glyph } from "@/lib/components/ui/Glyph";
 import { TabBar } from "@/lib/components/ui/TabBar";
@@ -12,6 +12,10 @@ import { Badge } from "@/lib/components/ui/Badge";
 import { ResourceIcon } from "@/lib/components/ui/ResourceIcon";
 import { ontologyGroupColor } from "@/lib/components/ontology/groupColors";
 import { ObservabilityPanel } from "@/lib/components/ontology/ObservabilityPanel";
+import {
+  useFunctionUsageHistory,
+  useFunctionVersions,
+} from "@/lib/hooks/useOntologyData";
 
 type Tab = "overview" | "configuration" | "observability";
 
@@ -20,7 +24,6 @@ export function FunctionDetailPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("overview");
   const [pkg, setPkg] = useState<FunctionPackage | null>(null);
-  const [versions, setVersions] = useState<FunctionPackage[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -36,15 +39,6 @@ export function FunctionDetailPage() {
         if (cancelled) return;
         setPkg(current);
         setSelectedVersionId(current.id);
-        try {
-          const all = await listFunctionPackages({ per_page: 200 });
-          if (cancelled) return;
-          /* Group versions by package name (server may not expose a
-           * dedicated /functions/:name/versions endpoint yet). */
-          setVersions(all.data.filter((entry) => entry.name === current.name));
-        } catch {
-          setVersions([current]);
-        }
       } catch (cause) {
         if (!cancelled) {
           setError(cause instanceof Error ? cause.message : String(cause));
@@ -58,9 +52,21 @@ export function FunctionDetailPage() {
     };
   }, [id]);
 
+  const { data: versions = [] } = useFunctionVersions(pkg?.id);
+  const { data: usageHistory = [] } = useFunctionUsageHistory(pkg?.id);
+
   const activeVersion = useMemo(() => {
+    if (!pkg) return null;
     if (!selectedVersionId) return pkg;
-    return versions.find((entry) => entry.id === selectedVersionId) ?? pkg;
+    const match = versions.find((entry) => entry.id === selectedVersionId);
+    if (!match) return pkg;
+    return {
+      ...pkg,
+      id: match.id,
+      version: match.version,
+      display_name: match.display_name,
+      created_at: match.created_at,
+    } as FunctionPackage;
   }, [versions, selectedVersionId, pkg]);
 
   if (loading || !pkg || !activeVersion) {
@@ -166,7 +172,7 @@ export function FunctionDetailPage() {
 
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
           {tab === "overview" ? (
-            <OverviewBody pkg={activeVersion} />
+            <OverviewBody pkg={activeVersion} usageHistory={usageHistory} />
           ) : tab === "configuration" ? (
             <ConfigurationBody pkg={activeVersion} />
           ) : (
@@ -181,7 +187,13 @@ export function FunctionDetailPage() {
   );
 }
 
-function OverviewBody({ pkg }: { pkg: FunctionPackage }) {
+function OverviewBody({
+  pkg,
+  usageHistory,
+}: {
+  pkg: FunctionPackage;
+  usageHistory: ReadonlyArray<{ app_id: string; app_name: string; app_kind: string; version: string }>;
+}) {
   return (
     <>
       <section
@@ -232,13 +244,39 @@ function OverviewBody({ pkg }: { pkg: FunctionPackage }) {
           <h3 className="text-of-16 font-of-semibold text-of-text">
             Usage history
           </h3>
+          <span className="text-of-13 text-of-text-muted tabular-nums">
+            {usageHistory.length}
+          </span>
         </header>
-        <p className="text-of-13 text-of-text-muted m-0">
-          The applications and pipelines consuming this function show up here,
-          grouped by the version they are pinned to. The backend endpoint
-          aggregating usage is not yet available — once it lands, this section
-          will list consumer apps and offer one-click version upgrades.
-        </p>
+        {usageHistory.length === 0 ? (
+          <p className="text-of-13 text-of-text-muted m-0">
+            No applications have pinned this function yet. As pipelines and
+            Workshop modules consume it, they will surface here grouped by
+            the version they pin.
+          </p>
+        ) : (
+          <ul className="list-none p-0 m-0 flex flex-col gap-px">
+            {usageHistory.map((entry) => (
+              <li
+                key={entry.app_id}
+                className="flex items-center gap-2 px-2 h-8 rounded-of-sm hover:bg-of-surface-muted"
+              >
+                <span className="text-of-13 font-of-medium text-of-text truncate flex-1">
+                  {entry.app_name}
+                </span>
+                <span className="text-of-12 text-of-text-muted truncate">
+                  {entry.app_kind}
+                </span>
+                <span
+                  className="text-of-12 font-mono text-of-text-muted"
+                  title={`Pinned to v${entry.version}`}
+                >
+                  v{entry.version}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </>
   );
@@ -272,16 +310,13 @@ function VersionPicker({
   currentId,
   onChange,
 }: {
-  versions: FunctionPackage[];
+  versions: FunctionVersionEntry[];
   currentId: string;
   onChange: (id: string) => void;
 }) {
   if (versions.length === 0) {
     return <span className="text-of-12 text-of-text-muted">No versions</span>;
   }
-  const sorted = [...versions].sort((a, b) =>
-    b.version.localeCompare(a.version),
-  );
   return (
     <span
       className={[
@@ -295,10 +330,10 @@ function VersionPicker({
         onChange={(event) => onChange(event.target.value)}
         className="flex-1 min-w-0 bg-transparent border-0 outline-none text-of-13 text-of-text appearance-none"
       >
-        {sorted.map((entry, index) => (
+        {versions.map((entry) => (
           <option key={entry.id} value={entry.id}>
             v{entry.version}
-            {index === 0 ? "  ·  latest" : ""}
+            {entry.is_latest ? "  ·  latest" : ""}
           </option>
         ))}
       </select>
