@@ -8,6 +8,7 @@
     'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
 
   --bg-app: #e9edf2;
+  --bg-app-portal: #ffffff;
   --bg-default: #ffffff;
   --bg-canvas: #eef1f5;
   --bg-panel: #ffffff;
@@ -21,7 +22,7 @@
   --bg-input: #ffffff;
   --bg-chip: #edf1f5;
   --bg-chip-active: #dbe9fb;
-  --bg-chip-strong: #2d72d2;
+  --bg-chip-strong: #2965cc;
   --bg-hover: #eef3f8;
 
   --border-subtle: #e1e5ea;
@@ -29,7 +30,7 @@
   --border-strong: #aab4c0;
   --border-topbar-trail: #d8dde3;
   --border-topbar-action: #c7ced7;
-  --border-focus: #2d72d2;
+  --border-focus: #2965cc;
 
   --text-strong: #1f252d;
   --text-default: #344154;
@@ -45,8 +46,18 @@
   --status-warning-bg: #fff3df;
   --status-danger: #b42318;
   --status-danger-bg: #fde7e7;
-  --status-info: #2d72d2;
+  --status-info: #2965cc;
   --status-info-bg: #e8f1ff;
+
+  --chip-recommended-bg: #dde9f8;
+  --chip-recommended-text: #1f5ea8;
+  --chip-reversible-bg: #dcefe0;
+  --chip-reversible-text: #157347;
+  --chip-experimental-bg: #e0eaf7;
+  --chip-experimental-text: #1f5ea8;
+
+  --badge-healthy-bg: #dcefe0;
+  --badge-healthy-text: #117a39;
 
   --shadow-panel: none;
   --shadow-popover: 0 12px 28px rgba(17, 24, 39, 0.18);
@@ -278,7 +289,7 @@ button {
 .of-btn-primary,
 .of-button--primary {
   border-color: #1f5ea8;
-  background: #2d72d2;
+  background: #2965cc;
   color: var(--text-inverse);
 }
 
@@ -758,7 +769,7 @@ button {
 .of-sidebar__link--active {
   background: var(--bg-sidebar-active);
   color: #fff;
-  box-shadow: inset 3px 0 0 #2d72d2;
+  box-shadow: inset 3px 0 0 #2965cc;
 }
 
 .of-sidebar__link--button {
@@ -1016,7 +1027,7 @@ button {
   height: 30px;
   padding: 0 12px;
   border-radius: 4px;
-  background: #2d72d2;
+  background: #2965cc;
   color: #ffffff;
   font-size: 12px;
   font-weight: 700;
@@ -1240,11 +1251,11 @@ button {
 .of-app-runtime__nav-item:hover,
 .of-app-runtime__nav-item.is-active {
   color: var(--app-text, #0f172a);
-  background: color-mix(in srgb, var(--app-primary, #2d72d2) 9%, transparent);
+  background: color-mix(in srgb, var(--app-primary, #2965cc) 9%, transparent);
 }
 
 .of-app-runtime__nav-item.is-active {
-  border-bottom-color: var(--app-primary, #2d72d2);
+  border-bottom-color: var(--app-primary, #2965cc);
 }
 
 .of-app-runtime__filter,
@@ -2489,7 +2500,7 @@ button {
 
 .of-topbar__action--primary {
   border-color: #1f5ea8;
-  background: #2d72d2;
+  background: #2965cc;
   color: #fff;
 }
 
@@ -4947,10 +4958,10 @@ button {
 }
 
 .of-pipe-create-type-card--active {
-  border-color: #2d72d2;
+  border-color: #2965cc;
   background: #e8f1ff;
   border-width: 1px;
-  box-shadow: 0 0 0 1px #2d72d2 inset;
+  box-shadow: 0 0 0 1px #2965cc inset;
 }
 
 .of-pipe-create-type-card__text {
@@ -4992,14 +5003,14 @@ button {
 }
 
 .of-pipe-create-radio--active {
-  border-color: #2d72d2;
+  border-color: #2965cc;
 }
 
 .of-pipe-create-radio__dot {
   display: block;
   width: 8px;
   height: 8px;
-  background: #2d72d2;
+  background: #2965cc;
   border-radius: 999px;
 }
 
@@ -5054,7 +5065,7 @@ button {
 }
 
 .of-pipe-create-sub-card--active {
-  border-color: #2d72d2;
+  border-color: #2965cc;
   background: #f0f6ff;
 }
 
@@ -5209,8 +5220,8 @@ button {
 }
 
 .of-pipe-loc-saveas-input:focus-within {
-  border-color: #2d72d2;
-  box-shadow: 0 0 0 1px #2d72d2;
+  border-color: #2965cc;
+  box-shadow: 0 0 0 1px #2965cc;
 }
 
 .of-pipe-loc-pipe-icon {
@@ -6432,7 +6443,7 @@ button {
   right: 0;
   bottom: -1px;
   height: 2px;
-  background: #2d72d2;
+  background: #2965cc;
 }
 
 .of-aip__layout {
@@ -6486,7 +6497,7 @@ button {
 
 .of-aip__leftnav-item--active {
   background: #ebf1f5;
-  border-left-color: #2d72d2;
+  border-left-color: #2965cc;
   color: #106ba3;
   font-weight: 600;
 }
@@ -6649,7 +6660,7 @@ button {
 }
 
 .of-aip__rightnav-item--active {
-  border-left-color: #2d72d2;
+  border-left-color: #2965cc;
   color: #106ba3;
   font-weight: 600;
 }
@@ -6729,7 +6740,7 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #2d72d2;
+  color: #2965cc;
   font-weight: 700;
   font-size: 14px;
   flex-shrink: 0;
