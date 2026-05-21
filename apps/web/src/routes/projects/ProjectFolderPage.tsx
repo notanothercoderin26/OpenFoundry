@@ -18,7 +18,11 @@ import { RenameDialog } from '@/lib/components/workspace/RenameDialog';
 import { ResourceDetailsPanel, type ResourceSummary } from '@/lib/components/workspace/ResourceDetailsPanel';
 import { RowActionsMenu } from '@/lib/components/workspace/RowActionsMenu';
 import { ShareDialog } from '@/lib/components/workspace/ShareDialog';
+import { Glyph } from '@/lib/components/ui/Glyph';
+import { ResourcePickerDialog, type ResourcePickerAction } from '@/lib/components/projects/ResourcePickerDialog';
+import { UploadFilesDialog } from '@/lib/components/projects/UploadFilesDialog';
 import {
+  bindProjectResource,
   createProjectFolder,
   getProject,
   listProjectFolders,
@@ -36,6 +40,35 @@ import {
   softDeleteResource,
   type ResourceKind,
 } from '@/lib/api/workspace';
+
+const RESOURCE_KIND_OPTIONS: ResourceKind[] = [
+  'dataset',
+  'pipeline',
+  'query',
+  'notebook',
+  'app',
+  'dashboard',
+  'report',
+  'model',
+  'workflow',
+  'other',
+];
+
+const RESOURCE_KIND_LABELS: Record<ResourceKind, string> = {
+  ontology_project: 'Project',
+  ontology_folder: 'Folder',
+  ontology_resource_binding: 'Binding',
+  dataset: 'Dataset',
+  pipeline: 'Pipeline',
+  query: 'Query',
+  notebook: 'Notebook',
+  app: 'App',
+  dashboard: 'Dashboard',
+  report: 'Report',
+  model: 'Model',
+  workflow: 'Workflow',
+  other: 'Other',
+};
 
 type FolderExplorerItem = {
   key: string;
@@ -131,8 +164,16 @@ export function ProjectFolderPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [childName, setChildName] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [createMode, setCreateMode] = useState<null | 'folder' | 'binding'>(null);
+  const [folderName, setFolderName] = useState('');
+  const [folderDescription, setFolderDescription] = useState('');
+  const [bindKind, setBindKind] = useState<ResourceKind>('dataset');
+  const [bindId, setBindId] = useState('');
+  const [search, setSearch] = useState('');
+  const [kindFilter, setKindFilter] = useState<ResourceKind | 'all'>('all');
   const [detailsResource, setDetailsResource] = useState<ResourceSummary | null>(null);
   const [shareTarget, setShareTarget] = useState<DialogTarget | null>(null);
   const [bulkShareOpen, setBulkShareOpen] = useState(false);
@@ -222,6 +263,19 @@ export function ProjectFolderPage() {
     return [...folderItems, ...resourceItems];
   }, [childFolders, resources]);
 
+  const filteredItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return items.filter((item) => {
+      if (kindFilter !== 'all') {
+        const itemKind = item.type === 'folder' ? 'ontology_folder' : item.shareKind;
+        if (itemKind !== kindFilter) return false;
+      }
+      if (!q) return true;
+      return item.name.toLowerCase().includes(q)
+        || (item.description ?? '').toLowerCase().includes(q);
+    });
+  }, [items, search, kindFilter]);
+
   const selectedItems = useMemo(() => items.filter((item) => selectedKeys.has(item.key)), [items, selectedKeys]);
   const selectedFoldersOnly = selectedItems.length > 0 && selectedItems.every((item) => item.type === 'folder');
 
@@ -266,15 +320,58 @@ export function ProjectFolderPage() {
     });
   }, [items]);
 
-  async function addChild() {
-    if (!project || !folder || !childName.trim()) return;
+  function handleResourcePick(action: ResourcePickerAction) {
+    setShowCreateMenu(false);
+    if (action === 'folder') {
+      setFolderName('');
+      setFolderDescription('');
+      setCreateMode('folder');
+    } else if (action === 'upload-files') {
+      setUploadOpen(true);
+    } else if (action === 'bind-existing' || action === 'dataset') {
+      setBindKind(action === 'dataset' ? 'dataset' : bindKind);
+      setBindId('');
+      setCreateMode('binding');
+    } else if (action === 'pipeline-builder' && project) {
+      navigate(`/pipelines/new?project_id=${project.id}`);
+    }
+  }
+
+  async function createFolderSubmit() {
+    if (!project || !folder || !folderName.trim()) return;
     setBusy(true);
+    setError('');
     try {
-      await createProjectFolder(project.id, { name: childName.trim(), parent_folder_id: folder.id });
-      setChildName('');
+      await createProjectFolder(project.id, {
+        name: folderName.trim(),
+        description: folderDescription.trim() || undefined,
+        parent_folder_id: folder.id,
+      });
+      setCreateMode(null);
+      setFolderName('');
+      setFolderDescription('');
       setFolders(await listProjectFolders(project.id));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Folder create failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bindSubmit() {
+    if (!project || !bindId.trim()) return;
+    setBusy(true);
+    setError('');
+    try {
+      await bindProjectResource(project.id, {
+        resource_kind: bindKind,
+        resource_id: bindId.trim(),
+      });
+      setCreateMode(null);
+      setBindId('');
+      await refreshAfterMutation();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Bind failed');
     } finally {
       setBusy(false);
     }
@@ -518,7 +615,16 @@ export function ProjectFolderPage() {
             {folder.description && ` - ${folder.description}`}
           </p>
         </div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, position: 'relative' }}>
+          <button
+            type="button"
+            className="of-button of-button--success"
+            onClick={() => setShowCreateMenu(true)}
+          >
+            <Glyph name="plus" size={13} />
+            New
+            <Glyph name="chevron-down" size={11} />
+          </button>
           <OpenWithMenu
             resourceKind="ontology_folder"
             resourceId={folder.id}
@@ -577,27 +683,41 @@ export function ProjectFolderPage() {
         </aside>
 
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
-          <section className="of-panel" style={{ padding: 16 }}>
-            <p className="of-eyebrow">Add subfolder</p>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-              <input value={childName} onChange={(e) => setChildName(e.target.value)} placeholder="subfolder name" className="of-input" />
-              <button type="button" onClick={() => void addChild()} disabled={busy || !childName.trim()} className="of-button of-button--primary">
-                Create
-              </button>
-            </div>
-          </section>
-
           <section className="of-panel" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-default)', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-              <div>
-                <p className="of-eyebrow">Folder contents</p>
-                <p className="of-text-muted" style={{ marginTop: 3, fontSize: 12 }}>
-                  {childFolders.length} folder(s) - {resources.length} bound resource(s)
-                </p>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 320px', display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px', border: '1px solid var(--border-default)', borderRadius: 4, background: '#fff', minHeight: 32 }}>
+                <Glyph name="search" size={14} tone="#8a96a6" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search files…"
+                  style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, background: 'transparent', minHeight: 28 }}
+                />
               </div>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#5c7080' }}>
+                File type
+                <select
+                  value={kindFilter}
+                  onChange={(e) => setKindFilter(e.target.value as ResourceKind | 'all')}
+                  className="of-input"
+                  style={{ minHeight: 30, fontSize: 12, paddingRight: 22 }}
+                >
+                  <option value="all">All</option>
+                  <option value="ontology_folder">Folder</option>
+                  {RESOURCE_KIND_OPTIONS.map((kind) => (
+                    <option key={kind} value={kind}>{RESOURCE_KIND_LABELS[kind]}</option>
+                  ))}
+                </select>
+              </label>
               <button type="button" onClick={() => void load()} disabled={busy} className="of-button" style={{ fontSize: 12 }}>
                 Refresh
               </button>
+            </div>
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              <p className="of-text-muted" style={{ fontSize: 12, margin: 0 }}>
+                {childFolders.length} folder(s) · {resources.length} bound resource(s)
+                {(search || kindFilter !== 'all') && ` · ${filteredItems.length} match${filteredItems.length === 1 ? '' : 'es'}`}
+              </p>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 840, fontSize: 12 }}>
@@ -607,8 +727,12 @@ export function ProjectFolderPage() {
                       <input
                         type="checkbox"
                         aria-label="Select all visible items"
-                        checked={items.length > 0 && selectedItems.length === items.length}
-                        onChange={(e) => setSelectedKeys(e.target.checked ? new Set(items.map((item) => item.key)) : new Set())}
+                        checked={filteredItems.length > 0 && filteredItems.every((item) => selectedKeys.has(item.key))}
+                        onChange={(e) => setSelectedKeys(
+                          e.target.checked
+                            ? new Set(filteredItems.map((item) => item.key))
+                            : new Set(),
+                        )}
                       />
                     </th>
                     <th style={{ padding: '10px 12px' }}>Name</th>
@@ -620,7 +744,7 @@ export function ProjectFolderPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => (
+                  {filteredItems.map((item) => (
                     <tr
                       key={item.key}
                       draggable={item.type === 'folder'}
@@ -643,11 +767,16 @@ export function ProjectFolderPage() {
                         <button
                           type="button"
                           onClick={() => handleRowAction(item, 'open')}
-                          style={{ border: 'none', background: 'transparent', padding: 0, textAlign: 'left', color: '#60a5fa', cursor: 'pointer', fontWeight: 600 }}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, border: 'none', background: 'transparent', padding: 0, textAlign: 'left', color: '#1c2127', cursor: 'pointer', fontWeight: 600 }}
                         >
-                          {item.name}
+                          <Glyph
+                            name={item.type === 'folder' ? 'folder' : 'document'}
+                            size={16}
+                            tone={item.type === 'folder' ? '#cf923f' : '#5c7080'}
+                          />
+                          <span style={{ color: '#1f6fd1' }}>{item.name}</span>
                         </button>
-                        {item.description && <p className="of-text-muted" style={{ margin: '3px 0 0', fontSize: 11 }}>{item.description}</p>}
+                        {item.description && <p className="of-text-muted" style={{ margin: '3px 0 0 24px', fontSize: 11 }}>{item.description}</p>}
                       </td>
                       <td style={{ padding: '10px 12px' }}>{item.type === 'folder' ? 'folder' : item.binding.resource_kind}</td>
                       <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{shortId(item.ownerId)}</td>
@@ -681,10 +810,26 @@ export function ProjectFolderPage() {
                       </td>
                     </tr>
                   ))}
-                  {items.length === 0 && (
+                  {filteredItems.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="of-text-muted" style={{ padding: 16 }}>
-                        This folder is empty.
+                      <td colSpan={7} style={{ padding: 0 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: '48px 24px', textAlign: 'center' }}>
+                          <Glyph name="folder-open" size={48} tone="#cf923f" />
+                          <div style={{ fontSize: 14, color: '#5c7080' }}>
+                            {items.length === 0 ? 'This folder is empty.' : 'No items match the current filters.'}
+                          </div>
+                          {items.length === 0 && (
+                            <button
+                              type="button"
+                              className="of-button of-button--success"
+                              onClick={() => setShowCreateMenu(true)}
+                            >
+                              <Glyph name="plus" size={13} />
+                              New
+                              <Glyph name="chevron-down" size={11} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -694,6 +839,86 @@ export function ProjectFolderPage() {
           </section>
         </div>
       </div>
+
+      <ResourcePickerDialog
+        open={showCreateMenu}
+        onClose={() => setShowCreateMenu(false)}
+        onPick={handleResourcePick}
+      />
+
+      <UploadFilesDialog
+        open={uploadOpen}
+        projectId={project?.id ?? null}
+        onClose={() => setUploadOpen(false)}
+        onUploaded={() => void refreshAfterMutation()}
+      />
+
+      {createMode === 'folder' && (
+        <FolderModalDialog
+          title="New folder"
+          busy={busy}
+          submitLabel={busy ? 'Creating…' : 'Create folder'}
+          submitDisabled={busy || !folderName.trim()}
+          onCancel={() => !busy && setCreateMode(null)}
+          onSubmit={() => void createFolderSubmit()}
+        >
+          <label style={{ fontSize: 12 }}>
+            Name
+            <input
+              value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+              className="of-input"
+              autoFocus
+              style={{ marginTop: 4 }}
+            />
+          </label>
+          <label style={{ fontSize: 12 }}>
+            Description
+            <input
+              value={folderDescription}
+              onChange={(e) => setFolderDescription(e.target.value)}
+              className="of-input"
+              style={{ marginTop: 4 }}
+            />
+          </label>
+        </FolderModalDialog>
+      )}
+
+      {createMode === 'binding' && (
+        <FolderModalDialog
+          title="Bind resource"
+          busy={busy}
+          submitLabel={busy ? 'Saving…' : 'Bind'}
+          submitDisabled={busy || !bindId.trim()}
+          onCancel={() => !busy && setCreateMode(null)}
+          onSubmit={() => void bindSubmit()}
+        >
+          <label style={{ fontSize: 12 }}>
+            Resource kind
+            <select
+              value={bindKind}
+              onChange={(e) => setBindKind(e.target.value as ResourceKind)}
+              className="of-input"
+              style={{ marginTop: 4 }}
+            >
+              {RESOURCE_KIND_OPTIONS.map((kind) => (
+                <option key={kind} value={kind}>{RESOURCE_KIND_LABELS[kind]}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize: 12 }}>
+            Resource id
+            <input
+              value={bindId}
+              onChange={(e) => setBindId(e.target.value)}
+              placeholder="dataset RID, pipeline id, …"
+              className="of-input"
+              autoFocus
+              style={{ marginTop: 4 }}
+            />
+          </label>
+        </FolderModalDialog>
+      )}
 
       <ResourceDetailsPanel
         open={!!detailsResource}
@@ -781,5 +1006,93 @@ export function ProjectFolderPage() {
         onConfirm={() => void deleteSelected()}
       />
     </section>
+  );
+}
+
+function FolderModalDialog({
+  title,
+  children,
+  busy,
+  submitLabel,
+  submitDisabled,
+  onCancel,
+  onSubmit,
+}: {
+  title: string;
+  children: React.ReactNode;
+  busy: boolean;
+  submitLabel: string;
+  submitDisabled?: boolean;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(15,23,42,0.4)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+        zIndex: 100,
+      }}
+    >
+      <div style={{
+        width: '100%',
+        maxWidth: 440,
+        background: '#fff',
+        color: '#1c2127',
+        border: '1px solid var(--border-default)',
+        borderRadius: 6,
+        boxShadow: '0 20px 50px rgba(15,23,42,0.4)',
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          borderBottom: '1px solid var(--border-default)',
+          padding: '12px 16px',
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: busy ? 'not-allowed' : 'pointer',
+              color: '#5c7080',
+            }}
+            aria-label="Close"
+          >
+            <Glyph name="x" size={14} />
+          </button>
+        </div>
+        <div style={{ display: 'grid', gap: 10, padding: 16 }}>{children}</div>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: 8,
+          borderTop: '1px solid var(--border-default)',
+          padding: '12px 16px',
+        }}>
+          <button type="button" onClick={onCancel} disabled={busy} className="of-button">Cancel</button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={submitDisabled}
+            className="of-button of-button--primary"
+          >
+            {submitLabel}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
