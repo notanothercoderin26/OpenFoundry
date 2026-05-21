@@ -128,6 +128,10 @@ import {
   SharedPropertiesListPanel,
   ValueTypesListPanel,
 } from "@/lib/components/ontology/ResourceListings";
+import {
+  HistoryPanel,
+  ProposalsPanel,
+} from "@/lib/components/ontology/ProposalsAndHistory";
 
 /**
  * When true, render the legacy 18-entry navigation panel below the curated
@@ -2735,7 +2739,20 @@ export function OntologyManagerPage() {
             />
           )}
 
-          {section === "changes" && (
+          {section === "changes" && !SHOW_LEGACY_SIDEBAR && (
+            <ProposalsPanel
+              integration={branchProposalIntegration}
+              onToggleResource={(resourceId, included) =>
+                setProposalExcludedResourceIds((current) =>
+                  included
+                    ? current.filter((id) => id !== resourceId)
+                    : [...new Set([...current, resourceId])],
+                )
+              }
+            />
+          )}
+
+          {section === "changes" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16 }}>
               <p className="of-eyebrow">Unsaved changes ({workingChanges.length})</p>
               <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>
@@ -2800,11 +2817,29 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "history" && (
+          {section === "history" && !SHOW_LEGACY_SIDEBAR && (
+            <HistoryPanel
+              entries={historyEntries}
+              author={historyAuthor}
+              onAuthorChange={setHistoryAuthor}
+              resourceKind={
+                historyResourceKind === "all" ? "" : historyResourceKind
+              }
+              onResourceKindChange={(value) =>
+                setHistoryResourceKind(value === "" ? "all" : value)
+              }
+              from={historyFrom}
+              onFromChange={setHistoryFrom}
+              to={historyTo}
+              onToChange={setHistoryTo}
+            />
+          )}
+
+          {section === "history" && SHOW_LEGACY_SIDEBAR && (
             <AuditLogPanel refreshToken={workingStateBatchToken} />
           )}
 
-          {section === "history" && (
+          {section === "history" && SHOW_LEGACY_SIDEBAR && (
             <OntologyHistoryPanel
               registry={ontologyRegistry}
               entries={historyEntries}
