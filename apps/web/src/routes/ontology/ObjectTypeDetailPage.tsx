@@ -62,6 +62,7 @@ import {
   ObjectTypeLinkGraphPanel,
   ObjectTypeMetadataPanel,
   ObjectTypePropertiesPanel,
+  ObjectTypeUsagePanel,
 } from '@/lib/components/ontology/ObjectTypeOverview';
 import { SaveAsAppModal } from '@/lib/components/apps/SaveAsAppModal';
 import { Tabs } from '@/lib/components/Tabs';
@@ -614,24 +615,38 @@ export function ObjectTypeDetailPage() {
       />
 
       {tab === 'overview' && (
-        <section style={{ display: 'grid', gap: 16 }}>
+        <section
+          style={{
+            display: 'grid',
+            gap: 16,
+            gridTemplateColumns: 'minmax(0, 1fr)',
+          }}
+        >
           <ObjectTypeMetadataPanel
             objectType={type}
             ontologyName="Ontology"
           />
-          <ObjectTypePropertiesPanel
-            properties={properties}
-            primaryKeyPropertyName={type.primary_key_property}
-            titleKeyPropertyName={type.title_property}
-            onNew={() => setTab('properties')}
-            onPick={() => setTab('properties')}
-          />
-          <ObjectTypeActionsPanel
-            objectTypeName={type.display_name}
-            actionTypes={actions.filter((action) => action.object_type_id === type.id)}
-            onNew={() => setTab('actions')}
-            onPick={() => setTab('actions')}
-          />
+          <div
+            style={{
+              display: 'grid',
+              gap: 16,
+              gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)',
+            }}
+          >
+            <ObjectTypePropertiesPanel
+              properties={properties}
+              primaryKeyPropertyName={type.primary_key_property}
+              titleKeyPropertyName={type.title_property}
+              onNew={() => setTab('properties')}
+              onPick={() => setTab('properties')}
+            />
+            <ObjectTypeActionsPanel
+              objectTypeName={type.display_name}
+              actionTypes={actions.filter((action) => action.object_type_id === type.id)}
+              onNew={() => setTab('actions')}
+              onPick={() => setTab('actions')}
+            />
+          </div>
           <ObjectTypeLinkGraphPanel
             currentType={type}
             links={links}
@@ -650,12 +665,24 @@ export function ObjectTypeDetailPage() {
               if (kind === 'workshop') setSaveAsOpen(true);
             }}
           />
-          <ObjectTypeDataPanel
-            bindings={objectTypeBindings}
-            datasets={datasets}
-            onSeeAll={() => setTab('datasources')}
-            datasetHref={(id) => `/datasets/${id}`}
-          />
+          <div
+            style={{
+              display: 'grid',
+              gap: 16,
+              gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)',
+            }}
+          >
+            <ObjectTypeDataPanel
+              bindings={objectTypeBindings}
+              datasets={datasets}
+              onSeeAll={() => setTab('datasources')}
+              datasetHref={(id) => `/datasets/${id}`}
+            />
+            <ObjectTypeUsagePanel
+              seedId={type.id}
+              onSeeMore={() => setTab('objects')}
+            />
+          </div>
         </section>
       )}
 

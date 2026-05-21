@@ -10,6 +10,7 @@ import type {
 } from "@/lib/api/ontology";
 import type { Dataset } from "@/lib/api/datasets";
 import { CytoscapeCanvas } from "@components/CytoscapeCanvas";
+import { EChartCanvas } from "@components/EChartCanvas";
 import { Badge } from "@components/ui/Badge";
 import { Glyph, type GlyphName } from "@components/ui/Glyph";
 
@@ -1479,4 +1480,197 @@ function relativeTime(iso: string | null | undefined): string {
   }
   const n = Math.floor(ms / year);
   return `${n} year${n === 1 ? "" : "s"} ago`;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Usage panel                                                                */
+/* ------------------------------------------------------------------------- */
+
+export type ObjectTypeUsageRange = "30d" | "90d";
+
+interface ObjectTypeUsagePanelProps {
+  /** Deterministic seed used to generate the mock usage curve until a real
+   *  endpoint lands. Pass the object type id. */
+  seedId: string;
+  initialRange?: ObjectTypeUsageRange;
+  onSeeMore?: () => void;
+}
+
+export function ObjectTypeUsagePanel({
+  seedId,
+  initialRange = "30d",
+  onSeeMore,
+}: ObjectTypeUsagePanelProps) {
+  const [range, setRange] = useState<ObjectTypeUsageRange>(initialRange);
+
+  const series = useMemo(() => generateUsageSeries(seedId, range), [seedId, range]);
+  const options = useMemo(() => buildUsageOptions(series), [series]);
+  const total = useMemo(
+    () => series.values.reduce((acc, v) => acc + v, 0),
+    [series.values],
+  );
+
+  return (
+    <section
+      className={[
+        "p-4 bg-of-surface-raised border border-of-border rounded-of-md shadow-of-card",
+        "flex flex-col gap-3",
+      ].join(" ")}
+      aria-label="Usage"
+    >
+      <header className="flex items-center gap-2">
+        <h3 className="text-of-16 font-of-semibold text-of-text">Usage</h3>
+        <span className="text-of-13 text-of-text-muted tabular-nums">
+          {total.toLocaleString()}
+        </span>
+        <RangeToggle range={range} onChange={setRange} className="ml-auto" />
+        {onSeeMore ? (
+          <button
+            type="button"
+            onClick={onSeeMore}
+            className={[
+              "inline-flex items-center gap-1 h-7 px-2 rounded-of-sm",
+              "text-of-13 font-of-medium text-of-accent hover:bg-of-accent-soft",
+            ].join(" ")}
+          >
+            See more
+            <Glyph name="chevron-right" size={12} tone="currentColor" />
+          </button>
+        ) : null}
+      </header>
+
+      <div className="-mx-1 h-[180px]">
+        <EChartCanvas options={options} style={{ height: "100%", width: "100%" }} />
+      </div>
+    </section>
+  );
+}
+
+function RangeToggle({
+  range,
+  onChange,
+  className,
+}: {
+  range: ObjectTypeUsageRange;
+  onChange: (next: ObjectTypeUsageRange) => void;
+  className?: string;
+}) {
+  const wrap = [
+    "inline-flex h-7 rounded-of-sm overflow-hidden",
+    "border border-of-border bg-of-surface-raised",
+  ];
+  if (className) wrap.push(className);
+  return (
+    <div className={wrap.join(" ")} role="group" aria-label="Range">
+      <RangeButton active={range === "30d"} onClick={() => onChange("30d")}>
+        30d
+      </RangeButton>
+      <RangeButton active={range === "90d"} onClick={() => onChange("90d")}>
+        90d
+      </RangeButton>
+    </div>
+  );
+}
+
+function RangeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const cls = [
+    "inline-flex items-center justify-center px-2 text-of-12 font-of-medium",
+    active
+      ? "bg-of-accent-soft text-of-accent"
+      : "text-of-text-muted hover:text-of-text",
+  ].join(" ");
+  return (
+    <button type="button" onClick={onClick} aria-pressed={active} className={cls}>
+      {children}
+    </button>
+  );
+}
+
+interface UsageSeries {
+  labels: string[];
+  values: number[];
+}
+
+/**
+ * Bucket the requested range into monthly columns so the chart reads like
+ * Foundry's calque ("2024" on the left, "January 2025" further right).
+ * Same seed always yields the same sequence so demos stay deterministic.
+ */
+function generateUsageSeries(seedId: string, range: ObjectTypeUsageRange): UsageSeries {
+  let h = 0;
+  for (let i = 0; i < seedId.length; i++) {
+    h = ((h << 5) - h + seedId.charCodeAt(i)) | 0;
+  }
+  const random = mulberry32(Math.abs(h) || 1);
+
+  const monthsBack = range === "30d" ? 3 : 9;
+  const now = new Date();
+  const labels: string[] = [];
+  const values: number[] = [];
+  for (let i = monthsBack; i >= 0; i--) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    labels.push(
+      i === monthsBack
+        ? date.toLocaleString(undefined, { year: "numeric" })
+        : date.toLocaleString(undefined, { month: "short", year: "2-digit" }),
+    );
+    const value = Math.floor(random() * 10);
+    values.push(value);
+  }
+  return { labels, values };
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function buildUsageOptions(series: UsageSeries) {
+  return {
+    grid: { left: 28, right: 12, top: 10, bottom: 24, containLabel: true },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      backgroundColor: "#ffffff",
+      borderColor: "#e5e8eb",
+      borderWidth: 1,
+      textStyle: { color: "#1c2127", fontSize: 12 },
+    },
+    xAxis: {
+      type: "category",
+      data: series.labels,
+      axisLine: { lineStyle: { color: "#e5e8eb" } },
+      axisTick: { show: false },
+      axisLabel: { color: "#5f6b7c", fontSize: 11 },
+    },
+    yAxis: {
+      type: "value",
+      splitLine: { lineStyle: { color: "#eef0f3" } },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: "#5f6b7c", fontSize: 11, formatter: "{value}" },
+    },
+    series: [
+      {
+        type: "bar",
+        data: series.values,
+        itemStyle: { color: "#215db0", borderRadius: [2, 2, 0, 0] },
+        barMaxWidth: 22,
+      },
+    ],
+  };
 }
