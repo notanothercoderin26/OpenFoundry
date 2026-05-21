@@ -115,6 +115,19 @@ import {
   useHomepageConfig,
   useUpdateHomepageConfig,
 } from "@/lib/hooks/useDiscover";
+import {
+  ActionTypesListPanel,
+  CleanupListPanel,
+  FunctionsListPanel,
+  GroupsListPanel,
+  HealthIssuesListPanel,
+  InterfacesListPanel,
+  LinkTypesListPanel,
+  ObjectTypesListPanel,
+  PropertiesListPanel,
+  SharedPropertiesListPanel,
+  ValueTypesListPanel,
+} from "@/lib/components/ontology/ResourceListings";
 
 /**
  * When true, render the legacy 18-entry navigation panel below the curated
@@ -129,14 +142,14 @@ const SIDEBAR_TO_SECTION: Record<OntologySidebarItemId, Section> = {
   proposals: "changes",
   history: "history",
   "object-types": "types",
-  properties: "types",
+  properties: "properties",
   "shared-properties": "shared",
   "link-types": "links",
   "action-types": "actions",
   groups: "groups",
   interfaces: "interfaces",
   "value-types": "valueTypes",
-  functions: "overview",
+  functions: "functions",
   health: "auditHealth",
   cleanup: "cleanup",
   configuration: "permissions",
@@ -146,6 +159,7 @@ const SECTION_TO_SIDEBAR: Record<Section, OntologySidebarItemId> = {
   overview: "discover",
   registry: "discover",
   types: "object-types",
+  properties: "properties",
   links: "link-types",
   actions: "action-types",
   interfaces: "interfaces",
@@ -161,6 +175,7 @@ const SECTION_TO_SIDEBAR: Record<Section, OntologySidebarItemId> = {
   cleanup: "cleanup",
   auditHealth: "health",
   projects: "configuration",
+  functions: "functions",
 };
 import {
   stage as stageOntologyEdit,
@@ -173,6 +188,7 @@ type Section =
   | "overview"
   | "registry"
   | "types"
+  | "properties"
   | "links"
   | "actions"
   | "interfaces"
@@ -187,7 +203,8 @@ type Section =
   | "importExport"
   | "cleanup"
   | "auditHealth"
-  | "projects";
+  | "projects"
+  | "functions";
 
 type ResourceFilter = "all" | "visible" | "hidden" | "experimental" | "issues";
 
@@ -1740,6 +1757,11 @@ export function OntologyManagerPage() {
     </>
   );
 
+  const typeById = useMemo(
+    () => new Map(objectTypes.map((entry) => [entry.id, entry])),
+    [objectTypes],
+  );
+
   const sidebarCounts: Partial<Record<OntologySidebarItemId, number>> = {
     "object-types": objectTypes.length,
     properties: objectTypes.reduce(
@@ -2188,7 +2210,27 @@ export function OntologyManagerPage() {
             />
           )}
 
-          {section === "types" && (
+          {section === "types" && !SHOW_LEGACY_SIDEBAR && (
+            <ObjectTypesListPanel
+              objectTypes={objectTypes}
+              groups={objectTypeGroups}
+              onPick={(objectType) => navigate(`/ontology/${objectType.id}`)}
+            />
+          )}
+
+          {section === "properties" && !SHOW_LEGACY_SIDEBAR && (
+            <PropertiesListPanel
+              objectTypes={objectTypes}
+              sharedProperties={shared}
+              onPickObjectType={(id) => navigate(`/ontology/${id}`)}
+            />
+          )}
+
+          {section === "functions" && !SHOW_LEGACY_SIDEBAR && (
+            <FunctionsListPanel computeModulesHref="/compute-modules" />
+          )}
+
+          {section === "types" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16 }}>
               <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
                 <p className="of-eyebrow">
@@ -2242,7 +2284,15 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "actions" && (
+          {section === "actions" && !SHOW_LEGACY_SIDEBAR && (
+            <ActionTypesListPanel
+              actionTypes={actionTypes}
+              typeById={typeById}
+              onPick={(action) => navigate(`/action-types/${action.id}`)}
+            />
+          )}
+
+          {section === "actions" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16 }}>
               <p className="of-eyebrow">Action types ({actionTypes.length})</p>
               <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: "none" }}>
@@ -2269,7 +2319,14 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "interfaces" && (
+          {section === "interfaces" && !SHOW_LEGACY_SIDEBAR && (
+            <InterfacesListPanel
+              interfaces={interfaces}
+              objectTypes={objectTypes}
+            />
+          )}
+
+          {section === "interfaces" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16 }}>
               <p className="of-eyebrow">Interfaces ({interfaces.length})</p>
               <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: "none" }}>
@@ -2296,7 +2353,14 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "shared" && (
+          {section === "shared" && !SHOW_LEGACY_SIDEBAR && (
+            <SharedPropertiesListPanel
+              sharedProperties={shared}
+              objectTypes={objectTypes}
+            />
+          )}
+
+          {section === "shared" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16, display: "grid", gap: 14 }}>
               <div>
                 <p className="of-eyebrow">Shared property types ({shared.length})</p>
@@ -2346,7 +2410,11 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "valueTypes" && (
+          {section === "valueTypes" && !SHOW_LEGACY_SIDEBAR && (
+            <ValueTypesListPanel valueTypes={valueTypes} />
+          )}
+
+          {section === "valueTypes" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16, display: "grid", gap: 14 }}>
               <div>
                 <p className="of-eyebrow">Value types ({valueTypes.length})</p>
@@ -2399,7 +2467,15 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "links" && (
+          {section === "links" && !SHOW_LEGACY_SIDEBAR && (
+            <LinkTypesListPanel
+              linkTypes={linkTypes}
+              typeById={typeById}
+              onPick={(link) => navigate(`/object-link-types/${link.id}`)}
+            />
+          )}
+
+          {section === "links" && SHOW_LEGACY_SIDEBAR && (
             <section
               className="of-panel"
               style={{
@@ -2468,7 +2544,15 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "groups" && (
+          {section === "groups" && !SHOW_LEGACY_SIDEBAR && (
+            <GroupsListPanel
+              groups={objectTypeGroups}
+              objectTypes={objectTypes}
+              linkTypes={linkTypes}
+            />
+          )}
+
+          {section === "groups" && SHOW_LEGACY_SIDEBAR && (
             <section
               className="of-panel"
               style={{
@@ -2767,7 +2851,13 @@ export function OntologyManagerPage() {
             />
           )}
 
-          {section === "cleanup" && (
+          {section === "cleanup" && !SHOW_LEGACY_SIDEBAR && (
+            <CleanupListPanel
+              candidates={cleanupAssistant.candidates}
+            />
+          )}
+
+          {section === "cleanup" && SHOW_LEGACY_SIDEBAR && (
             <CleanupAssistantPanel
               assistant={cleanupAssistant}
               candidatesByKind={cleanupCandidatesByKind}
@@ -2799,7 +2889,11 @@ export function OntologyManagerPage() {
             />
           )}
 
-          {section === "auditHealth" && (
+          {section === "auditHealth" && !SHOW_LEGACY_SIDEBAR && (
+            <HealthIssuesListPanel issues={healthReport.issues} />
+          )}
+
+          {section === "auditHealth" && SHOW_LEGACY_SIDEBAR && (
             <AuditHealthPanel
               auditLog={auditEventLog}
               healthReport={healthReport}
