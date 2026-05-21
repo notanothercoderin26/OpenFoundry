@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
@@ -64,6 +64,65 @@ const APPS: AppEntry[] = [
   { id: 'settings', name: 'Workspace settings', description: 'Settings for users, roles, policies, MFA, SSO.', to: '/settings', icon: 'settings', category: 'administration' },
 ];
 
+const SUBCATEGORY_ORDER: SubcategoryId[] = [
+  'administration',
+  'analyze-data',
+  'build-monitor-pipelines',
+  'data-governance',
+  'manage-deploy-models',
+  'operational-applications',
+  'support',
+];
+
+const SUBCATEGORY_LABEL: Record<SubcategoryId, string> = {
+  administration: 'Administration',
+  'analyze-data': 'Analyze Data',
+  'build-monitor-pipelines': 'Build & monitor pipelines',
+  'data-governance': 'Data Governance',
+  'manage-deploy-models': 'Manage & deploy models',
+  'operational-applications': 'Operational applications',
+  support: 'Support',
+};
+
+interface TileColor {
+  bg: string;
+  fg: string;
+}
+
+const CATEGORY_TILE: Record<SubcategoryId, TileColor> = {
+  administration: { bg: '#E5E9EE', fg: '#5F6B7A' },
+  'analyze-data': { bg: '#D6EBF2', fg: '#0E7490' },
+  'build-monitor-pipelines': { bg: '#F4E5D1', fg: '#B66B1E' },
+  'data-governance': { bg: '#E5DDEF', fg: '#6B47A0' },
+  'manage-deploy-models': { bg: '#DCEFE0', fg: '#157347' },
+  'operational-applications': { bg: '#DDE9F8', fg: '#1F5EA8' },
+  support: { bg: '#F8D9D9', fg: '#B42318' },
+};
+
+const FAVORITES_STORAGE_KEY = 'of:applications-portal:favorites';
+
+function loadFavorites(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return new Set(parsed.filter((id) => typeof id === 'string'));
+  } catch {
+    /* ignore corrupt storage */
+  }
+  return new Set();
+}
+
+function persistFavorites(favs: Set<string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(Array.from(favs)));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
 function categoryCount(category: CategoryId) {
   if (category === 'all' || category === 'platform') return APPS.length;
   return APPS.filter((app) => app.category === category).length;
@@ -72,6 +131,18 @@ function categoryCount(category: CategoryId) {
 export function ApplicationsPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<CategoryId>('all');
+
+  const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
+
+  const toggleFavorite = useCallback((id: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      persistFavorites(next);
+      return next;
+    });
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -82,8 +153,24 @@ export function ApplicationsPage() {
     });
   }, [search, category]);
 
+  const groupedSections = useMemo(() => {
+    const byCategory = new Map<SubcategoryId, AppEntry[]>();
+    for (const app of filtered) {
+      const bucket = byCategory.get(app.category) ?? [];
+      bucket.push(app);
+      byCategory.set(app.category, bucket);
+    }
+    return SUBCATEGORY_ORDER.map((id) => ({
+      id,
+      label: SUBCATEGORY_LABEL[id],
+      apps: byCategory.get(id) ?? [],
+    })).filter((section) => section.apps.length > 0);
+  }, [filtered]);
+
   const topLevel = CATEGORIES.filter((cat) => !cat.parent);
   const platformChildren = CATEGORIES.filter((cat) => cat.parent === 'platform');
+
+  const pageTitle = category === 'all' ? 'All apps' : 'Platform apps';
 
   return (
     <div
@@ -178,72 +265,87 @@ export function ApplicationsPage() {
           aria-label="Application catalog"
           style={{
             flex: 1,
-            padding: '24px 32px',
+            padding: '28px 32px 32px',
             overflowY: 'auto',
             background: 'var(--bg-app-portal)',
           }}
         >
-          {filtered.length === 0 ? (
+          <h1
+            style={{
+              margin: '0 0 24px',
+              fontSize: 26,
+              fontWeight: 600,
+              color: 'var(--text-strong)',
+              lineHeight: 1.2,
+            }}
+          >
+            {pageTitle}
+          </h1>
+
+          {groupedSections.length === 0 ? (
             <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
               No apps match the current filters.
             </p>
           ) : (
-            <div
-              style={{
-                display: 'grid',
-                gap: 12,
-                gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
-              }}
-            >
-              {filtered.map((app) => (
-                <Link
-                  key={app.id}
-                  to={app.to}
+            groupedSections.map((section) => (
+              <div key={section.id} style={{ marginBottom: 28 }}>
+                <div
                   style={{
                     display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 12,
-                    padding: '14px 16px',
-                    borderRadius: 6,
-                    background: 'var(--bg-panel-muted)',
-                    color: 'var(--text-default)',
-                    textDecoration: 'none',
-                    border: '1px solid transparent',
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLAnchorElement).style.borderColor =
-                      'var(--border-default)';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLAnchorElement).style.borderColor = 'transparent';
+                    alignItems: 'center',
+                    gap: 10,
+                    marginBottom: 12,
                   }}
                 >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      color: 'var(--text-muted)',
+                    }}
+                  >
+                    {section.label}
+                  </span>
                   <span
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      width: 36,
-                      height: 36,
-                      background: '#F4E5D1',
-                      color: '#B66B1E',
-                      borderRadius: 6,
-                      flex: '0 0 auto',
+                      minWidth: 20,
+                      height: 18,
+                      padding: '0 6px',
+                      borderRadius: 9,
+                      background: 'var(--bg-chip)',
+                      color: 'var(--text-muted)',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    <Glyph name={app.icon} size={18} tone="#B66B1E" />
+                    {section.apps.length}
                   </span>
-                  <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-strong)' }}>
-                      {app.name}
-                    </span>
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                      {app.description}
-                    </span>
-                  </span>
-                </Link>
-              ))}
-            </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: 12,
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+                  }}
+                >
+                  {section.apps.map((app) => (
+                    <AppCard
+                      key={app.id}
+                      app={app}
+                      favorite={favorites.has(app.id)}
+                      onToggleFavorite={() => toggleFavorite(app.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))
           )}
         </section>
       </div>
@@ -310,5 +412,103 @@ function CategoryButton({ cat, active, count, onClick }: CategoryButtonProps) {
         {count}
       </span>
     </button>
+  );
+}
+
+interface AppCardProps {
+  app: AppEntry;
+  favorite: boolean;
+  onToggleFavorite: () => void;
+}
+
+function AppCard({ app, favorite, onToggleFavorite }: AppCardProps) {
+  const tile = CATEGORY_TILE[app.category];
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <Link
+        to={app.to}
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 14,
+          padding: 16,
+          paddingRight: 48,
+          borderRadius: 6,
+          background: 'var(--bg-panel-muted)',
+          color: 'var(--text-default)',
+          textDecoration: 'none',
+          border: 'none',
+          transition: 'background 120ms ease',
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLAnchorElement).style.background = '#eef2f6';
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLAnchorElement).style.background = 'var(--bg-panel-muted)';
+        }}
+      >
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 44,
+            height: 44,
+            background: tile.bg,
+            color: tile.fg,
+            borderRadius: 6,
+            flex: '0 0 auto',
+          }}
+        >
+          <Glyph name={app.icon} size={22} tone={tile.fg} />
+        </span>
+        <span style={{ display: 'grid', gap: 4, minWidth: 0 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-strong)' }}>
+            {app.name}
+          </span>
+          <span style={{ fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+            {app.description}
+          </span>
+        </span>
+      </Link>
+
+      <button
+        type="button"
+        aria-label={favorite ? `Unfavorite ${app.name}` : `Favorite ${app.name}`}
+        aria-pressed={favorite}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleFavorite();
+        }}
+        style={{
+          position: 'absolute',
+          top: 12,
+          right: 12,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 28,
+          height: 28,
+          border: 'none',
+          background: 'transparent',
+          color: favorite ? '#D9923A' : 'var(--text-soft)',
+          borderRadius: 'var(--radius-md)',
+          cursor: 'pointer',
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.background = 'rgba(15, 23, 42, 0.05)';
+          if (!favorite)
+            (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-default)';
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+          if (!favorite) (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-soft)';
+        }}
+      >
+        <Glyph name={favorite ? 'star-filled' : 'star'} size={18} tone="currentColor" />
+      </button>
+    </div>
   );
 }
