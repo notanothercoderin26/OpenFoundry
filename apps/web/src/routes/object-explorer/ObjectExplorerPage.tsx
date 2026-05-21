@@ -80,6 +80,7 @@ import { RecentObjectsList } from './components/RecentObjectsList';
 import { AffordancesPanel } from './components/AffordancesPanel';
 import { ObjectPreviewPanel } from './components/ObjectPreviewPanel';
 import { SavedExplorationsPanel } from './components/SavedExplorationsPanel';
+import { SearchAroundPopover } from './components/SearchAroundPopover';
 import { SearchResultsView } from './components/SearchResultsView';
 import { SideNavBrowse, type SideNavSelection } from './components/SideNavBrowse';
 import { SideNavSearch, type SearchSideNavSelection } from './components/SideNavSearch';
@@ -215,6 +216,7 @@ export function ObjectExplorerPage() {
   const [groupsPage, setGroupsPage] = useState(0);
   const [favoriteTypeIds, setFavoriteTypeIds] = useState<Set<string>>(() => new Set(readFavoriteTypeIds()));
   const [previewTypeId, setPreviewTypeId] = useState<string | null>(null);
+  const [searchAroundState, setSearchAroundState] = useState<{ result: SearchResult; anchor: HTMLElement } | null>(null);
   const [scopeTypeIds, setScopeTypeIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
@@ -1395,6 +1397,7 @@ export function ObjectExplorerPage() {
                     void browseType(typeId);
                   }}
                   onChangeActiveTab={(next) => setActiveTab(next)}
+                  onSearchAround={(result, anchor) => setSearchAroundState({ result, anchor })}
                 />
               ) : (
                 <>
@@ -1604,6 +1607,28 @@ export function ObjectExplorerPage() {
           onStartExploration={startExplorationFromPreview}
         />
       )}
+
+      <SearchAroundPopover
+        anchor={searchAroundState?.anchor ?? null}
+        sourceObjectTypeId={searchAroundState?.result.object_type_id ?? null}
+        linkTypes={linkTypes}
+        typeById={typeById}
+        onClose={() => setSearchAroundState(null)}
+        onSelect={(option) => {
+          if (!searchAroundState) return;
+          const result = searchAroundState.result;
+          const label = `Search for "${result.title || result.id}" ↔ ${option.label}`;
+          explorerTabs.open({
+            id: `search-around:${result.id}:${option.linkType.id}`,
+            kind: 'search',
+            label,
+            query: result.title || result.id,
+          });
+          setActiveTab('objects');
+          setScopeTypeIds(new Set([option.targetTypeId]));
+          setSearchAroundState(null);
+        }}
+      />
     </section>
   );
 }
