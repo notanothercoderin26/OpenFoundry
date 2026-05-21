@@ -53,8 +53,12 @@ gen-proto: ## Generate Go from .proto via buf.
 
 .PHONY: gen-sqlc
 gen-sqlc: ## Generate type-safe DB code via sqlc.
-	@command -v sqlc >/dev/null 2>&1 || { echo "sqlc not found — run 'make tools'"; exit 1; }
-	sqlc generate
+	@if ! grep -qE '^[[:space:]]*-[[:space:]]+engine:' sqlc.yaml; then \
+		echo "sqlc: no packages configured in sqlc.yaml — skipping"; \
+	else \
+		command -v sqlc >/dev/null 2>&1 || { echo "sqlc not found — run 'make tools'"; exit 1; }; \
+		sqlc generate; \
+	fi
 
 .PHONY: contracts-gen
 contracts-gen: openapi-gen sdk-gen ## Regenerate OpenAPI and SDK contract artifacts.
