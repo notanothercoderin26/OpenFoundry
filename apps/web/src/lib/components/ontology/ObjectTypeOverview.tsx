@@ -5,11 +5,13 @@ import type {
   ActionType,
   LinkType,
   ObjectType,
+  ObjectTypeBinding,
   Property,
 } from "@/lib/api/ontology";
+import type { Dataset } from "@/lib/api/datasets";
 import { CytoscapeCanvas } from "@components/CytoscapeCanvas";
 import { Badge } from "@components/ui/Badge";
-import { Glyph } from "@components/ui/Glyph";
+import { Glyph, type GlyphName } from "@components/ui/Glyph";
 
 /* ------------------------------------------------------------------------- */
 /* Helpers                                                                    */
@@ -1029,4 +1031,452 @@ function buildLinkGraph(
       spacingFactor: 1.2,
     },
   };
+}
+
+/* ------------------------------------------------------------------------- */
+/* Dependents panel                                                           */
+/* ------------------------------------------------------------------------- */
+
+export type ObjectTypeDependentKind =
+  | "workshop"
+  | "function"
+  | "graph-template"
+  | "quiver"
+  | "use-cases"
+  | "automation"
+  | "developer-console"
+  | "map-layer"
+  | "map-template";
+
+export interface ObjectTypeDependentResource {
+  id: string;
+  label: string;
+  href?: string;
+  onClick?: () => void;
+  hint?: string;
+}
+
+interface KindDef {
+  id: ObjectTypeDependentKind;
+  label: string;
+  glyph: GlyphName;
+  emptyTitle: string;
+  emptyBody: string;
+  createLabel?: string;
+}
+
+const DEPENDENT_KIND_DEFS: KindDef[] = [
+  {
+    id: "workshop",
+    label: "Workshop",
+    glyph: "object",
+    emptyTitle: "No Workshop modules",
+    emptyBody:
+      "Workshop builds interactive applications on top of this object type.",
+    createLabel: "Create your first",
+  },
+  {
+    id: "function",
+    label: "Function",
+    glyph: "code",
+    emptyTitle: "No functions",
+    emptyBody: "Define computations on this object type.",
+  },
+  {
+    id: "graph-template",
+    label: "Graph Template",
+    glyph: "graph",
+    emptyTitle: "No graph templates",
+    emptyBody: "Visualise this object type as a graph.",
+  },
+  {
+    id: "quiver",
+    label: "Quiver Dashboard",
+    glyph: "pie-chart",
+    emptyTitle: "No Quiver dashboards",
+    emptyBody: "Build interactive analytics on this object type.",
+  },
+  {
+    id: "use-cases",
+    label: "Use cases",
+    glyph: "list",
+    emptyTitle: "No use cases",
+    emptyBody: "Document operational workflows.",
+  },
+  {
+    id: "automation",
+    label: "Automation",
+    glyph: "run",
+    emptyTitle: "No automations",
+    emptyBody: "Trigger workflows when this object type changes.",
+  },
+  {
+    id: "developer-console",
+    label: "Developer Console App",
+    glyph: "code",
+    emptyTitle: "No Developer Console apps",
+    emptyBody: "Build a custom backend integration on this object type.",
+  },
+  {
+    id: "map-layer",
+    label: "Map Layer",
+    glyph: "graph",
+    emptyTitle: "No map layers",
+    emptyBody: "Render this object type on a map.",
+  },
+  {
+    id: "map-template",
+    label: "Map Template",
+    glyph: "graph",
+    emptyTitle: "No map templates",
+    emptyBody: "Reusable map configuration.",
+  },
+];
+
+export type ObjectTypeDependents = Partial<
+  Record<ObjectTypeDependentKind, ObjectTypeDependentResource[]>
+>;
+
+interface ObjectTypeDependentsPanelProps {
+  dependents: ObjectTypeDependents;
+  onCreate?: (kind: ObjectTypeDependentKind) => void;
+}
+
+export function ObjectTypeDependentsPanel({
+  dependents,
+  onCreate,
+}: ObjectTypeDependentsPanelProps) {
+  const [selected, setSelected] = useState<ObjectTypeDependentKind>("workshop");
+
+  const total = useMemo(
+    () =>
+      DEPENDENT_KIND_DEFS.reduce(
+        (acc, def) => acc + (dependents[def.id]?.length ?? 0),
+        0,
+      ),
+    [dependents],
+  );
+
+  const def = DEPENDENT_KIND_DEFS.find((entry) => entry.id === selected);
+  const resources = dependents[selected] ?? [];
+
+  return (
+    <section
+      className={[
+        "bg-of-surface-raised border border-of-border rounded-of-md shadow-of-card",
+        "overflow-hidden",
+      ].join(" ")}
+      aria-label="Dependents"
+    >
+      <header className="flex items-center gap-2 px-4 py-3 border-b border-of-border">
+        <h3 className="text-of-16 font-of-semibold text-of-text">Dependents</h3>
+        <span className="text-of-13 text-of-text-muted tabular-nums">
+          {total}
+        </span>
+      </header>
+
+      <div className="grid grid-cols-1 sm:grid-cols-[240px_minmax(0,1fr)]">
+        <ul className="list-none p-1.5 m-0 border-r border-of-border bg-of-surface-raised flex flex-col gap-px max-h-[280px] overflow-y-auto">
+          {DEPENDENT_KIND_DEFS.map((entry) => {
+            const active = entry.id === selected;
+            const count = dependents[entry.id]?.length ?? 0;
+            const cls = [
+              "w-full flex items-center gap-2 px-2 h-8 rounded-of-sm text-left",
+              active
+                ? "bg-of-accent-soft text-of-accent font-of-semibold"
+                : "text-of-text hover:bg-of-surface-muted font-of-medium",
+            ].join(" ");
+            return (
+              <li key={entry.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelected(entry.id)}
+                  className={cls}
+                >
+                  <Glyph
+                    name={entry.glyph}
+                    size={13}
+                    tone={active ? "var(--of-accent)" : "var(--of-text-muted)"}
+                  />
+                  <span className="flex-1 truncate text-of-13">
+                    {entry.label}
+                  </span>
+                  <span
+                    className={`text-of-12 tabular-nums ${
+                      active ? "text-of-accent" : "text-of-text-muted"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+
+        <div className="flex flex-col bg-of-surface min-h-[200px]">
+          {resources.length === 0 ? (
+            <div className="m-auto py-6 px-4 flex flex-col items-center gap-2 text-center">
+              <Glyph name="search" size={28} tone="var(--of-text-soft)" />
+              <p className="text-of-14 font-of-semibold text-of-text m-0">
+                {def?.emptyTitle ?? "No dependents"}
+              </p>
+              <p className="text-of-13 text-of-text-muted max-w-[360px] m-0">
+                {def?.emptyBody ?? ""}
+              </p>
+              {def?.createLabel && onCreate ? (
+                <button
+                  type="button"
+                  onClick={() => onCreate(def.id)}
+                  className={[
+                    "mt-1 inline-flex items-center gap-1.5 h-8 px-3 rounded-of-sm",
+                    "border border-of-border bg-of-surface-raised",
+                    "text-of-13 font-of-semibold text-of-accent hover:bg-of-accent-soft",
+                  ].join(" ")}
+                >
+                  <Glyph name="plus" size={12} tone="currentColor" />
+                  {def.createLabel}
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <ul className="list-none p-1.5 m-0 flex flex-col gap-px overflow-y-auto max-h-[260px]">
+              {resources.map((resource) => (
+                <li key={resource.id}>
+                  <ResourceLink resource={resource} glyph={def?.glyph} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {onCreate && def ? (
+            <div className="border-t border-of-border p-2 bg-of-surface-raised">
+              <button
+                type="button"
+                onClick={() => onCreate(def.id)}
+                className={[
+                  "w-full inline-flex items-center justify-center gap-1.5 h-8 rounded-of-sm",
+                  "text-of-13 font-of-medium text-of-accent hover:bg-of-accent-soft",
+                ].join(" ")}
+              >
+                <Glyph name="plus" size={12} tone="currentColor" />
+                Create new
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ResourceLink({
+  resource,
+  glyph,
+}: {
+  resource: ObjectTypeDependentResource;
+  glyph?: GlyphName;
+}) {
+  const inner = (
+    <>
+      <Glyph
+        name={glyph ?? "artifact"}
+        size={12}
+        tone="var(--of-text-muted)"
+      />
+      <span className="text-of-13 font-of-medium text-of-accent truncate flex-1 group-hover:underline">
+        {resource.label}
+      </span>
+      {resource.hint ? (
+        <span className="text-of-12 text-of-text-muted truncate">
+          {resource.hint}
+        </span>
+      ) : null}
+    </>
+  );
+  const className = "group w-full flex items-center gap-2 px-2 h-8 rounded-of-sm hover:bg-of-surface-muted";
+  if (resource.href) {
+    return (
+      <a href={resource.href} className={className}>
+        {inner}
+      </a>
+    );
+  }
+  if (resource.onClick) {
+    return (
+      <button
+        type="button"
+        onClick={resource.onClick}
+        className={`${className} text-left`}
+      >
+        {inner}
+      </button>
+    );
+  }
+  return <span className={className}>{inner}</span>;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Data sources panel                                                         */
+/* ------------------------------------------------------------------------- */
+
+interface ObjectTypeDataPanelProps {
+  bindings: ObjectTypeBinding[];
+  datasets?: Dataset[];
+  onSeeAll?: () => void;
+  /** When provided, the row becomes a link to the dataset. */
+  datasetHref?: (datasetId: string) => string;
+}
+
+export function ObjectTypeDataPanel({
+  bindings,
+  datasets,
+  onSeeAll,
+  datasetHref,
+}: ObjectTypeDataPanelProps) {
+  const datasetById = useMemo(
+    () => new Map((datasets ?? []).map((entry) => [entry.id, entry])),
+    [datasets],
+  );
+
+  return (
+    <section
+      className={[
+        "p-4 bg-of-surface-raised border border-of-border rounded-of-md shadow-of-card",
+        "flex flex-col gap-3",
+      ].join(" ")}
+      aria-label="Data sources"
+    >
+      <header className="flex items-center gap-2">
+        <h3 className="text-of-16 font-of-semibold text-of-text">Data</h3>
+        <span className="text-of-13 text-of-text-muted tabular-nums">
+          {bindings.length}
+        </span>
+      </header>
+
+      {bindings.length === 0 ? (
+        <p className="px-2 py-4 text-of-13 text-of-text-muted">
+          No datasources bound yet.
+        </p>
+      ) : (
+        <ul className="list-none p-0 m-0 flex flex-col gap-px max-h-[220px] overflow-y-auto">
+          {bindings.map((binding) => {
+            const dataset = datasetById.get(binding.dataset_id);
+            const name = dataset?.name ?? binding.dataset_id;
+            const href = datasetHref?.(binding.dataset_id);
+            const status = synchedStatus(binding);
+            const stamp = relativeTime(binding.last_materialized_at);
+            const Wrapper = href ? "a" : "div";
+            return (
+              <li key={binding.id}>
+                <Wrapper
+                  href={href}
+                  className={[
+                    "group w-full flex items-center gap-2 px-2 h-9 rounded-of-sm",
+                    href ? "hover:bg-of-surface-muted" : "",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-of-sm",
+                      "bg-of-surface-muted text-of-text-muted",
+                    ].join(" ")}
+                    aria-hidden
+                  >
+                    <Glyph
+                      name="spreadsheet"
+                      size={12}
+                      tone="var(--of-text-muted)"
+                    />
+                  </span>
+                  <span
+                    className={[
+                      "text-of-13 font-of-medium truncate",
+                      href
+                        ? "text-of-accent group-hover:underline"
+                        : "text-of-text",
+                    ].join(" ")}
+                    title={name}
+                  >
+                    {name}
+                  </span>
+                  <span
+                    className={[
+                      "text-of-12 px-1.5 py-0.5 rounded-of-sm",
+                      status === "synced"
+                        ? "bg-of-success-soft text-of-success"
+                        : status === "failed"
+                          ? "bg-of-danger-soft text-of-danger"
+                          : "bg-of-surface-muted text-of-text-muted",
+                    ].join(" ")}
+                  >
+                    {status}
+                  </span>
+                  <span className="ml-auto text-of-12 text-of-text-muted tabular-nums truncate">
+                    {stamp}
+                  </span>
+                </Wrapper>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {onSeeAll ? (
+        <button
+          type="button"
+          onClick={onSeeAll}
+          className={[
+            "self-start inline-flex items-center gap-1 h-7 px-1 -ml-1 rounded-of-sm",
+            "text-of-13 font-of-medium text-of-accent hover:bg-of-accent-soft",
+          ].join(" ")}
+        >
+          See all
+          <Glyph name="chevron-right" size={12} tone="currentColor" />
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function synchedStatus(binding: ObjectTypeBinding): "synced" | "failed" | "pending" {
+  const status = (binding.last_run_status ?? "").toLowerCase();
+  if (status === "failed" || status === "error") return "failed";
+  if (binding.last_materialized_at) return "synced";
+  return "pending";
+}
+
+function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return "never synced";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  const ms = Date.now() - date.getTime();
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+  const month = 30 * day;
+  const year = 365 * day;
+  if (ms < minute) return "just now";
+  if (ms < hour) {
+    const n = Math.floor(ms / minute);
+    return `${n} minute${n === 1 ? "" : "s"} ago`;
+  }
+  if (ms < day) {
+    const n = Math.floor(ms / hour);
+    return `${n} hour${n === 1 ? "" : "s"} ago`;
+  }
+  if (ms < week) {
+    const n = Math.floor(ms / day);
+    return `${n} day${n === 1 ? "" : "s"} ago`;
+  }
+  if (ms < month) {
+    const n = Math.floor(ms / week);
+    return `${n} week${n === 1 ? "" : "s"} ago`;
+  }
+  if (ms < year) {
+    const n = Math.floor(ms / month);
+    return `${n} month${n === 1 ? "" : "s"} ago`;
+  }
+  const n = Math.floor(ms / year);
+  return `${n} year${n === 1 ? "" : "s"} ago`;
 }

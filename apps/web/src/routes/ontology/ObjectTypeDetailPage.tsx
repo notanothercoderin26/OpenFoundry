@@ -57,13 +57,15 @@ import { ObjectExplorer } from '@/lib/components/ontology/ObjectExplorer';
 import { PropertyPanel } from '@/lib/components/ontology/PropertyPanel';
 import {
   ObjectTypeActionsPanel,
+  ObjectTypeDataPanel,
+  ObjectTypeDependentsPanel,
   ObjectTypeLinkGraphPanel,
   ObjectTypeMetadataPanel,
   ObjectTypePropertiesPanel,
 } from '@/lib/components/ontology/ObjectTypeOverview';
 import { SaveAsAppModal } from '@/lib/components/apps/SaveAsAppModal';
 import { Tabs } from '@/lib/components/Tabs';
-import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
+import { Glyph } from '@/lib/components/ui/Glyph';
 import { useAuth } from '@/lib/stores/auth';
 
 type Tab = 'overview' | 'properties' | 'objects' | 'actions' | 'datasources' | 'links' | 'rules' | 'shared' | 'capabilities';
@@ -203,29 +205,6 @@ function objectTypeDatasourcePayload(
     restricted_view_indexed_at: restrictedView.indexed_at ?? null,
   };
 }
-type DependentKind =
-  | 'developer-console'
-  | 'function'
-  | 'graph-template'
-  | 'map-layer'
-  | 'map-template'
-  | 'process'
-  | 'quiver'
-  | 'use-cases'
-  | 'workshop';
-
-const DEPENDENT_KINDS: Array<{ id: DependentKind; label: string; icon: GlyphName; tone: string; emptyTitle: string; emptyBody: string; createLabel?: string }> = [
-  { id: 'developer-console', label: 'Developer Console App', icon: 'code', tone: '#0891b2', emptyTitle: 'No Developer Console apps', emptyBody: 'Build a custom backend integration on this object type.' },
-  { id: 'function', label: 'Function', icon: 'code', tone: '#7c5dd6', emptyTitle: 'No functions', emptyBody: 'Define computations on this object type.' },
-  { id: 'graph-template', label: 'Graph Template', icon: 'graph', tone: '#5c7080', emptyTitle: 'No graph templates', emptyBody: 'Visualise this object type as a graph.' },
-  { id: 'map-layer', label: 'Map Layer', icon: 'graph', tone: '#5c7080', emptyTitle: 'No map layers', emptyBody: 'Render this object type on a map.' },
-  { id: 'map-template', label: 'Map Template', icon: 'graph', tone: '#5c7080', emptyTitle: 'No map templates', emptyBody: 'Reusable map configuration.' },
-  { id: 'process', label: 'Process', icon: 'run', tone: '#15803d', emptyTitle: 'No processes', emptyBody: 'Operationalise workflows on this object type.' },
-  { id: 'quiver', label: 'Quiver Dashboard', icon: 'graph', tone: '#0891b2', emptyTitle: 'No Quiver dashboards', emptyBody: 'Build interactive analytics.' },
-  { id: 'use-cases', label: 'Use cases', icon: 'list', tone: '#5c7080', emptyTitle: 'No use cases', emptyBody: 'Document operational workflows.' },
-  { id: 'workshop', label: 'Workshop', icon: 'object', tone: '#7c5dd6', emptyTitle: 'No Workshop modules', emptyBody: 'Workshop enables users to build interactive and high-quality applications for operational users.', createLabel: 'Create your first' },
-];
-
 function propertyCountLabel(count: number) {
   return `${count} propert${count === 1 ? 'y' : 'ies'}`;
 }
@@ -348,7 +327,6 @@ export function ObjectTypeDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('overview');
-  const [dependentKind, setDependentKind] = useState<DependentKind>('workshop');
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [type, setType] = useState<ObjectType | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
@@ -666,96 +644,18 @@ export function ObjectTypeDetailPage() {
             }}
             onNewLink={() => setTab('links')}
           />
-
-          <div
-            style={{
-              marginTop: 6,
-              border: '1px solid var(--border-subtle)',
-              borderRadius: 6,
-              overflow: 'hidden',
-              display: 'grid',
-              gridTemplateColumns: '260px minmax(0, 1fr)',
+          <ObjectTypeDependentsPanel
+            dependents={{}}
+            onCreate={(kind) => {
+              if (kind === 'workshop') setSaveAsOpen(true);
             }}
-          >
-            <div style={{ borderRight: '1px solid var(--border-subtle)', background: '#fff' }}>
-              <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>Dependents</span>
-                <span className="of-chip" style={{ fontSize: 11 }}>{DEPENDENT_KINDS.length}</span>
-              </div>
-              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-                {DEPENDENT_KINDS.map((kind) => {
-                  const active = dependentKind === kind.id;
-                  return (
-                    <li key={kind.id}>
-                      <button
-                        type="button"
-                        onClick={() => setDependentKind(kind.id)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          width: '100%',
-                          padding: '8px 14px',
-                          border: 0,
-                          background: active ? 'rgba(45, 114, 210, 0.06)' : 'transparent',
-                          color: active ? 'var(--status-info)' : 'var(--text-strong)',
-                          fontWeight: active ? 600 : 500,
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          fontSize: 13,
-                        }}
-                      >
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          <Glyph name={kind.icon} size={13} tone={kind.tone} />
-                          {kind.label}
-                        </span>
-                        <span style={{ color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>0</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-            <div style={{ padding: 18, display: 'grid', placeContent: 'center', textAlign: 'center', gap: 10, background: '#fafbfc' }}>
-              {(() => {
-                const kind = DEPENDENT_KINDS.find((entry) => entry.id === dependentKind);
-                if (!kind) return null;
-                return (
-                  <>
-                    <span style={{ display: 'inline-flex', justifyContent: 'center' }}>
-                      <Glyph name="search" size={28} tone="#aab4c0" />
-                    </span>
-                    <p style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{kind.emptyTitle}</p>
-                    <p className="of-text-muted" style={{ margin: '0 auto', maxWidth: 360, fontSize: 12.5 }}>
-                      {kind.emptyBody} <button type="button" className="of-link" style={{ background: 'none', border: 0, padding: 0, color: 'var(--status-info)', cursor: 'pointer', fontSize: 12.5 }}>Learn more</button>
-                    </p>
-                    {kind.createLabel ? (
-                      <button
-                        type="button"
-                        onClick={() => setSaveAsOpen(true)}
-                        style={{
-                          justifySelf: 'center',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '8px 14px',
-                          border: '1px solid var(--border-default)',
-                          borderRadius: 4,
-                          background: '#fff',
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: 'var(--status-info)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <Glyph name="plus" size={13} tone="var(--status-info)" /> {kind.createLabel}
-                      </button>
-                    ) : null}
-                  </>
-                );
-              })()}
-            </div>
-          </div>
+          />
+          <ObjectTypeDataPanel
+            bindings={objectTypeBindings}
+            datasets={datasets}
+            onSeeAll={() => setTab('datasources')}
+            datasetHref={(id) => `/datasets/${id}`}
+          />
         </section>
       )}
 
