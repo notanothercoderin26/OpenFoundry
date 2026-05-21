@@ -98,6 +98,7 @@ import { CreateObjectTypeWizard } from "@/lib/components/ontology/CreateObjectTy
 import { LinkEditor } from "@/lib/components/ontology/LinkEditor";
 import { OntologyEditsButton } from "@/lib/components/ontology/OntologyEditsButton";
 import { AuditLogPanel } from "@/lib/components/ontology/AuditLogPanel";
+import { OntologyShellTopBar } from "@/lib/components/ontology/OntologyShell";
 import {
   stage as stageOntologyEdit,
   useOntologyWorkingState,
@@ -1460,72 +1461,17 @@ export function OntologyManagerPage() {
     [ontology, objectTypes, projects, projectResources],
   );
 
-  return (
-    <section
-      className="of-page"
-      style={{ padding: 24, display: "grid", gap: 16 }}
-    >
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 12,
-        }}
+  const branchSlot = (
+    <div ref={branchMenuRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        className="of-button"
+        onClick={() => setBranchMenuOpen((open) => !open)}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 32,
-              height: 32,
-              borderRadius: 4,
-              background: "rgba(45, 114, 210, 0.12)",
-              color: "var(--status-info)",
-            }}
-          >
-            <Glyph name="cube" size={18} tone="var(--status-info)" />
-          </span>
-          <div>
-            <h1 className="of-heading-xl" style={{ margin: 0 }}>
-              Ontology Manager
-            </h1>
-            <p
-              className="of-text-muted"
-              style={{ margin: "2px 0 0", fontSize: 12 }}
-            >
-              <Glyph name="folder" size={11} tone="#5c7080" />{" "}
-              {ontology.owning_space_slug} · {ontology.display_name}
-            </p>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* Working-state edit counter + Review-edits modal opener.
-              Hidden when there are zero staged edits, so the top bar
-              keeps the read-only layout intact in the common case.
-              After a successful batch save we re-fetch the ontology
-              so the list / detail panels reflect the new server
-              state without reloading the page. */}
-          <OntologyEditsButton onSaved={() => void refresh()} />
-          <Link
-            to="/ontology-manager/bindings"
-            className="of-button"
-            style={{ fontSize: 12 }}
-          >
-            <Glyph name="link" size={12} /> Bind dataset
-          </Link>
-          <div ref={branchMenuRef} style={{ position: "relative" }}>
-            <button
-              type="button"
-              className="of-button"
-              onClick={() => setBranchMenuOpen((open) => !open)}
-            >
-              <Glyph name="cube" size={12} tone="#5c7080" /> {branchName}{" "}
-              <Glyph name="chevron-down" size={11} />
-            </button>
-            {branchMenuOpen ? (
+        <Glyph name="cube" size={12} tone="#5c7080" /> {branchName}{" "}
+        <Glyph name="chevron-down" size={11} />
+      </button>
+      {branchMenuOpen ? (
               <div role="menu" style={popoverStyle()}>
                 <input
                   className="of-input"
@@ -1600,14 +1546,17 @@ export function OntologyManagerPage() {
               </div>
             ) : null}
           </div>
-          <div ref={newMenuRef} style={{ position: "relative" }}>
-            <button
-              type="button"
-              className="of-button of-button--primary"
-              onClick={() => setNewMenuOpen((open) => !open)}
-            >
-              New <Glyph name="chevron-down" size={11} />
-            </button>
+  );
+
+  const newSlot = (
+    <div ref={newMenuRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        className="of-button of-button--primary"
+        onClick={() => setNewMenuOpen((open) => !open)}
+      >
+        New <Glyph name="chevron-down" size={11} />
+      </button>
             {newMenuOpen ? (
               <div role="menu" style={popoverStyle({ minWidth: 320 })}>
                 <NewMenuItem
@@ -1667,10 +1616,38 @@ export function OntologyManagerPage() {
                 />
               </div>
             ) : null}
-          </div>
-        </div>
-      </header>
+    </div>
+  );
 
+  const leadingActions = (
+    <>
+      <OntologyEditsButton onSaved={() => void refresh()} />
+      <Link
+        to="/ontology-manager/bindings"
+        className="of-button"
+        style={{ fontSize: 12 }}
+      >
+        <Glyph name="link" size={12} /> Bind dataset
+      </Link>
+    </>
+  );
+
+  return (
+    <section
+      className="of-page"
+      style={{ padding: 0, display: "flex", flexDirection: "column", gap: 0 }}
+    >
+      <OntologyShellTopBar
+        search={{
+          value: search,
+          onChange: setSearch,
+          inputRef: searchInputRef,
+        }}
+        leadingActions={leadingActions}
+        branchSlot={branchSlot}
+        newSlot={newSlot}
+      />
+      <div style={{ padding: "16px 24px 24px", display: "grid", gap: 16 }}>
       {error && (
         <div
           className="of-status-danger"
@@ -1694,24 +1671,9 @@ export function OntologyManagerPage() {
             flexWrap: "wrap",
             gap: 8,
             alignItems: "center",
+            justifyContent: "flex-end",
           }}
         >
-          <div style={{ flex: "1 1 360px", position: "relative" }}>
-            <input
-              ref={searchInputRef}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ontology resources, properties, links, actions, interfaces, or projects…"
-              className="of-input"
-              aria-label="Search ontology resources"
-            />
-            <span
-              className="of-text-muted"
-              style={{ position: "absolute", right: 10, top: 8, fontSize: 11 }}
-            >
-              Ctrl/⌘ K
-            </span>
-          </div>
           <button
             type="button"
             onClick={() => void refresh()}
@@ -2745,6 +2707,7 @@ export function OntologyManagerPage() {
           }}
         />
       ) : null}
+      </div>
     </section>
   );
 }
