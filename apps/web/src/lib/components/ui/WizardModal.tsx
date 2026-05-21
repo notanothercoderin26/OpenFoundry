@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Glyph } from '@/lib/components/ui/Glyph';
 
 export interface WizardStep {
@@ -35,13 +35,21 @@ export function WizardModal({
   width = 960,
   height = 640,
 }: WizardModalProps) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
     }
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // Move focus into the dialog so subsequent Tabs land inside it instead of
+    // the previously focused control behind the backdrop.
+    const id = window.setTimeout(() => dialogRef.current?.focus(), 0);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.clearTimeout(id);
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -61,9 +69,11 @@ export function WizardModal({
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
           width,
@@ -141,6 +151,7 @@ export function WizardModal({
                       type="button"
                       disabled={!isClickable}
                       onClick={() => isClickable && onStepClick?.(step.id)}
+                      aria-current={isActive ? 'step' : undefined}
                       style={{
                         display: 'flex',
                         alignItems: 'center',

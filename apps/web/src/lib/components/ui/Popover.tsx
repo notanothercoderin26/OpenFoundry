@@ -12,6 +12,7 @@ interface PopoverProps {
   offset?: number;
   width?: number;
   showArrow?: boolean;
+  ariaLabel?: string;
   children: ReactNode;
 }
 
@@ -26,6 +27,7 @@ export function Popover({
   offset = 8,
   width = 320,
   showArrow = true,
+  ariaLabel,
   children,
 }: PopoverProps) {
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -103,6 +105,8 @@ export function Popover({
     <div
       ref={popoverRef}
       role="dialog"
+      aria-label={ariaLabel}
+      aria-modal="false"
       style={{
         position: 'fixed',
         top: isTop ? undefined : coords.top,

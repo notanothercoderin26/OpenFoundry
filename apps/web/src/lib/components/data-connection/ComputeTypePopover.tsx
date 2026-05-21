@@ -60,6 +60,7 @@ export function ComputeTypePopover({
       align="end"
       offset={10}
       width={360}
+      ariaLabel="Compute type"
     >
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
         <h3
