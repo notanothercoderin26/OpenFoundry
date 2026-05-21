@@ -40,7 +40,6 @@ import {
   objectExplorerShareSlug,
   objectCommentThreadKey,
   objectViewConfiguredHref,
-  objectViewFullHref,
   objectViewTitle,
   queryObjects,
   redactObjectViewResponseForObjectViewPermissions,
@@ -72,7 +71,7 @@ import { AppTabsBar, type AppTabsBarSavedItem } from './components/AppTabsBar';
 import { PanelHeader } from './components/atoms';
 import { BrowseGroupsGrid } from './components/BrowseGroupsGrid';
 import { ExplorationsHighlight } from './components/ExplorationsHighlight';
-import { HeaderToolbar } from './components/HeaderToolbar';
+import { ExplorerHero } from './components/ExplorerHero';
 import { PropertyFiltersPanel } from './components/PropertyFiltersPanel';
 import { LinkedFilterPanel } from './components/LinkedFilterPanel';
 import { PivotBreadcrumb } from './components/PivotBreadcrumb';
@@ -148,7 +147,7 @@ export function ObjectExplorerPage() {
   const [searchKindFilter, setSearchKindFilter] = useState('object_instance');
   const [searchTypeFilter, setSearchTypeFilter] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
+  const [, setSearchLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [filterTypeId, setFilterTypeId] = useState('');
@@ -159,8 +158,6 @@ export function ObjectExplorerPage() {
   const [pivotDepth, setPivotDepth] = useState(1);
   const [pivotHistory, setPivotHistory] = useState<PivotHistory>([]);
   const [explorationContext, setExplorationContext] = useState<ExplorationContext | null>(null);
-  const [directOpenTypeId, setDirectOpenTypeId] = useState('');
-  const [directOpenObjectId, setDirectOpenObjectId] = useState('');
 
   const [recents, setRecents] = useState<RecentItem[]>([]);
   const [selectedObject, setSelectedObject] = useState<ObjectViewResponse | null>(null);
@@ -344,9 +341,8 @@ export function ObjectExplorerPage() {
     if (!fallback) return;
     if (!filterTypeId || !visibleObjectTypeIds.has(filterTypeId)) setFilterTypeId(fallback);
     if (!newSetType || !visibleObjectTypeIds.has(newSetType)) setNewSetType(fallback);
-    if (!directOpenTypeId || !visibleObjectTypeIds.has(directOpenTypeId)) setDirectOpenTypeId(fallback);
     if (searchTypeFilter && !visibleObjectTypeIds.has(searchTypeFilter)) setSearchTypeFilter('');
-  }, [directOpenTypeId, filterTypeId, newSetType, objectTypesWithVisibleRows, searchTypeFilter, visibleObjectTypeIds, visibleObjectTypes]);
+  }, [filterTypeId, newSetType, objectTypesWithVisibleRows, searchTypeFilter, visibleObjectTypeIds, visibleObjectTypes]);
 
   useEffect(() => {
     const fallbackLinkId = linkedFilterLinks[0]?.id ?? '';
@@ -827,22 +823,6 @@ export function ObjectExplorerPage() {
     }
   }
 
-  async function openDirectObject() {
-    const objectId = directOpenObjectId.trim();
-    if (!directOpenTypeId || !objectId) return;
-    await selectResult({
-      kind: 'object_instance',
-      id: objectId,
-      object_type_id: directOpenTypeId,
-      title: objectId,
-      subtitle: typeById.get(directOpenTypeId)?.display_name ?? directOpenTypeId,
-      snippet: '',
-      score: 1,
-      route: objectViewFullHref(directOpenTypeId, objectId),
-      metadata: {},
-    });
-  }
-
   async function runSearch() {
     const query = searchQuery.trim();
     if (!query) {
@@ -1294,30 +1274,21 @@ export function ObjectExplorerPage() {
         onOpenExploration={handleOpenExplorationFromMenu}
         onOpenList={handleOpenListFromMenu}
       />
-      <HeaderToolbar
+      <ExplorerHero
         visibleObjectTypes={visibleObjectTypes}
         visibleObjectSets={visibleObjectSets}
-        searchResultsCount={searchResults.length}
         visibleRecents={visibleRecents}
         groups={explorerGroups}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
-        searchMode={searchMode}
-        setSearchMode={setSearchMode}
-        searchKindFilter={searchKindFilter}
-        setSearchKindFilter={setSearchKindFilter}
         scopeTypeIds={scopeTypeIds}
         setScopeTypeIds={setScopeTypeIds}
-        searchLoading={searchLoading}
         onRunSearch={() => void runSearch()}
         onSelectTypeFromTypeahead={handleTypeaheadType}
         onSelectSavedSetFromTypeahead={handleTypeaheadSavedSet}
         onSelectRecentFromTypeahead={handleTypeaheadRecent}
-        directOpenTypeId={directOpenTypeId}
-        setDirectOpenTypeId={setDirectOpenTypeId}
-        directOpenObjectId={directOpenObjectId}
-        setDirectOpenObjectId={setDirectOpenObjectId}
-        onOpenDirectObject={() => void openDirectObject()}
+        onClickExplore={() => setActiveTab('types')}
+        onClickResults={() => setActiveTab('objects')}
       />
 
       {pageError && (
