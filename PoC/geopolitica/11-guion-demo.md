@@ -87,6 +87,9 @@
 - *"This is server-side. Marcos's API does not return it. The chatbot is sandboxed in the same security boundary as the UI. Three audit log entries for that exchange, ready for compliance."*
 
 ### 42–47 — Branch demo (UC-6)
+
+> Branch state, 12 fictitious candidates, participants list, preview hooks, and discard plan are the declarative SOT in [`assets/branch-demo-geopolitica.yaml`](assets/branch-demo-geopolitica.yaml). The operator runs the demo via [`infra/scripts/poc-geopolitica/run-branch-demo.sh`](../../infra/scripts/poc-geopolitica/run-branch-demo.sh). The 12 candidates are smoke-tested at `make test` for round-trippability and a banned-OFAC-token guard (`services/global-branch-service/internal/models/poc_geopolitica_smoke_test.go`).
+
 - Stay as Marcos. Create a Global Branch: `sanctions-extension-2026Q3`.
 - The same Workshop module re-renders with branch label in the top corner.
 - *"Pipeline Builder, Ontology, Workshop — all branch-aware. Quiver dashboards are not modifiable on a branch; that's a Foundry semantics, we honor it."*

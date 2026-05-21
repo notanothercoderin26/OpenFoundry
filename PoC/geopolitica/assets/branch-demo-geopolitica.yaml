@@ -1,0 +1,302 @@
+# Canonical declarative spec for the Geopolitical Intelligence PoC
+# Global Branch demo state. SOURCE OF TRUTH for the run script and
+# the demo crescendo at 11-guion-demo.md §"42–47 — Branch demo".
+#
+# Foundry-native framing
+# -----------------------
+# Per Palantir's Global Branching docs, a branch spans datasets,
+# transforms, ontology, Workshop, and Actions. The OpenFoundry
+# implementation is global-branch-service + dataset-versioning +
+# ontology-actions + application-composition. Each service registers
+# itself as a "participant" on the branch via the participants API.
+# References:
+#
+#   - https://www.palantir.com/docs/foundry/foundry-branching/overview/
+#   - https://www.palantir.com/docs/foundry/foundry-branching/supported-functionality/
+#   - https://www.palantir.com/docs/foundry/workshop/branching-rebasing/
+#
+# Engine-mapping caveats (per the docs above)
+# --------------------------------------------
+# - Workshop modules: branch-aware for the editable widgets only.
+#   The vertex_graph_embed and agent widgets in Item 7 are NOT
+#   branch-editable per the Workshop branching page; the branch
+#   demo MUST exercise the surrounding widgets (filter_list,
+#   object_table, map, timeline, button_group).
+# - Quiver dashboards: not branch-modifiable (also per the page).
+#   The branch demo intentionally does not touch Quiver.
+# - Diff surface: OpenFoundry's global-branch-service does NOT today
+#   expose a `/diff` endpoint. The "show the diff" beat in the demo
+#   script is performed by the operator showing the participating
+#   datasets' transaction history side-by-side. Surfaced honestly
+#   under engine_mapping_notes below.
+#
+# Legal pitfall
+# --------------
+# The 12 candidate actors below are FICTITIOUS organisations chosen
+# so they cannot be mistaken for real OFAC / EU / OpenSanctions
+# rows. Names use generic geographic + industry words assembled in
+# combinations that produce no SDN-style hits. The Wikidata Q-IDs
+# use the reserved `Q9999000xxx` range that does not resolve at
+# wikidata.org. NEVER replace these with real persons or real
+# entities; doing so creates legal exposure (defamation,
+# reputational damage) and breaches the PoC contract's "public,
+# legal" data rule.
+
+branch_demo:
+  schema_version: geopolitica.branch-demo.v1
+
+  branch:
+    name: sanctions-extension-2026Q3
+    base_ref: main
+    description: |
+      Demo branch for the PoC's branch crescendo (UC-6). Adds 12
+      fictitious candidate organisations as PROPOSED SanctionsEntry
+      rows so the Workshop module + AIP copilot can preview the
+      downstream effect (Actor.is_sanctioned flips, Graph re-renders,
+      Map redraws) before the senior reviewer merges or discards.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Services that must register as participants once the branch is
+  # created. Order matters for the demo: datasets first (so the
+  # branch-aware writes have somewhere to land), then ontology so
+  # the new SanctionsEntry rows are queryable, then Workshop so the
+  # module re-renders with branch data.
+  # ──────────────────────────────────────────────────────────────────
+  participants:
+    - service_name: dataset-versioning-service
+      local_branch_ref: branches/sanctions-extension-2026Q3
+    - service_name: pipeline-build-service
+      local_branch_ref: branches/sanctions-extension-2026Q3
+    - service_name: ontology-definition-service
+      local_branch_ref: branches/sanctions-extension-2026Q3
+    - service_name: object-database-service
+      local_branch_ref: branches/sanctions-extension-2026Q3
+    - service_name: ontology-actions-service
+      local_branch_ref: branches/sanctions-extension-2026Q3
+    - service_name: application-composition-service
+      local_branch_ref: branches/sanctions-extension-2026Q3
+
+  # ──────────────────────────────────────────────────────────────────
+  # 12 fictitious candidates. Each entry maps to one submission of
+  # the propose-sanctions-extension Action Type (seeded by Item 3 /
+  # Gap 2) targeting the SanctionsEntry object type. The action's
+  # parameters drive the SanctionsEntry row that is created on the
+  # branch and the link back to the candidate Actor.
+  #
+  # IDs use synthetic stable prefixes:
+  #   actor_id format:   actor:demo:fict-org:NNN
+  #   wikidata_qid:      Q999900NNNN  (reserved demo range, non-resolving)
+  #
+  # The 12 are chosen across the PoC's focus countries (UA, RU, SD,
+  # SY, IL, PS, YE, MX, CO, VE plus two extras) to exercise the
+  # map's clustering + the graph's neighborhood pivot.
+  # ──────────────────────────────────────────────────────────────────
+  candidates:
+
+    - id: 1
+      actor_id:     actor:demo:fict-org:001
+      display_name: Karpaty Logistics Holdings LLC
+      kind:         ORG
+      country_iso3: UKR
+      wikidata_qid: Q9999000101
+      rationale:    Fictitious freight-forwarder; demo candidate for east-Ukraine supply-route screening.
+
+    - id: 2
+      actor_id:     actor:demo:fict-org:002
+      display_name: Vostok Maritime Services Group
+      kind:         ORG
+      country_iso3: RUS
+      wikidata_qid: Q9999000102
+      rationale:    Fictitious maritime-services holdco; demo candidate for Black-Sea export-control screening.
+
+    - id: 3
+      actor_id:     actor:demo:fict-org:003
+      display_name: Nile Crescent Trading Co.
+      kind:         ORG
+      country_iso3: SDN
+      wikidata_qid: Q9999000103
+      rationale:    Fictitious commodities trader; demo candidate for Darfur conflict-financing screening.
+
+    - id: 4
+      actor_id:     actor:demo:fict-org:004
+      display_name: Levant Bridge Construction PLC
+      kind:         ORG
+      country_iso3: SYR
+      wikidata_qid: Q9999000104
+      rationale:    Fictitious infrastructure firm; demo candidate for reconstruction-aid screening.
+
+    - id: 5
+      actor_id:     actor:demo:fict-org:005
+      display_name: Northern Plains Aviation Charter Ltd
+      kind:         ORG
+      country_iso3: ISR
+      wikidata_qid: Q9999000105
+      rationale:    Fictitious charter operator; demo candidate for dual-use-aircraft screening.
+
+    - id: 6
+      actor_id:     actor:demo:fict-org:006
+      display_name: Coastal Refining Cooperative
+      kind:         ORG
+      country_iso3: PSE
+      wikidata_qid: Q9999000106
+      rationale:    Fictitious refining cooperative; demo candidate for energy-sector screening.
+
+    - id: 7
+      actor_id:     actor:demo:fict-org:007
+      display_name: Hadhramaut Foodstuffs Import Group
+      kind:         ORG
+      country_iso3: YEM
+      wikidata_qid: Q9999000107
+      rationale:    Fictitious food importer; demo candidate for humanitarian-corridor screening.
+
+    - id: 8
+      actor_id:     actor:demo:fict-org:008
+      display_name: Sierra Madre Mining Consortium
+      kind:         ORG
+      country_iso3: MEX
+      wikidata_qid: Q9999000108
+      rationale:    Fictitious mining consortium; demo candidate for precursor-chemical screening.
+
+    - id: 9
+      actor_id:     actor:demo:fict-org:009
+      display_name: Andean Highlands Communications SA
+      kind:         ORG
+      country_iso3: COL
+      wikidata_qid: Q9999000109
+      rationale:    Fictitious telecom; demo candidate for satellite-bandwidth screening.
+
+    - id: 10
+      actor_id:     actor:demo:fict-org:010
+      display_name: Orinoco Basin Resources NV
+      kind:         ORG
+      country_iso3: VEN
+      wikidata_qid: Q9999000110
+      rationale:    Fictitious resources firm; demo candidate for oil-revenue-flow screening.
+
+    - id: 11
+      actor_id:     actor:demo:fict-org:011
+      display_name: Sahara Crossing Freight Services
+      kind:         ORG
+      country_iso3: SDN
+      wikidata_qid: Q9999000111
+      rationale:    Fictitious trans-Sahara freight forwarder; demo candidate for cross-border screening.
+
+    - id: 12
+      actor_id:     actor:demo:fict-org:012
+      display_name: Pacific Rim Technology Brokers Inc.
+      kind:         ORG
+      country_iso3: COL
+      wikidata_qid: Q9999000112
+      rationale:    Fictitious technology broker; demo candidate for dual-use-tech screening.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Action template used for each submission. The run script
+  # iterates over `candidates[]` and POSTs one body per candidate to
+  # ontology-actions-service. The Branch context is carried via the
+  # branch's name as an HTTP header (operator wiring; documented in
+  # the runbook).
+  # ──────────────────────────────────────────────────────────────────
+  action_template:
+    action_type: propose-sanctions-extension
+    confirmation_required: true
+    body_per_candidate:
+      parameters:
+        actor_id:        "{{ candidate.actor_id }}"
+        display_name:    "{{ candidate.display_name }}"
+        country_iso3:    "{{ candidate.country_iso3 }}"
+        wikidata_qid:    "{{ candidate.wikidata_qid }}"
+        program:         "PROPOSED-2026Q3"
+        proposed_status: "PROPOSED"
+        rationale:       "{{ candidate.rationale }}"
+      justification: "Demo branch UC-6 — fictitious candidate batch for PoC narrative; senior review required before merge."
+
+  # ──────────────────────────────────────────────────────────────────
+  # Preview hooks — what the demo script clicks through after the
+  # 12 actions have been submitted on the branch. Each hook points
+  # at a request the operator runs to make the branch effect visible.
+  # ──────────────────────────────────────────────────────────────────
+  preview_hooks:
+    - id: rerun-sanctions-aggregator
+      description: Re-run the sanctions-aggregator transform on the branch so the 12 candidates fan out into the canonical Actor table.
+      endpoint: "POST /api/v1/pipelines/{sanctions-aggregator}/run"
+      headers:
+        X-Of-Branch: "{{ branch.name }}"
+
+    - id: workshop-branch-toggle
+      description: Switch the Workshop runtime to the branch context — the 12 actors render in the map / table / graph.
+      endpoint: "GET /apps/public/geopolitical-intel-workbench"
+      headers:
+        X-Of-Branch: "{{ branch.name }}"
+
+    - id: aip-branch-prompt
+      description: Ask the AIP copilot about the 12 candidates while on branch — the response cites the branched ontology rows.
+      endpoint: "POST /api/v1/agents/{geopolitica-analyst-copilot}/runs"
+      headers:
+        X-Of-Branch: "{{ branch.name }}"
+      payload:
+        input: "Summarise the proposed sanctions candidates added on this branch — group by country."
+
+  # ──────────────────────────────────────────────────────────────────
+  # Engine-mapping notes — surfaced honestly per the 00-contract.
+  # ──────────────────────────────────────────────────────────────────
+  engine_mapping_notes:
+
+    diff_surface_absent:
+      summary: |
+        global-branch-service does not expose `/diff` today. The
+        demo presents the "diff" by showing the participating
+        datasets' transaction history side-by-side via
+        GET /api/v1/datasets/{rid}/transactions with the
+        X-Of-Branch header set vs unset. Surface in the demo
+        script as "branch view of transactions" rather than
+        "branch diff" to stay honest.
+
+    workshop_embed_widgets_not_branchable:
+      summary: |
+        vertex_graph_embed and agent widgets are not branch-editable
+        per workshop/branching-rebasing. The branch demo MUST
+        exercise the surrounding widgets — the embedded ones still
+        render data from the branched ontology read-side, just not
+        as branch-editable widgets.
+
+    quiver_not_branchable:
+      summary: |
+        Quiver dashboards do not modify on a branch. The branch
+        demo intentionally does not switch Quiver to branch
+        context — only Workshop does.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Discard plan — the demo script ENDS with discard, not merge.
+  # The acceptance criterion talks about "merge produces an
+  # ActionLog with the 12 candidates"; the merge dry-run delivers
+  # the same audit content without touching main.
+  # ──────────────────────────────────────────────────────────────────
+  finalisation:
+    mode: discard
+    dry_run_merge_first: true
+    notes: |
+      The demo script (11-guion-demo.md:96) discards the branch
+      to return to main. A dry-run merge call first produces the
+      ActionLog rows that the acceptance criterion demands; the
+      subsequent discard reverts the branch state. If a customer
+      asks to see merge, the same workflow runs with
+      finalisation.mode = merge.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Acceptance — operator ticks each box during rehearsal.
+  # ──────────────────────────────────────────────────────────────────
+  acceptance:
+    - id: branch-created
+      check: "POST /api/v1/global-branches succeeds; GET /api/v1/global-branches lists the row with base_ref=main."
+    - id: participants-registered
+      check: "GET /api/v1/global-branches/{id}/participants returns the 6 services above."
+    - id: candidates-submitted
+      check: "12 ActionLog rows exist for action_type=propose-sanctions-extension on the branch, queryable via audit-compliance-service."
+    - id: pipeline-rerun-on-branch
+      check: "sanctions-aggregator transform produces a new dataset transaction on the branch; row count = main + 12."
+    - id: workshop-branch-banner
+      check: "GET /apps/public/geopolitical-intel-workbench with X-Of-Branch header renders a 'Branch: sanctions-extension-2026Q3' indicator and the 12 actors appear in the map."
+    - id: aip-branch-context
+      check: "AIP copilot run with X-Of-Branch header returns content citing actor:demo:fict-org:001..012 by display_name; no hallucinated identifiers."
+    - id: finalisation-clean
+      check: "Discard removes the branch state; main is bit-identical to the snapshot taken before the demo (verify by sha256 of the sanctions-aggregator transaction id list)."
