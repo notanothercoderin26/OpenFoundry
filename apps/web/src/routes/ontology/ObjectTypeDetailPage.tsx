@@ -30,6 +30,7 @@ import {
   schemaOnlyObjectInstance,
   saveRestrictedViewBackingConfig,
   updateObjectType,
+  updateProperty,
   validateInterfaceActionRestrictions,
   validateMultiDatasourcePrimaryKeys,
   bindingDatasourceProvenance,
@@ -54,10 +55,25 @@ import { ObjectDetailDrawer } from '@/lib/components/ontology/ObjectDetailDrawer
 import { VertexEventCapabilityEditor } from '@/lib/components/ontology/VertexEventCapabilityEditor';
 import { LinkTypeEdgeDirectionEditor } from '@/lib/components/ontology/LinkTypeEdgeDirectionEditor';
 import { ObjectExplorer } from '@/lib/components/ontology/ObjectExplorer';
-import { PropertyPanel } from '@/lib/components/ontology/PropertyPanel';
+import { PropertyEditor } from '@/lib/components/ontology/PropertyEditor';
+import {
+  ObjectTypeActionsPanel,
+  ObjectTypeDataPanel,
+  ObjectTypeDependentsPanel,
+  ObjectTypeLinkGraphPanel,
+  ObjectTypeMetadataPanel,
+  ObjectTypeOverviewHeader,
+  ObjectTypePropertiesPanel,
+  ObjectTypeUsagePanel,
+} from '@/lib/components/ontology/ObjectTypeOverview';
+import {
+  useFavorites,
+  useToggleFavorite,
+} from '@/lib/hooks/useDiscover';
+import { useObjectTypeDependents } from '@/lib/hooks/useOntologyData';
 import { SaveAsAppModal } from '@/lib/components/apps/SaveAsAppModal';
 import { Tabs } from '@/lib/components/Tabs';
-import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
+import { Glyph } from '@/lib/components/ui/Glyph';
 import { useAuth } from '@/lib/stores/auth';
 
 type Tab = 'overview' | 'properties' | 'objects' | 'actions' | 'datasources' | 'links' | 'rules' | 'shared' | 'capabilities';
@@ -197,38 +213,17 @@ function objectTypeDatasourcePayload(
     restricted_view_indexed_at: restrictedView.indexed_at ?? null,
   };
 }
-type DependentKind =
-  | 'developer-console'
-  | 'function'
-  | 'graph-template'
-  | 'map-layer'
-  | 'map-template'
-  | 'process'
-  | 'quiver'
-  | 'use-cases'
-  | 'workshop';
-
-const DEPENDENT_KINDS: Array<{ id: DependentKind; label: string; icon: GlyphName; tone: string; emptyTitle: string; emptyBody: string; createLabel?: string }> = [
-  { id: 'developer-console', label: 'Developer Console App', icon: 'code', tone: '#0891b2', emptyTitle: 'No Developer Console apps', emptyBody: 'Build a custom backend integration on this object type.' },
-  { id: 'function', label: 'Function', icon: 'code', tone: '#7c5dd6', emptyTitle: 'No functions', emptyBody: 'Define computations on this object type.' },
-  { id: 'graph-template', label: 'Graph Template', icon: 'graph', tone: '#5c7080', emptyTitle: 'No graph templates', emptyBody: 'Visualise this object type as a graph.' },
-  { id: 'map-layer', label: 'Map Layer', icon: 'graph', tone: '#5c7080', emptyTitle: 'No map layers', emptyBody: 'Render this object type on a map.' },
-  { id: 'map-template', label: 'Map Template', icon: 'graph', tone: '#5c7080', emptyTitle: 'No map templates', emptyBody: 'Reusable map configuration.' },
-  { id: 'process', label: 'Process', icon: 'run', tone: '#15803d', emptyTitle: 'No processes', emptyBody: 'Operationalise workflows on this object type.' },
-  { id: 'quiver', label: 'Quiver Dashboard', icon: 'graph', tone: '#0891b2', emptyTitle: 'No Quiver dashboards', emptyBody: 'Build interactive analytics.' },
-  { id: 'use-cases', label: 'Use cases', icon: 'list', tone: '#5c7080', emptyTitle: 'No use cases', emptyBody: 'Document operational workflows.' },
-  { id: 'workshop', label: 'Workshop', icon: 'object', tone: '#7c5dd6', emptyTitle: 'No Workshop modules', emptyBody: 'Workshop enables users to build interactive and high-quality applications for operational users.', createLabel: 'Create your first' },
-];
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
-
-function propertyCountLabel(count: number) {
-  return `${count} propert${count === 1 ? 'y' : 'ies'}`;
+/**
+ * Stable mock instance count derived from the object-type id. Used by the
+ * Overview header subtitle until a real "objects materialized" endpoint
+ * lands. Same id always yields the same number so demos read consistently.
+ */
+function mockInstanceCount(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
+  const positive = Math.abs(h);
+  const buckets = [5, 12, 80, 2_000, 16_000, 34_000, 40_000];
+  return buckets[positive % buckets.length];
 }
 
 function typeName(typeById: Map<string, ObjectType>, id: string) {
@@ -347,9 +342,20 @@ export function ObjectTypeDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // The object type detail route doesn't yet receive the parent ontology id
+  // through context, so favourites are scoped to a stable fallback bucket.
+  // Once the page consumes an ontology context, swap this for the real id.
+  const favoritesScope = 'default';
+  const { data: favoriteIds = [] } = useFavorites(favoritesScope, 'object-type');
+  const toggleObjectFavorite = useToggleFavorite(favoritesScope, 'object-type');
+  const { data: dependentsResponse } = useObjectTypeDependents(id);
+  const dependentsByKind = useMemo(
+    () => (dependentsResponse?.by_kind ?? {}) as Record<string, Array<{ id: string; label: string; href?: string; hint?: string }>>,
+    [dependentsResponse],
+  );
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('overview');
-  const [dependentKind, setDependentKind] = useState<DependentKind>('workshop');
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [type, setType] = useState<ObjectType | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
@@ -579,40 +585,18 @@ export function ObjectTypeDetailPage() {
 
   return (
     <section className="of-page" style={{ padding: 24, display: 'grid', gap: 16 }}>
-      <Link to="/ontology" style={{ color: 'var(--text-muted)', fontSize: 13 }}>Back to ontology</Link>
-
-      <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
-          <div
-            aria-hidden="true"
-            style={{
-              width: 56,
-              height: 56,
-              background: type.color || '#4d8cf0',
-              borderRadius: 8,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              fontSize: 24,
-              flexShrink: 0,
-            }}
-          >
-            {type.icon || type.display_name.slice(0, 1).toUpperCase()}
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <h1 className="of-heading-xl">{type.display_name}</h1>
-            <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12, overflowWrap: 'anywhere' }}>
-              {type.id} / name: {type.name} / pk: {type.primary_key_property ?? '-'}
-            </p>
-            {type.description && <p style={{ margin: '8px 0 0', maxWidth: 760 }}>{type.description}</p>}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Link to="/object-link-types" className="of-button">Manage schema</Link>
-          <Link to="/action-types" className="of-button">Action types</Link>
-        </div>
-      </header>
+      <ObjectTypeOverviewHeader
+        objectType={type}
+        instanceCount={mockInstanceCount(type.id)}
+        favorite={favoriteIds.includes(type.id)}
+        onToggleFavorite={() => toggleObjectFavorite.mutate(type.id)}
+        onActions={() => {
+          /* TODO: surface a context menu (rename/delete/duplicate). */
+        }}
+        onOpenIn={() => navigate('/ontology')}
+        onEditGroups={() => navigate('/ontology-manager?section=groups')}
+        onBack={() => navigate('/ontology')}
+      />
 
       {error && (
         <div className="of-status-danger" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
@@ -637,143 +621,129 @@ export function ObjectTypeDetailPage() {
       />
 
       {tab === 'overview' && (
-        <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
-          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-            <div>
-              <p className="of-eyebrow">Identifier</p>
-              <p style={{ margin: '4px 0 0', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{type.name}</p>
-            </div>
-            <div>
-              <p className="of-eyebrow">Primary key</p>
-              <p style={{ margin: '4px 0 0', fontSize: 12 }}>{type.primary_key_property ?? '-'}</p>
-            </div>
-            <div>
-              <p className="of-eyebrow">Owner</p>
-              <p style={{ margin: '4px 0 0', fontFamily: 'var(--font-mono)', fontSize: 12, overflowWrap: 'anywhere' }}>{type.owner_id}</p>
-            </div>
-            <div>
-              <p className="of-eyebrow">Updated</p>
-              <p style={{ margin: '4px 0 0', fontSize: 12 }}>{formatDate(type.updated_at)}</p>
-            </div>
+        <section
+          style={{
+            display: 'grid',
+            gap: 16,
+            gridTemplateColumns: 'minmax(0, 1fr)',
+          }}
+        >
+          <ObjectTypeMetadataPanel
+            objectType={type}
+            ontologyName="Ontology"
+          />
+          <div
+            style={{
+              display: 'grid',
+              gap: 16,
+              gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)',
+            }}
+          >
+            <ObjectTypePropertiesPanel
+              properties={properties}
+              primaryKeyPropertyName={type.primary_key_property}
+              titleKeyPropertyName={type.title_property}
+              onNew={() => setTab('properties')}
+              onPick={() => setTab('properties')}
+            />
+            <ObjectTypeActionsPanel
+              objectTypeName={type.display_name}
+              actionTypes={actions.filter((action) => action.object_type_id === type.id)}
+              onNew={() => setTab('actions')}
+              onPick={() => setTab('actions')}
+            />
           </div>
-          <ObjectTypeGraph
-            currentTypeId={type.id}
+          <ObjectTypeLinkGraphPanel
+            currentType={type}
             links={links}
             typeById={typeById}
             selectedLinkId={selectedLink?.id ?? null}
-            onSelectLink={(link) => { setSelectedLinkId(link.id); setLinkDetailTab('overview'); void loadTab('links'); }}
+            onSelectLink={(link) => {
+              setSelectedLinkId(link.id);
+              setLinkDetailTab('overview');
+              void loadTab('links');
+            }}
+            onNewLink={() => setTab('links')}
           />
-          <pre style={{ padding: 12, background: 'var(--bg-subtle)', fontSize: 11, fontFamily: 'var(--font-mono)', borderRadius: 8, overflow: 'auto' }}>
-            {JSON.stringify(type, null, 2)}
-          </pre>
-
+          <ObjectTypeDependentsPanel
+            dependents={dependentsByKind}
+            onCreate={(kind) => {
+              if (kind === 'workshop') setSaveAsOpen(true);
+            }}
+          />
           <div
             style={{
-              marginTop: 6,
-              border: '1px solid var(--border-subtle)',
-              borderRadius: 6,
-              overflow: 'hidden',
               display: 'grid',
-              gridTemplateColumns: '260px minmax(0, 1fr)',
+              gap: 16,
+              gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)',
             }}
           >
-            <div style={{ borderRight: '1px solid var(--border-subtle)', background: '#fff' }}>
-              <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>Dependents</span>
-                <span className="of-chip" style={{ fontSize: 11 }}>{DEPENDENT_KINDS.length}</span>
-              </div>
-              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-                {DEPENDENT_KINDS.map((kind) => {
-                  const active = dependentKind === kind.id;
-                  return (
-                    <li key={kind.id}>
-                      <button
-                        type="button"
-                        onClick={() => setDependentKind(kind.id)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          width: '100%',
-                          padding: '8px 14px',
-                          border: 0,
-                          background: active ? 'rgba(45, 114, 210, 0.06)' : 'transparent',
-                          color: active ? 'var(--status-info)' : 'var(--text-strong)',
-                          fontWeight: active ? 600 : 500,
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          fontSize: 13,
-                        }}
-                      >
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          <Glyph name={kind.icon} size={13} tone={kind.tone} />
-                          {kind.label}
-                        </span>
-                        <span style={{ color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>0</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-            <div style={{ padding: 18, display: 'grid', placeContent: 'center', textAlign: 'center', gap: 10, background: '#fafbfc' }}>
-              {(() => {
-                const kind = DEPENDENT_KINDS.find((entry) => entry.id === dependentKind);
-                if (!kind) return null;
-                return (
-                  <>
-                    <span style={{ display: 'inline-flex', justifyContent: 'center' }}>
-                      <Glyph name="search" size={28} tone="#aab4c0" />
-                    </span>
-                    <p style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{kind.emptyTitle}</p>
-                    <p className="of-text-muted" style={{ margin: '0 auto', maxWidth: 360, fontSize: 12.5 }}>
-                      {kind.emptyBody} <button type="button" className="of-link" style={{ background: 'none', border: 0, padding: 0, color: 'var(--status-info)', cursor: 'pointer', fontSize: 12.5 }}>Learn more</button>
-                    </p>
-                    {kind.createLabel ? (
-                      <button
-                        type="button"
-                        onClick={() => setSaveAsOpen(true)}
-                        style={{
-                          justifySelf: 'center',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '8px 14px',
-                          border: '1px solid var(--border-default)',
-                          borderRadius: 4,
-                          background: '#fff',
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: 'var(--status-info)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <Glyph name="plus" size={13} tone="var(--status-info)" /> {kind.createLabel}
-                      </button>
-                    ) : null}
-                  </>
-                );
-              })()}
-            </div>
+            <ObjectTypeDataPanel
+              bindings={objectTypeBindings}
+              datasets={datasets}
+              onSeeAll={() => setTab('datasources')}
+              datasetHref={(id) => `/datasets/${id}`}
+            />
+            <ObjectTypeUsagePanel
+              seedId={type.id}
+              onSeeMore={() => setTab('objects')}
+            />
           </div>
         </section>
       )}
 
       {tab === 'properties' && (
-        <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 10 }}>
-          <p className="of-eyebrow">{propertyCountLabel(properties.length)}</p>
-          {properties.map((property) => (
-            <PropertyPanel
-              key={property.id}
-              property={property}
-              typeId={type.id}
-              isPrimaryKey={type.primary_key_property === property.name}
-              valueTypes={valueTypes}
-              onUpdated={(updated) => setProperties((current) => current.map((item) => (item.id === updated.id ? updated : item)))}
-            />
-          ))}
-          {properties.length === 0 && <p className="of-text-muted">No properties.</p>}
-        </section>
+        <PropertyEditor
+          properties={properties}
+          primaryKeyName={type.primary_key_property}
+          titleKeyName={type.title_property}
+          bindings={objectTypeBindings}
+          datasets={datasets}
+          valueTypes={valueTypes}
+          onPropertyUpdate={async (propertyId, patch) => {
+            const body: Parameters<typeof updateProperty>[2] = {};
+            if (patch.display_name !== undefined)
+              body.display_name = patch.display_name;
+            if (patch.description !== undefined)
+              body.description = patch.description;
+            if (patch.value_type_id !== undefined)
+              body.value_type_id = patch.value_type_id;
+            if (patch.required !== undefined) body.required = patch.required;
+            if (patch.unique_constraint !== undefined)
+              body.unique_constraint = patch.unique_constraint;
+            if (Object.keys(body).length === 0) return;
+            try {
+              const updated = await updateProperty(type.id, propertyId, body);
+              setProperties((current) =>
+                current.map((item) =>
+                  item.id === propertyId ? updated : item,
+                ),
+              );
+            } catch {
+              // Swallow the failure; the field reverts on next selection.
+            }
+          }}
+          onMakeTitle={async (propertyName) => {
+            try {
+              const updated = await updateObjectType(type.id, {
+                title_property: propertyName,
+              });
+              setType(updated);
+            } catch {
+              /* noop */
+            }
+          }}
+          onMakePrimaryKey={async (propertyName) => {
+            try {
+              const updated = await updateObjectType(type.id, {
+                primary_key_property: propertyName,
+              });
+              setType(updated);
+            } catch {
+              /* noop */
+            }
+          }}
+        />
       )}
 
       {tab === 'objects' && (

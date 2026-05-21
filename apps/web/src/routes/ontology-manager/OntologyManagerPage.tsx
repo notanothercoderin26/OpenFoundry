@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { projectStablePath } from "@/lib/compass/stableResourceUrls";
 import {
   buildOntologyAuditEventLog,
   buildOntologyCleanupAssistant,
+  pushRecentObjectType,
   buildOntologyHealthReport,
   buildOntologyUsageImpactAnalysis,
   buildCoreObjectViews,
@@ -99,6 +100,88 @@ import { LinkEditor } from "@/lib/components/ontology/LinkEditor";
 import { OntologyEditsButton } from "@/lib/components/ontology/OntologyEditsButton";
 import { AuditLogPanel } from "@/lib/components/ontology/AuditLogPanel";
 import {
+  OntologyShellSidebar,
+  OntologyShellTopBar,
+  type OntologySidebarItemId,
+} from "@/lib/components/ontology/OntologyShell";
+import { OntologySelector } from "@/lib/components/ontology/OntologySelector";
+import {
+  OntologyCommandPalette,
+  type OntologyCommandResult,
+} from "@/lib/components/ontology/OntologyCommandPalette";
+import { DiscoverPage } from "@/routes/ontology-manager/DiscoverPage";
+import { CustomizeHomepageModal } from "@/lib/components/ontology/CustomizeHomepageModal";
+import {
+  useHomepageConfig,
+  useUpdateHomepageConfig,
+} from "@/lib/hooks/useDiscover";
+import {
+  ActionTypesListPanel,
+  CleanupListPanel,
+  FunctionsListPanel,
+  GroupsListPanel,
+  HealthIssuesListPanel,
+  InterfacesListPanel,
+  LinkTypesListPanel,
+  ObjectTypesListPanel,
+  PropertiesListPanel,
+  SharedPropertiesListPanel,
+  ValueTypesListPanel,
+} from "@/lib/components/ontology/ResourceListings";
+import {
+  HistoryPanel,
+  ProposalsPanel,
+} from "@/lib/components/ontology/ProposalsAndHistory";
+
+/**
+ * When true, render the legacy 18-entry navigation panel below the curated
+ * Foundry sidebar. Off by default; flip to true while iterating on the
+ * sidebar to compare both nav layouts side by side. The underlying
+ * `Section` ids and routing stay identical regardless.
+ */
+const SHOW_LEGACY_SIDEBAR = false;
+
+const SIDEBAR_TO_SECTION: Record<OntologySidebarItemId, Section> = {
+  discover: "overview",
+  proposals: "changes",
+  history: "history",
+  "object-types": "types",
+  properties: "properties",
+  "shared-properties": "shared",
+  "link-types": "links",
+  "action-types": "actions",
+  groups: "groups",
+  interfaces: "interfaces",
+  "value-types": "valueTypes",
+  functions: "functions",
+  health: "auditHealth",
+  cleanup: "cleanup",
+  configuration: "permissions",
+};
+
+const SECTION_TO_SIDEBAR: Record<Section, OntologySidebarItemId> = {
+  overview: "discover",
+  registry: "discover",
+  types: "object-types",
+  properties: "properties",
+  links: "link-types",
+  actions: "action-types",
+  interfaces: "interfaces",
+  shared: "shared-properties",
+  valueTypes: "value-types",
+  groups: "groups",
+  views: "object-types",
+  usage: "discover",
+  permissions: "configuration",
+  changes: "proposals",
+  history: "history",
+  importExport: "configuration",
+  cleanup: "cleanup",
+  auditHealth: "health",
+  projects: "configuration",
+  functions: "functions",
+};
+import {
   stage as stageOntologyEdit,
   useOntologyWorkingState,
 } from "@/lib/stores/ontologyWorkingState";
@@ -109,6 +192,7 @@ type Section =
   | "overview"
   | "registry"
   | "types"
+  | "properties"
   | "links"
   | "actions"
   | "interfaces"
@@ -123,7 +207,8 @@ type Section =
   | "importExport"
   | "cleanup"
   | "auditHealth"
-  | "projects";
+  | "projects"
+  | "functions";
 
 type ResourceFilter = "all" | "visible" | "hidden" | "experimental" | "issues";
 
@@ -346,6 +431,12 @@ export function OntologyManagerPage() {
   const branchMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const resourceSearchIndexRef = useRef<OntologyResourceSearchIndex | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const navigate = useNavigate();
+  const { data: homepageConfig } = useHomepageConfig(ontology.id);
+  const updateHomepage = useUpdateHomepageConfig(ontology.id);
 
   useEffect(() => {
     if (!newMenuOpen && !branchMenuOpen) return;
@@ -431,11 +522,13 @@ export function OntologyManagerPage() {
     function onGlobalSearchShortcut(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        searchInputRef.current?.focus();
+        event.stopPropagation();
+        setPaletteOpen((open) => !open);
       }
     }
-    window.addEventListener("keydown", onGlobalSearchShortcut);
-    return () => window.removeEventListener("keydown", onGlobalSearchShortcut);
+    window.addEventListener("keydown", onGlobalSearchShortcut, true);
+    return () =>
+      window.removeEventListener("keydown", onGlobalSearchShortcut, true);
   }, []);
 
   useEffect(() => {
@@ -1454,78 +1547,40 @@ export function OntologyManagerPage() {
     [indexedSearchResults],
   );
 
+  const paletteIndexed = useMemo(
+    () =>
+      paletteQuery.trim()
+        ? searchOntologyResourceIndex(resourceSearchIndex, {
+            query: paletteQuery,
+            page: 1,
+            per_page: 12,
+            permission_filter: "viewable",
+          })
+        : null,
+    [resourceSearchIndex, paletteQuery],
+  );
+  const paletteResults = useMemo<OntologyCommandResult[]>(
+    () => paletteIndexed?.data.map(searchDocumentToShellResult) ?? [],
+    [paletteIndexed],
+  );
+
   const shellWarnings = useMemo(
     () =>
       buildShellWarnings({ ontology, objectTypes, projects, projectResources }),
     [ontology, objectTypes, projects, projectResources],
   );
 
-  return (
-    <section
-      className="of-page"
-      style={{ padding: 24, display: "grid", gap: 16 }}
-    >
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 12,
-        }}
+  const branchSlot = (
+    <div ref={branchMenuRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        className="of-button"
+        onClick={() => setBranchMenuOpen((open) => !open)}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 32,
-              height: 32,
-              borderRadius: 4,
-              background: "rgba(45, 114, 210, 0.12)",
-              color: "var(--status-info)",
-            }}
-          >
-            <Glyph name="cube" size={18} tone="var(--status-info)" />
-          </span>
-          <div>
-            <h1 className="of-heading-xl" style={{ margin: 0 }}>
-              Ontology Manager
-            </h1>
-            <p
-              className="of-text-muted"
-              style={{ margin: "2px 0 0", fontSize: 12 }}
-            >
-              <Glyph name="folder" size={11} tone="#5c7080" />{" "}
-              {ontology.owning_space_slug} · {ontology.display_name}
-            </p>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* Working-state edit counter + Review-edits modal opener.
-              Hidden when there are zero staged edits, so the top bar
-              keeps the read-only layout intact in the common case.
-              After a successful batch save we re-fetch the ontology
-              so the list / detail panels reflect the new server
-              state without reloading the page. */}
-          <OntologyEditsButton onSaved={() => void refresh()} />
-          <Link
-            to="/ontology-manager/bindings"
-            className="of-button"
-            style={{ fontSize: 12 }}
-          >
-            <Glyph name="link" size={12} /> Bind dataset
-          </Link>
-          <div ref={branchMenuRef} style={{ position: "relative" }}>
-            <button
-              type="button"
-              className="of-button"
-              onClick={() => setBranchMenuOpen((open) => !open)}
-            >
-              <Glyph name="cube" size={12} tone="#5c7080" /> {branchName}{" "}
-              <Glyph name="chevron-down" size={11} />
-            </button>
-            {branchMenuOpen ? (
+        <Glyph name="cube" size={12} tone="#5c7080" /> {branchName}{" "}
+        <Glyph name="chevron-down" size={11} />
+      </button>
+      {branchMenuOpen ? (
               <div role="menu" style={popoverStyle()}>
                 <input
                   className="of-input"
@@ -1600,77 +1655,168 @@ export function OntologyManagerPage() {
               </div>
             ) : null}
           </div>
-          <div ref={newMenuRef} style={{ position: "relative" }}>
-            <button
-              type="button"
-              className="of-button of-button--primary"
-              onClick={() => setNewMenuOpen((open) => !open)}
-            >
-              New <Glyph name="chevron-down" size={11} />
-            </button>
-            {newMenuOpen ? (
-              <div role="menu" style={popoverStyle({ minWidth: 320 })}>
-                <NewMenuItem
-                  glyph={
-                    <Glyph name="cube" size={14} tone="var(--status-info)" />
-                  }
-                  label="Object type"
-                  description="Map datasets and models to object types"
-                  enabled
-                  onClick={() => {
-                    setNewMenuOpen(false);
-                    setWizardOpen(true);
-                  }}
-                  highlighted
-                />
-                <NewMenuItem
-                  glyph={<Glyph name="link" size={14} tone="#5c7080" />}
-                  label="Link type"
-                  description="Create relationships between object types"
-                />
-                <NewMenuItem
-                  glyph={<Glyph name="run" size={14} tone="#7c5dd6" />}
-                  label="Action type"
-                  description="Allow users to writeback to their ontology"
-                />
-                <div
-                  style={{
-                    borderTop: "1px solid var(--border-subtle)",
-                    margin: "4px 0",
-                  }}
-                />
-                <NewMenuItem
-                  glyph={<Glyph name="ontology" size={14} tone="#5c7080" />}
-                  label="Shared property"
-                  description="Create properties that can be shared across object types"
-                />
-                <NewMenuItem
-                  glyph={<Glyph name="artifact" size={14} tone="#5c7080" />}
-                  label="Interface"
-                  description="Use interfaces to build against abstract types"
-                />
-                <NewMenuItem
-                  glyph={
-                    <span
-                      style={{
-                        fontFamily: "serif",
-                        fontStyle: "italic",
-                        fontSize: 14,
-                        color: "#5c7080",
-                      }}
-                    >
-                      fx
-                    </span>
-                  }
-                  label="Function"
-                  description="Define object modifications in code"
-                />
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </header>
+  );
 
+  const newSlot = (
+    <div ref={newMenuRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-of-sm bg-of-accent hover:bg-of-accent-hover text-of-text-inverse text-of-13 font-of-semibold"
+        onClick={() => setNewMenuOpen((open) => !open)}
+        aria-expanded={newMenuOpen}
+        aria-haspopup="menu"
+      >
+        New <Glyph name="chevron-down" size={11} tone="#ffffff" />
+      </button>
+      {newMenuOpen ? (
+        <div role="menu" style={popoverStyle({ minWidth: 320 })}>
+          <NewMenuItem
+            glyph={<Glyph name="cube" size={14} tone="var(--of-accent)" />}
+            label="Object type"
+            description="Map datasets and models to object types"
+            enabled
+            onClick={() => {
+              setNewMenuOpen(false);
+              setWizardOpen(true);
+            }}
+            highlighted
+          />
+          <NewMenuItem
+            glyph={<Glyph name="link" size={14} tone="#5c7080" />}
+            label="Link type"
+            description="Create relationships between object types"
+          />
+          <NewMenuItem
+            glyph={<Glyph name="run" size={14} tone="#7c5dd6" />}
+            label="Action type"
+            description="Allow users to writeback to their ontology"
+          />
+          <div
+            style={{
+              borderTop: "1px solid var(--of-border)",
+              margin: "4px 0",
+            }}
+          />
+          <NewMenuItem
+            glyph={<Glyph name="ontology" size={14} tone="#5c7080" />}
+            label="Shared property"
+            description="Create properties that can be shared across object types"
+            enabled
+            onClick={() => {
+              setNewMenuOpen(false);
+              setSection("shared");
+            }}
+          />
+          <NewMenuItem
+            glyph={<Glyph name="artifact" size={14} tone="#5c7080" />}
+            label="Interface"
+            description="Use interfaces to build against abstract types"
+            enabled
+            onClick={() => {
+              setNewMenuOpen(false);
+              setSection("interfaces");
+            }}
+          />
+          <NewMenuItem
+            glyph={
+              <span
+                style={{
+                  fontFamily: "serif",
+                  fontStyle: "italic",
+                  fontSize: 14,
+                  color: "#5c7080",
+                }}
+              >
+                fx
+              </span>
+            }
+            label="Function"
+            description="Define object modifications in code"
+          />
+          <NewMenuItem
+            glyph={<Glyph name="tag" size={14} tone="#0d9488" />}
+            label="Value type"
+            description="Space-scoped semantic types and constraints"
+            enabled
+            onClick={() => {
+              setNewMenuOpen(false);
+              setSection("valueTypes");
+            }}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const leadingActions = (
+    <>
+      <OntologyEditsButton onSaved={() => void refresh()} />
+      <Link
+        to="/ontology-manager/bindings"
+        className="of-button"
+        style={{ fontSize: 12 }}
+      >
+        <Glyph name="link" size={12} /> Bind dataset
+      </Link>
+    </>
+  );
+
+  const typeById = useMemo(
+    () => new Map(objectTypes.map((entry) => [entry.id, entry])),
+    [objectTypes],
+  );
+
+  const sidebarCounts: Partial<Record<OntologySidebarItemId, number>> = {
+    "object-types": objectTypes.length,
+    properties: objectTypes.reduce(
+      (acc, ot) => acc + (ot.properties?.length ?? 0),
+      0,
+    ),
+    "shared-properties": shared.length,
+    "link-types": linkTypes.length,
+    "action-types": actionTypes.length,
+    groups: objectTypeGroups.length,
+    interfaces: interfaces.length,
+    "value-types": valueTypes.length,
+  };
+
+  return (
+    <section
+      className="of-page"
+      style={{ padding: 0, display: "flex", flexDirection: "column", gap: 0 }}
+    >
+      <OntologyShellTopBar
+        search={{
+          value: search,
+          onChange: setSearch,
+          inputRef: searchInputRef,
+        }}
+        leadingActions={leadingActions}
+        branchSlot={branchSlot}
+        newSlot={newSlot}
+      />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "stretch",
+          minHeight: "calc(100vh - 48px)",
+        }}
+      >
+        <OntologyShellSidebar
+          active={SECTION_TO_SIDEBAR[section]}
+          onSelect={(id) => setSection(SIDEBAR_TO_SECTION[id])}
+          counts={sidebarCounts}
+          header={
+            <OntologySelector
+              name={ontology.display_name}
+              spacePath={
+                ontology.placement.folder_path || ontology.owning_space_slug
+              }
+            />
+          }
+        />
+        <main style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ padding: "16px 24px 24px", display: "grid", gap: 16 }}>
       {error && (
         <div
           className="of-status-danger"
@@ -1694,24 +1840,9 @@ export function OntologyManagerPage() {
             flexWrap: "wrap",
             gap: 8,
             alignItems: "center",
+            justifyContent: "flex-end",
           }}
         >
-          <div style={{ flex: "1 1 360px", position: "relative" }}>
-            <input
-              ref={searchInputRef}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ontology resources, properties, links, actions, interfaces, or projects…"
-              className="of-input"
-              aria-label="Search ontology resources"
-            />
-            <span
-              className="of-text-muted"
-              style={{ position: "absolute", right: 10, top: 8, fontSize: 11 }}
-            >
-              Ctrl/⌘ K
-            </span>
-          </div>
           <button
             type="button"
             onClick={() => void refresh()}
@@ -1771,23 +1902,16 @@ export function OntologyManagerPage() {
         ) : null}
       </section>
 
-      <section
-        style={{
-          display: "grid",
-          gridTemplateColumns: "280px minmax(0, 1fr)",
-          gap: 16,
-          alignItems: "start",
-        }}
-      >
+      {SHOW_LEGACY_SIDEBAR ? (
         <aside
           className="of-panel"
-          style={{ padding: 12, position: "sticky", top: 12 }}
+          style={{ padding: 12 }}
         >
           <p className="of-eyebrow" style={{ margin: "4px 4px 10px" }}>
-            Ontology Manager navigation
+            Ontology Manager navigation (legacy)
           </p>
           <nav
-            aria-label="Ontology Manager sections"
+            aria-label="Ontology Manager sections (legacy)"
             style={{ display: "grid", gap: 4 }}
           >
             {shellNavItems.map((item) => (
@@ -1841,6 +1965,7 @@ export function OntologyManagerPage() {
             </p>
           </div>
         </aside>
+      ) : null}
         <div style={{ display: "grid", gap: 16 }}>
           {shellWarnings.map((warning) => (
             <div
@@ -1856,7 +1981,26 @@ export function OntologyManagerPage() {
             </div>
           ))}
 
-          {section === "overview" && (
+          {section === "overview" && !SHOW_LEGACY_SIDEBAR && (
+            <DiscoverPage
+              ontologyId={ontology.id}
+              objectTypes={objectTypes}
+              objectTypeGroups={objectTypeGroups}
+              linkTypes={linkTypes}
+              registry={ontologyRegistry}
+              onPickObjectType={(objectType) => {
+                pushRecentObjectType(ontology.id, objectType.id);
+                navigate(`/ontology/${objectType.id}`);
+              }}
+              onPickGroup={() => setSection("groups")}
+              onSeeAllRecent={() => setSection("types")}
+              onSeeAllFavorites={() => setSection("types")}
+              onSeeAllGroups={() => setSection("groups")}
+              onConfigure={() => setCustomizeOpen(true)}
+            />
+          )}
+
+          {section === "overview" && SHOW_LEGACY_SIDEBAR && (
             <section
               style={{
                 display: "grid",
@@ -2070,7 +2214,27 @@ export function OntologyManagerPage() {
             />
           )}
 
-          {section === "types" && (
+          {section === "types" && !SHOW_LEGACY_SIDEBAR && (
+            <ObjectTypesListPanel
+              objectTypes={objectTypes}
+              groups={objectTypeGroups}
+              onPick={(objectType) => navigate(`/ontology/${objectType.id}`)}
+            />
+          )}
+
+          {section === "properties" && !SHOW_LEGACY_SIDEBAR && (
+            <PropertiesListPanel
+              objectTypes={objectTypes}
+              sharedProperties={shared}
+              onPickObjectType={(id) => navigate(`/ontology/${id}`)}
+            />
+          )}
+
+          {section === "functions" && !SHOW_LEGACY_SIDEBAR && (
+            <FunctionsListPanel computeModulesHref="/compute-modules" />
+          )}
+
+          {section === "types" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16 }}>
               <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
                 <p className="of-eyebrow">
@@ -2124,7 +2288,15 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "actions" && (
+          {section === "actions" && !SHOW_LEGACY_SIDEBAR && (
+            <ActionTypesListPanel
+              actionTypes={actionTypes}
+              typeById={typeById}
+              onPick={(action) => navigate(`/action-types/${action.id}`)}
+            />
+          )}
+
+          {section === "actions" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16 }}>
               <p className="of-eyebrow">Action types ({actionTypes.length})</p>
               <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: "none" }}>
@@ -2151,7 +2323,14 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "interfaces" && (
+          {section === "interfaces" && !SHOW_LEGACY_SIDEBAR && (
+            <InterfacesListPanel
+              interfaces={interfaces}
+              objectTypes={objectTypes}
+            />
+          )}
+
+          {section === "interfaces" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16 }}>
               <p className="of-eyebrow">Interfaces ({interfaces.length})</p>
               <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: "none" }}>
@@ -2178,7 +2357,14 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "shared" && (
+          {section === "shared" && !SHOW_LEGACY_SIDEBAR && (
+            <SharedPropertiesListPanel
+              sharedProperties={shared}
+              objectTypes={objectTypes}
+            />
+          )}
+
+          {section === "shared" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16, display: "grid", gap: 14 }}>
               <div>
                 <p className="of-eyebrow">Shared property types ({shared.length})</p>
@@ -2228,7 +2414,11 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "valueTypes" && (
+          {section === "valueTypes" && !SHOW_LEGACY_SIDEBAR && (
+            <ValueTypesListPanel valueTypes={valueTypes} />
+          )}
+
+          {section === "valueTypes" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16, display: "grid", gap: 14 }}>
               <div>
                 <p className="of-eyebrow">Value types ({valueTypes.length})</p>
@@ -2281,7 +2471,15 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "links" && (
+          {section === "links" && !SHOW_LEGACY_SIDEBAR && (
+            <LinkTypesListPanel
+              linkTypes={linkTypes}
+              typeById={typeById}
+              onPick={(link) => navigate(`/object-link-types/${link.id}`)}
+            />
+          )}
+
+          {section === "links" && SHOW_LEGACY_SIDEBAR && (
             <section
               className="of-panel"
               style={{
@@ -2350,7 +2548,15 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "groups" && (
+          {section === "groups" && !SHOW_LEGACY_SIDEBAR && (
+            <GroupsListPanel
+              groups={objectTypeGroups}
+              objectTypes={objectTypes}
+              linkTypes={linkTypes}
+            />
+          )}
+
+          {section === "groups" && SHOW_LEGACY_SIDEBAR && (
             <section
               className="of-panel"
               style={{
@@ -2533,7 +2739,20 @@ export function OntologyManagerPage() {
             />
           )}
 
-          {section === "changes" && (
+          {section === "changes" && !SHOW_LEGACY_SIDEBAR && (
+            <ProposalsPanel
+              integration={branchProposalIntegration}
+              onToggleResource={(resourceId, included) =>
+                setProposalExcludedResourceIds((current) =>
+                  included
+                    ? current.filter((id) => id !== resourceId)
+                    : [...new Set([...current, resourceId])],
+                )
+              }
+            />
+          )}
+
+          {section === "changes" && SHOW_LEGACY_SIDEBAR && (
             <section className="of-panel" style={{ padding: 16 }}>
               <p className="of-eyebrow">Unsaved changes ({workingChanges.length})</p>
               <p className="of-text-muted" style={{ marginTop: 6, fontSize: 12 }}>
@@ -2598,11 +2817,29 @@ export function OntologyManagerPage() {
             </section>
           )}
 
-          {section === "history" && (
+          {section === "history" && !SHOW_LEGACY_SIDEBAR && (
+            <HistoryPanel
+              entries={historyEntries}
+              author={historyAuthor}
+              onAuthorChange={setHistoryAuthor}
+              resourceKind={
+                historyResourceKind === "all" ? "" : historyResourceKind
+              }
+              onResourceKindChange={(value) =>
+                setHistoryResourceKind(value === "" ? "all" : value)
+              }
+              from={historyFrom}
+              onFromChange={setHistoryFrom}
+              to={historyTo}
+              onToChange={setHistoryTo}
+            />
+          )}
+
+          {section === "history" && SHOW_LEGACY_SIDEBAR && (
             <AuditLogPanel refreshToken={workingStateBatchToken} />
           )}
 
-          {section === "history" && (
+          {section === "history" && SHOW_LEGACY_SIDEBAR && (
             <OntologyHistoryPanel
               registry={ontologyRegistry}
               entries={historyEntries}
@@ -2649,7 +2886,13 @@ export function OntologyManagerPage() {
             />
           )}
 
-          {section === "cleanup" && (
+          {section === "cleanup" && !SHOW_LEGACY_SIDEBAR && (
+            <CleanupListPanel
+              candidates={cleanupAssistant.candidates}
+            />
+          )}
+
+          {section === "cleanup" && SHOW_LEGACY_SIDEBAR && (
             <CleanupAssistantPanel
               assistant={cleanupAssistant}
               candidatesByKind={cleanupCandidatesByKind}
@@ -2681,7 +2924,11 @@ export function OntologyManagerPage() {
             />
           )}
 
-          {section === "auditHealth" && (
+          {section === "auditHealth" && !SHOW_LEGACY_SIDEBAR && (
+            <HealthIssuesListPanel issues={healthReport.issues} />
+          )}
+
+          {section === "auditHealth" && SHOW_LEGACY_SIDEBAR && (
             <AuditHealthPanel
               auditLog={auditEventLog}
               healthReport={healthReport}
@@ -2721,7 +2968,9 @@ export function OntologyManagerPage() {
             </section>
           )}
         </div>
-      </section>
+          </div>
+        </main>
+      </div>
 
       <CreateObjectTypeWizard
         open={wizardOpen}
@@ -2745,6 +2994,29 @@ export function OntologyManagerPage() {
           }}
         />
       ) : null}
+
+      <OntologyCommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        query={paletteQuery}
+        onQueryChange={setPaletteQuery}
+        results={paletteResults}
+        totalCount={paletteIndexed?.total}
+        onPick={(result) => {
+          setSection(result.section as Section);
+          setPaletteOpen(false);
+          setPaletteQuery("");
+        }}
+      />
+
+      <CustomizeHomepageModal
+        open={customizeOpen}
+        onClose={() => setCustomizeOpen(false)}
+        config={homepageConfig}
+        groups={objectTypeGroups}
+        objectTypes={objectTypes}
+        onApply={(next) => updateHomepage.mutate(next)}
+      />
     </section>
   );
 }
