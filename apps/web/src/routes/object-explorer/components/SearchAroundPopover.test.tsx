@@ -55,7 +55,7 @@ const linkTypes: LinkType[] = [
   makeLink('orphan', 'other', airport.id, 'Unrelated'),
 ];
 
-function renderWithAnchor(overrides: { sourceTypeId?: string | null; onSelect?: ReturnType<typeof vi.fn>; onClose?: ReturnType<typeof vi.fn> } = {}) {
+function renderWithAnchor(overrides: { sourceTypeId?: string | null; onSelect?: (option: import('./SearchAroundPopover').SearchAroundOption) => void; onClose?: () => void } = {}) {
   const anchor = document.createElement('button');
   document.body.appendChild(anchor);
   const props = {
@@ -63,8 +63,8 @@ function renderWithAnchor(overrides: { sourceTypeId?: string | null; onSelect?: 
     sourceObjectTypeId: overrides.sourceTypeId ?? flight.id,
     linkTypes,
     typeById,
-    onSelect: overrides.onSelect ?? vi.fn(),
-    onClose: overrides.onClose ?? vi.fn(),
+    onSelect: overrides.onSelect ?? (() => undefined),
+    onClose: overrides.onClose ?? (() => undefined),
   };
   const utils = render(<SearchAroundPopover {...props} />);
   return { ...utils, anchor, props };

@@ -118,7 +118,8 @@ import {
   rollbackTo,
   type PivotHistory,
 } from './pivotState';
-import { makeExplorationTab, makeListTab, makeSearchTab, useExplorerTabs } from './tabs';
+import { makeExplorationTab, makeListTab, makeSearchTab, makeTypeTab, useExplorerTabs } from './tabs';
+import { useExplorerUrlSelection } from './useUrlSelection';
 
 type ObjectExplorerTab = 'overview' | 'objects' | 'types' | 'artifacts';
 
@@ -211,6 +212,7 @@ export function ObjectExplorerPage() {
 
   const [activeTab, setActiveTab] = useState<ObjectExplorerTab>('overview');
   const explorerTabs = useExplorerTabs();
+  const urlSelection = useExplorerUrlSelection();
   const [sideNavSelection, setSideNavSelection] = useState<SideNavSelection>({ kind: 'all' });
   const [searchSideNavSelection, setSearchSideNavSelection] = useState<SearchSideNavSelection>({ kind: 'all' });
   const [groupsPage, setGroupsPage] = useState(0);
@@ -236,6 +238,9 @@ export function ObjectExplorerPage() {
     } else if (tab.kind === 'search' && tab.query) {
       setSearchQuery(tab.query);
       setActiveTab('objects');
+    } else if (tab.kind === 'type' && tab.resourceId) {
+      setActiveTab('objects');
+      void browseType(tab.resourceId);
     } else if (tab.kind === 'exploration' && tab.resourceId) {
       setPendingShareId(tab.resourceId);
       setActiveTab('artifacts');
@@ -245,6 +250,33 @@ export function ObjectExplorerPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [explorerTabs.activeTabId]);
+
+  // Apply the URL's ?tab=… on mount and any time the URL changes
+  // externally (browser back/forward, link share). Page-driven tab
+  // changes flow back to the URL via the writeTab effect below.
+  useEffect(() => {
+    const fromUrl = urlSelection.readTab();
+    if (fromUrl && fromUrl !== activeTab) setActiveTab(fromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSelection.readTab]);
+
+  useEffect(() => {
+    urlSelection.writeTab(activeTab);
+  }, [activeTab, urlSelection]);
+
+  // Same dance for ?group=<id>: read on mount/back-forward, write
+  // whenever the user picks a different group in the sidebar.
+  useEffect(() => {
+    const fromUrl = urlSelection.readGroup();
+    if (!fromUrl) return;
+    if (sideNavSelection.kind === 'group' && sideNavSelection.groupId === fromUrl) return;
+    setSideNavSelection({ kind: 'group', groupId: fromUrl });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSelection.readGroup]);
+
+  useEffect(() => {
+    urlSelection.writeGroup(sideNavSelection);
+  }, [sideNavSelection, urlSelection]);
 
   function toggleFavoriteType(typeId: string) {
     setFavoriteTypeIds((current) => {
@@ -1393,8 +1425,8 @@ export function ObjectExplorerPage() {
                   activeTab={activeTab}
                   onOpenResult={(result) => void selectResult(result)}
                   onExploreType={(typeId) => {
-                    setActiveTab('objects');
-                    void browseType(typeId);
+                    const type = typeById.get(typeId);
+                    explorerTabs.open(makeTypeTab(typeId, type?.display_name || type?.name || typeId));
                   }}
                   onChangeActiveTab={(next) => setActiveTab(next)}
                   onSearchAround={(result, anchor) => setSearchAroundState({ result, anchor })}
@@ -1413,8 +1445,8 @@ export function ObjectExplorerPage() {
                     linkTypes={linkTypes}
                     accessForType={accessForType}
                     onBrowse={(typeId) => {
-                      setActiveTab('objects');
-                      void browseType(typeId);
+                      const type = typeById.get(typeId);
+                      explorerTabs.open(makeTypeTab(typeId, type?.display_name || type?.name || typeId));
                     }}
                     onPreviewType={previewType}
                     favoriteTypeIds={favoriteTypeIds}
@@ -1430,8 +1462,8 @@ export function ObjectExplorerPage() {
                   linkTypes={linkTypes}
                   accessForType={accessForType}
                   onBrowse={(typeId) => {
-                    setActiveTab('objects');
-                    void browseType(typeId);
+                    const type = typeById.get(typeId);
+                    explorerTabs.open(makeTypeTab(typeId, type?.display_name || type?.name || typeId));
                   }}
                   onPreviewType={previewType}
                   favoriteTypeIds={favoriteTypeIds}

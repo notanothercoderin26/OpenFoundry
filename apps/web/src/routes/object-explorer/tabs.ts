@@ -1,23 +1,32 @@
 // Open-tab model for the Object Explorer top chrome.
 //
 // A tab represents a workspace context inside the explorer: a fresh
-// landing page ("overview"), an executed search ("search"), or a
-// saved object set / saved list opened from the top-right dropdowns.
-// Only one tab is active at a time; the active tab id is the source
-// of truth for which page state is rendered.
+// landing page ("overview"), an executed search ("search"), an
+// exploration focused on an object type, or a saved object set /
+// saved list opened from the top-right dropdowns. Only one tab is
+// active at a time; the active tab id is the source of truth for
+// which page state is rendered.
+//
+// URL schema (each workspace kind owns its own search param so the
+// page's inner ?tab= remains free for the Overview/Objects/Object
+// types/Artifacts switcher):
+//   ?q=<term>            → search results tab.
+//   ?type=<typeId>       → type-focused exploration tab.
+//   ?exploration=<id>    → saved exploration workspace tab.
+//   ?list=<id>           → saved list workspace tab.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-export type ExplorerTabKind = 'overview' | 'search' | 'exploration' | 'list';
+export type ExplorerTabKind = 'overview' | 'search' | 'type' | 'exploration' | 'list';
 
 export interface ExplorerTab {
   id: string;
   kind: ExplorerTabKind;
   label: string;
-  // Populated for kind === 'search'.
+  /** Populated for kind === 'search'. */
   query?: string;
-  // Populated for kind === 'exploration' | 'list'.
+  /** Populated for kind === 'type' | 'exploration' | 'list'. */
   resourceId?: string;
 }
 
@@ -33,6 +42,10 @@ export function makeSearchTab(query: string): ExplorerTab {
   };
 }
 
+export function makeTypeTab(resourceId: string, label: string): ExplorerTab {
+  return { id: `type:${resourceId}`, kind: 'type', label, resourceId };
+}
+
 export function makeExplorationTab(resourceId: string, label: string): ExplorerTab {
   return { id: `exploration:${resourceId}`, kind: 'exploration', label, resourceId };
 }
@@ -40,6 +53,8 @@ export function makeExplorationTab(resourceId: string, label: string): ExplorerT
 export function makeListTab(resourceId: string, label: string): ExplorerTab {
   return { id: `list:${resourceId}`, kind: 'list', label, resourceId };
 }
+
+const WORKSPACE_PARAM_KEYS = ['q', 'type', 'exploration', 'list'] as const;
 
 export interface ExplorerTabsApi {
   tabs: ExplorerTab[];
@@ -61,17 +76,11 @@ export function useExplorerTabs(): ExplorerTabsApi {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          if (tab.kind === 'overview') {
-            next.delete('tab');
-            next.delete('q');
-            next.delete('id');
-          } else {
-            next.set('tab', tab.kind);
-            if (tab.query !== undefined) next.set('q', tab.query);
-            else next.delete('q');
-            if (tab.resourceId !== undefined) next.set('id', tab.resourceId);
-            else next.delete('id');
-          }
+          for (const key of WORKSPACE_PARAM_KEYS) next.delete(key);
+          if (tab.kind === 'search' && tab.query) next.set('q', tab.query);
+          else if (tab.kind === 'type' && tab.resourceId) next.set('type', tab.resourceId);
+          else if (tab.kind === 'exploration' && tab.resourceId) next.set('exploration', tab.resourceId);
+          else if (tab.kind === 'list' && tab.resourceId) next.set('list', tab.resourceId);
           return next;
         },
         { replace: true },
@@ -126,7 +135,8 @@ export function useExplorerTabs(): ExplorerTabsApi {
     [activeTabId, writeUrl],
   );
 
-  // If URL search params change externally (back/forward), reconcile.
+  // If URL search params change externally (back/forward, link share),
+  // reconcile the active workspace tab.
   useEffect(() => {
     const fromUrl = paramsToTab(searchParams);
     if (!fromUrl) {
@@ -161,22 +171,13 @@ function readActiveTabId(params: URLSearchParams, tabs: ExplorerTab[]): string {
 }
 
 function paramsToTab(params: URLSearchParams): ExplorerTab | null {
-  const kind = params.get('tab');
-  if (!kind || kind === 'overview') return null;
-  if (kind === 'search') {
-    const q = (params.get('q') ?? '').trim();
-    if (!q) return null;
-    return makeSearchTab(q);
-  }
-  if (kind === 'exploration') {
-    const id = (params.get('id') ?? '').trim();
-    if (!id) return null;
-    return makeExplorationTab(id, id);
-  }
-  if (kind === 'list') {
-    const id = (params.get('id') ?? '').trim();
-    if (!id) return null;
-    return makeListTab(id, id);
-  }
+  const q = (params.get('q') ?? '').trim();
+  if (q) return makeSearchTab(q);
+  const type = (params.get('type') ?? '').trim();
+  if (type) return makeTypeTab(type, type);
+  const exploration = (params.get('exploration') ?? '').trim();
+  if (exploration) return makeExplorationTab(exploration, exploration);
+  const list = (params.get('list') ?? '').trim();
+  if (list) return makeListTab(list, list);
   return null;
 }

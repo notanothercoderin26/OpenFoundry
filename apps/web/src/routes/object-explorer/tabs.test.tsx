@@ -4,10 +4,16 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import type { ReactNode } from 'react';
 
-import { makeExplorationTab, makeSearchTab, useExplorerTabs } from './tabs';
+import { makeExplorationTab, makeSearchTab, makeTypeTab, useExplorerTabs } from './tabs';
 
 function wrapper({ children }: { children: ReactNode }) {
   return <MemoryRouter initialEntries={['/object-explorer']}>{children}</MemoryRouter>;
+}
+
+function wrapperWith(initial: string) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return <MemoryRouter initialEntries={[initial]}>{children}</MemoryRouter>;
+  };
 }
 
 describe('useExplorerTabs', () => {
@@ -78,5 +84,29 @@ describe('useExplorerTabs', () => {
     act(() => result.current.open(makeExplorationTab('expl-1', 'My exploration')));
     act(() => result.current.activate('search:pass'));
     expect(result.current.activeTab.id).toBe('search:pass');
+  });
+
+  it('hydrates a search tab from ?q=pass in the URL', () => {
+    const { result } = renderHook(() => useExplorerTabs(), {
+      wrapper: wrapperWith('/object-explorer?q=pass'),
+    });
+    expect(result.current.activeTab.kind).toBe('search');
+    expect(result.current.activeTab.query).toBe('pass');
+    expect(result.current.tabs.map((t) => t.kind)).toContain('search');
+  });
+
+  it('hydrates a type tab from ?type=<id> in the URL', () => {
+    const { result } = renderHook(() => useExplorerTabs(), {
+      wrapper: wrapperWith('/object-explorer?type=aircraft'),
+    });
+    expect(result.current.activeTab.kind).toBe('type');
+    expect(result.current.activeTab.resourceId).toBe('aircraft');
+  });
+
+  it('opening a type tab parks it in the workspace and is reachable by id', () => {
+    const { result } = renderHook(() => useExplorerTabs(), { wrapper });
+    act(() => result.current.open(makeTypeTab('aircraft', '[Example Data] Aircraft')));
+    expect(result.current.activeTab.id).toBe('type:aircraft');
+    expect(result.current.tabs.find((t) => t.id === 'type:aircraft')?.label).toBe('[Example Data] Aircraft');
   });
 });
