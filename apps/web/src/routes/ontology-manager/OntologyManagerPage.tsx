@@ -1952,13 +1952,16 @@ export function OntologyManagerPage() {
               ontologyId={ontology.id}
               objectTypes={objectTypes}
               objectTypeGroups={objectTypeGroups}
+              linkTypes={linkTypes}
               registry={ontologyRegistry}
               onPickObjectType={(objectType) => {
                 pushRecentObjectType(ontology.id, objectType.id);
                 navigate(`/ontology/${objectType.id}`);
               }}
+              onPickGroup={() => setSection("groups")}
               onSeeAllRecent={() => setSection("types")}
               onSeeAllFavorites={() => setSection("types")}
+              onSeeAllGroups={() => setSection("groups")}
               onConfigure={() => {
                 /* TODO: Customize-homepage modal (next iteration). */
               }}
