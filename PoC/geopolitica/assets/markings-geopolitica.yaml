@@ -1,0 +1,127 @@
+# Canonical declarative spec for the Geopolitical Intelligence PoC
+# markings catalog. SOURCE OF TRUTH for the Go seed package at
+# services/authorization-policy-service/internal/seed/geopolitica/.
+#
+# Foundry-native framing
+# -----------------------
+# Palantir Markings reference:
+#
+#   https://www.palantir.com/docs/foundry/security/markings
+#
+# Public documentation pins the binary-AND semantic ("User must be
+# member of all Markings applied to access a resource. … all-or-
+# nothing"). OpenFoundry honours that on resource-level enforcement
+# AND additionally enforces row-/column-level visibility — the
+# latter is OpenFoundry emulation per the PoC contract
+# (00-contrato-foundry-native.md §"Gaps that must not be oversold"),
+# NOT a parity claim. The demo script MUST say so explicitly.
+#
+# What the seed materialises
+# --------------------------
+#  1. 2 marking categories (Foundry concept) — administrative
+#     containers grouping a set of markings.
+#  2. 8 markings — the discrete entities applied to datasets / rows
+#     / object instances at ingest time.
+#  3. User grant matrix — Sofía Gómez (analyst, broad clearance) +
+#     Marcos Fernández (compliance, narrower clearance). The grants
+#     themselves are DECLARED here as data; the actual user-to-
+#     marking link is wired by the operator after Keycloak users
+#     exist (identity-federation-service is the owner of user RIDs).
+
+markings:
+  schema_version: geopolitica.markings.v1
+
+  categories:
+    - slug: compartment-source
+      display_name: Source compartment
+      description: |
+        Groups markings that compartmentalise data by upstream source.
+        Each ingested row carries one of these markings so analysts
+        without the matching grant cannot see the source-attributed
+        rows in Workshop / AIP / lineage / object-explorer.
+      visibility: visible
+
+    - slug: compartment-sanctions
+      display_name: Sanctions compartment
+      description: |
+        Groups markings for the three sanctions sources (OFAC, EU,
+        OpenSanctions). The umbrella SANCTIONS-LIST marking covers
+        all three; row-level marking carries the specific source.
+      visibility: visible
+
+  markings:
+    # ── Source compartment ─────────────────────────────────────────
+    - slug: gdelt-raw
+      category_slug: compartment-source
+      display_name: GDELT-RAW
+      description: GDELT bronze rows — raw event + GKG payloads pre-enrichment.
+
+    - slug: open-source
+      category_slug: compartment-source
+      display_name: OPEN-SOURCE
+      description: Permissive baseline marking — any analyst can read.
+
+    - slug: wikidata
+      category_slug: compartment-source
+      display_name: WIKIDATA
+      description: Wikidata-enriched Actor rows — open data but flagged for source attribution.
+
+    - slug: enriched-pii
+      category_slug: compartment-source
+      display_name: ENRICHED-PII
+      description: |
+        Tradecraft-enriched rows that may contain inferred PII
+        (place of birth, family relations). Restricted to senior
+        analysts.
+
+    # ── Sanctions compartment ───────────────────────────────────────
+    - slug: sanctions-list
+      category_slug: compartment-sanctions
+      display_name: SANCTIONS-LIST
+      description: Umbrella marking for any sanctions-derived row regardless of jurisdiction.
+
+    - slug: ofac
+      category_slug: compartment-sanctions
+      display_name: OFAC
+      description: |
+        US Treasury OFAC SDN-derived rows. Compliance and senior
+        analyst roles see these; default analyst clearance does NOT.
+
+    - slug: eu
+      category_slug: compartment-sanctions
+      display_name: EU
+      description: EU Consolidated sanctions-derived rows.
+
+    - slug: opensanctions
+      category_slug: compartment-sanctions
+      display_name: OPENSANCTIONS
+      description: OpenSanctions consolidated list — broader PEP coverage.
+
+  # User grant matrix
+  # -----------------
+  # SPECS — operators apply via POST /api/v1/policies/v1/markings/{id}/permissions
+  # once Keycloak users (Sofía, Marcos) exist in identity-federation-service.
+  user_grants:
+    - user_email: sofia.gomez@acme-intel.demo
+      role: analyst
+      markings:
+        - gdelt-raw
+        - open-source
+        - wikidata
+        - enriched-pii
+        - sanctions-list
+        - ofac
+        - eu
+        - opensanctions
+
+    - user_email: marcos.fernandez@acme-intel.demo
+      role: compliance
+      # Marcos has NARROWER clearance — missing OFAC + ENRICHED-PII
+      # so the demo "switch users" flow shows redaction working.
+      markings:
+        - gdelt-raw
+        - open-source
+        - wikidata
+        - sanctions-list
+        - eu
+        - opensanctions

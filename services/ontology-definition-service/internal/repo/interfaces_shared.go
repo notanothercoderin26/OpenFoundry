@@ -258,6 +258,49 @@ func getInterfaceForUpdate(ctx context.Context, tx pgx.Tx, id uuid.UUID) (*model
 	return &v, nil
 }
 
+// BindObjectTypeToInterface attaches `objectTypeID` to `interfaceID`
+// in `object_type_interfaces`. Idempotent: `ON CONFLICT DO NOTHING`
+// makes re-runs harmless. Mirrors `libs/ontology-kernel/handlers/
+// interfaces.AttachInterface`'s SQL — that handler operates on the raw
+// AppState DB pool; we expose this helper here so the seed packages
+// (and any future kernel-free caller) can attach without re-wiring the
+// AppState dependency.
+//
+// Bindings do NOT carry their own outbox topic — the binding mutation
+// is observable through subsequent object_type updates if downstream
+// consumers need to react. Keep the SQL aligned with the kernel
+// handler so the two paths stay convergent.
+func (r *Repo) BindObjectTypeToInterface(ctx context.Context, objectTypeID, interfaceID uuid.UUID) error {
+	_, err := r.Pool.Exec(ctx,
+		`INSERT INTO ontology_schema.object_type_interfaces (object_type_id, interface_id)
+		   VALUES ($1, $2)
+		   ON CONFLICT (object_type_id, interface_id) DO NOTHING`,
+		objectTypeID, interfaceID)
+	return err
+}
+
+// ListObjectTypeInterfaceBindings returns the interface bindings of a
+// single object type. Used by the seed package's idempotency check so
+// repeated `Load()` calls don't re-INSERT bindings that already exist.
+func (r *Repo) ListObjectTypeInterfaceBindings(ctx context.Context, objectTypeID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := r.Pool.Query(ctx,
+		`SELECT interface_id FROM ontology_schema.object_type_interfaces WHERE object_type_id = $1`,
+		objectTypeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]uuid.UUID, 0)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // GetSharedPropertyType returns one row, or nil if not found.
 func (r *Repo) GetSharedPropertyType(ctx context.Context, id uuid.UUID) (*models.SharedPropertyType, error) {
 	row := r.Pool.QueryRow(ctx,

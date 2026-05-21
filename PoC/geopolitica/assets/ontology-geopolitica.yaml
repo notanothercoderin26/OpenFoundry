@@ -1,0 +1,341 @@
+# Canonical declarative spec for the Geopolitical Intelligence PoC
+# ontology. This document is the SOURCE OF TRUTH for the Go seed
+# packages at:
+#
+#   services/ontology-definition-service/internal/seed/geopolitica/  (object types + interfaces + link types)
+#   services/ontology-actions-service/internal/seed/geopolitica/     (action types)
+#
+# Foundry-native: matches Palantir's Ontology Manager model — object
+# types + link types + action types + interfaces. Schema names and
+# semantics follow https://www.palantir.com/docs/foundry/object-link-types/type-reference.
+# Action rules follow https://www.palantir.com/docs/foundry/action-types/rules/.
+#
+# WHY THIS FILE EXISTS — even though the seed is Go, this YAML is the
+# human-readable canonical reference operators consult when reviewing
+# the ontology, and the source the seed Go literals must converge with.
+# If a property name drifts between this YAML and seed.go, the YAML
+# wins and seed.go must be patched.
+
+ontology:
+  id: geopolitica-poc
+  version: 1
+  description: "Geopolitical intelligence ontology for the OpenFoundry PoC. Models actors (persons, organisations, armed groups, government bodies), events (CAMEO + ACLED), sanctions, news, and the case-management surface (watchlists, alerts, investigations)."
+
+  # ─────────────────────────────────────────────────────────────────
+  # Interfaces — IActor unifies the 4 sub-Actor types so the entity-
+  # resolution transform converges them to a canonical `Actor` row.
+  # Naming: `I` prefix disambiguates from the concrete `Actor` object
+  # type (Postgres UNIQUE constraints don't conflict across tables,
+  # but the prefix keeps Workshop labels readable).
+  # ─────────────────────────────────────────────────────────────────
+  interfaces:
+    - id: IActor
+      display_name: "Actor (interface)"
+      description: "Common contract every concrete actor type implements; enables ER convergence + uniform pivots."
+      properties:
+        - { name: actor_id,         property_type: string,    required: true }
+        - { name: display_name,     property_type: string,    required: true }
+        - { name: aliases,          property_type: text }          # serialized JSON array
+        - { name: kind,             property_type: string }        # PERSON | ORG | ARMED_GROUP | GOV
+        - { name: wikidata_qid,     property_type: string }
+        - { name: country_iso2,     property_type: string }
+        - { name: is_sanctioned,    property_type: boolean }
+        - { name: last_seen_at_utc, property_type: timestamp }
+        - { name: event_count_30d,  property_type: integer }
+        - { name: reliability_score, property_type: double }
+        - { name: tradecraft_tags,  property_type: text }          # serialized JSON array
+        - { name: source_ids,       property_type: json }          # ER provenance map
+
+  # ─────────────────────────────────────────────────────────────────
+  # Object types — 14 total. The canonical `Actor` carries the umbrella
+  # row; Person / Organization / ArmedGroup / GovernmentBody implement
+  # IActor (binding declared under `implements`).
+  # ─────────────────────────────────────────────────────────────────
+  object_types:
+    - id: Actor
+      display_name: "Actor"
+      primary_key: actor_id
+      title_property: display_name
+      icon: people
+      properties:
+        - { name: actor_id,          property_type: string, required: true }
+        - { name: display_name,      property_type: string, required: true }
+        - { name: aliases,           property_type: text }
+        - { name: kind,              property_type: string }
+        - { name: wikidata_qid,      property_type: string }
+        - { name: country_iso2,      property_type: string }
+        - { name: is_sanctioned,     property_type: boolean }
+        - { name: last_seen_at_utc,  property_type: timestamp }
+        - { name: event_count_30d,   property_type: integer }
+        - { name: reliability_score, property_type: double }
+        - { name: tradecraft_tags,   property_type: text }
+        - { name: source_ids,        property_type: json }
+
+    - id: Person
+      display_name: "Person"
+      implements: [IActor]
+      primary_key: actor_id
+      title_property: display_name
+      icon: person
+      properties:
+        - { name: actor_id,         property_type: string, required: true }
+        - { name: display_name,     property_type: string, required: true }
+        - { name: aliases,          property_type: text }
+        - { name: kind,             property_type: string }
+        - { name: wikidata_qid,     property_type: string }
+        - { name: country_iso2,     property_type: string }
+        - { name: is_sanctioned,    property_type: boolean }
+        - { name: last_seen_at_utc, property_type: timestamp }
+        - { name: event_count_30d,  property_type: integer }
+        - { name: reliability_score, property_type: double }
+        - { name: tradecraft_tags,  property_type: text }
+        - { name: source_ids,       property_type: json }
+        - { name: date_of_birth,    property_type: date }
+        - { name: place_of_birth,   property_type: string }
+        - { name: position_held,    property_type: text }
+        - { name: pep_class,        property_type: string } # HEAD_OF_STATE | MINISTER | JUDICIAL | SOE_EXEC | FAMILY | ASSOCIATE
+
+    - id: Organization
+      display_name: "Organization"
+      implements: [IActor]
+      primary_key: actor_id
+      title_property: display_name
+      icon: building
+      properties:
+        - { name: actor_id,                 property_type: string, required: true }
+        - { name: display_name,             property_type: string, required: true }
+        - { name: aliases,                  property_type: text }
+        - { name: kind,                     property_type: string }
+        - { name: wikidata_qid,             property_type: string }
+        - { name: country_iso2,             property_type: string }
+        - { name: is_sanctioned,            property_type: boolean }
+        - { name: last_seen_at_utc,         property_type: timestamp }
+        - { name: event_count_30d,          property_type: integer }
+        - { name: reliability_score,        property_type: double }
+        - { name: tradecraft_tags,          property_type: text }
+        - { name: source_ids,               property_type: json }
+        - { name: founded_year,             property_type: integer }
+        - { name: industry_codes,           property_type: text }
+        - { name: parent_organization_id,   property_type: string }
+        - { name: headquarters_location_id, property_type: string }
+
+    - id: ArmedGroup
+      display_name: "Armed Group"
+      implements: [IActor]
+      primary_key: actor_id
+      title_property: display_name
+      icon: shield
+      properties:
+        - { name: actor_id,         property_type: string, required: true }
+        - { name: display_name,     property_type: string, required: true }
+        - { name: aliases,          property_type: text }
+        - { name: kind,             property_type: string }
+        - { name: wikidata_qid,     property_type: string }
+        - { name: country_iso2,     property_type: string }
+        - { name: is_sanctioned,    property_type: boolean }
+        - { name: last_seen_at_utc, property_type: timestamp }
+        - { name: event_count_30d,  property_type: integer }
+        - { name: reliability_score, property_type: double }
+        - { name: tradecraft_tags,  property_type: text }
+        - { name: source_ids,       property_type: json }
+        - { name: acled_actor_type, property_type: string }
+        - { name: parent_group_id,  property_type: string }
+
+    - id: GovernmentBody
+      display_name: "Government Body"
+      implements: [IActor]
+      primary_key: actor_id
+      title_property: display_name
+      icon: government
+      properties:
+        - { name: actor_id,         property_type: string, required: true }
+        - { name: display_name,     property_type: string, required: true }
+        - { name: aliases,          property_type: text }
+        - { name: kind,             property_type: string }
+        - { name: wikidata_qid,     property_type: string }
+        - { name: country_iso2,     property_type: string }
+        - { name: is_sanctioned,    property_type: boolean }
+        - { name: last_seen_at_utc, property_type: timestamp }
+        - { name: event_count_30d,  property_type: integer }
+        - { name: reliability_score, property_type: double }
+        - { name: tradecraft_tags,  property_type: text }
+        - { name: source_ids,       property_type: json }
+        - { name: branch_of_government, property_type: string } # EXECUTIVE | LEGISLATIVE | JUDICIAL | MILITARY | INTEL
+
+    - id: Event
+      display_name: "Event"
+      primary_key: event_id
+      title_property: event_id
+      icon: zap
+      properties:
+        - { name: event_id,            property_type: string, required: true }
+        - { name: source,              property_type: string } # GDELT | ACLED | SYNTH
+        - { name: event_datetime_utc,  property_type: timestamp }
+        - { name: cameo_event_code,    property_type: string }
+        - { name: cameo_quad_class,    property_type: string } # VERBAL_COOP | MATERIAL_COOP | VERBAL_CONF | MATERIAL_CONF
+        - { name: acled_event_type,    property_type: string }
+        - { name: acled_sub_event_type, property_type: string }
+        - { name: fatalities,          property_type: integer }
+        - { name: tone,                property_type: double }
+        - { name: goldstein_scale,     property_type: double }
+        - { name: actor1_id,           property_type: string }
+        - { name: actor2_id,           property_type: string }
+        - { name: location_id,         property_type: string }
+        - { name: country_iso2,        property_type: string }
+        - { name: source_url,          property_type: string } # marking-restricted at row level (PoC emulation)
+
+    - id: NewsArticle
+      display_name: "News Article"
+      primary_key: article_id
+      title_property: title
+      icon: news
+      properties:
+        - { name: article_id,            property_type: string, required: true }
+        - { name: url,                   property_type: string }
+        - { name: publish_datetime_utc,  property_type: timestamp }
+        - { name: language,              property_type: string }
+        - { name: domain,                property_type: string }
+        - { name: title,                 property_type: string }
+        - { name: outlet,                property_type: string }
+        - { name: themes,                property_type: text }
+        - { name: tone,                  property_type: double }
+        - { name: actors_mentioned,      property_type: text }
+
+    - id: Location
+      display_name: "Location"
+      primary_key: location_id
+      title_property: name
+      icon: map-pin
+      properties:
+        - { name: location_id,  property_type: string, required: true }
+        - { name: name,         property_type: string }
+        - { name: lat,          property_type: double }
+        - { name: lon,          property_type: double }
+        - { name: country_iso2, property_type: string }
+        - { name: admin1_name,  property_type: string }
+        - { name: admin2_name,  property_type: string }
+        - { name: precision,    property_type: string } # COUNTRY | ADMIN1 | CITY | GEOPOINT
+
+    - id: Country
+      display_name: "Country"
+      primary_key: iso2
+      title_property: name
+      icon: flag
+      properties:
+        - { name: iso2,      property_type: string, required: true }
+        - { name: iso3,      property_type: string }
+        - { name: name,      property_type: string }
+        - { name: region,    property_type: string }
+        - { name: subregion, property_type: string }
+
+    - id: SanctionsEntry
+      display_name: "Sanctions Entry"
+      primary_key: entry_id
+      title_property: listed_entity_name
+      icon: alert
+      properties:
+        - { name: entry_id,            property_type: string, required: true }
+        - { name: program,             property_type: string }
+        - { name: jurisdiction,        property_type: string } # US | EU | UK | UN | OTHER
+        - { name: listed_entity_name,  property_type: string }
+        - { name: listed_at,           property_type: date }
+        - { name: delisted_at,         property_type: date }
+        - { name: source_dataset,      property_type: string } # OFAC | EU | OPENSANCTIONS
+        - { name: resolved_actor_id,   property_type: string }
+
+    - id: Watchlist
+      display_name: "Watchlist"
+      primary_key: watchlist_id
+      title_property: name
+      icon: bookmark
+      properties:
+        - { name: watchlist_id,        property_type: string, required: true }
+        - { name: name,                property_type: string }
+        - { name: description,         property_type: string }
+        - { name: created_by_user_id,  property_type: string }
+        - { name: created_at_utc,      property_type: timestamp }
+        - { name: priority,            property_type: string } # LOW | MEDIUM | HIGH | CRITICAL
+        - { name: member_count,        property_type: integer }
+
+    - id: InvestigationCase
+      display_name: "Investigation Case"
+      primary_key: case_id
+      title_property: title
+      icon: folder
+      properties:
+        - { name: case_id,              property_type: string, required: true }
+        - { name: title,                property_type: string }
+        - { name: status,               property_type: string } # OPEN | IN_REVIEW | CLOSED_NO_ACTION | ESCALATED
+        - { name: priority,             property_type: string }
+        - { name: opened_by_user_id,    property_type: string }
+        - { name: assigned_to_user_id,  property_type: string }
+        - { name: opened_at_utc,        property_type: timestamp }
+        - { name: closed_at_utc,        property_type: timestamp }
+        - { name: summary,              property_type: text }
+        - { name: subject_actor_ids,    property_type: text }
+
+    - id: ActorAlert
+      display_name: "Actor Alert"
+      primary_key: alert_id
+      title_property: alert_id
+      icon: bell
+      properties:
+        - { name: alert_id,                 property_type: string, required: true }
+        - { name: watchlist_id,             property_type: string }
+        - { name: subject_actor_id,         property_type: string }
+        - { name: triggering_event_id,      property_type: string }
+        - { name: raised_at_utc,            property_type: timestamp }
+        - { name: acknowledged_at_utc,      property_type: timestamp }
+        - { name: acknowledged_by_user_id,  property_type: string }
+
+    - id: ActionLog
+      display_name: "Action Log"
+      primary_key: log_id
+      title_property: action_type_id
+      icon: history
+      properties:
+        - { name: log_id,             property_type: string, required: true }
+        - { name: action_type_id,     property_type: string }
+        - { name: actor_user_id,      property_type: string }
+        - { name: submitted_at_utc,   property_type: timestamp }
+        - { name: target_object_type, property_type: string }
+        - { name: target_object_id,   property_type: string }
+        - { name: parameters,         property_type: json }
+        - { name: outcome,            property_type: string } # SUCCESS | VALIDATION_REJECT | POLICY_REJECT | SIDE_EFFECT_FAIL
+        - { name: produced_edits,     property_type: text }
+
+  # ─────────────────────────────────────────────────────────────────
+  # Link types — 13 total. `cardinality` follows the schema enum
+  # (`one_to_one` | `one_to_many` | `many_to_one` | `many_to_many`).
+  # Vertex edge direction defaults to primary/source — declare overrides
+  # via app_capabilities when an undirected relation makes more sense.
+  # ─────────────────────────────────────────────────────────────────
+  link_types:
+    - { name: MENTIONED_IN,     display_name: "Mentioned in",      from: Actor,             to: NewsArticle,       cardinality: many_to_many }
+    - { name: INVOLVED_IN,      display_name: "Involved in",       from: Actor,             to: Event,             cardinality: many_to_many }
+    - { name: OCCURRED_AT,      display_name: "Occurred at",       from: Event,             to: Location,          cardinality: many_to_one }
+    - { name: LOCATED_IN,       display_name: "Located in",        from: Location,          to: Country,           cardinality: many_to_one }
+    - { name: SANCTIONED_BY,    display_name: "Sanctioned by",     from: Actor,             to: SanctionsEntry,    cardinality: many_to_many }
+    - { name: MEMBER_OF,        display_name: "Member of",         from: Person,            to: Organization,      cardinality: many_to_many }
+    - { name: AFFILIATED_WITH,  display_name: "Affiliated with",   from: Organization,      to: Organization,      cardinality: many_to_many }
+    - { name: CITIZEN_OF,       display_name: "Citizen of",        from: Person,            to: Country,           cardinality: many_to_many }
+    - { name: ASSOCIATED_WITH,  display_name: "Associated with",   from: Actor,             to: Actor,             cardinality: many_to_many }
+    - { name: ON_WATCHLIST,     display_name: "On watchlist",      from: Watchlist,         to: Actor,             cardinality: many_to_many }
+    - { name: INVESTIGATES,     display_name: "Investigates",      from: InvestigationCase, to: Actor,             cardinality: many_to_many }
+    - { name: RAISED_FOR,       display_name: "Raised for",        from: ActorAlert,        to: Actor,             cardinality: many_to_one }
+    - { name: EVIDENCE_OF,      display_name: "Evidence of",       from: Event,             to: InvestigationCase, cardinality: many_to_many }
+
+  # ─────────────────────────────────────────────────────────────────
+  # Action types — 8 total. Operation kind = create | modify | delete.
+  # Permissions follow Foundry's `permission_key` convention; UI gates
+  # the buttons by role membership.
+  # ─────────────────────────────────────────────────────────────────
+  action_types:
+    - { name: add-to-watchlist,           display_name: "Add to watchlist",          target: Watchlist,         operation_kind: modify, confirmation_required: true,  permission_key: "role:analyst" }
+    - { name: flag-actor,                 display_name: "Flag actor",                target: Actor,             operation_kind: modify, confirmation_required: true,  permission_key: "role:analyst" }
+    - { name: open-investigation-case,    display_name: "Open investigation case",   target: InvestigationCase, operation_kind: create, confirmation_required: true,  permission_key: "role:compliance" }
+    - { name: acknowledge-alert,          display_name: "Acknowledge alert",         target: ActorAlert,        operation_kind: modify, confirmation_required: false, permission_key: "role:analyst" }
+    - { name: propose-sanctions-extension, display_name: "Propose sanctions extension", target: SanctionsEntry, operation_kind: create, confirmation_required: true,  permission_key: "role:compliance" } # branch-only — enforced in workflow
+    - { name: merge-actors,               display_name: "Merge actors",              target: Actor,             operation_kind: modify, confirmation_required: true,  permission_key: "role:senior-analyst" }
+    - { name: assign-investigation,       display_name: "Assign investigation",      target: InvestigationCase, operation_kind: modify, confirmation_required: false, permission_key: "role:compliance" }
+    - { name: close-investigation-case,   display_name: "Close investigation case",  target: InvestigationCase, operation_kind: modify, confirmation_required: true,  permission_key: "role:compliance" }

@@ -116,6 +116,29 @@ func (r *Repo) CreateActionType(ctx context.Context, body *kmodels.CreateActionT
 	})
 }
 
+// ListActionTypes returns every action type currently registered.
+// Used by the geopolitica seed package for its idempotency check; the
+// kernel's primary read path goes through `state.Stores.Definitions`
+// (see libs/ontology-kernel/handlers/actions/actions.go::ListActionTypes)
+// and stays the canonical surface for UI / SDK callers.
+func (r *Repo) ListActionTypes(ctx context.Context) ([]kmodels.ActionType, error) {
+	rows, err := r.Pool.Query(ctx,
+		`SELECT `+actionTypeReturning+` FROM ontology_schema.action_types ORDER BY name LIMIT 500`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]kmodels.ActionType, 0)
+	for rows.Next() {
+		v, err := scanActionType(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *v)
+	}
+	return out, rows.Err()
+}
+
 // GetActionType returns the action type by id, or nil if missing.
 // Used by UpdateActionType to capture the `before` snapshot, and by
 // the lifted update flow before applying the patch.

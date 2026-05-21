@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdnList xmlns="https://www.treasury.gov/ofac/DownloadXML">
+  <sdnEntry>
+    <uid>10001</uid>
+    <firstName>John</firstName>
+    <lastName>Smith</lastName>
+    <sdnType>Individual</sdnType>
+    <programList>
+      <program>SDGT</program>
+      <program>UKRAINE-EO13662</program>
+    </programList>
+    <akaList>
+      <aka>
+        <type>a.k.a.</type>
+        <firstName>Jon</firstName>
+        <lastName>Smyth</lastName>
+      </aka>
+      <aka>
+        <type>a.k.a.</type>
+        <firstName>Johnny</firstName>
+        <lastName>S.</lastName>
+      </aka>
+    </akaList>
+    <addressList>
+      <address>
+        <city>London</city>
+        <country>United Kingdom</country>
+      </address>
+      <address>
+        <city>Geneva</city>
+        <stateOrProvince>GE</stateOrProvince>
+        <country>Switzerland</country>
+      </address>
+    </addressList>
+    <nationalityList>
+      <nationality>
+        <country>Russia</country>
+      </nationality>
+    </nationalityList>
+    <citizenshipList>
+      <citizenship>
+        <country>Russia</country>
+      </citizenship>
+    </citizenshipList>
+    <dateOfBirthList>
+      <dateOfBirthItem>
+        <dateOfBirth>15 Jun 1968</dateOfBirth>
+      </dateOfBirthItem>
+    </dateOfBirthList>
+    <placeOfBirthList>
+      <placeOfBirthItem>
+        <placeOfBirth>Saint Petersburg, Russia</placeOfBirth>
+      </placeOfBirthItem>
+    </placeOfBirthList>
+    <remarks>Test entry for the PoC golden test.</remarks>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>10002</uid>
+    <name>Acme Logistics LLC</name>
+    <sdnType>Entity</sdnType>
+    <programList>
+      <program>SDGT</program>
+    </programList>
+    <akaList>
+      <aka>
+        <type>a.k.a.</type>
+        <name>Acme Holdings</name>
+      </aka>
+    </akaList>
+    <addressList>
+      <address>
+        <city>Moscow</city>
+        <country>Russia</country>
+      </address>
+    </addressList>
+    <remarks>Entity test fixture.</remarks>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>10003</uid>
+    <firstName>Ana</firstName>
+    <lastName>Perez</lastName>
+    <sdnType>Individual</sdnType>
+    <programList>
+      <program>VENEZUELA-EO13692</program>
+    </programList>
+    <addressList>
+      <address>
+        <country>Venezuela</country>
+      </address>
+    </addressList>
+    <citizenshipList>
+      <citizenship>
+        <country>Venezuela</country>
+      </citizenship>
+    </citizenshipList>
+    <dateOfBirthList>
+      <dateOfBirthItem>
+        <dateOfBirth>03 Jan 1975</dateOfBirth>
+      </dateOfBirthItem>
+    </dateOfBirthList>
+  </sdnEntry>
+</sdnList>

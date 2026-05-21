@@ -1,0 +1,268 @@
+# Canonical declarative spec for the Geopolitical Intelligence PoC
+# pipeline transforms. SOURCE OF TRUTH for the Go seed package at
+# services/pipeline-build-service/internal/seed/geopolitica/.
+#
+# Foundry-native framing
+# -----------------------
+# Each transform is a node in a bronze→silver→gold pipeline. Foundry's
+# Pipeline Builder reference:
+#
+#   - https://www.palantir.com/docs/foundry/pipeline-builder/overview/
+#   - https://www.palantir.com/docs/foundry/pipeline-builder/transforms-overview/
+#   - https://www.palantir.com/docs/foundry/data-integration/datasets
+#   - https://www.palantir.com/docs/foundry/observability/data-health/
+#
+# `kind` values:
+#   - `bronze_decoder`   — raw bytes (CSV, XML, JSON, SPARQL) → typed rows
+#   - `silver_transform` — normalisation, enrichment, classification
+#   - `gold_projector`   — write to an ontology object type / canonical dataset
+#   - `cross_source`     — converges multiple silver datasets (ER, aggregation)
+#
+# `transform_kind` values:
+#   - `udf_go`           — pure-Go function in libs/poc-geopolitica-transforms
+#   - `udf_python`       — Python via the python_transform path
+#   - `dsl`              — declarative ops in libs/pipeline-plan (filter / project / cast / aggregate / union)
+#
+# `implementation` is the load-bearing reference. When non-empty, the
+# pipeline-runner can dispatch via that fully-qualified Go symbol.
+# Empty `implementation` means "stub" — the metadata is registered but
+# the code is not yet wired; reviewers see the slot, and the
+# pipeline-builder UI surfaces a "not implemented" badge.
+
+pipelines:
+  schema_version: geopolitica.pipelines.v1
+
+  transforms:
+    # ─────────────────────────────────────────────────────────────────
+    # GDELT events: bronze → silver → gold
+    # Cadence: 15-min drop (Foundry: streaming sync).
+    # ─────────────────────────────────────────────────────────────────
+    - id: gdelt-event-decoder
+      kind: bronze_decoder
+      source_label: gdelt
+      transform_kind: udf_go
+      schedule_cron: "*/15 * * * *"
+      input_datasets:  [gdelt_lastupdate_raw]
+      output_dataset:  gdelt_events_bronze
+      output_marking:  MARKING:GDELT-RAW
+      implementation: ""  # TODO follow-up — GDELT TSV is gzipped+tab-delim; pattern documented in connector seed
+      description: "Follow lastupdate.txt → fetch .export.CSV.zip → gunzip → tab parser → bronze 61-col rows"
+
+    - id: cameo-enrichment
+      kind: silver_transform
+      source_label: gdelt
+      transform_kind: udf_go
+      schedule_cron: "*/15 * * * *"
+      input_datasets:  [gdelt_events_bronze]
+      output_dataset:  gdelt_events_silver
+      implementation: ""
+      description: "Decode CAMEO root code + quad classes + geocode action_geo"
+
+    - id: event-projector
+      kind: gold_projector
+      source_label: gdelt
+      transform_kind: udf_go
+      schedule_cron: "*/15 * * * *"
+      input_datasets:  [gdelt_events_silver]
+      output_dataset:  events_gold
+      output_object_type: Event
+      output_marking:  MARKING:GDELT-RAW
+      implementation: ""
+      description: "Write to ontology Event object type, carry MARKING:GDELT-RAW per row"
+
+    # ─────────────────────────────────────────────────────────────────
+    # GDELT GKG (mentions): bronze → silver → gold
+    # ─────────────────────────────────────────────────────────────────
+    - id: gdelt-gkg-decoder
+      kind: bronze_decoder
+      source_label: gdelt
+      transform_kind: udf_go
+      schedule_cron: "*/15 * * * *"
+      input_datasets:  [gdelt_lastupdate_raw]
+      output_dataset:  gdelt_gkg_bronze
+      output_marking:  MARKING:GDELT-RAW
+      implementation: ""
+      description: "Same lastupdate.txt indirection, filters for gkg.csv.zip"
+
+    - id: gkg-entity-projector
+      kind: silver_transform
+      source_label: gdelt
+      transform_kind: udf_go
+      schedule_cron: "*/15 * * * *"
+      input_datasets:  [gdelt_gkg_bronze]
+      output_dataset:  gkg_entities_silver
+      implementation: ""
+      description: "Split themes / persons / orgs / locations into separate ontology-bound silver datasets"
+
+    - id: newsarticle-linker
+      kind: gold_projector
+      source_label: gdelt
+      transform_kind: udf_go
+      schedule_cron: "*/15 * * * *"
+      input_datasets:  [gkg_entities_silver]
+      output_dataset:  newsarticles_gold
+      output_object_type: NewsArticle
+      implementation: ""
+      description: "Write NewsArticle + create MENTIONED_IN links to Actor/Location"
+
+    # ─────────────────────────────────────────────────────────────────
+    # ACLED conflict events
+    # ─────────────────────────────────────────────────────────────────
+    - id: acled-page-collector
+      kind: bronze_decoder
+      source_label: acled
+      transform_kind: udf_go
+      schedule_cron: "0 6 * * *"
+      input_datasets:  []
+      output_dataset:  acled_events_bronze
+      output_marking:  MARKING:ACLED-RAW
+      implementation: ""
+      description: "REST GET /acled/read?page=N until empty; persist raw JSON"
+
+    - id: acled-event-normaliser
+      kind: silver_transform
+      source_label: acled
+      transform_kind: udf_go
+      schedule_cron: "0 6 * * *"
+      input_datasets:  [acled_events_bronze]
+      output_dataset:  acled_events_silver
+      implementation: ""
+      description: "Flatten actor1/actor2 nested shape into row-per-event"
+
+    - id: acled-event-projector
+      kind: gold_projector
+      source_label: acled
+      transform_kind: udf_go
+      schedule_cron: "0 6 * * *"
+      input_datasets:  [acled_events_silver]
+      output_dataset:  events_gold
+      output_object_type: Event
+      output_marking:  MARKING:ACLED-RAW
+      implementation: ""
+      description: "Append to Event object type; link to Actor via ER"
+
+    # ─────────────────────────────────────────────────────────────────
+    # OFAC SDN — REFERENCE IMPLEMENTATION (XML decoder)
+    # ─────────────────────────────────────────────────────────────────
+    - id: ofac-sdn-xml-decoder
+      kind: bronze_decoder
+      source_label: ofac
+      transform_kind: udf_go
+      schedule_cron: "0 5 * * *"
+      input_datasets:  [ofac_sdn_raw]
+      output_dataset:  ofac_sanctions_bronze
+      output_marking:  MARKING:OFAC
+      # ✅ REFERENCE IMPLEMENTATION — fully wired Go decoder + golden tests.
+      implementation: "github.com/openfoundry/openfoundry-go/libs/poc-geopolitica-transforms/ofac.DecodeSDN"
+      description: "XPath through sdnList/sdnEntry → emit row per sdnEntry with name, program, aliases, addresses"
+
+    # ─────────────────────────────────────────────────────────────────
+    # EU Consolidated sanctions
+    # ─────────────────────────────────────────────────────────────────
+    - id: eu-sanctions-xml-decoder
+      kind: bronze_decoder
+      source_label: eu
+      transform_kind: udf_go
+      schedule_cron: "0 5 * * *"
+      input_datasets:  [eu_sanctions_raw]
+      output_dataset:  eu_sanctions_bronze
+      output_marking:  MARKING:EU
+      implementation: ""
+      description: "XPath through sanctionEntity entries; different schema than OFAC"
+
+    # ─────────────────────────────────────────────────────────────────
+    # OpenSanctions
+    # ─────────────────────────────────────────────────────────────────
+    - id: opensanctions-page-collector
+      kind: bronze_decoder
+      source_label: opensanctions
+      transform_kind: udf_go
+      schedule_cron: "0 5 * * *"
+      input_datasets:  []
+      output_dataset:  opensanctions_bronze
+      output_marking:  MARKING:OPENSANCTIONS
+      implementation: ""
+      description: "Walk offsets through /match/default until empty; persist raw JSONL"
+
+    - id: opensanctions-actor-enricher
+      kind: gold_projector
+      source_label: opensanctions
+      transform_kind: udf_go
+      schedule_cron: "0 5 * * *"
+      input_datasets:  [opensanctions_bronze, actors_gold]
+      output_dataset:  actors_gold
+      output_object_type: Actor
+      implementation: ""
+      description: "Backfill PEP flags + parent_organization onto canonical Actor"
+
+    # ─────────────────────────────────────────────────────────────────
+    # Wikidata
+    # ─────────────────────────────────────────────────────────────────
+    - id: wikidata-sparql-rotator
+      kind: bronze_decoder
+      source_label: wikidata
+      transform_kind: udf_go
+      schedule_cron: "0 3 * * 0"  # weekly Sundays at 03:00
+      input_datasets:  []
+      output_dataset:  wikidata_actors_bronze
+      output_marking:  MARKING:WIKIDATA
+      implementation: ""
+      description: "Issue 1 SPARQL query per Actor class (Person/Org/ArmedGroup/GovernmentBody)"
+
+    - id: wikidata-actor-enricher
+      kind: silver_transform
+      source_label: wikidata
+      transform_kind: udf_go
+      schedule_cron: "0 3 * * 0"
+      input_datasets:  [wikidata_actors_bronze]
+      output_dataset:  wikidata_actors_silver
+      implementation: ""
+      description: "Flatten SPARQL result envelope (?item/?itemLabel/?country)"
+
+    - id: wikidata-actor-projector
+      kind: gold_projector
+      source_label: wikidata
+      transform_kind: udf_go
+      schedule_cron: "0 3 * * 0"
+      input_datasets:  [wikidata_actors_silver, actors_gold]
+      output_dataset:  actors_gold
+      output_object_type: Actor
+      implementation: ""
+      description: "Backfill Actor.wikidata_qid + country + type; high-trust source for ER"
+
+    # ─────────────────────────────────────────────────────────────────
+    # Cross-source converging transforms
+    # ─────────────────────────────────────────────────────────────────
+    - id: sanctions-aggregator
+      kind: cross_source
+      source_label: shared
+      transform_kind: udf_go
+      schedule_cron: "30 5 * * *"  # after all sanctions bronzes settle
+      input_datasets:  [ofac_sanctions_bronze, eu_sanctions_bronze, opensanctions_bronze]
+      output_dataset:  sanctions_silver
+      implementation: ""
+      description: "Converge OFAC + EU + OpenSanctions into canonical SanctionsEntry schema"
+
+    - id: sanctions-actor-projector
+      kind: gold_projector
+      source_label: shared
+      transform_kind: udf_go
+      schedule_cron: "0 6 * * *"
+      input_datasets:  [sanctions_silver, actors_gold]
+      output_dataset:  actors_gold
+      output_object_type: Actor
+      implementation: ""
+      description: "Link SanctionsEntry to Actor via name + program; set is_sanctioned=true"
+
+    - id: actor-entity-resolution
+      kind: cross_source
+      source_label: shared
+      transform_kind: udf_go
+      schedule_cron: "30 6 * * *"
+      input_datasets:  [acled_events_silver, opensanctions_bronze, sanctions_silver, wikidata_actors_silver]
+      output_dataset:  actors_gold
+      output_object_type: Actor
+      # Bridge — invokes entity-resolution-service::RunJob via the HTTP API
+      # cabled in Gap 2. No ER engine code here.
+      implementation: "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/seed/geopolitica/entityresolution.Run"
+      description: "Invoke entity-resolution-service for cross-source Actor dedup; writes canonical Actor dataset"
