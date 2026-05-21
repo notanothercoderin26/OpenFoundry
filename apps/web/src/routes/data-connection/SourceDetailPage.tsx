@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { Tabs } from '@/lib/components/Tabs';
 import { ComputeTypePopover } from '@/lib/components/data-connection/ComputeTypePopover';
+import { SelectAgentsPanel } from '@/lib/components/data-connection/SelectAgentsPanel';
 import { VirtualTablesTab } from '@/lib/components/data-connection/VirtualTablesTab';
 import { Breadcrumb } from '@/lib/components/ui/Breadcrumb';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
@@ -2816,7 +2817,7 @@ export function SourceDetailPage() {
             }}
           />
 
-          <SelectAgentsPlaceholder agents={sourceAgents} />
+          <SelectAgentsPanel sourceId={source.id} />
 
           <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 14 }}>
             <div>
@@ -5777,65 +5778,6 @@ function SourceSetupHeader({ worker, onComputeClick, pillRef }: SourceSetupHeade
   );
 }
 
-interface SelectAgentsPlaceholderProps {
-  agents: ConnectorAgent[];
-}
-
-function SelectAgentsPlaceholder({ agents }: SelectAgentsPlaceholderProps) {
-  return (
-    <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
-      <div>
-        <p className="of-eyebrow">Select agents</p>
-        <h2 className="of-section-title" style={{ marginTop: 4 }}>
-          {agents.length} agent{agents.length === 1 ? '' : 's'} assigned
-        </h2>
-      </div>
-      {agents.length === 0 ? (
-        <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
-          No agents are assigned to this source yet. Assignment will move into this card in a
-          later phase along with the Add another agent / Create new agent actions.
-        </p>
-      ) : (
-        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
-          {agents.map((agent) => (
-            <li
-              key={agent.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '8px 12px',
-                background: 'var(--bg-panel-muted)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-md)',
-                fontSize: 13,
-              }}
-            >
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '2px 8px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  background: 'var(--badge-healthy-bg)',
-                  color: 'var(--badge-healthy-text)',
-                  borderRadius: 10,
-                }}
-              >
-                {connectorAgentHealthLabel(agent)}
-              </span>
-              <strong style={{ color: 'var(--text-strong)' }}>{agent.name}</strong>
-              <span className="of-text-muted" style={{ fontSize: 12 }}>
-                owner {agent.owner_id}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
 
 interface PreviewRailProps {
   open: boolean;

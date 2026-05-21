@@ -3564,6 +3564,23 @@ export const dataConnection = {
     return api.delete(`${BASE}/agents/${id}`);
   },
 
+  async listSourceAgents(sourceId: string): Promise<ConnectorAgent[]> {
+    const res = await api.get<ApiListEnvelope<ConnectorAgent> | ConnectorAgent[]>(
+      `${BASE}/sources/${encodeURIComponent(sourceId)}/agents`,
+    );
+    return listItems(res);
+  },
+  assignAgentToSource(sourceId: string, agentId: string): Promise<ConnectorAgent> {
+    return api.post(`${BASE}/sources/${encodeURIComponent(sourceId)}/agents`, {
+      agent_id: agentId,
+    });
+  },
+  unassignAgentFromSource(sourceId: string, agentId: string): Promise<void> {
+    return api.delete(
+      `${BASE}/sources/${encodeURIComponent(sourceId)}/agents/${encodeURIComponent(agentId)}`,
+    );
+  },
+
   // Egress policy bindings -------------------------------------------------
   listSourcePolicies(sourceId: string): Promise<NetworkEgressPolicy[]> {
     return api.get(`${BASE}/sources/${sourceId}/egress-policies`);

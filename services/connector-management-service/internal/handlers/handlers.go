@@ -57,6 +57,7 @@ type Store interface {
 	ListCredentials(ctx context.Context, sourceID uuid.UUID, ownerID uuid.UUID) ([]models.CredentialResponse, error)
 	SetCredential(ctx context.Context, sourceID uuid.UUID, ownerID uuid.UUID, kind string, ciphertext []byte, fingerprint string) (*models.CredentialResponse, error)
 	ListConnectorAgents(ctx context.Context, ownerID uuid.UUID) ([]models.ConnectorAgent, error)
+	GetConnectorAgent(ctx context.Context, id uuid.UUID) (*models.ConnectorAgent, error)
 	RegisterConnectorAgent(ctx context.Context, body *models.RegisterAgentRequest, ownerID uuid.UUID) (*models.ConnectorAgent, error)
 	HeartbeatConnectorAgent(ctx context.Context, id uuid.UUID, body *models.AgentHeartbeatRequest, ownerID uuid.UUID) (*models.ConnectorAgent, error)
 	DeleteConnectorAgent(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (bool, error)
@@ -575,6 +576,174 @@ func (h *Handlers) DeleteConnectorAgent(w http.ResponseWriter, r *http.Request) 
 	}
 	if !deleted {
 		writeJSONErr(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListSourceAgents returns the subset of agents currently associated with a
+// source via their `connected_sources` list. Used by the Select agents panel
+// on the source detail page.
+func (h *Handlers) ListSourceAgents(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requireClaims(w, r)
+	if !ok {
+		return
+	}
+	sourceID, _, err := routeUUIDParam(r, "id", "source_id")
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid source id")
+		return
+	}
+	agents, err := h.Repo.ListConnectorAgents(r.Context(), claims.Sub)
+	if err != nil {
+		slog.Error("list source agents", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to list agents")
+		return
+	}
+	filtered := make([]models.ConnectorAgent, 0, len(agents))
+	for i := range agents {
+		for _, cs := range agents[i].ConnectedSources {
+			if cs.SourceID == sourceID {
+				filtered = append(filtered, h.enrichConnectorAgent(agents[i]))
+				break
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, models.ListResponse[models.ConnectorAgent]{Items: filtered})
+}
+
+// AssignSourceToAgent appends the source to an agent's `connected_sources`
+// list, preserving the agent's other heartbeat fields.
+func (h *Handlers) AssignSourceToAgent(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requireClaims(w, r)
+	if !ok {
+		return
+	}
+	sourceID, _, err := routeUUIDParam(r, "id", "source_id")
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid source id")
+		return
+	}
+	var body struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	agentID, err := uuid.Parse(strings.TrimSpace(body.AgentID))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid agent_id")
+		return
+	}
+	conn, err := h.Repo.GetConnection(r.Context(), sourceID)
+	if err != nil {
+		slog.Error("assign source to agent: get connection", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to load source")
+		return
+	}
+	if conn == nil || conn.OwnerID != claims.Sub {
+		writeJSONErr(w, http.StatusNotFound, "source not found")
+		return
+	}
+	agent, err := h.Repo.GetConnectorAgent(r.Context(), agentID)
+	if err != nil {
+		slog.Error("assign source to agent: get agent", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to load agent")
+		return
+	}
+	if agent == nil || agent.OwnerID != claims.Sub {
+		writeJSONErr(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	sources := append([]models.AgentConnectedSource{}, agent.ConnectedSources...)
+	for _, cs := range sources {
+		if cs.SourceID == sourceID {
+			// Already assigned — return the existing agent unchanged.
+			writeJSON(w, http.StatusOK, h.enrichConnectorAgent(*agent))
+			return
+		}
+	}
+	sources = append(sources, models.AgentConnectedSource{
+		SourceID:      sourceID,
+		SourceName:    conn.Name,
+		ConnectorType: conn.ConnectorType,
+		Status:        "assigned",
+	})
+	heartbeat := &models.AgentHeartbeatRequest{
+		Capabilities:                   agent.Capabilities,
+		Metadata:                       agent.Metadata,
+		ConnectedSources:               sources,
+		SupportedConnectorCapabilities: agent.SupportedConnectorCapabilities,
+		AssignedProxyPolicies:          agent.AssignedProxyPolicies,
+		ConnectionFailures:             agent.ConnectionFailures,
+	}
+	models.NormalizeAgentHeartbeatRequest(heartbeat)
+	updated, err := h.Repo.HeartbeatConnectorAgent(r.Context(), agentID, heartbeat, claims.Sub)
+	if err != nil {
+		slog.Error("assign source to agent: heartbeat", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to assign agent")
+		return
+	}
+	if updated == nil {
+		writeJSONErr(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, h.enrichConnectorAgent(*updated))
+}
+
+// UnassignSourceFromAgent removes a source from an agent's `connected_sources`
+// list, preserving the agent's other heartbeat fields.
+func (h *Handlers) UnassignSourceFromAgent(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requireClaims(w, r)
+	if !ok {
+		return
+	}
+	sourceID, err := uuid.Parse(strings.TrimSpace(chi.URLParam(r, "source_id")))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid source id")
+		return
+	}
+	agentID, err := uuid.Parse(strings.TrimSpace(chi.URLParam(r, "agent_id")))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid agent_id")
+		return
+	}
+	agent, err := h.Repo.GetConnectorAgent(r.Context(), agentID)
+	if err != nil {
+		slog.Error("unassign source from agent: get agent", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to load agent")
+		return
+	}
+	if agent == nil || agent.OwnerID != claims.Sub {
+		writeJSONErr(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	filtered := make([]models.AgentConnectedSource, 0, len(agent.ConnectedSources))
+	removed := false
+	for _, cs := range agent.ConnectedSources {
+		if cs.SourceID == sourceID {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, cs)
+	}
+	if !removed {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	heartbeat := &models.AgentHeartbeatRequest{
+		Capabilities:                   agent.Capabilities,
+		Metadata:                       agent.Metadata,
+		ConnectedSources:               filtered,
+		SupportedConnectorCapabilities: agent.SupportedConnectorCapabilities,
+		AssignedProxyPolicies:          agent.AssignedProxyPolicies,
+		ConnectionFailures:             agent.ConnectionFailures,
+	}
+	models.NormalizeAgentHeartbeatRequest(heartbeat)
+	if _, err := h.Repo.HeartbeatConnectorAgent(r.Context(), agentID, heartbeat, claims.Sub); err != nil {
+		slog.Error("unassign source from agent: heartbeat", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to unassign agent")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

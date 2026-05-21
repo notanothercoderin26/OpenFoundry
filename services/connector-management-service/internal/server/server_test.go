@@ -155,6 +155,9 @@ func (s *routerStore) HeartbeatConnectorAgent(context.Context, uuid.UUID, *model
 func (s *routerStore) DeleteConnectorAgent(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	return true, nil
 }
+func (s *routerStore) GetConnectorAgent(context.Context, uuid.UUID) (*models.ConnectorAgent, error) {
+	return &models.ConnectorAgent{ID: s.agent, Name: "edge", AgentURL: "https://agent.local", OwnerID: s.owner, Status: "online", Capabilities: json.RawMessage(`{}`), Metadata: json.RawMessage(`{}`)}, nil
+}
 func (s *routerStore) ListSourcePolicies(context.Context, uuid.UUID, uuid.UUID) ([]models.SourcePolicyBindingResponse, error) {
 	return []models.SourcePolicyBindingResponse{}, nil
 }

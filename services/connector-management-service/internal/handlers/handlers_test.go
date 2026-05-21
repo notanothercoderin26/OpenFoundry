@@ -1118,6 +1118,15 @@ func (f *fakeStore) DeleteConnectorAgent(_ context.Context, id uuid.UUID, ownerI
 	}
 	return false, nil
 }
+func (f *fakeStore) GetConnectorAgent(_ context.Context, id uuid.UUID) (*models.ConnectorAgent, error) {
+	for i := range f.agents {
+		if f.agents[i].ID == id {
+			copy := f.agents[i]
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
 func (f *fakeStore) ListSourcePolicies(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID) ([]models.SourcePolicyBindingResponse, error) {
 	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
 		return []models.SourcePolicyBindingResponse{}, nil
