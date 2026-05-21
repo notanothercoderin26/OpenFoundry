@@ -27,6 +27,9 @@
   - [ ] `event-union-and-normalize`: FK presence rate ≥ 95%, geocoder ≥ 90%.
   - [ ] `sanctions-aggregator`: no silent drops vs. prior snapshot.
 - [ ] Ontology definition (`PoC/geopolitica/assets/ontology-geopolitica.yaml`) loaded and the 4 sample queries from [`05-ontologia-geopolitica.md`](05-ontologia-geopolitica.md) return the expected row counts.
+- [ ] **B03 G2 — Workshop pushdown live.** The `selectedActorSet` variable in [`assets/workshop-module.json`](assets/workshop-module.json) carries `metadata.use_search_backend: true`; the actor filter list + actor object table read through `POST /api/v1/ontology/search` (Vespa-backed) and not through the Cassandra-backed object-database query. Smoke-verify by tailing `ontology-query-service` logs while flipping a country filter — every flip must emit a `/ontology/search` access-log line, zero `/objects` ones.
+- [ ] **B03 G3 — Indexer status surface live.** `GET /api/v1/ontology-indexer/status?objectType=Event&tenant=<demo>` returns `state=live`, `lag_seconds < 60` for every Event / Actor / NewsArticle / SanctionsEntry type before the demo starts.
+- [ ] **B03 G5 — Reindex command rehearsed.** `POST /api/v1/ontology-indexer/reindex?object_type=Event` replays Cassandra → Vespa green; final `indexed_count` matches `object-database-service` row count for the type. Required so we can recover between rehearsals if the Vespa volume is wiped.
 - [ ] Quiver dashboard and Workshop module configurations loaded; widgets render with seed data.
 - [ ] AIP Chatbot tools registered, all 13 tools resolve to the right endpoints, prompts P1–P6 succeed end-to-end.
 - [ ] Action permissions and markings registered in `authorization-policy-service`. Sofía/Marcos accounts created with correct roles and marking claims.
