@@ -223,3 +223,4 @@ OpenFoundry is a community-driven project, and we appreciate all contributions. 
 [AGPL-3.0-only](https://opensource.org/licenses/AGPL-3.0)
 
 **OpenFoundry** is a trademark of the OpenFoundry project. All other trademarks are the property of their respective owners.
+
