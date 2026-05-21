@@ -23,14 +23,14 @@ import { captureRequests } from './fixtures/api-mocks';
  *   - No pagination chrome (Next / Previous, per-page picker).
  *
  * What IS shipped and exercised here:
- *   - Object type selector (in the PropertyFilters panel + Direct-open
- *     row in the header).
+ *   - Centered "Explore your data" hero with the global search input.
+ *   - Object type selector inside the PropertyFilters panel on the
+ *     Objects tab. (The legacy Direct-open form has been removed.)
  *   - Property filter rows (property + operator + value), Add filter,
  *     Run filters → POST `/ontology/types/:id/objects/query`.
  *   - Result cards with Preview button → GET
  *     `/ontology/types/:id/objects/:id/view` → side panel with
  *     Summary, Properties, Linked objects, applicable actions.
- *   - "Direct open" form: pick type + enter id + click "Open Object View".
  *   - Affordances panel: Download CSV / JSON / Copy IDs (CSV export
  *     runs entirely client-side via downloadText — no API call).
  *   - Artifacts tab: Save exploration → POST `/ontology/object-sets`
@@ -274,8 +274,10 @@ test('initial load: renders the header, tabs, and Overview as the default tab', 
   await mockObjectTypes(adminPage, [AIRCRAFT, FLIGHT]);
   await adminPage.goto('/object-explorer');
 
+  // The centered hero replaces the old admin h1 ("Object explorer") with
+  // the Foundry-style "Explore your data" headline.
   await expect(
-    adminPage.getByRole('heading', { level: 1, name: /object explorer/i }),
+    adminPage.getByRole('heading', { level: 1, name: /explore your data/i }),
   ).toBeVisible();
 
   // All four tabs render and Overview is selected.
@@ -286,11 +288,9 @@ test('initial load: renders the header, tabs, and Overview as the default tab', 
     adminPage.getByRole('tab', { name: /^overview$/i }),
   ).toHaveAttribute('aria-selected', 'true');
 
-  // Header KPI cards expose at minimum the visible-types count.
-  await expect(adminPage.getByText(/visible types/i).first()).toBeVisible();
-
-  // Direct-open header form lists the mocked types.
-  await expect(adminPage.getByRole('button', { name: /open object view/i })).toBeVisible();
+  // The global search input is the single entry point — there are no
+  // KPI metric cards or Direct-open form on the new chrome.
+  await expect(adminPage.getByPlaceholder(/search object types and properties/i)).toBeVisible();
 });
 
 test('Objects tab: property filter type selector lists the mocked object types', async ({
@@ -414,34 +414,6 @@ test('Objects tab: clicking a result Preview opens the side panel with Summary +
   await expect(preview.getByText('Linked objects', { exact: true })).toBeVisible();
   // The selected object id is rendered in the header of the panel.
   await expect(preview.getByText(AIRCRAFT_ROWS[0].id).first()).toBeVisible();
-});
-
-test('Header: "Open Object View" button is gated on type + id and opens the preview when clicked', async ({
-  adminPage,
-}) => {
-  await mockObjectTypes(adminPage, [AIRCRAFT]);
-  await mockObjectView(adminPage, AIRCRAFT.id, 'aircraft-direct-1', {
-    properties: { tail_number: 'DIRECT-1' },
-  });
-
-  await adminPage.goto('/object-explorer');
-  // The preview side panel only renders on the Objects tab — switch
-  // before invoking Direct-open so the result is observable.
-  await adminPage.getByRole('tab', { name: /^objects$/i }).click();
-
-  const openButton = adminPage.getByRole('button', { name: /open object view/i });
-  // The button is disabled until both type and id are present (type is
-  // auto-filled to the first visible type; id starts empty).
-  await expect(openButton).toBeDisabled();
-
-  await adminPage.getByPlaceholder(/object primary key or id/i).fill('aircraft-direct-1');
-  await expect(openButton).toBeEnabled();
-  await openButton.click();
-
-  // The preview side panel now shows the directly-opened object id in
-  // the header chip area.
-  const preview = adminPage.locator('section.of-panel').filter({ has: adminPage.getByText('Panel Object View', { exact: true }) });
-  await expect(preview.getByText('aircraft-direct-1').first()).toBeVisible();
 });
 
 test('Affordances panel: "Download CSV" fires a synchronous download (no API call) and surfaces the notice', async ({
