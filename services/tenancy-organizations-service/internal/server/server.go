@@ -104,6 +104,12 @@ func New(
 		api.Get("/projects/{id}/resources", ph.ListProjectResources)
 		api.Post("/projects/{id}/resources", ph.BindProjectResource)
 		api.Delete("/projects/{id}/resources/{kind}/{resource_id}", ph.UnbindProjectResource)
+		api.Post("/projects/{id}/resources/{kind}/{resource_id}/pin", ph.PinProjectResource)
+		api.Delete("/projects/{id}/resources/{kind}/{resource_id}/pin", ph.UnpinProjectResource)
+		api.Get("/projects/{id}/file-references", ph.ListProjectFileReferences)
+		api.Get("/projects/{id}/external-references", ph.ListProjectExternalReferences)
+		api.Post("/projects/{id}/external-references", ph.CreateProjectExternalReference)
+		api.Delete("/projects/{id}/external-references/{reference_id}", ph.DeleteProjectExternalReference)
 
 		// SG.6: group-based memberships + project-level access
 		// requests + viewer/editor/owner group setup shortcut.
@@ -159,6 +165,13 @@ func New(
 			wr.Get("/project-follows", ws.ListProjectFollows)
 			wr.Post("/project-follows", ws.FollowProject)
 			wr.Delete("/project-follows/{project}", ws.UnfollowProject)
+			wr.Get("/tags", ws.ListCompassTags)
+			wr.Post("/tags", ws.CreateCompassTag)
+			wr.Delete("/tags/{id}", ws.DeleteCompassTag)
+			wr.Post("/tags:bulk", ws.BulkListResourceTags)
+			wr.Get("/resources/{kind}/{id}/tags", ws.ListResourceTags)
+			wr.Post("/resources/{kind}/{id}/tags", ws.TagResource)
+			wr.Delete("/resources/{kind}/{id}/tags/{tag_id}", ws.UntagResource)
 			wr.Get("/recommendations", ws.ListRecommendations)
 			wr.Post("/resources/resolve", ws.ResolveResources)
 			wr.Get("/resources/{kind}/{id}/references", ws.GetResourceReferences)

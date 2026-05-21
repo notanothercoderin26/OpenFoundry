@@ -42,31 +42,36 @@ export interface ObjectExplorerInitialData {
 }
 
 export function useObjectExplorerInitialData(): ObjectExplorerInitialData {
+  // queryFn returns `res.data ?? []`: TanStack Query v5 forbids `undefined`
+  // from a queryFn (it throws "Query data cannot be undefined"). A degraded
+  // backend can occasionally serialize `{ data: null }`, which would put
+  // the query into a permanent error state and surface as a render crash
+  // downstream.
   const results = useQueries({
     queries: [
       {
         queryKey: objectExplorerKeys.objectTypes(),
-        queryFn: () => listObjectTypes({ per_page: 200 }).then((res) => res.data),
+        queryFn: () => listObjectTypes({ per_page: 200 }).then((res) => res.data ?? []),
       },
       {
         queryKey: objectExplorerKeys.objectTypeGroups(),
-        queryFn: () => listObjectTypeGroups({ per_page: 200 }).then((res) => res.data),
+        queryFn: () => listObjectTypeGroups({ per_page: 200 }).then((res) => res.data ?? []),
       },
       {
         queryKey: objectExplorerKeys.objectSets(),
-        queryFn: () => listObjectSets({ size: 500 }).then((res) => res.data),
+        queryFn: () => listObjectSets({ size: 500 }).then((res) => res.data ?? []),
       },
       {
         queryKey: objectExplorerKeys.objectViews(),
-        queryFn: () => listObjectViews({ per_page: 500 }).then((res) => res.data),
+        queryFn: () => listObjectViews({ per_page: 500 }).then((res) => res.data ?? []),
       },
       {
         queryKey: objectExplorerKeys.linkTypes(),
-        queryFn: () => listLinkTypes({ per_page: 200 }).then((res) => res.data),
+        queryFn: () => listLinkTypes({ per_page: 200 }).then((res) => res.data ?? []),
       },
       {
         queryKey: objectExplorerKeys.actionTypes(),
-        queryFn: () => listActionTypes({ per_page: 200 }).then((res) => res.data),
+        queryFn: () => listActionTypes({ per_page: 200 }).then((res) => res.data ?? []),
       },
     ],
   });

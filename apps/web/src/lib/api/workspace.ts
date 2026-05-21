@@ -545,3 +545,53 @@ export function resolveResourceLabels(
 ) {
   return api.post<{ data: ResolvedLabel[] }>('/workspace/resources/resolve', { items });
 }
+
+// ---------------------------------------------------------------------------
+// Compass tags
+// ---------------------------------------------------------------------------
+
+export interface CompassTag {
+  id: string;
+  name: string;
+  color: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface ResourceTagsEntry {
+  resource_kind: string;
+  resource_id: string;
+  tags: CompassTag[];
+}
+
+export function listCompassTags() {
+  return api.get<{ data: CompassTag[] }>('/workspace/tags');
+}
+
+export function createCompassTag(body: { name: string; color?: string }) {
+  return api.post<CompassTag>('/workspace/tags', body);
+}
+
+export function deleteCompassTag(id: string) {
+  return api.delete(`/workspace/tags/${id}`);
+}
+
+export function listResourceTags(kind: ResourceKind, id: string) {
+  return api.get<{ data: CompassTag[] }>(`/workspace/resources/${kind}/${id}/tags`);
+}
+
+export function tagResource(kind: ResourceKind, id: string, tagId: string) {
+  return api.post(`/workspace/resources/${kind}/${id}/tags`, { tag_id: tagId });
+}
+
+export function untagResource(kind: ResourceKind, id: string, tagId: string) {
+  return api.delete(`/workspace/resources/${kind}/${id}/tags/${tagId}`);
+}
+
+export function bulkListResourceTags(
+  resources: Array<{ resource_kind: ResourceKind; resource_id: string }>,
+) {
+  return api.post<{ data: ResourceTagsEntry[] }>('/workspace/tags:bulk', {
+    resources,
+  });
+}

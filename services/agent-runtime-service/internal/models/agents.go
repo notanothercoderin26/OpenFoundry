@@ -78,6 +78,58 @@ type HumanApprovalRequest struct {
 	Note       *string    `json:"note,omitempty"`
 }
 
+// ActionProposalStatus enumerates the lifecycle of an agent-proposed
+// Action awaiting human review.
+const (
+	ActionProposalStatusPending   = "pending"
+	ActionProposalStatusApproved  = "approved"
+	ActionProposalStatusDismissed = "dismissed"
+)
+
+// AgentActionProposal records an Action an agent proposed to invoke
+// against a tool whose config carries `requires_human_approval`. The
+// proposal sits in the queue until a human approves or dismisses it;
+// only on approval does the Action execute downstream.
+type AgentActionProposal struct {
+	ID                uuid.UUID       `json:"id"`
+	AgentRunID        *uuid.UUID      `json:"agent_run_id,omitempty"`
+	LogicRunID        *uuid.UUID      `json:"logic_run_id,omitempty"`
+	InitiatingUserID  uuid.UUID       `json:"initiating_user_id"`
+	ActionTypeID      string          `json:"action_type_id"`
+	Arguments         json.RawMessage `json:"arguments"`
+	Justification     *string         `json:"justification,omitempty"`
+	Status            string          `json:"status"`
+	DecidedBy         *uuid.UUID      `json:"decided_by,omitempty"`
+	DecisionNote      *string         `json:"decision_note,omitempty"`
+	AppliedActionID   *string         `json:"applied_action_id,omitempty"`
+	AppliedResponse   json.RawMessage `json:"applied_response,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+	DecidedAt         *time.Time      `json:"decided_at,omitempty"`
+}
+
+// CreateActionProposalRequest is what an internal caller (the tool
+// router) hands the repo to stage a new proposal.
+type CreateActionProposalRequest struct {
+	AgentRunID       *uuid.UUID
+	LogicRunID       *uuid.UUID
+	InitiatingUserID uuid.UUID
+	ActionTypeID     string
+	Arguments        json.RawMessage
+	Justification    *string
+}
+
+// DecideActionProposalRequest is the body of approve / dismiss
+// endpoints. Note is optional but encouraged on dismissals (a reason
+// helps the audit trail).
+type DecideActionProposalRequest struct {
+	Note *string `json:"note,omitempty"`
+}
+
+// ListActionProposalsResponse wraps a paged list for the UI.
+type ListActionProposalsResponse struct {
+	Data []AgentActionProposal `json:"data"`
+}
+
 // LogicFile mirrors the AIP Logic file metadata row. Logic files are
 // project/folder-managed resources; there is intentionally no
 // personal-home-only placement field.

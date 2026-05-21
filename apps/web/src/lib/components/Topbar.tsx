@@ -59,10 +59,6 @@ export function Topbar() {
   return (
     <header className="of-topbar">
       <div className="of-topbar__identity">
-        <div className="of-topbar__file-menu">
-          <button type="button" className="of-topbar__menu-item">File</button>
-          <button type="button" className="of-topbar__menu-item">Help</button>
-        </div>
         <div className="of-topbar__crumbs" aria-label="Breadcrumb">
           <Link to="/" className="of-topbar__home">
             <Glyph name="folder" size={16} />
@@ -86,33 +82,6 @@ export function Topbar() {
             ☆
           </button>
         </div>
-      </div>
-
-      <div className="of-topbar__center">
-        <button type="button" className="of-topbar__icon-button" aria-label="Undo">
-          ↶
-        </button>
-        <button type="button" className="of-topbar__icon-button" aria-label="Redo" disabled>
-          ↷
-        </button>
-        <button type="button" className="of-topbar__branch">
-          <Glyph name="graph" size={16} />
-          <span>Main</span>
-          <Glyph name="chevron-down" size={13} />
-        </button>
-      </div>
-
-      <div className="of-topbar__actions">
-        <span className="of-topbar__build-status">
-          <span>↻ 0</span>
-          <span>✓ 1</span>
-          <span>× 0</span>
-        </span>
-        <Link to="/search" className="of-topbar__action">
-          <Glyph name="search" size={15} />
-          Search
-        </Link>
-        <span className="of-topbar__avatar">OF</span>
       </div>
     </header>
   );

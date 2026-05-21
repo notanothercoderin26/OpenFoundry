@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,6 +35,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/logicexec"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/react"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/server"
@@ -85,7 +87,8 @@ func main() {
 	}
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
-	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}, AllowFakeLLMProvider: cfg.AllowFakeLLMProvider, PurposeCheckpoint: purposeCheckpoint}
+	mainRepo := &repo.Repo{Pool: pool}
+	h := &handlers.Handlers{Repo: mainRepo, AllowFakeLLMProvider: cfg.AllowFakeLLMProvider, PurposeCheckpoint: purposeCheckpoint}
 	wireLLMRuntime(h, log)
 	metrics := observability.NewMetrics()
 
@@ -95,27 +98,80 @@ func main() {
 	threadsRepo := &repo.ThreadsRepo{Pool: pool}
 	var threadsHandler *handlers.Threads
 	if cfg.LLMCatalogURL != "" {
+		llmClient := react.NewHTTPLLMClient(cfg.LLMCatalogURL)
+		toolRouter := &react.HTTPToolRouter{
+			ObjectDatabaseURL:  cfg.ObjectDatabaseURL,
+			OntologyActionsURL: cfg.OntologyActionsURL,
+			RetrievalURL:       cfg.RetrievalURL,
+			LogicFunctionsURL:  cfg.SelfBaseURL,
+			Proposals:          &handlers.RepoProposalSink{Repo: mainRepo},
+			HTTP:               &http.Client{Timeout: 30 * time.Second},
+		}
 		runner := &react.Runner{
-			LLM: react.NewHTTPLLMClient(cfg.LLMCatalogURL),
-			Tools: &react.HTTPToolRouter{
-				ObjectDatabaseURL:  cfg.ObjectDatabaseURL,
-				OntologyActionsURL: cfg.OntologyActionsURL,
-				RetrievalURL:       cfg.RetrievalURL,
-				HTTP:               &http.Client{Timeout: 30 * time.Second},
-			},
+			LLM:    llmClient,
+			Tools:  toolRouter,
 			Traces: handlers.NewTraceSink(threadsRepo),
 		}
 		threadsHandler = &handlers.Threads{Repo: threadsRepo, Runner: runner}
+
+		// Logic function executor reuses the same LLM seam + tool
+		// router, so Logic-from-API and Agent-from-thread invocations
+		// route through the identical downstream gates (B07 §AC#6).
+		//
+		// All three URLs are required: a Logic function whose blocks
+		// call ontology query / action tools is undefined without the
+		// downstream services. Wiring the executor in a partial state
+		// would let invocations succeed for some shapes (text-only
+		// LLM blocks) and silently 5xx for others — a confusing fail
+		// surface. Better to refuse and keep the synthetic preview
+		// path until the operator wires the missing service.
+		missing := logicExecutorMissingURLs(cfg)
+		if len(missing) == 0 {
+			mainRepo.Logic = logicexec.NewHTTPExecutor(llmClient, toolRouter)
+			log.Info("logic function executor wired",
+				slog.String("llm_catalog_url", cfg.LLMCatalogURL),
+				slog.String("object_database_url", cfg.ObjectDatabaseURL),
+				slog.String("ontology_actions_url", cfg.OntologyActionsURL),
+			)
+		} else {
+			log.Warn("logic function executor disabled: required downstream URLs missing — falling back to synthetic preview outputs",
+				slog.String("missing_env_vars", strings.Join(missing, ",")),
+			)
+		}
 	} else {
-		log.Warn("LLM_CATALOG_SERVICE_URL unset — /threads ReAct loop disabled; CRUD only")
+		log.Warn("LLM_CATALOG_SERVICE_URL unset — /threads ReAct loop disabled; CRUD only; Logic invocation returns synthetic preview outputs")
 		threadsHandler = &handlers.Threads{Repo: threadsRepo}
 	}
 
-	srv := server.NewWithDeps(cfg, jwt, h, server.Deps{Threads: threadsHandler}, metrics, probes.Postgres("primary", pool))
+	proposalsHandler := &handlers.Proposals{
+		Repo:               mainRepo,
+		OntologyActionsURL: cfg.OntologyActionsURL,
+		HTTP:               &http.Client{Timeout: 30 * time.Second},
+	}
+	srv := server.NewWithDeps(cfg, jwt, h, server.Deps{Threads: threadsHandler, Proposals: proposalsHandler}, metrics, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+}
+
+// logicExecutorMissingURLs returns the env-var names whose absence
+// blocks wiring the Logic executor. The executor reuses Threads'
+// downstream clients, so the same URLs must be present — listing
+// each one explicitly lets the operator see what to set without
+// reading source.
+func logicExecutorMissingURLs(cfg *config.Config) []string {
+	var missing []string
+	if strings.TrimSpace(cfg.LLMCatalogURL) == "" {
+		missing = append(missing, "LLM_CATALOG_SERVICE_URL")
+	}
+	if strings.TrimSpace(cfg.ObjectDatabaseURL) == "" {
+		missing = append(missing, "OBJECT_DATABASE_SERVICE_URL")
+	}
+	if strings.TrimSpace(cfg.OntologyActionsURL) == "" {
+		missing = append(missing, "ONTOLOGY_ACTIONS_SERVICE_URL")
+	}
+	return missing
 }
 
 // wireLLMRuntime selects the LLM runtime based on env: ANTHROPIC_API_KEY

@@ -120,12 +120,14 @@ type OntologyProjectMembership struct {
 
 // OntologyProjectResourceBinding mirrors `models::project::OntologyProjectResourceBinding`.
 type OntologyProjectResourceBinding struct {
-	ProjectID                  uuid.UUID `json:"project_id"`
-	ResourceKind               string    `json:"resource_kind"`
-	ResourceID                 uuid.UUID `json:"resource_id"`
-	BoundBy                    uuid.UUID `json:"bound_by"`
-	ViewRequirementMarkingRIDs []string  `json:"view_requirement_marking_rids"`
-	CreatedAt                  time.Time `json:"created_at"`
+	ProjectID                  uuid.UUID  `json:"project_id"`
+	ResourceKind               string     `json:"resource_kind"`
+	ResourceID                 uuid.UUID  `json:"resource_id"`
+	BoundBy                    uuid.UUID  `json:"bound_by"`
+	ViewRequirementMarkingRIDs []string   `json:"view_requirement_marking_rids"`
+	CreatedAt                  time.Time  `json:"created_at"`
+	PinnedAt                   *time.Time `json:"pinned_at,omitempty"`
+	PinnedBy                   *uuid.UUID `json:"pinned_by,omitempty"`
 }
 
 // OntologyProjectFolder mirrors `models::project::OntologyProjectFolder`.
@@ -433,6 +435,49 @@ type BindOntologyProjectResourceRequest struct {
 // ListOntologyProjectResourcesResponse is the body of GET /projects/:id/resources.
 type ListOntologyProjectResourcesResponse struct {
 	Data []OntologyProjectResourceBinding `json:"data"`
+}
+
+// ProjectFileReference represents one cross-project resource dependency
+// edge surfaced in the project dashboard "File references" tab.
+type ProjectFileReference struct {
+	Direction        string    `json:"direction"`
+	Relationship     string    `json:"relationship"`
+	ResourceKind     string    `json:"resource_kind"`
+	ResourceID       uuid.UUID `json:"resource_id"`
+	OwningProjectID  uuid.UUID `json:"owning_project_id"`
+	OwningProjectRID string    `json:"owning_project_rid"`
+	LocalKind        string    `json:"local_kind"`
+	LocalID          uuid.UUID `json:"local_id"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+// ListProjectFileReferencesResponse is the GET response envelope.
+type ListProjectFileReferencesResponse struct {
+	Data []ProjectFileReference `json:"data"`
+}
+
+// ProjectExternalReference is a URL link out of the platform attached
+// to a project.
+type ProjectExternalReference struct {
+	ID          uuid.UUID `json:"id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	Label       string    `json:"label"`
+	URL         string    `json:"url"`
+	Description string    `json:"description"`
+	AddedBy     uuid.UUID `json:"added_by"`
+	AddedAt     time.Time `json:"added_at"`
+}
+
+// ListProjectExternalReferencesResponse is the GET envelope.
+type ListProjectExternalReferencesResponse struct {
+	Data []ProjectExternalReference `json:"data"`
+}
+
+// CreateProjectExternalReferenceRequest is the POST body.
+type CreateProjectExternalReferenceRequest struct {
+	Label       string `json:"label"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
 }
 
 // ListOntologyProjectFoldersResponse is the body of GET /projects/:id/folders.

@@ -4,13 +4,14 @@
 // claims a disjoint set of params (q / type / exploration / list).
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 
 import type { SideNavSelection } from './components/SideNavBrowse';
 
 export type InnerTab = 'overview' | 'objects' | 'types' | 'artifacts';
 
 const INNER_TAB_VALUES: ReadonlySet<InnerTab> = new Set(['overview', 'objects', 'types', 'artifacts']);
+const EXPLORER_PATHNAME = '/object-explorer';
 
 export interface UrlSelectionApi {
   readTab: () => InnerTab | null;
@@ -21,6 +22,7 @@ export interface UrlSelectionApi {
 
 export function useExplorerUrlSelection(): UrlSelectionApi {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   // Cache last-written values so duplicate writes don't bounce
   // through React Router unnecessarily.
   const lastTab = useRef<InnerTab | null>(null);
@@ -36,9 +38,17 @@ export function useExplorerUrlSelection(): UrlSelectionApi {
     return value && value.trim() ? value : null;
   }, [searchParams]);
 
+  // Guard: during a route transition the previous page can re-render
+  // one more time before unmount. If its sync-effect calls
+  // `setSearchParams` after the user has navigated away (e.g. to
+  // `/pipelines`), React Router applies the update against the NEW
+  // location, which can pin the browser back on the previous route
+  // or otherwise interfere with the in-flight transition. Bail out
+  // if our pathname no longer matches.
   const writeTab = useCallback(
     (next: InnerTab) => {
       if (lastTab.current === next) return;
+      if (location.pathname !== EXPLORER_PATHNAME) return;
       lastTab.current = next;
       setSearchParams(
         (prev) => {
@@ -50,13 +60,14 @@ export function useExplorerUrlSelection(): UrlSelectionApi {
         { replace: true },
       );
     },
-    [setSearchParams],
+    [location.pathname, setSearchParams],
   );
 
   const writeGroup = useCallback(
     (selection: SideNavSelection) => {
       const value = selection.kind === 'group' ? selection.groupId : null;
       if (lastGroup.current === value) return;
+      if (location.pathname !== EXPLORER_PATHNAME) return;
       lastGroup.current = value;
       setSearchParams(
         (prev) => {
@@ -68,7 +79,7 @@ export function useExplorerUrlSelection(): UrlSelectionApi {
         { replace: true },
       );
     },
-    [setSearchParams],
+    [location.pathname, setSearchParams],
   );
 
   // Keep the refs in sync with whatever the URL currently says, so

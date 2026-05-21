@@ -9,6 +9,8 @@ import { Sidebar } from './Sidebar';
 import { ScopedSessionBanner } from './ScopedSessionBanner';
 import { Toaster } from './Toaster';
 import { Topbar } from './Topbar';
+import { OutletErrorBoundary } from './OutletErrorBoundary';
+import { WorkspaceRightRail } from './WorkspaceRightRail';
 import { CommandPalette } from './ui/CommandPalette';
 
 export function AppShell() {
@@ -46,14 +48,30 @@ export function AppShell() {
     );
   }
 
+  const compassRoute = location.pathname.startsWith('/projects');
+
   return (
     <div className="of-shell" style={{ display: 'flex' }}>
       <Sidebar />
       <main className="of-main">
         <Topbar />
         <ScopedSessionBanner />
-        <Outlet />
+        {/*
+          `key={location.pathname}` forces React to unmount the previous
+          route subtree before mounting the next one. Without this, React
+          19's concurrent renderer holds the old commit alive while
+          preparing the new render, and if the new render throws (e.g.
+          a `.map()` over undefined in OntologyManagerPage when a
+          backend endpoint 502s), React reverts to the old commit
+          instead of bubbling to OutletErrorBoundary. The user then
+          sees the URL change but the page stay. Forcing remount
+          on pathname change side-steps that recovery path.
+        */}
+        <OutletErrorBoundary key={location.pathname}>
+          <Outlet />
+        </OutletErrorBoundary>
       </main>
+      {compassRoute ? <WorkspaceRightRail /> : null}
       <CommandPalette />
       <Toaster />
     </div>

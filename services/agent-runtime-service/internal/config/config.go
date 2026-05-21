@@ -34,6 +34,14 @@ type Config struct {
 	ObjectDatabaseURL  string
 	OntologyActionsURL string
 	RetrievalURL       string
+	// SelfBaseURL is this service's own externally-reachable base URL.
+	// Used by the HTTPToolRouter when an agent calls an AIP Logic
+	// function as a tool — the router posts to
+	// {SelfBaseURL}/api/v1/agent-runtime/logic/functions/{rid}/invoke
+	// so JWT validation, audit logging, and the recursion guard all
+	// run for the inner call too. In Kubernetes this is the cluster
+	// DNS for the agent-runtime service.
+	SelfBaseURL string
 }
 
 func FromEnv() (*Config, error) {
@@ -54,6 +62,10 @@ func FromEnv() (*Config, error) {
 	cfg.ObjectDatabaseURL = os.Getenv("OBJECT_DATABASE_SERVICE_URL")
 	cfg.OntologyActionsURL = os.Getenv("ONTOLOGY_ACTIONS_SERVICE_URL")
 	cfg.RetrievalURL = os.Getenv("RETRIEVAL_CONTEXT_SERVICE_URL")
+	cfg.SelfBaseURL = firstNonEmpty(
+		os.Getenv("AGENT_RUNTIME_SERVICE_URL"),
+		os.Getenv("SELF_BASE_URL"),
+	)
 	if cfg.DatabaseURL == "" {
 		return nil, &MissingEnvError{Key: "DATABASE_URL"}
 	}

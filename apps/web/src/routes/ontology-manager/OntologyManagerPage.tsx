@@ -473,22 +473,37 @@ export function OntologyManagerPage() {
         listObjectSets({ size: 200 }).catch(() => ({ data: [] as ObjectSetDefinition[] })),
         listProjects({ per_page: 200 }),
       ]);
-      setObjectTypes(types.data);
-      setActionTypes(actions.data);
-      setInterfaces(ifs.data);
-      setShared(sh.data);
-      setValueTypes(valueTypeRes.data);
-      const coreViews = buildCoreObjectViews({ objectTypes: types.data, linkTypes: links.data });
-      setLinkTypes(links.data);
-      setObjectTypeGroups(groups.data);
-      setObjectViews([...coreViews, ...views.data]);
-      setObjectSets(sets.data);
-      setProjects(prs.data);
+      // `?? []` guards: backend list endpoints can return `{ data: undefined }`
+      // when a service is degraded (502s on the cluster). Without these, state
+      // becomes `undefined` and downstream `useMemo` calls do `.map()` on it
+      // during render, which throws and leaves React stuck on the previous
+      // commit (user-visible: URL changes but page content doesn't).
+      const objectTypesData = types.data ?? [];
+      const actionTypesData = actions.data ?? [];
+      const interfacesData = ifs.data ?? [];
+      const sharedData = sh.data ?? [];
+      const valueTypesData = valueTypeRes.data ?? [];
+      const linksData = links.data ?? [];
+      const groupsData = groups.data ?? [];
+      const viewsData = views.data ?? [];
+      const setsData = sets.data ?? [];
+      const projectsData = prs.data ?? [];
+      setObjectTypes(objectTypesData);
+      setActionTypes(actionTypesData);
+      setInterfaces(interfacesData);
+      setShared(sharedData);
+      setValueTypes(valueTypesData);
+      const coreViews = buildCoreObjectViews({ objectTypes: objectTypesData, linkTypes: linksData });
+      setLinkTypes(linksData);
+      setObjectTypeGroups(groupsData);
+      setObjectViews([...coreViews, ...viewsData]);
+      setObjectSets(setsData);
+      setProjects(projectsData);
       const membershipLists = await Promise.all(
-        prs.data.map((project) => listProjectMemberships(project.id).catch(() => [] as OntologyProjectMembership[])),
+        projectsData.map((project) => listProjectMemberships(project.id).catch(() => [] as OntologyProjectMembership[])),
       );
       setProjectMemberships(membershipLists.flat());
-      const primaryProject = prs.data[0];
+      const primaryProject = projectsData[0];
       const [resources, nextWorkingState, nextSavedChanges]: [
         OntologyProjectResourceBinding[],
         OntologyProjectWorkingState | null,
@@ -505,12 +520,12 @@ export function OntologyManagerPage() {
       setSavedChanges(nextSavedChanges);
       setOntology(
         deriveOntologyArtifact({
-          projects: prs.data,
+          projects: projectsData,
           resourceBindings: resources,
-          objectTypeCount: types.data.length,
-          linkTypeCount: links.data.length,
-          interfaceCount: ifs.data.length,
-          sharedPropertyTypeCount: sh.data.length,
+          objectTypeCount: objectTypesData.length,
+          linkTypeCount: linksData.length,
+          interfaceCount: interfacesData.length,
+          sharedPropertyTypeCount: sharedData.length,
         }),
       );
     } catch (cause) {

@@ -1705,10 +1705,10 @@ func (h *ProjectsHandlers) ListProjectResources(w http.ResponseWriter, r *http.R
 	rows, err := h.Pool.Query(r.Context(),
 		`SELECT project_id, resource_kind, resource_id, bound_by,
 		        COALESCE(view_requirement_marking_rids, '[]'::jsonb),
-		        created_at
+		        created_at, pinned_at, pinned_by
 		 FROM ontology_project_resources
 		 WHERE project_id = $1 AND is_deleted = FALSE
-		 ORDER BY created_at DESC`,
+		 ORDER BY pinned_at DESC NULLS LAST, created_at DESC`,
 		id,
 	)
 	if err != nil {
@@ -1721,7 +1721,7 @@ func (h *ProjectsHandlers) ListProjectResources(w http.ResponseWriter, r *http.R
 	for rows.Next() {
 		var b models.OntologyProjectResourceBinding
 		var markings []byte
-		if err := rows.Scan(&b.ProjectID, &b.ResourceKind, &b.ResourceID, &b.BoundBy, &markings, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ProjectID, &b.ResourceKind, &b.ResourceID, &b.BoundBy, &markings, &b.CreatedAt, &b.PinnedAt, &b.PinnedBy); err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list ontology project resources: %s", err))
 			return
 		}
@@ -1920,6 +1920,286 @@ func (h *ProjectsHandlers) UnbindProjectResource(w http.ResponseWriter, r *http.
 	}
 	if cmd.RowsAffected() == 0 {
 		writeJSONErr(w, http.StatusNotFound, "ontology project resource binding not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PinProjectResource marks a bound resource as pinned at the project level.
+// Pins are shared across all members of the project and surface in the
+// dashboard "Pinned" band. This is distinct from per-user favorites.
+func (h *ProjectsHandlers) PinProjectResource(w http.ResponseWriter, r *http.Request) {
+	h.setProjectResourcePin(w, r, true)
+}
+
+// UnpinProjectResource clears a project-level pin on a bound resource.
+func (h *ProjectsHandlers) UnpinProjectResource(w http.ResponseWriter, r *http.Request) {
+	h.setProjectResourcePin(w, r, false)
+}
+
+func (h *ProjectsHandlers) setProjectResourcePin(w http.ResponseWriter, r *http.Request, pin bool) {
+	claims, ok := authClaims(w, r)
+	if !ok {
+		return
+	}
+	projectID, ok := parseUUIDParam(w, r, "id", "id")
+	if !ok {
+		return
+	}
+	resourceID, ok := parseUUIDParam(w, r, "resource_id", "resource_id")
+	if !ok {
+		return
+	}
+	kindParam := chi.URLParam(r, "kind")
+	resourceKind, err := domain.ParseOntologyResourceKind(kindParam)
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, err := domain.EnsureProjectEditAccess(r.Context(), h.Pool, claims, projectID); err != nil {
+		writeJSONErr(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	var rowsAffected int64
+	if pin {
+		cmd, err := h.Pool.Exec(r.Context(),
+			`UPDATE ontology_project_resources
+			    SET pinned_at = NOW(), pinned_by = $4
+			  WHERE project_id = $1 AND resource_kind = $2 AND resource_id = $3
+			    AND is_deleted = FALSE`,
+			projectID, resourceKind.String(), resourceID, claims.Sub,
+		)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to pin ontology project resource: %s", err))
+			return
+		}
+		rowsAffected = cmd.RowsAffected()
+	} else {
+		cmd, err := h.Pool.Exec(r.Context(),
+			`UPDATE ontology_project_resources
+			    SET pinned_at = NULL, pinned_by = NULL
+			  WHERE project_id = $1 AND resource_kind = $2 AND resource_id = $3
+			    AND is_deleted = FALSE`,
+			projectID, resourceKind.String(), resourceID,
+		)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to unpin ontology project resource: %s", err))
+			return
+		}
+		rowsAffected = cmd.RowsAffected()
+	}
+	if rowsAffected == 0 {
+		writeJSONErr(w, http.StatusNotFound, "ontology project resource binding not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListProjectFileReferences aggregates compass_resource_references edges
+// where one endpoint is bound to this project and the other endpoint is
+// bound to a different project (or unbound). The dashboard's "File
+// references" tab is the consumer.
+func (h *ProjectsHandlers) ListProjectFileReferences(w http.ResponseWriter, r *http.Request) {
+	claims, ok := authClaims(w, r)
+	if !ok {
+		return
+	}
+	projectID, ok := parseUUIDParam(w, r, "id", "id")
+	if !ok {
+		return
+	}
+	if _, err := domain.EnsureProjectViewAccess(r.Context(), h.Pool, claims, projectID); err != nil {
+		writeJSONErr(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	rows, err := h.Pool.Query(r.Context(),
+		`WITH local AS (
+		     SELECT resource_kind, resource_id
+		       FROM ontology_project_resources
+		      WHERE project_id = $1 AND is_deleted = FALSE
+		 ),
+		 outbound AS (
+		     SELECT 'depends_on'::text AS direction,
+		            r.relationship,
+		            r.target_kind AS resource_kind,
+		            r.target_id   AS resource_id,
+		            COALESCE(opr.project_id, '00000000-0000-0000-0000-000000000000'::uuid) AS owning_project_id,
+		            r.source_kind AS local_kind,
+		            r.source_id   AS local_id,
+		            r.created_at
+		       FROM compass_resource_references r
+		       JOIN local l
+		         ON l.resource_kind = r.source_kind AND l.resource_id = r.source_id
+		  LEFT JOIN ontology_project_resources opr
+		         ON opr.resource_kind = r.target_kind AND opr.resource_id = r.target_id AND opr.is_deleted = FALSE
+		      WHERE COALESCE(opr.project_id, '00000000-0000-0000-0000-000000000000'::uuid) <> $1
+		 ),
+		 inbound AS (
+		     SELECT 'used_by'::text AS direction,
+		            r.relationship,
+		            r.source_kind AS resource_kind,
+		            r.source_id   AS resource_id,
+		            COALESCE(opr.project_id, '00000000-0000-0000-0000-000000000000'::uuid) AS owning_project_id,
+		            r.target_kind AS local_kind,
+		            r.target_id   AS local_id,
+		            r.created_at
+		       FROM compass_resource_references r
+		       JOIN local l
+		         ON l.resource_kind = r.target_kind AND l.resource_id = r.target_id
+		  LEFT JOIN ontology_project_resources opr
+		         ON opr.resource_kind = r.source_kind AND opr.resource_id = r.source_id AND opr.is_deleted = FALSE
+		      WHERE COALESCE(opr.project_id, '00000000-0000-0000-0000-000000000000'::uuid) <> $1
+		 )
+		 SELECT direction, relationship, resource_kind, resource_id,
+		        owning_project_id, local_kind, local_id, created_at
+		   FROM (SELECT * FROM outbound UNION ALL SELECT * FROM inbound) edges
+		  ORDER BY created_at DESC`,
+		projectID,
+	)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to load project file references: %s", err))
+		return
+	}
+	defer rows.Close()
+
+	out := make([]models.ProjectFileReference, 0)
+	for rows.Next() {
+		var ref models.ProjectFileReference
+		if err := rows.Scan(
+			&ref.Direction, &ref.Relationship, &ref.ResourceKind, &ref.ResourceID,
+			&ref.OwningProjectID, &ref.LocalKind, &ref.LocalID, &ref.CreatedAt,
+		); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to scan project file references: %s", err))
+			return
+		}
+		ref.OwningProjectRID = models.ProjectRIDFromID(ref.OwningProjectID)
+		out = append(out, ref)
+	}
+	if err := rows.Err(); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list project file references: %s", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, models.ListProjectFileReferencesResponse{Data: out})
+}
+
+// ListProjectExternalReferences returns URLs attached to the project.
+func (h *ProjectsHandlers) ListProjectExternalReferences(w http.ResponseWriter, r *http.Request) {
+	claims, ok := authClaims(w, r)
+	if !ok {
+		return
+	}
+	projectID, ok := parseUUIDParam(w, r, "id", "id")
+	if !ok {
+		return
+	}
+	if _, err := domain.EnsureProjectViewAccess(r.Context(), h.Pool, claims, projectID); err != nil {
+		writeJSONErr(w, http.StatusForbidden, err.Error())
+		return
+	}
+	rows, err := h.Pool.Query(r.Context(),
+		`SELECT id, project_id, label, url, description, added_by, added_at
+		   FROM compass_project_external_references
+		  WHERE project_id = $1
+		  ORDER BY added_at DESC`,
+		projectID,
+	)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list external references: %s", err))
+		return
+	}
+	defer rows.Close()
+	out := make([]models.ProjectExternalReference, 0)
+	for rows.Next() {
+		var ref models.ProjectExternalReference
+		if err := rows.Scan(&ref.ID, &ref.ProjectID, &ref.Label, &ref.URL, &ref.Description, &ref.AddedBy, &ref.AddedAt); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to scan external references: %s", err))
+			return
+		}
+		out = append(out, ref)
+	}
+	if err := rows.Err(); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list external references: %s", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, models.ListProjectExternalReferencesResponse{Data: out})
+}
+
+// CreateProjectExternalReference appends a URL reference to the project.
+func (h *ProjectsHandlers) CreateProjectExternalReference(w http.ResponseWriter, r *http.Request) {
+	claims, ok := authClaims(w, r)
+	if !ok {
+		return
+	}
+	projectID, ok := parseUUIDParam(w, r, "id", "id")
+	if !ok {
+		return
+	}
+	if _, err := domain.EnsureProjectEditAccess(r.Context(), h.Pool, claims, projectID); err != nil {
+		writeJSONErr(w, http.StatusForbidden, err.Error())
+		return
+	}
+	var body models.CreateProjectExternalReferenceRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	label := strings.TrimSpace(body.Label)
+	urlValue := strings.TrimSpace(body.URL)
+	if label == "" || urlValue == "" {
+		writeJSONErr(w, http.StatusBadRequest, "label and url required")
+		return
+	}
+	ref := models.ProjectExternalReference{
+		ProjectID:   projectID,
+		Label:       label,
+		URL:         urlValue,
+		Description: strings.TrimSpace(body.Description),
+		AddedBy:     claims.Sub,
+	}
+	err := h.Pool.QueryRow(r.Context(),
+		`INSERT INTO compass_project_external_references (project_id, label, url, description, added_by)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, added_at`,
+		projectID, label, urlValue, ref.Description, claims.Sub,
+	).Scan(&ref.ID, &ref.AddedAt)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to create external reference: %s", err))
+		return
+	}
+	writeJSON(w, http.StatusCreated, ref)
+}
+
+// DeleteProjectExternalReference removes one URL reference.
+func (h *ProjectsHandlers) DeleteProjectExternalReference(w http.ResponseWriter, r *http.Request) {
+	claims, ok := authClaims(w, r)
+	if !ok {
+		return
+	}
+	projectID, ok := parseUUIDParam(w, r, "id", "id")
+	if !ok {
+		return
+	}
+	refID, ok := parseUUIDParam(w, r, "reference_id", "reference_id")
+	if !ok {
+		return
+	}
+	if _, err := domain.EnsureProjectEditAccess(r.Context(), h.Pool, claims, projectID); err != nil {
+		writeJSONErr(w, http.StatusForbidden, err.Error())
+		return
+	}
+	cmd, err := h.Pool.Exec(r.Context(),
+		`DELETE FROM compass_project_external_references
+		  WHERE id = $1 AND project_id = $2`,
+		refID, projectID,
+	)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete external reference: %s", err))
+		return
+	}
+	if cmd.RowsAffected() == 0 {
+		writeJSONErr(w, http.StatusNotFound, "external reference not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

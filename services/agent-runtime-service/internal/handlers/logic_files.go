@@ -3,9 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -13,8 +15,25 @@ import (
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/models"
+	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/react"
 	repopkg "github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/repo"
 )
+
+// parseLogicDepthHeader interprets the X-Logic-Depth header. An
+// empty value means "this is a top-level invocation" (depth 0).
+// Non-numeric or negative values are rejected so a malformed header
+// cannot bypass the recursion guard.
+func parseLogicDepthHeader(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("invalid %s header %q", react.LogicDepthHeader, raw)
+	}
+	return n, nil
+}
 
 func logicClaims(w http.ResponseWriter, r *http.Request) (*authmw.Claims, bool) {
 	claims, ok := authmw.FromContext(r.Context())
@@ -153,6 +172,66 @@ func (h *Handlers) GetLogicFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, lf)
+}
+
+// ListLogicFunctionsAsTools projects every Logic function the
+// caller can invoke into the ToolDefinition shape an agent's tool
+// manifest stores. The agent-creation UI consumes this to populate
+// the "available tools" picker — see ChatbotStudio in apps/web.
+// Filterable by project_id so an analyst building an agent inside a
+// project only sees the functions scoped to that project.
+func (h *Handlers) ListLogicFunctionsAsTools(w http.ResponseWriter, r *http.Request) {
+	claims, ok := logicClaims(w, r)
+	if !ok {
+		return
+	}
+	projectID, err := parseOptionalUUIDQuery(r.URL.Query().Get("project_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "project_id must be a uuid")
+		return
+	}
+	fns, err := h.Repo.ListPublishedLogicFunctions(r.Context(), projectID, claims.Sub, claims.HasRole("admin"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	tools := make([]models.ToolDefinition, 0, len(fns))
+	for _, fn := range fns {
+		tools = append(tools, models.ToolDefinition{
+			Name:        toolDisplayName(fn),
+			Kind:        models.ToolKindFunction,
+			Description: toolDescription(fn),
+			Config:      json.RawMessage(fmt.Sprintf(`{"function_rid":%q}`, fn.FunctionRID)),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tools": tools})
+}
+
+// toolDisplayName converts a Logic function's published name into a
+// stable tool identifier (lowercase, underscore-separated). Falls
+// back to the function RID so the result is always non-empty.
+func toolDisplayName(fn models.LogicFunction) string {
+	name := strings.ToLower(strings.TrimSpace(fn.Name))
+	if name == "" {
+		return fn.FunctionRID
+	}
+	sb := strings.Builder{}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			sb.WriteRune(r)
+		default:
+			sb.WriteRune('_')
+		}
+	}
+	return sb.String()
+}
+
+func toolDescription(fn models.LogicFunction) string {
+	if fn.Name != "" {
+		return fmt.Sprintf("Invoke Logic function %s (%s)", fn.Name, fn.FunctionRID)
+	}
+	return fmt.Sprintf("Invoke Logic function %s", fn.FunctionRID)
 }
 
 func (h *Handlers) ListLogicFiles(w http.ResponseWriter, r *http.Request) {
@@ -529,12 +608,30 @@ func (h *Handlers) InvokeLogicFunction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "function_rid must not be empty")
 		return
 	}
+	// Logic→Tool→Logic recursion guard. The HTTPToolRouter increments
+	// X-Logic-Depth on every Logic invocation it dispatches; here we
+	// refuse to start one more level past the cap and thread the
+	// counter into the context so the executor's own tool calls can
+	// keep counting.
+	depth, depthErr := parseLogicDepthHeader(r.Header.Get(react.LogicDepthHeader))
+	if depthErr != nil {
+		writeError(w, http.StatusBadRequest, depthErr.Error())
+		return
+	}
+	if depth >= react.MaxLogicInvocationDepth {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf("logic invocation depth %d exceeds limit %d", depth, react.MaxLogicInvocationDepth))
+		return
+	}
+	ctx := react.WithLogicDepth(r.Context(), depth)
+	// Stamp the invoker so any proposals the Logic function stages
+	// via apply_action tools land with the correct initiator id.
+	ctx = react.WithInitiatingUser(ctx, claims.Sub.String())
 	var body models.InvokeLogicFunctionRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	invocation, err := h.Repo.InvokeLogicFunction(r.Context(), functionRID, claims.Sub, body, claims.HasRole("admin"))
+	invocation, err := h.Repo.InvokeLogicFunction(ctx, functionRID, claims.Sub, bearerToken(r), body, claims.HasRole("admin"))
 	if errors.Is(err, repopkg.ErrLogicFunctionAPINotSupported) {
 		writeError(w, http.StatusConflict, err.Error())
 		return

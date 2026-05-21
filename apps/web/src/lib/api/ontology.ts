@@ -2053,8 +2053,19 @@ export interface BuildOntologyResourceRegistryInput {
 export function buildOntologyResourceRegistry(
   input: BuildOntologyResourceRegistryInput,
 ): OntologyResourceRegistryEntry[] {
+  // Defensive `?? []`: callers can pass freshly-set state that's `undefined`
+  // when an upstream list endpoint 502s. Throwing here strands the page on
+  // the previous commit (React 19 concurrent renderer).
+  const projects = input.projects ?? [];
+  const objectTypes = input.objectTypes ?? [];
+  const linkTypes = input.linkTypes ?? [];
+  const actionTypes = input.actionTypes ?? [];
+  const interfaces = input.interfaces ?? [];
+  const sharedPropertyTypes = input.sharedPropertyTypes ?? [];
+  const objectViews = input.objectViews ?? [];
+  const objectTypeGroups = input.objectTypeGroups ?? [];
   const projectByID = new Map(
-    input.projects.map((project) => [project.id, project]),
+    projects.map((project) => [project.id, project]),
   );
   const bindingByResource = new Map(
     (input.resourceBindings ?? []).map((binding) => [
@@ -2063,11 +2074,11 @@ export function buildOntologyResourceRegistry(
     ]),
   );
   const objectTypeByID = new Map(
-    input.objectTypes.map((objectType) => [objectType.id, objectType]),
+    objectTypes.map((objectType) => [objectType.id, objectType]),
   );
 
   const entries: OntologyResourceRegistryEntry[] = [];
-  for (const objectType of input.objectTypes) {
+  for (const objectType of objectTypes) {
     entries.push(
       registryEntry({
         ontology: input.ontology,
@@ -2086,7 +2097,7 @@ export function buildOntologyResourceRegistry(
         lastEditedAt: objectType.updated_at,
         lastEditedBy: objectType.owner_id,
         usageCount: countObjectTypeUsage(objectType.id, input),
-        linkedResourceCount: input.linkTypes.filter(
+        linkedResourceCount: linkTypes.filter(
           (link) =>
             link.source_type_id === objectType.id ||
             link.target_type_id === objectType.id,
@@ -2125,7 +2136,7 @@ export function buildOntologyResourceRegistry(
     }
   }
 
-  for (const linkType of input.linkTypes) {
+  for (const linkType of linkTypes) {
     entries.push(
       registryEntry({
         ontology: input.ontology,
@@ -2152,7 +2163,7 @@ export function buildOntologyResourceRegistry(
     );
   }
 
-  for (const actionType of input.actionTypes) {
+  for (const actionType of actionTypes) {
     entries.push(
       registryEntry({
         ontology: input.ontology,
@@ -2176,7 +2187,7 @@ export function buildOntologyResourceRegistry(
     );
   }
 
-  for (const iface of input.interfaces) {
+  for (const iface of interfaces) {
     entries.push(
       registryEntry({
         ontology: input.ontology,
@@ -2200,7 +2211,7 @@ export function buildOntologyResourceRegistry(
     );
   }
 
-  for (const shared of input.sharedPropertyTypes) {
+  for (const shared of sharedPropertyTypes) {
     entries.push(
       registryEntry({
         ontology: input.ontology,
@@ -2224,7 +2235,7 @@ export function buildOntologyResourceRegistry(
     );
   }
 
-  for (const group of input.objectTypeGroups ?? []) {
+  for (const group of objectTypeGroups) {
     entries.push(
       registryEntry({
         ontology: input.ontology,
@@ -2248,7 +2259,7 @@ export function buildOntologyResourceRegistry(
     );
   }
 
-  for (const view of input.objectViews) {
+  for (const view of objectViews) {
     const kind: OntologyResourceRegistryKind =
       view.mode === "standard" ? "core_object_view" : "custom_object_view";
     entries.push(
@@ -2288,14 +2299,14 @@ function countObjectTypeUsage(
   input: BuildOntologyResourceRegistryInput,
 ) {
   return (
-    input.linkTypes.filter(
+    (input.linkTypes ?? []).filter(
       (link) =>
         link.source_type_id === objectTypeID ||
         link.target_type_id === objectTypeID,
     ).length +
-    input.actionTypes.filter((action) => action.object_type_id === objectTypeID)
+    (input.actionTypes ?? []).filter((action) => action.object_type_id === objectTypeID)
       .length +
-    input.objectViews.filter((view) => view.object_type_id === objectTypeID)
+    (input.objectViews ?? []).filter((view) => view.object_type_id === objectTypeID)
       .length
   );
 }
@@ -3068,6 +3079,77 @@ export function unbindProjectResource(
 ) {
   return api.delete(
     `/ontology/projects/${id}/resources/${resourceKind}/${resourceId}`,
+  );
+}
+
+export function pinProjectResource(
+  id: string,
+  resourceKind: string,
+  resourceId: string,
+) {
+  return api.post<void>(
+    `/ontology/projects/${id}/resources/${resourceKind}/${resourceId}/pin`,
+    {},
+  );
+}
+
+export interface ProjectFileReference {
+  direction: 'depends_on' | 'used_by';
+  relationship: string;
+  resource_kind: string;
+  resource_id: string;
+  owning_project_id: string;
+  owning_project_rid: string;
+  local_kind: string;
+  local_id: string;
+  created_at: string;
+}
+
+export function listProjectFileReferences(id: string) {
+  return api.get<{ data: ProjectFileReference[] }>(
+    `/ontology/projects/${id}/file-references`,
+  );
+}
+
+export interface ProjectExternalReference {
+  id: string;
+  project_id: string;
+  label: string;
+  url: string;
+  description: string;
+  added_by: string;
+  added_at: string;
+}
+
+export function listProjectExternalReferences(id: string) {
+  return api.get<{ data: ProjectExternalReference[] }>(
+    `/ontology/projects/${id}/external-references`,
+  );
+}
+
+export function createProjectExternalReference(
+  id: string,
+  body: { label: string; url: string; description?: string },
+) {
+  return api.post<ProjectExternalReference>(
+    `/ontology/projects/${id}/external-references`,
+    body,
+  );
+}
+
+export function deleteProjectExternalReference(id: string, referenceId: string) {
+  return api.delete(
+    `/ontology/projects/${id}/external-references/${referenceId}`,
+  );
+}
+
+export function unpinProjectResource(
+  id: string,
+  resourceKind: string,
+  resourceId: string,
+) {
+  return api.delete(
+    `/ontology/projects/${id}/resources/${resourceKind}/${resourceId}/pin`,
   );
 }
 
@@ -9016,7 +9098,7 @@ export function buildCoreObjectViews(input: {
   linkTypes?: LinkType[];
 }): ObjectViewDefinition[] {
   const linkTypes = input.linkTypes ?? [];
-  return input.objectTypes.flatMap((objectType) => {
+  return (input.objectTypes ?? []).flatMap((objectType) => {
     const properties = input.propertiesByObjectType?.[objectType.id] ?? objectType.properties ?? [];
     const visibleLinks = linkTypes.filter(
       (link) =>
@@ -9238,7 +9320,7 @@ export function buildDefaultCustomObjectViews(input: {
   const linkTypes = input.linkTypes ?? [];
   const now = input.now ?? new Date().toISOString();
 
-  for (const objectType of input.objectTypes) {
+  for (const objectType of input.objectTypes ?? []) {
     const properties = input.propertiesByObjectType?.[objectType.id] ?? objectType.properties ?? [];
     const visibleLinks = objectViewLinksForType(objectType, linkTypes);
 
@@ -9905,11 +9987,11 @@ export function buildObjectExplorerTypeGroups(
   groups: OntologyObjectTypeGroup[],
   objectTypes: ObjectType[],
 ): ObjectExplorerTypeGroup[] {
-  const visibleTypes = objectTypes.filter((objectType) => objectType.visibility !== "hidden");
+  const visibleTypes = (objectTypes ?? []).filter((objectType) => objectType.visibility !== "hidden");
   const typeByID = new Map(visibleTypes.map((objectType) => [objectType.id, objectType]));
   const out: ObjectExplorerTypeGroup[] = [];
   const assigned = new Set<string>();
-  for (const group of groups.filter((entry) => entry.visibility !== "hidden" && entry.status !== "deprecated")) {
+  for (const group of (groups ?? []).filter((entry) => entry.visibility !== "hidden" && entry.status !== "deprecated")) {
     const groupTypes = (group.object_type_ids || [])
       .map((id) => typeByID.get(id))
       .filter((entry): entry is ObjectType => Boolean(entry));
@@ -10397,6 +10479,8 @@ export interface OntologyProjectResourceBinding {
   bound_by: string;
   view_requirement_marking_rids?: string[];
   created_at: string;
+  pinned_at?: string | null;
+  pinned_by?: string | null;
 }
 
 export interface OntologyProjectMigrationResource {

@@ -228,7 +228,7 @@ export function Sidebar() {
       <aside className="of-sidebar of-scrollbar" data-collapsed={collapsed || undefined}>
         <div className="of-sidebar__brand">
           <Link to="/" className="of-sidebar__logo" aria-label="OpenFoundry home" title="OpenFoundry">
-            <img src="/empty-logo.png" alt="" width={32} height={32} style={{ display: 'block', objectFit: 'contain' }} />
+            <img src="/empty-logo.png" alt="" width={36} height={36} style={{ display: 'block', objectFit: 'contain' }} />
           </Link>
           <button
             type="button"

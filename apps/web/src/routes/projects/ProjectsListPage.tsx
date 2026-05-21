@@ -2,30 +2,45 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ConfirmDialog } from '@components/ConfirmDialog';
+import {
+  CompassFilterRail,
+  type CompassFilterState,
+  type PortfolioOption,
+  type TagOption,
+} from '@/lib/components/projects/CompassFilterRail';
 import { CreateProjectModal } from '@/lib/components/projects/CreateProjectModal';
+import { GlobalSearchBar } from '@/lib/components/projects/GlobalSearchBar';
+import { QuickFilterCards, type QuickFilterKind } from '@/lib/components/projects/QuickFilterCards';
 import { RequestDataDialog } from '@/lib/components/projects/RequestDataDialog';
 import {
   deleteProject,
   listProjects,
   type OntologyProject,
 } from '@/lib/api/ontology';
+import { listSpaces, type NexusSpace } from '@/lib/api/nexus';
 import {
+  bulkListResourceTags,
+  listCompassTags,
   listSharedWithMe,
   listTrash,
   purgeResource,
   restoreResource,
+  searchCompass,
+  type CompassSearchResult,
+  type CompassTag,
   type ResourceShare,
   type TrashEntry,
 } from '@/lib/api/workspace';
+import { TagChips, TagPicker } from '@/lib/components/projects/TagPicker';
 import { projectStablePath, workspaceResourceStablePath } from '@/lib/compass/stableResourceUrls';
 import { useCurrentUser } from '@/lib/stores/auth';
 
-type Section = 'portfolios' | 'projects' | 'your-files' | 'shared' | 'trash';
+type Section = 'portfolios' | 'projects' | 'your-files' | 'shared';
 
 interface SectionEntry {
   id: Section;
   label: string;
-  glyph: 'portfolios' | 'projects' | 'your-files' | 'shared' | 'trash';
+  glyph: 'portfolios' | 'projects' | 'your-files' | 'shared';
 }
 
 const SECTIONS: SectionEntry[] = [
@@ -33,7 +48,6 @@ const SECTIONS: SectionEntry[] = [
   { id: 'projects', label: 'Projects', glyph: 'projects' },
   { id: 'your-files', label: 'Your files', glyph: 'your-files' },
   { id: 'shared', label: 'Shared with you', glyph: 'shared' },
-  { id: 'trash', label: 'Trash', glyph: 'trash' },
 ];
 
 function projectName(project: OntologyProject) {
@@ -55,6 +69,22 @@ function formatDateTime(value: string | null | undefined) {
   }).format(date);
 }
 
+function formatRelativeTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const diffMs = date.getTime() - Date.now();
+  const diffSec = Math.round(diffMs / 1000);
+  const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+  const abs = Math.abs(diffSec);
+  if (abs < 60) return formatter.format(diffSec, 'second');
+  if (abs < 3600) return formatter.format(Math.round(diffSec / 60), 'minute');
+  if (abs < 86_400) return formatter.format(Math.round(diffSec / 3600), 'hour');
+  if (abs < 30 * 86_400) return formatter.format(Math.round(diffSec / 86_400), 'day');
+  if (abs < 365 * 86_400) return formatter.format(Math.round(diffSec / (30 * 86_400)), 'month');
+  return formatter.format(Math.round(diffSec / (365 * 86_400)), 'year');
+}
+
 function formatKind(kind: string) {
   return kind.replace(/_/g, ' ');
 }
@@ -73,9 +103,47 @@ function isSection(value: string | null): value is Section {
     value === 'portfolios' ||
     value === 'projects' ||
     value === 'your-files' ||
-    value === 'shared' ||
-    value === 'trash'
+    value === 'shared'
   );
+}
+
+const MOCK_PORTFOLIOS: PortfolioOption[] = [
+  { id: 'example-portfolio', name: 'Example Portfolio' },
+];
+
+function tagsToOptions(tags: CompassTag[]): TagOption[] {
+  return tags.map((tag) => ({ id: tag.id, name: tag.name, color: tag.color }));
+}
+
+function filtersFromSearchParams(params: URLSearchParams): CompassFilterState {
+  return {
+    types: params.getAll('type'),
+    portfolios: params.getAll('portfolio'),
+    projects: params.getAll('project'),
+    tags: params.getAll('tag'),
+    orgs: params.getAll('org'),
+    promoted: params.get('promoted') === 'true',
+  };
+}
+
+function applyFiltersToSearchParams(
+  params: URLSearchParams,
+  filters: CompassFilterState,
+): URLSearchParams {
+  const next = new URLSearchParams(params);
+  next.delete('type');
+  next.delete('portfolio');
+  next.delete('project');
+  next.delete('tag');
+  next.delete('org');
+  next.delete('promoted');
+  for (const value of filters.types) next.append('type', value);
+  for (const value of filters.portfolios) next.append('portfolio', value);
+  for (const value of filters.projects) next.append('project', value);
+  for (const value of filters.tags) next.append('tag', value);
+  for (const value of filters.orgs) next.append('org', value);
+  if (filters.promoted) next.set('promoted', 'true');
+  return next;
 }
 
 // ─── Inline icon set, kept tight to mirror Compass screenshots ────────────────
@@ -194,16 +262,30 @@ function SectionGlyph({ name, active }: { name: SectionEntry['glyph']; active: b
       return <UserIcon color={color} />;
     case 'shared':
       return <GroupIcon color={color} />;
-    case 'trash':
-      return <TrashIcon color={color} />;
   }
 }
 
-function TrashIcon({ size = 18, color = 'currentColor' }: IconProps) {
+function ChevronDownIcon({ size = 12, color = 'currentColor' }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M5 7h14M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M7 7l1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M10 11v6M14 11v6" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M6 9l6 6 6-6" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CloseIcon({ size = 12, color = 'currentColor' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function NamespaceChipIcon({ size = 14, color = '#5f6b7a' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3.5 7h6l2 2h9v9.5a1 1 0 0 1-1 1H4.5a1 1 0 0 1-1-1z" stroke={color} strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M8 13.5l2 2 4-4" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -222,7 +304,6 @@ export function ProjectsListPage() {
   const [projects, setProjects] = useState<OntologyProject[]>([]);
   const [shared, setShared] = useState<ResourceShare[]>([]);
   const [trash, setTrash] = useState<TrashEntry[]>([]);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -234,32 +315,23 @@ export function ProjectsListPage() {
   const [manageOpen, setManageOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<OntologyProject | null>(null);
   const [purgeTarget, setPurgeTarget] = useState<TrashEntry | null>(null);
+  const [namespace, setNamespace] = useState<string | null>('Governance Documentation Namespace');
+  const [filters, setFilters] = useState<CompassFilterState>(() => filtersFromSearchParams(searchParams));
+  const [globalQuery, setGlobalQuery] = useState<string>(() => searchParams.get('q') ?? '');
+  const [searchResults, setSearchResults] = useState<CompassSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [orgs, setOrgs] = useState<NexusSpace[]>([]);
+  const [tags, setTags] = useState<CompassTag[]>([]);
+  const [tagsByProject, setTagsByProject] = useState<Record<string, CompassTag[]>>({});
 
   const manageRef = useRef<HTMLDivElement>(null);
 
-  const sectionTitle = useMemo(() => {
-    if (section === 'portfolios') return 'Portfolios';
-    if (section === 'projects') return 'Projects';
-    if (section === 'your-files') return 'Your files';
-    if (section === 'trash') return 'Trash';
-    return 'Shared with you';
-  }, [section]);
-
   const filteredProjects = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let rows = projects;
     if (section === 'your-files' && currentUser?.id) {
-      rows = rows.filter((project) => project.owner_id === currentUser.id);
+      return projects.filter((project) => project.owner_id === currentUser.id);
     }
-    if (!q) return rows;
-    return rows.filter((project) => {
-      return (
-        project.slug.toLowerCase().includes(q) ||
-        (project.display_name || '').toLowerCase().includes(q) ||
-        (project.description || '').toLowerCase().includes(q)
-      );
-    });
-  }, [projects, search, section, currentUser?.id]);
+    return projects;
+  }, [projects, section, currentUser?.id]);
 
   async function refreshSection(next: Section) {
     setLoading(true);
@@ -300,12 +372,116 @@ export function ProjectsListPage() {
       },
       { replace: true },
     );
-    if (section === 'trash') {
-      void loadTrash();
-    } else {
-      void refreshSection(section);
-    }
+    void refreshSection(section);
   }, [section]);
+
+  useEffect(() => {
+    setSearchParams((prev) => applyFiltersToSearchParams(prev, filters), { replace: true });
+  }, [filters]);
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (globalQuery.trim()) next.set('q', globalQuery.trim());
+        else next.delete('q');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [globalQuery]);
+
+  useEffect(() => {
+    const trimmed = globalQuery.trim();
+    if (!trimmed) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await searchCompass({
+            q: trimmed,
+            type: filters.types[0],
+            limit: 50,
+          });
+          setSearchResults(res.data);
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : 'Search failed');
+          setSearchResults([]);
+        } finally {
+          setSearchLoading(false);
+        }
+      })();
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [globalQuery, filters.types]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await listSpaces();
+        setOrgs(res.items ?? []);
+      } catch {
+        setOrgs([]);
+      }
+    })();
+    void refreshTagsCatalog();
+  }, []);
+
+  useEffect(() => {
+    if (projects.length === 0) {
+      setTagsByProject({});
+      return;
+    }
+    void (async () => {
+      try {
+        const res = await bulkListResourceTags(
+          projects.map((project) => ({
+            resource_kind: 'ontology_project',
+            resource_id: project.id,
+          })),
+        );
+        const next: Record<string, CompassTag[]> = {};
+        for (const entry of res.data ?? []) {
+          next[entry.resource_id] = entry.tags;
+        }
+        setTagsByProject(next);
+      } catch {
+        // best effort
+      }
+    })();
+  }, [projects]);
+
+  async function refreshTagsCatalog() {
+    try {
+      const res = await listCompassTags();
+      setTags(res.data ?? []);
+    } catch {
+      setTags([]);
+    }
+  }
+
+  async function refreshTagsForVisibleProjects() {
+    if (projects.length === 0) return;
+    try {
+      const res = await bulkListResourceTags(
+        projects.map((project) => ({
+          resource_kind: 'ontology_project',
+          resource_id: project.id,
+        })),
+      );
+      const next: Record<string, CompassTag[]> = {};
+      for (const entry of res.data ?? []) {
+        next[entry.resource_id] = entry.tags;
+      }
+      setTagsByProject(next);
+    } catch {
+      // best effort
+    }
+  }
 
   useEffect(() => {
     if (!manageOpen) return;
@@ -376,7 +552,42 @@ export function ProjectsListPage() {
 
   function handleSection(next: Section) {
     setSection(next);
-    setSearch('');
+  }
+
+  function handleQuickFilter(kind: QuickFilterKind) {
+    if (kind === 'portfolios') {
+      handleSection('portfolios');
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('promoted');
+          return next;
+        },
+        { replace: true },
+      );
+      return;
+    }
+    if (kind === 'projects') {
+      handleSection('projects');
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('promoted');
+          return next;
+        },
+        { replace: true },
+      );
+      return;
+    }
+    handleSection('projects');
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('promoted', 'true');
+        return next;
+      },
+      { replace: true },
+    );
   }
 
   function handleRequestSubmitted(payload: { title: string; description: string; useCase: string }) {
@@ -449,6 +660,8 @@ export function ProjectsListPage() {
             );
           })}
         </nav>
+        <div style={{ flex: 1 }} />
+        <NamespaceSelector name={namespace} onChange={setNamespace} />
       </div>
 
       {/* ── Section header (title + actions + manage spaces) ──────────── */}
@@ -462,28 +675,35 @@ export function ProjectsListPage() {
             flexWrap: 'wrap',
           }}
         >
-          <h1
-            style={{
-              margin: 0,
-              fontSize: 22,
-              fontWeight: 700,
-              color: 'var(--text-strong)',
-              letterSpacing: 0,
-            }}
-          >
-            {sectionTitle}
-          </h1>
+          <NamespaceBreadcrumb
+            namespace={namespace}
+            onClear={() => setNamespace(null)}
+          />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }} ref={manageRef}>
             <button type="button" className="of-button" onClick={() => setRequestOpen(true)}>
               Request data
             </button>
             <button
               type="button"
-              className="of-button of-button--success"
+              className="of-button"
               onClick={() => setCreateOpen(true)}
-              style={{ paddingLeft: 10, paddingRight: 12 }}
+              style={{
+                paddingLeft: 10,
+                paddingRight: 12,
+                gap: 6,
+                background: '#137F4D',
+                borderColor: '#0F6A3F',
+                color: '#fff',
+                fontWeight: 600,
+              }}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.background = '#0F6A3F';
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.background = '#137F4D';
+              }}
             >
-              <PlusIcon color="#fff" /> New
+              <PlusIcon color="#fff" /> New project
             </button>
             <button
               type="button"
@@ -525,8 +745,7 @@ export function ProjectsListPage() {
                 <MenuItem
                   onClick={() => {
                     setManageOpen(false);
-                    if (section === 'trash') void loadTrash();
-                    else void refreshSection(section);
+                    void refreshSection(section);
                   }}
                 >
                   Refresh
@@ -585,53 +804,77 @@ export function ProjectsListPage() {
         </div>
       ) : null}
 
-      {/* ── Body: optional FILTERS rail + main table ──────────────────── */}
+      <QuickFilterCards onApply={handleQuickFilter} />
+
+      <GlobalSearchBar
+        value={globalQuery}
+        onChange={setGlobalQuery}
+        onClear={() => setGlobalQuery('')}
+      />
+
+      {/* ── Body: FILTERS rail + main table ──────────────────────────── */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr)',
+          gridTemplateColumns: '232px minmax(0, 1fr)',
           background: '#fff',
           minHeight: 480,
         }}
       >
+        <CompassFilterRail
+          filters={filters}
+          onChange={setFilters}
+          portfolios={MOCK_PORTFOLIOS}
+          projects={projects.map((project) => ({
+            id: project.id,
+            name: project.display_name || project.slug,
+          }))}
+          tags={tagsToOptions(tags)}
+          orgs={orgs.map((space) => ({ id: space.id, name: space.display_name || space.slug }))}
+        />
         <div style={{ display: 'grid', gap: 0 }}>
-          {section === 'projects' ? (
-            <ProjectsTable
-              projects={filteredProjects}
-              loading={loading}
-              search={search}
-              onSearchChange={setSearch}
-              onSearchSubmit={() => void refreshSection(section)}
-              onDelete={(project) => setDeleteTarget(project)}
-              busy={busy}
+          {globalQuery.trim() ? (
+            <GlobalSearchResults
+              results={searchResults}
+              loading={searchLoading}
+              query={globalQuery.trim()}
             />
-          ) : null}
+          ) : (
+            <>
+              {section === 'projects' ? (
+                <ProjectsTable
+                  projects={filteredProjects}
+                  loading={loading}
+                  onDelete={(project) => setDeleteTarget(project)}
+                  onRequestAccess={() => setRequestOpen(true)}
+                  busy={busy}
+                  tagsCatalog={tags}
+                  tagsByProject={tagsByProject}
+                  onTagsCatalogChange={() => void refreshTagsCatalog()}
+                  onProjectTagsChange={() => void refreshTagsForVisibleProjects()}
+                />
+              ) : null}
 
-          {section === 'your-files' ? (
-            <ProjectsTable
-              projects={filteredProjects}
-              loading={loading}
-              search={search}
-              onSearchChange={setSearch}
-              onSearchSubmit={() => void refreshSection(section)}
-              onDelete={(project) => setDeleteTarget(project)}
-              busy={busy}
-              ownedHint
-            />
-          ) : null}
+              {section === 'your-files' ? (
+                <ProjectsTable
+                  projects={filteredProjects}
+                  loading={loading}
+                  onDelete={(project) => setDeleteTarget(project)}
+                  onRequestAccess={() => setRequestOpen(true)}
+                  busy={busy}
+                  ownedHint
+                  tagsCatalog={tags}
+                  tagsByProject={tagsByProject}
+                  onTagsCatalogChange={() => void refreshTagsCatalog()}
+                  onProjectTagsChange={() => void refreshTagsForVisibleProjects()}
+                />
+              ) : null}
 
-          {section === 'shared' ? <SharedTable shared={shared} loading={loading} /> : null}
+              {section === 'shared' ? <SharedTable shared={shared} loading={loading} /> : null}
 
-          {section === 'portfolios' ? <PortfoliosPlaceholder /> : null}
-
-          {section === 'trash' ? (
-            <TrashTable
-              entries={trash}
-              loading={busy}
-              onRestore={(entry) => void restore(entry)}
-              onPurge={(entry) => setPurgeTarget(entry)}
-            />
-          ) : null}
+              {section === 'portfolios' ? <PortfoliosPlaceholder /> : null}
+            </>
+          )}
         </div>
       </div>
 
@@ -688,6 +931,257 @@ export function ProjectsListPage() {
 
 // ─── Sub-views ───────────────────────────────────────────────────────────────
 
+const DEFAULT_NAMESPACE = 'Governance Documentation Namespace';
+
+function DocumentIcon({ size = 14, color = '#5f6b7a' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M6 3.5h8l4 4V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z"
+        stroke={color}
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M14 3.5v4h4" stroke={color} strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function NamespaceBreadcrumb({
+  namespace,
+  onClear,
+}: {
+  namespace: string | null;
+  onClear: () => void;
+}) {
+  return (
+    <nav
+      aria-label="Namespace breadcrumb"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        fontSize: 13,
+        color: 'var(--text-strong)',
+        minWidth: 0,
+      }}
+    >
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          color: namespace ? '#2D72D2' : 'var(--text-strong)',
+          cursor: 'default',
+        }}
+      >
+        <DocumentIcon color={namespace ? '#2D72D2' : '#5f6b7a'} />
+        All files
+      </span>
+      {namespace ? (
+        <>
+          <span aria-hidden="true" style={{ color: '#a1a8b3', fontWeight: 400 }}>
+            ›
+          </span>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0,
+              border: '1px solid var(--border-default)',
+              borderRadius: 3,
+              background: '#fff',
+              height: 26,
+              maxWidth: 360,
+              fontSize: 12,
+              color: 'var(--text-strong)',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '0 8px',
+                height: '100%',
+                minWidth: 0,
+              }}
+            >
+              <NamespaceChipIcon size={13} />
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  maxWidth: 260,
+                }}
+                title={namespace}
+              >
+                {namespace}
+              </span>
+            </span>
+            <button
+              type="button"
+              aria-label="Clear namespace breadcrumb"
+              onClick={onClear}
+              style={{
+                border: 0,
+                background: 'transparent',
+                padding: '0 6px',
+                height: '100%',
+                cursor: 'pointer',
+                color: '#5f6b7a',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              <CloseIcon size={11} />
+            </button>
+            <button
+              type="button"
+              aria-label="Choose namespace"
+              style={{
+                border: 0,
+                borderLeft: '1px solid var(--border-default)',
+                background: 'transparent',
+                padding: '0 6px',
+                height: '100%',
+                cursor: 'pointer',
+                color: '#5f6b7a',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              <ChevronDownIcon size={11} />
+            </button>
+          </span>
+        </>
+      ) : null}
+    </nav>
+  );
+}
+
+function NamespaceSelector({
+  name,
+  onChange,
+}: {
+  name: string | null;
+  onChange: (next: string | null) => void;
+}) {
+  if (!name) {
+    return (
+      <button
+        type="button"
+        className="of-button"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12,
+          padding: '4px 10px',
+          color: '#5f6b7a',
+        }}
+        onClick={() => onChange(DEFAULT_NAMESPACE)}
+      >
+        <NamespaceChipIcon />
+        <span>Select namespace</span>
+        <ChevronDownIcon />
+      </button>
+    );
+  }
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0,
+        border: '1px solid var(--border-default)',
+        borderRadius: 3,
+        background: '#fff',
+        height: 28,
+        maxWidth: 320,
+        fontSize: 12,
+        color: 'var(--text-strong)',
+      }}
+    >
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '0 8px',
+          height: '100%',
+          minWidth: 0,
+        }}
+      >
+        <NamespaceChipIcon />
+        <span
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: 220,
+          }}
+          title={name}
+        >
+          {name}
+        </span>
+      </span>
+      <button
+        type="button"
+        aria-label="Clear namespace"
+        onClick={() => onChange(null)}
+        style={{
+          border: 0,
+          background: 'transparent',
+          padding: '0 6px',
+          height: '100%',
+          cursor: 'pointer',
+          color: '#5f6b7a',
+          display: 'inline-flex',
+          alignItems: 'center',
+        }}
+      >
+        <CloseIcon />
+      </button>
+      <button
+        type="button"
+        aria-label="Choose namespace"
+        style={{
+          border: 0,
+          borderLeft: '1px solid var(--border-default)',
+          background: 'transparent',
+          padding: '0 6px',
+          height: '100%',
+          cursor: 'pointer',
+          color: '#5f6b7a',
+          display: 'inline-flex',
+          alignItems: 'center',
+        }}
+      >
+        <ChevronDownIcon />
+      </button>
+      <button
+        type="button"
+        aria-label="Namespace settings"
+        style={{
+          border: 0,
+          borderLeft: '1px solid var(--border-default)',
+          background: 'transparent',
+          padding: '0 8px',
+          height: '100%',
+          cursor: 'pointer',
+          color: '#5f6b7a',
+          display: 'inline-flex',
+          alignItems: 'center',
+        }}
+      >
+        <GearIcon size={13} />
+      </button>
+    </div>
+  );
+}
+
 function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
     <button
@@ -713,121 +1207,374 @@ function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: (
 }
 
 
+type ProjectSortKey = 'name' | 'updated';
+type ProjectSortDir = 'asc' | 'desc';
+
 function ProjectsTable({
   projects,
   loading,
-  search,
-  onSearchChange,
-  onSearchSubmit,
   onDelete,
+  onRequestAccess,
   busy,
   ownedHint,
+  tagsCatalog,
+  tagsByProject,
+  onTagsCatalogChange,
+  onProjectTagsChange,
 }: {
   projects: OntologyProject[];
   loading: boolean;
-  search: string;
-  onSearchChange: (next: string) => void;
-  onSearchSubmit: () => void;
   onDelete: (project: OntologyProject) => void;
+  onRequestAccess: (project: OntologyProject) => void;
   busy: boolean;
   ownedHint?: boolean;
+  tagsCatalog: CompassTag[];
+  tagsByProject: Record<string, CompassTag[]>;
+  onTagsCatalogChange: () => void;
+  onProjectTagsChange: () => void;
 }) {
+  const [sortKey, setSortKey] = useState<ProjectSortKey>('updated');
+  const [sortDir, setSortDir] = useState<ProjectSortDir>('desc');
+
+  const sorted = useMemo(() => {
+    const rows = [...projects];
+    rows.sort((a, b) => {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      if (sortKey === 'name') {
+        return projectName(a).localeCompare(projectName(b)) * dir;
+      }
+      return (
+        (new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()) * dir
+      );
+    });
+    return rows;
+  }, [projects, sortKey, sortDir]);
+
+  function toggleSort(key: ProjectSortKey) {
+    if (key === sortKey) {
+      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDir('desc');
+  }
+
+  if (loading) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center' }}>
+        <span className="of-text-muted">Loading projects...</span>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'grid', gap: 0 }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 8,
-          padding: '10px 22px',
-        }}
-      >
-        <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
-          {ownedHint ? 'Projects where you are the owner.' : 'Open a project to inspect folders, resources, and memberships.'}
-        </p>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSearchSubmit();
-          }}
-          style={{ display: 'flex', gap: 6 }}
+      {ownedHint ? (
+        <p
+          className="of-text-muted"
+          style={{ margin: 0, padding: '10px 22px', fontSize: 12 }}
         >
-          <input
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search projects"
-            className="of-input"
-            style={{ minWidth: 240 }}
-          />
-        </form>
-      </div>
-
-      {loading ? (
-        <div style={{ padding: 32, textAlign: 'center' }}>
-          <span className="of-text-muted">Loading projects...</span>
-        </div>
-      ) : (
-        <table className="of-table">
-          <thead>
+          Projects where you are the owner.
+        </p>
+      ) : null}
+      <table className="of-table compass-files-table">
+        <thead>
+          <tr>
+            <th style={{ paddingLeft: 22 }}>
+              <SortHeader
+                label="File name"
+                active={sortKey === 'name'}
+                dir={sortDir}
+                onClick={() => toggleSort('name')}
+              />
+            </th>
+            <th>
+              <SortHeader
+                label="Last modified"
+                active={sortKey === 'updated'}
+                dir={sortDir}
+                onClick={() => toggleSort('updated')}
+              />
+            </th>
+            <th>Tags</th>
+            <th>Portfolio</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.length === 0 ? (
             <tr>
-              <th style={{ paddingLeft: 22 }}>Name</th>
-              <th>Workspace</th>
-              <th>Owner</th>
-              <th>Updated</th>
-              <th style={{ width: 60 }} aria-label="Actions" />
+              <td colSpan={4} style={{ padding: 40, textAlign: 'center' }}>
+                <span className="of-text-muted">No projects found.</span>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {projects.length === 0 ? (
-              <tr>
-                <td colSpan={5} style={{ padding: 40, textAlign: 'center' }}>
-                  <span className="of-text-muted">No projects found.</span>
-                </td>
-              </tr>
-            ) : (
-              projects.map((project) => (
-                <tr key={project.id}>
-                  <td style={{ paddingLeft: 22 }}>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                      <ProjectGlyphIcon />
-                      <div>
-                        <Link to={projectStablePath(project)} className="of-link">
-                          {projectName(project)}
-                        </Link>
-                        <div className="of-text-soft" style={{ marginTop: 2, fontFamily: 'var(--font-mono)', fontSize: 10 }}>
-                          {project.id} / {project.slug}
-                        </div>
-                        {project.description ? (
-                          <div className="of-text-muted" style={{ marginTop: 4, maxWidth: 520, fontSize: 12 }}>
-                            {project.description}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="of-text-muted">{project.workspace_slug || 'default'}</td>
-                  <td className="of-text-muted">{project.owner_id || '-'}</td>
-                  <td className="of-text-muted">{formatDateTime(project.updated_at)}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="of-button of-button--ghost"
-                      aria-label={`More actions for ${projectName(project)}`}
-                      onClick={() => onDelete(project)}
-                      disabled={busy}
-                      style={{ padding: '4px 6px' }}
-                    >
-                      <MoreIcon />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      )}
+          ) : (
+            sorted.map((project) => (
+              <ProjectsTableRow
+                key={project.id}
+                project={project}
+                busy={busy}
+                onDelete={onDelete}
+                onRequestAccess={onRequestAccess}
+                attachedTags={tagsByProject[project.id] ?? []}
+                tagsCatalog={tagsCatalog}
+                onTagsCatalogChange={onTagsCatalogChange}
+                onProjectTagsChange={onProjectTagsChange}
+              />
+            ))
+          )}
+        </tbody>
+      </table>
     </div>
+  );
+}
+
+function ProjectsTableRow({
+  project,
+  busy,
+  onDelete,
+  onRequestAccess,
+  attachedTags,
+  tagsCatalog,
+  onTagsCatalogChange,
+  onProjectTagsChange,
+}: {
+  project: OntologyProject;
+  busy: boolean;
+  onDelete: (project: OntologyProject) => void;
+  onRequestAccess: (project: OntologyProject) => void;
+  attachedTags: CompassTag[];
+  tagsCatalog: CompassTag[];
+  onTagsCatalogChange: () => void;
+  onProjectTagsChange: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const linkCount = project.references?.length ?? 0;
+  const hasAccess = Boolean(project.owner_id);
+  const updatedDateLabel = formatDateTime(project.updated_at);
+  const updatedRelative = formatRelativeTime(project.updated_at);
+
+  return (
+    <tr
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => {
+        setHover(false);
+        setMenuOpen(false);
+      }}
+      style={{ position: 'relative' }}
+    >
+      <td style={{ paddingLeft: 22 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <ProjectGlyphIcon />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Link to={projectStablePath(project)} className="of-link">
+                {projectName(project)}
+              </Link>
+              {linkCount > 0 ? (
+                <LinkCountBadge count={linkCount} />
+              ) : null}
+            </div>
+            <div
+              className="of-text-soft"
+              style={{
+                marginTop: 2,
+                fontSize: 11,
+                color: '#5f6b7a',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: 520,
+              }}
+            >
+              /{project.workspace_slug || 'workspace'}/{project.slug}
+            </div>
+          </div>
+          <div style={{ flex: 1 }} />
+          {hover ? (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="of-button of-button--ghost"
+                aria-label={`More actions for ${projectName(project)}`}
+                onClick={() => setMenuOpen((value) => !value)}
+                disabled={busy}
+                style={{ padding: '2px 4px' }}
+              >
+                <MoreIcon />
+              </button>
+              {menuOpen ? (
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: 4,
+                    zIndex: 20,
+                    background: '#fff',
+                    border: '1px solid var(--border-default)',
+                    borderRadius: 4,
+                    boxShadow: 'var(--shadow-popover)',
+                    padding: 4,
+                    minWidth: 180,
+                  }}
+                >
+                  <MenuItem
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete(project);
+                    }}
+                  >
+                    Move to trash…
+                  </MenuItem>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </td>
+      <td>
+        {hasAccess ? (
+          <span
+            className="of-text-muted"
+            title={updatedDateLabel === '-' ? undefined : updatedDateLabel}
+            style={{ fontSize: 12 }}
+          >
+            {updatedRelative}
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="of-button"
+            onClick={() => onRequestAccess(project)}
+            style={{ fontSize: 11, padding: '2px 8px' }}
+          >
+            Request access
+          </button>
+        )}
+      </td>
+      <td>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <TagChips tags={attachedTags} max={3} />
+          {hover ? (
+            <TagPicker
+              resourceKind="ontology_project"
+              resourceId={project.id}
+              attached={attachedTags}
+              available={tagsCatalog}
+              onChange={onProjectTagsChange}
+              onTagsCatalogChange={onTagsCatalogChange}
+            />
+          ) : null}
+        </div>
+      </td>
+      <td>
+        <PortfolioCell project={project} />
+      </td>
+    </tr>
+  );
+}
+
+function SortHeader({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  dir: ProjectSortDir;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        background: 'transparent',
+        border: 0,
+        padding: 0,
+        cursor: 'pointer',
+        fontSize: 11,
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        color: 'var(--text-strong)',
+        letterSpacing: 0.2,
+      }}
+    >
+      <span>{label}</span>
+      <SortGlyph active={active} dir={dir} />
+    </button>
+  );
+}
+
+function SortGlyph({ active, dir }: { active: boolean; dir: ProjectSortDir }) {
+  const color = active ? '#2D72D2' : '#a1a8b3';
+  if (!active) {
+    return (
+      <svg width={10} height={10} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M8 10l4-4 4 4M8 14l4 4 4-4" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (dir === 'asc') {
+    return (
+      <svg width={10} height={10} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M7 14l5-5 5 5" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg width={10} height={10} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M7 10l5 5 5-5" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function LinkCountBadge({ count }: { count: number }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 3,
+        padding: '0 5px',
+        height: 16,
+        borderRadius: 8,
+        background: '#eef1f5',
+        color: '#5f6b7a',
+        fontSize: 10,
+        fontWeight: 500,
+      }}
+      title={`${count} reference${count === 1 ? '' : 's'}`}
+    >
+      <svg width={10} height={10} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="3" y="6" width="13" height="13" rx="1.5" stroke="#5f6b7a" strokeWidth="1.6" />
+        <path d="M8 3.5h13v13" stroke="#5f6b7a" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      {count}
+    </span>
+  );
+}
+
+function PortfolioCell({ project: _project }: { project: OntologyProject }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        fontSize: 12,
+        color: 'var(--text-strong)',
+      }}
+    >
+      <FolderClosedIcon size={14} color="#5f6b7a" />
+      <span>Example Portfolio</span>
+    </span>
   );
 }
 
@@ -902,82 +1649,80 @@ function PortfoliosPlaceholder() {
   );
 }
 
-function TrashTable({
-  entries,
+function GlobalSearchResults({
+  results,
   loading,
-  onRestore,
-  onPurge,
+  query,
 }: {
-  entries: TrashEntry[];
+  results: CompassSearchResult[];
   loading: boolean;
-  onRestore: (entry: TrashEntry) => void;
-  onPurge: (entry: TrashEntry) => void;
+  query: string;
 }) {
-  if (loading && entries.length === 0) {
+  if (loading && results.length === 0) {
     return (
       <div style={{ padding: 32, textAlign: 'center' }}>
-        <span className="of-text-muted">Loading trash...</span>
+        <span className="of-text-muted">Searching for "{query}"…</span>
       </div>
     );
   }
   return (
-    <table className="of-table">
-      <thead>
-        <tr>
-          <th style={{ paddingLeft: 22 }}>Resource</th>
-          <th>Deleted by</th>
-          <th>Retention</th>
-          <th style={{ width: 200 }}>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {entries.length === 0 ? (
-          <tr>
-            <td colSpan={4} style={{ padding: 40, textAlign: 'center' }}>
-              <span className="of-text-muted">Trash is empty.</span>
-            </td>
-          </tr>
-        ) : (
-          entries.map((entry) => (
-            <tr key={`${entry.resource_kind}-${entry.resource_id}`}>
-              <td style={{ paddingLeft: 22 }}>
-                <strong style={{ color: 'var(--text-strong)' }}>{entry.display_name || entry.resource_id}</strong>
-                <div className="of-text-soft" style={{ marginTop: 2, fontFamily: 'var(--font-mono)', fontSize: 10 }}>
-                  {formatKind(entry.resource_kind)} / {entry.resource_id}
-                </div>
-              </td>
-              <td className="of-text-muted">{entry.deleted_by ?? 'unknown'}</td>
-              <td className="of-text-muted">
-                {formatDateTime(entry.deleted_at)}
-                <div className="of-text-soft" style={{ marginTop: 2 }}>
-                  {trashRetentionLabel(entry)}
-                </div>
-                {entry.restore_target_status === 'project_root' ? (
-                  <span className="of-chip" style={{ marginTop: 4, background: 'var(--status-warning-bg)', color: 'var(--status-warning)' }}>
-                    Restores to project root
-                  </span>
-                ) : null}
-              </td>
-              <td>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  <button type="button" className="of-button" onClick={() => onRestore(entry)} style={{ fontSize: 11 }}>
-                    Restore
-                  </button>
-                  <button
-                    type="button"
-                    className="of-button of-btn-danger"
-                    onClick={() => onPurge(entry)}
-                    style={{ fontSize: 11 }}
-                  >
-                    Purge
-                  </button>
-                </div>
-              </td>
+    <div>
+      <div style={{ padding: '10px 22px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+          {results.length} result{results.length === 1 ? '' : 's'} for "{query}"
+        </p>
+      </div>
+      {results.length === 0 ? (
+        <div style={{ padding: 40, textAlign: 'center' }}>
+          <span className="of-text-muted">No matching resources.</span>
+        </div>
+      ) : (
+        <table className="of-table">
+          <thead>
+            <tr>
+              <th style={{ paddingLeft: 22 }}>File name</th>
+              <th>Last modified</th>
+              <th>Tags</th>
+              <th>Project</th>
             </tr>
-          ))
-        )}
-      </tbody>
-    </table>
+          </thead>
+          <tbody>
+            {results.map((result) => (
+              <tr key={result.rid}>
+                <td style={{ paddingLeft: 22 }}>
+                  <a href={result.open_url} className="of-link">
+                    {result.display_name}
+                  </a>
+                  <div className="of-text-soft" style={{ marginTop: 2, fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+                    {formatKind(result.type)} / {result.rid}
+                  </div>
+                  {result.snippet ? (
+                    <div className="of-text-muted" style={{ marginTop: 4, maxWidth: 520, fontSize: 12 }}>
+                      {result.snippet}
+                    </div>
+                  ) : null}
+                </td>
+                <td className="of-text-muted">{formatDateTime(result.last_modified_at)}</td>
+                <td>
+                  {result.tags.length === 0 ? (
+                    <span className="of-text-soft">—</span>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {result.tags.map((tag) => (
+                        <span key={tag} className="of-chip" style={{ fontSize: 10 }}>
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </td>
+                <td className="of-text-muted">{result.owning_project_id ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 

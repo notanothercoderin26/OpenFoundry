@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import {
@@ -9,9 +9,17 @@ import {
   getProject,
   listProjectFolders,
   listProjectMemberships,
+  createProjectExternalReference,
+  deleteProjectExternalReference,
+  listProjectExternalReferences,
+  listProjectFileReferences,
   listProjectResources,
   listProjects,
+  pinProjectResource,
   unbindProjectResource,
+  unpinProjectResource,
+  type ProjectExternalReference,
+  type ProjectFileReference,
   updateProject,
   upsertProjectMembership,
   type OntologyProject,
@@ -21,9 +29,11 @@ import {
   type OntologyProjectRole,
 } from '@/lib/api/ontology';
 import {
+  bulkListResourceTags,
   createFavorite,
   deleteFavorite,
   duplicateResource,
+  listCompassTags,
   listFavorites,
   listResourceReferences,
   listTrash,
@@ -32,6 +42,7 @@ import {
   resolveResourceLabels,
   restoreResource,
   softDeleteResource,
+  type CompassTag,
   type ResourceKind,
   type TrashEntry,
 } from '@/lib/api/workspace';
@@ -51,6 +62,7 @@ import { ShareDialog } from '@/lib/components/workspace/ShareDialog';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { ProjectHealthSummary } from '@/lib/components/health/HealthReportsPanel';
 import { ResourcePickerDialog, type ResourcePickerAction } from '@/lib/components/projects/ResourcePickerDialog';
+import { TagChips, TagPicker } from '@/lib/components/projects/TagPicker';
 import { UploadFilesDialog } from '@/lib/components/projects/UploadFilesDialog';
 
 type Tab =
@@ -262,6 +274,28 @@ export function ProjectDetailPage() {
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmReferenceWarning, setConfirmReferenceWarning] = useState('');
   const [trashRowMenu, setTrashRowMenu] = useState<string | null>(null);
+  const [headerGearOpen, setHeaderGearOpen] = useState(false);
+  const [tagsCatalog, setTagsCatalog] = useState<CompassTag[]>([]);
+  const [tagsByResource, setTagsByResource] = useState<Record<string, CompassTag[]>>({});
+  const [fileReferences, setFileReferences] = useState<ProjectFileReference[]>([]);
+  const [externalReferences, setExternalReferences] = useState<ProjectExternalReference[]>([]);
+  const headerGearRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!headerGearOpen) return;
+    function onClickOutside(event: MouseEvent) {
+      if (!headerGearRef.current?.contains(event.target as Node)) setHeaderGearOpen(false);
+    }
+    function onEsc(event: KeyboardEvent) {
+      if (event.key === 'Escape') setHeaderGearOpen(false);
+    }
+    window.addEventListener('mousedown', onClickOutside);
+    window.addEventListener('keydown', onEsc);
+    return () => {
+      window.removeEventListener('mousedown', onClickOutside);
+      window.removeEventListener('keydown', onEsc);
+    };
+  }, [headerGearOpen]);
 
   async function refreshFolders(projectRid = project?.id) {
     if (!projectRid) return;
@@ -378,6 +412,56 @@ export function ProjectDetailPage() {
     setHighlightedKey(null);
   }, [tab]);
 
+  useEffect(() => {
+    void refreshTagsCatalog();
+  }, []);
+
+  useEffect(() => {
+    const items = resources.map((binding) => ({
+      kind: binding.resource_kind,
+      id: binding.resource_id,
+    }));
+    void refreshTagsForResources(items);
+  }, [resources]);
+
+  useEffect(() => {
+    if (!project) return;
+    if (tab !== 'file-references' && tab !== 'external-references') return;
+    void (async () => {
+      try {
+        if (tab === 'file-references') {
+          const res = await listProjectFileReferences(project.id);
+          setFileReferences(res.data ?? []);
+        } else {
+          const res = await listProjectExternalReferences(project.id);
+          setExternalReferences(res.data ?? []);
+        }
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Failed to load references');
+      }
+    })();
+  }, [project, tab]);
+
+  async function addExternalReference(body: { label: string; url: string; description?: string }) {
+    if (!project) return;
+    try {
+      const ref = await createProjectExternalReference(project.id, body);
+      setExternalReferences((current) => [ref, ...current]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to add external reference');
+    }
+  }
+
+  async function removeExternalReference(referenceId: string) {
+    if (!project) return;
+    try {
+      await deleteProjectExternalReference(project.id, referenceId);
+      setExternalReferences((current) => current.filter((ref) => ref.id !== referenceId));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to delete external reference');
+    }
+  }
+
   const projectIsFavorite = useMemo(() => (
     project ? favoriteKeys.has(resourceKey('ontology_project', project.id)) : false
   ), [favoriteKeys, project]);
@@ -440,6 +524,16 @@ export function ProjectDetailPage() {
     return [...filteredFolders, ...resourceRows];
   }, [folders, filteredResources, search]);
 
+  const autosavedRows = useMemo<RowItem[]>(() => {
+    const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
+    return filteredResources
+      .filter((resource) => {
+        const created = Date.parse(resource.binding.created_at);
+        return Number.isFinite(created) && created >= cutoffMs;
+      })
+      .map((resource) => ({ kind: 'resource', resource }));
+  }, [filteredResources]);
+
   const highlightedRow = useMemo<ProjectResourceView | null>(() => {
     if (!highlightedKey) return null;
     return projectResources.find((entry) => resourceKey(entry.binding.resource_kind, entry.binding.resource_id) === highlightedKey) ?? null;
@@ -494,6 +588,49 @@ export function ProjectDetailPage() {
       await refreshFavorites();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Favorite update failed');
+    }
+  }
+
+  async function refreshTagsCatalog() {
+    try {
+      const res = await listCompassTags();
+      setTagsCatalog(res.data ?? []);
+    } catch {
+      // best effort
+    }
+  }
+
+  async function refreshTagsForResources(items: Array<{ kind: string; id: string }>) {
+    if (items.length === 0) {
+      setTagsByResource({});
+      return;
+    }
+    try {
+      const res = await bulkListResourceTags(
+        items.map((item) => ({ resource_kind: item.kind as ResourceKind, resource_id: item.id })),
+      );
+      const next: Record<string, CompassTag[]> = {};
+      for (const entry of res.data ?? []) {
+        next[resourceKey(entry.resource_kind, entry.resource_id)] = entry.tags;
+      }
+      setTagsByResource(next);
+    } catch {
+      // best effort
+    }
+  }
+
+  async function toggleResourcePin(resource: ProjectResourceView) {
+    if (!project) return;
+    const isPinned = Boolean(resource.binding.pinned_at);
+    try {
+      if (isPinned) {
+        await unpinProjectResource(project.id, resource.binding.resource_kind, resource.binding.resource_id);
+      } else {
+        await pinProjectResource(project.id, resource.binding.resource_kind, resource.binding.resource_id);
+      }
+      await refreshResources(project.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Pin update failed');
     }
   }
 
@@ -792,15 +929,6 @@ export function ProjectDetailPage() {
     );
   }
 
-  const tabContext: 'files' | 'references' | 'catalog' | 'trash' | 'cover' | 'members' = (() => {
-    if (tab === 'cover-page') return 'cover';
-    if (tab === 'files' || tab === 'autosaved') return 'files';
-    if (tab === 'catalog') return 'catalog';
-    if (tab === 'file-references' || tab === 'external-references') return 'references';
-    if (tab === 'memberships') return 'members';
-    return 'trash';
-  })();
-
   return (
     <section
       className="of-page"
@@ -818,152 +946,136 @@ export function ProjectDetailPage() {
         style={{
           background: '#fff',
           borderBottom: '1px solid var(--border-default)',
-          padding: '14px 24px 14px 24px',
+          padding: '10px 24px 10px 24px',
           display: 'flex',
-          gap: 16,
-          alignItems: 'flex-start',
+          gap: 12,
+          alignItems: 'center',
           justifyContent: 'space-between',
         }}
       >
-        <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+        <div style={{ minWidth: 0, flex: '1 1 auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           <ProjectBreadcrumb items={breadcrumbItems} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{
+          <button
+            type="button"
+            aria-label={projectIsFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            onClick={() => void toggleProjectFavorite()}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 2,
+              color: projectIsFavorite ? '#f0b323' : '#8a96a6',
               display: 'inline-flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              width: 28,
-              height: 28,
-              border: '1px solid #c5cdd9',
-              borderRadius: 4,
-              background: '#f3f5f7',
-            }}>
-              <Glyph name="cover-page" size={16} tone="#5c7080" />
-            </span>
-            <h1 style={{
-              margin: 0,
-              fontSize: 22,
-              fontWeight: 600,
-              color: '#1c2127',
-              letterSpacing: '-0.01em',
-            }}>
-              {project.display_name || project.slug}
-            </h1>
+            }}
+          >
+            <Glyph
+              name={projectIsFavorite ? 'star-filled' : 'star'}
+              size={16}
+              tone={projectIsFavorite ? '#f0b323' : '#8a96a6'}
+            />
+          </button>
+          <div style={{ position: 'relative' }} ref={headerGearRef}>
             <button
               type="button"
-              aria-label={projectIsFavorite ? 'Remove from favorites' : 'Add to favorites'}
-              onClick={() => void toggleProjectFavorite()}
+              aria-label="Project settings"
+              aria-haspopup="menu"
+              aria-expanded={headerGearOpen}
+              onClick={() => setHeaderGearOpen((value) => !value)}
               style={{
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 padding: 2,
-                color: projectIsFavorite ? '#f0b323' : '#8a96a6',
+                color: '#5c7080',
                 display: 'inline-flex',
                 alignItems: 'center',
               }}
             >
-              <Glyph
-                name={projectIsFavorite ? 'star-filled' : 'star'}
-                size={18}
-                tone={projectIsFavorite ? '#f0b323' : '#8a96a6'}
-              />
+              <Glyph name="settings" size={16} tone="#5c7080" />
             </button>
+            {headerGearOpen ? (
+              <div
+                role="menu"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: 6,
+                  zIndex: 30,
+                  minWidth: 220,
+                  background: '#fff',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 4,
+                  boxShadow: 'var(--shadow-popover)',
+                  padding: 4,
+                }}
+              >
+                <ProjectGearMenuItem
+                  icon="users"
+                  label="Share"
+                  onClick={() => {
+                    setHeaderGearOpen(false);
+                    if (projectShareSummary) setShareTarget(projectShareSummary);
+                  }}
+                />
+                <div style={{ padding: '2px 4px' }}>
+                  <OpenWithMenu
+                    resourceKind="ontology_project"
+                    resourceId={project.id}
+                    resourceRid={projectShareSummary?.rid}
+                    projectId={project.id}
+                    projectRid={projectShareSummary?.project_rid}
+                  />
+                </div>
+                <ProjectGearMenuItem
+                  icon="badge-check"
+                  iconTone="#0f6a32"
+                  label="Project Catalog"
+                  onClick={() => {
+                    setHeaderGearOpen(false);
+                    setTab('catalog');
+                  }}
+                />
+                <ProjectGearMenuItem
+                  icon="users"
+                  label="Memberships"
+                  onClick={() => {
+                    setHeaderGearOpen(false);
+                    setTab('memberships');
+                  }}
+                />
+                <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 4px' }} />
+                <ProjectGearMenuItem
+                  icon="trash"
+                  label="Move to trash…"
+                  danger
+                  disabled={busy}
+                  onClick={() => {
+                    setHeaderGearOpen(false);
+                    setConfirm({ kind: 'project-delete' });
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
-          <p style={{ margin: '4px 0 0 38px', fontSize: 13, color: '#5c7080' }}>
-            {project.description || 'No description.'}
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-          {tabContext === 'references' && (
-            <button
-              type="button"
-              className="of-button of-button--primary"
-              onClick={() => setCreateMode('reference')}
-            >
-              <Glyph name="plus" size={13} />
-              Add reference
-            </button>
-          )}
-          {(tabContext === 'files' || tabContext === 'cover') && (
-            <button
-              type="button"
-              className="of-button of-button--success"
-              onClick={() => setShowCreateMenu((value) => !value)}
-            >
-              <Glyph name="plus" size={13} />
-              New
-              <Glyph name="chevron-down" size={11} />
-            </button>
-          )}
-          {tabContext === 'members' && (
-            <button
-              type="button"
-              className="of-button of-button--primary"
-              onClick={() => setCreateMode('binding')}
-            >
-              <Glyph name="add-user" size={14} />
-              Add member
-            </button>
-          )}
-          <button
-            type="button"
-            className="of-button of-button--ghost"
-            aria-label="Toggle list view"
-            style={{
-              padding: 4,
-              minHeight: 30,
-              width: 30,
-              border: '1px solid #c5cdd9',
-              borderRadius: 4,
-            }}
-          >
-            <Glyph name="view-grid" size={16} tone="#5c7080" />
-          </button>
-          <button
-            type="button"
-            onClick={() => projectShareSummary && setShareTarget(projectShareSummary)}
-            className="of-button"
-            aria-label="Share project"
-          >
-            <Glyph name="users" size={14} />
-            Share
-          </button>
-          <OpenWithMenu
-            resourceKind="ontology_project"
-            resourceId={project.id}
-            resourceRid={projectShareSummary?.rid}
-            projectId={project.id}
-            projectRid={projectShareSummary?.project_rid}
-          />
-          <button
-            type="button"
-            onClick={() => setConfirm({ kind: 'project-delete' })}
-            disabled={busy}
-            className="of-button"
-            style={{ color: 'var(--status-danger)', borderColor: '#d6a9a9' }}
-            aria-label="Delete project"
-          >
-            <Glyph name="trash" size={14} />
-          </button>
-
-          <ResourcePickerDialog
-            open={showCreateMenu}
-            onClose={() => setShowCreateMenu(false)}
-            onPick={handleResourcePick}
-          />
-
-          <UploadFilesDialog
-            open={uploadOpen}
-            projectId={project?.id ?? null}
-            onClose={() => setUploadOpen(false)}
-            onUploaded={() => {
-              if (project) void refreshResources(project.id);
-            }}
-          />
         </div>
       </header>
+
+      <ResourcePickerDialog
+        open={showCreateMenu}
+        onClose={() => setShowCreateMenu(false)}
+        onPick={handleResourcePick}
+      />
+
+      <UploadFilesDialog
+        open={uploadOpen}
+        projectId={project?.id ?? null}
+        onClose={() => setUploadOpen(false)}
+        onUploaded={() => {
+          if (project) void refreshResources(project.id);
+        }}
+      />
 
       {error && (
         <div className="of-status-danger" style={{ padding: '10px 24px', fontSize: 13 }}>
@@ -985,15 +1097,22 @@ export function ProjectDetailPage() {
             borderRight: '1px solid var(--border-default)',
             display: 'flex',
             flexDirection: 'column',
-            padding: '14px 8px 0 8px',
+            padding: '14px 8px 14px 8px',
           }}
         >
-          <SidebarSectionHeader
-            title="Preview"
-            subtitle="Visible to others"
-            count={1}
-            badge={<Glyph name="eye" size={14} tone="#5c7080" />}
-          />
+          <p
+            style={{
+              margin: '0 10px 14px',
+              fontSize: 12,
+              fontStyle: 'italic',
+              color: '#8a96a6',
+              lineHeight: 1.4,
+            }}
+          >
+            {project.description || 'No description.'}
+          </p>
+
+          <SidebarSectionHeader title="Preview" count={1} />
           <SidebarItem
             id="cover-page"
             label="Cover page"
@@ -1002,12 +1121,7 @@ export function ProjectDetailPage() {
             onClick={() => setTab('cover-page')}
           />
 
-          <SidebarSectionHeader
-            title="Project workspace"
-            subtitle="Members only"
-            count={1}
-            style={{ marginTop: 14 }}
-          />
+          <SidebarSectionHeader title="Project" count={1} style={{ marginTop: 14 }} />
           <SidebarItem
             id="files"
             label="Files"
@@ -1022,14 +1136,6 @@ export function ProjectDetailPage() {
             icon="autosaved"
             active={tab === 'autosaved'}
             onClick={() => setTab('autosaved')}
-          />
-          <SidebarItem
-            id="catalog"
-            label="Project Catalog"
-            icon="badge-check"
-            iconTone="#0f6a32"
-            active={tab === 'catalog'}
-            onClick={() => setTab('catalog')}
           />
           <SidebarItem
             id="references"
@@ -1079,14 +1185,6 @@ export function ProjectDetailPage() {
             active={tab === 'trash'}
             onClick={() => setTab('trash')}
           />
-          <SidebarItem
-            id="memberships"
-            label="Memberships"
-            icon="users"
-            iconTone="#5c7080"
-            active={tab === 'memberships'}
-            onClick={() => setTab('memberships')}
-          />
 
           <div style={{ height: 1, background: 'var(--border-subtle)', margin: '14px 4px' }} />
 
@@ -1106,30 +1204,6 @@ export function ProjectDetailPage() {
             external
             onClick={() => setPermissionsTarget(projectShareSummary)}
           />
-
-          <div style={{ marginTop: 'auto', padding: '14px 6px 14px 6px' }}>
-            <button
-              type="button"
-              style={{
-                width: '100%',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                padding: '8px 12px',
-                background: 'transparent',
-                border: 'none',
-                color: '#3f7be0',
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: 'pointer',
-                borderRadius: 4,
-              }}
-            >
-              <Glyph name="sparkles" size={14} tone="#3f7be0" />
-              Take a project tour
-            </button>
-          </div>
         </aside>
 
         <main style={{ flex: '1 1 auto', minWidth: 0, background: '#fff', display: 'flex', flexDirection: 'column' }}>
@@ -1210,7 +1284,7 @@ export function ProjectDetailPage() {
               tabKey={tab}
               project={project}
               folders={folders}
-              fileRows={tab === 'autosaved' ? [] : fileRows}
+              fileRows={tab === 'autosaved' ? autosavedRows : fileRows}
               search={search}
               onSearchChange={setSearch}
               kindFilter={kindFilter}
@@ -1234,6 +1308,17 @@ export function ProjectDetailPage() {
               onDuplicate={(row) => void duplicate(row)}
               favoriteKeys={favoriteKeys}
               onToggleFavorite={(row) => void toggleResourceFavorite(row)}
+              onTogglePin={(row) => void toggleResourcePin(row)}
+              onNewResource={() => setShowCreateMenu(true)}
+              onRefresh={() => void refreshResources(project.id)}
+              tagsCatalog={tagsCatalog}
+              tagsByResource={tagsByResource}
+              onTagsCatalogChange={() => void refreshTagsCatalog()}
+              onResourceTagsChange={() => {
+                void refreshTagsForResources(
+                  resources.map((binding) => ({ kind: binding.resource_kind, id: binding.resource_id })),
+                );
+              }}
             />
           )}
 
@@ -1246,19 +1331,14 @@ export function ProjectDetailPage() {
           )}
 
           {tab === 'file-references' && (
-            <PlaceholderView
-              icon="link"
-              title="File references"
-              message="Inbound references from datasets, notebooks and apps in other projects appear here. Use the Add reference action above to include a resource hosted in another project without copying it."
-              cta={{ label: 'Add reference', onClick: () => setCreateMode('reference') }}
-            />
+            <FileReferencesView references={fileReferences} />
           )}
 
           {tab === 'external-references' && (
-            <PlaceholderView
-              icon="external-link"
-              title="External references"
-              message="External references reach back into other Foundry-compatible domains and include datasets, dashboards or apps that consume this project's outputs."
+            <ExternalReferencesView
+              references={externalReferences}
+              onAdd={(body) => void addExternalReference(body)}
+              onRemove={(id) => void removeExternalReference(id)}
             />
           )}
 
@@ -1532,6 +1612,50 @@ function ProjectTopTabs() {
   );
 }
 
+function ProjectGearMenuItem({
+  icon,
+  iconTone,
+  label,
+  danger,
+  disabled,
+  onClick,
+}: {
+  icon: GlyphName;
+  iconTone?: string;
+  label: string;
+  danger?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  const color = danger ? 'var(--status-danger)' : '#1c2127';
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        width: '100%',
+        textAlign: 'left',
+        border: 0,
+        background: 'transparent',
+        padding: '6px 10px',
+        fontSize: 12,
+        color,
+        borderRadius: 3,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+      }}
+    >
+      <Glyph name={icon} size={13} tone={danger ? 'var(--status-danger)' : iconTone ?? '#5c7080'} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
 function SidebarSectionHeader({
   title,
   subtitle,
@@ -1742,6 +1866,13 @@ interface FilesViewProps {
   onDuplicate: (row: ProjectResourceView) => void;
   favoriteKeys: Set<string>;
   onToggleFavorite: (row: ProjectResourceView) => void;
+  onTogglePin: (row: ProjectResourceView) => void;
+  onNewResource: () => void;
+  onRefresh: () => void;
+  tagsCatalog: CompassTag[];
+  tagsByResource: Record<string, CompassTag[]>;
+  onTagsCatalogChange: () => void;
+  onResourceTagsChange: () => void;
 }
 
 function FilesView(props: FilesViewProps) {
@@ -1770,10 +1901,37 @@ function FilesView(props: FilesViewProps) {
     onDuplicate,
     favoriteKeys,
     onToggleFavorite,
+    onTogglePin,
+    onNewResource,
+    onRefresh,
+    tagsCatalog,
+    tagsByResource,
+    onTagsCatalogChange,
+    onResourceTagsChange,
   } = props;
+
+  const pinnedResources = useMemo<ProjectResourceView[]>(
+    () =>
+      fileRows
+        .filter((row): row is Extract<RowItem, { kind: 'resource' }> => row.kind === 'resource')
+        .map((row) => row.resource)
+        .filter((resource) => Boolean(resource.binding.pinned_at)),
+    [fileRows],
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      {tabKey === 'files' ? (
+        <>
+          <PinnedBanner
+            pinned={pinnedResources}
+            onOpen={onOpenResource}
+            onUnpin={onTogglePin}
+          />
+          <FilesAreaHeader onNewResource={onNewResource} onRefresh={onRefresh} />
+        </>
+      ) : null}
+
       <FilesToolbar
         highlighted={highlighted}
         project={project}
@@ -1800,22 +1958,20 @@ function FilesView(props: FilesViewProps) {
             <col style={{ width: 'auto' }} />
             <col style={{ width: 220 }} />
             <col style={{ width: 200 }} />
-            <col style={{ width: 58 }} />
           </colgroup>
           <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
             <tr>
               <th>Name</th>
               <th>Last updated</th>
               <th>Tags</th>
-              <th />
             </tr>
           </thead>
           <tbody>
             {tabKey === 'autosaved' && fileRows.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ padding: '40px 24px', textAlign: 'center' }}>
+                <td colSpan={3} style={{ padding: '40px 24px', textAlign: 'center' }}>
                   <span className="of-text-muted">
-                    No autosaved drafts yet. Foundry-style autosaves of in-progress notebooks, dashboards and apps appear here.
+                    No autosaved drafts in the last 24 hours. New resources bound to this project surface here until they are organized into folders.
                   </span>
                 </td>
               </tr>
@@ -1823,7 +1979,7 @@ function FilesView(props: FilesViewProps) {
 
             {tabKey === 'files' && fileRows.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ padding: '40px 24px', textAlign: 'center' }}>
+                <td colSpan={3} style={{ padding: '40px 24px', textAlign: 'center' }}>
                   <span className="of-text-muted">No files. Use the New button to create folders or bind resources.</span>
                 </td>
               </tr>
@@ -1845,20 +2001,314 @@ function FilesView(props: FilesViewProps) {
               const key = resourceKey(row.resource.binding.resource_kind, row.resource.binding.resource_id);
               const isHighlighted = highlighted && resourceKey(highlighted.binding.resource_kind, highlighted.binding.resource_id) === key;
               const isFavorite = favoriteKeys.has(resourceKey(row.resource.summary.kind, row.resource.summary.id));
+              const isPinned = Boolean(row.resource.binding.pinned_at);
+              const attachedTags =
+                tagsByResource[resourceKey(row.resource.summary.kind, row.resource.summary.id)] ?? [];
               return (
                 <ResourceRow
                   key={key}
                   resource={row.resource}
                   highlighted={!!isHighlighted}
                   isFavorite={isFavorite}
+                  isPinned={isPinned}
                   onSingleClick={() => onHighlight(row.resource)}
                   onDoubleClick={() => onOpenResource(row.resource)}
                   onToggleFavorite={() => onToggleFavorite(row.resource)}
+                  onTogglePin={() => onTogglePin(row.resource)}
+                  attachedTags={attachedTags}
+                  tagsCatalog={tagsCatalog}
+                  onTagsCatalogChange={onTagsCatalogChange}
+                  onResourceTagsChange={onResourceTagsChange}
                 />
               );
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function PinnedBanner({
+  pinned,
+  onOpen,
+  onUnpin,
+}: {
+  pinned: ProjectResourceView[];
+  onOpen: (resource: ProjectResourceView) => void;
+  onUnpin: (resource: ProjectResourceView) => void;
+}) {
+  const count = pinned.length;
+  const empty = count === 0;
+  return (
+    <div
+      style={{
+        background: '#eef2f6',
+        borderBottom: '1px solid var(--border-subtle)',
+      }}
+    >
+      <div
+        style={{
+          padding: '10px 24px 6px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        <span aria-hidden="true" style={{ display: 'inline-flex', color: '#5c7080' }}>
+          <Glyph name="bookmark" size={14} tone="#5c7080" />
+        </span>
+        <strong style={{ fontSize: 13, color: '#1c2127' }}>Pinned</strong>
+        <span style={{ color: '#5c7080', fontSize: 12 }}>·</span>
+        <span style={{ color: '#5c7080', fontSize: 12 }}>
+          {empty
+            ? 'Pin items to surface them here.'
+            : 'The most important files in this project'}
+        </span>
+        <span style={{ flex: 1 }} />
+        <span style={{ color: '#5c7080', fontSize: 12 }}>
+          {count} {count === 1 ? 'item' : 'items'}
+        </span>
+      </div>
+      {empty ? null : (
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            overflowX: 'auto',
+            padding: '6px 24px 14px',
+          }}
+        >
+          {pinned.map((resource) => (
+            <PinnedCard
+              key={`${resource.binding.resource_kind}:${resource.binding.resource_id}`}
+              resource={resource}
+              onOpen={() => onOpen(resource)}
+              onUnpin={() => onUnpin(resource)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PinnedCard({
+  resource,
+  onOpen,
+  onUnpin,
+}: {
+  resource: ProjectResourceView;
+  onOpen: () => void;
+  onUnpin: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const tone = RESOURCE_KIND_TONE[resource.summary.kind];
+  const glyph = RESOURCE_KIND_GLYPH[resource.summary.kind];
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        position: 'relative',
+        minWidth: 200,
+        maxWidth: 220,
+        background: '#fff',
+        border: '1px solid #d6dde6',
+        borderRadius: 4,
+        padding: '8px 10px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+        cursor: 'pointer',
+        boxShadow: hover ? '0 2px 6px rgba(15, 30, 60, 0.08)' : 'none',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Glyph name={glyph} size={14} tone={tone} />
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: '#1c2127',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+          }}
+        >
+          {resource.summary.name}
+        </span>
+        {hover ? (
+          <button
+            type="button"
+            aria-label="Unpin from project"
+            title="Unpin from project"
+            onClick={(event) => {
+              event.stopPropagation();
+              onUnpin();
+            }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              color: '#5c7080',
+            }}
+          >
+            <PinGlyph size={12} color="#2D72D2" filled />
+          </button>
+        ) : null}
+      </div>
+      <span
+        style={{
+          fontSize: 11,
+          color: '#5c7080',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {RESOURCE_KIND_LABELS[resource.summary.kind]}
+      </span>
+    </div>
+  );
+}
+
+function FilesAreaHeader({
+  onNewResource,
+  onRefresh,
+}: {
+  onNewResource: () => void;
+  onRefresh: () => void;
+}) {
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!actionsOpen) return;
+    function onClickOutside(event: MouseEvent) {
+      if (!actionsRef.current?.contains(event.target as Node)) setActionsOpen(false);
+    }
+    function onEsc(event: KeyboardEvent) {
+      if (event.key === 'Escape') setActionsOpen(false);
+    }
+    window.addEventListener('mousedown', onClickOutside);
+    window.addEventListener('keydown', onEsc);
+    return () => {
+      window.removeEventListener('mousedown', onClickOutside);
+      window.removeEventListener('keydown', onEsc);
+    };
+  }, [actionsOpen]);
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '12px 24px',
+        background: '#fff',
+        borderBottom: '1px solid var(--border-subtle)',
+      }}
+    >
+      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#1c2127' }}>Files</h2>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ position: 'relative' }} ref={actionsRef}>
+          <button
+            type="button"
+            onClick={() => setActionsOpen((value) => !value)}
+            aria-haspopup="menu"
+            aria-expanded={actionsOpen}
+            className="of-button"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12,
+              color: '#5c7080',
+            }}
+          >
+            Actions
+            <Glyph name="chevron-down" size={11} tone="#5c7080" />
+          </button>
+          {actionsOpen ? (
+            <div
+              role="menu"
+              style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: 4,
+                zIndex: 30,
+                minWidth: 180,
+                background: '#fff',
+                border: '1px solid var(--border-default)',
+                borderRadius: 4,
+                boxShadow: 'var(--shadow-popover)',
+                padding: 4,
+              }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setActionsOpen(false);
+                  onRefresh();
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  border: 0,
+                  background: 'transparent',
+                  padding: '6px 10px',
+                  fontSize: 12,
+                  color: '#1c2127',
+                  borderRadius: 3,
+                  cursor: 'pointer',
+                }}
+              >
+                Refresh
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={onNewResource}
+          className="of-button"
+          style={{
+            paddingLeft: 10,
+            paddingRight: 10,
+            gap: 6,
+            background: '#137F4D',
+            borderColor: '#0F6A3F',
+            color: '#fff',
+            fontWeight: 600,
+          }}
+          onMouseEnter={(event) => {
+            event.currentTarget.style.background = '#0F6A3F';
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.background = '#137F4D';
+          }}
+        >
+          <Glyph name="plus" size={13} />
+          New
+          <Glyph name="chevron-down" size={11} />
+        </button>
       </div>
     </div>
   );
@@ -2054,17 +2504,7 @@ function FolderRow({
       </td>
       <td className="of-text-muted" style={{ fontSize: 12 }}>{fmtDate(folder.updated_at)}</td>
       <td className="of-text-muted">
-        {folder.description ? <span className="of-chip">{folder.description}</span> : null}
-      </td>
-      <td style={{ textAlign: 'right' }}>
-        <OpenWithMenu
-          compact
-          resourceKind="ontology_folder"
-          resourceId={folder.id}
-          resourceRid={folder.rid}
-          projectId={project.id}
-          projectRid={folder.project_rid}
-        />
+        <span style={{ fontSize: 12, color: '#a1a8b3' }}>—</span>
       </td>
     </tr>
   );
@@ -2074,23 +2514,39 @@ function ResourceRow({
   resource,
   highlighted,
   isFavorite,
+  isPinned,
   onSingleClick,
   onDoubleClick,
   onToggleFavorite,
+  onTogglePin,
+  attachedTags,
+  tagsCatalog,
+  onTagsCatalogChange,
+  onResourceTagsChange,
 }: {
   resource: ProjectResourceView;
   highlighted: boolean;
   isFavorite: boolean;
+  isPinned: boolean;
   onSingleClick: () => void;
   onDoubleClick: () => void;
   onToggleFavorite: () => void;
+  onTogglePin: () => void;
+  attachedTags: CompassTag[];
+  tagsCatalog: CompassTag[];
+  onTagsCatalogChange: () => void;
+  onResourceTagsChange: () => void;
 }) {
+  const [hover, setHover] = useState(false);
   const tone = RESOURCE_KIND_TONE[resource.summary.kind];
   const glyph = RESOURCE_KIND_GLYPH[resource.summary.kind];
+  const pinIconColor = isPinned ? '#2D72D2' : highlighted ? 'rgba(255,255,255,0.6)' : '#c5cdd9';
   return (
     <tr
       onClick={onSingleClick}
       onDoubleClick={onDoubleClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       style={{
         cursor: 'pointer',
         background: highlighted ? ROW_HIGHLIGHT_BG : undefined,
@@ -2115,6 +2571,24 @@ function ResourceRow({
           >
             <Glyph name={isFavorite ? 'star-filled' : 'star'} size={13} tone={isFavorite ? '#f0b323' : highlighted ? 'rgba(255,255,255,0.6)' : '#c5cdd9'} />
           </button>
+          {(hover || isPinned) ? (
+            <button
+              type="button"
+              onClick={(event) => { event.stopPropagation(); onTogglePin(); }}
+              aria-label={isPinned ? 'Unpin from project' : 'Pin to project'}
+              title={isPinned ? 'Unpin from project' : 'Pin to project'}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              <PinGlyph size={13} color={pinIconColor} filled={isPinned} />
+            </button>
+          ) : null}
         </div>
         <div
           style={{
@@ -2131,31 +2605,40 @@ function ResourceRow({
         {fmtDate(resource.summary.updated_at)}
       </td>
       <td>
-        <span
-          className="of-chip"
-          style={{ background: highlighted ? 'rgba(255,255,255,0.16)' : undefined, color: highlighted ? '#fff' : undefined }}
+        <div
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          onClick={(event) => event.stopPropagation()}
         >
-          {RESOURCE_KIND_LABELS[resource.summary.kind]}
-        </span>
-      </td>
-      <td
-        style={{
-          textAlign: 'right',
-          color: highlighted ? '#fff' : undefined,
-        }}
-      >
-        <OpenWithMenu
-          compact
-          resourceKind={resource.summary.kind}
-          resourceId={resource.summary.id}
-          resourceRid={resource.summary.rid}
-          projectId={resource.summary.project_id}
-          projectRid={resource.summary.project_rid}
-          openUrl={resource.summary.open_url}
-          onOpen={() => onDoubleClick()}
-        />
+          <TagChips tags={attachedTags} max={3} />
+          {hover ? (
+            <TagPicker
+              resourceKind={resource.summary.kind}
+              resourceId={resource.summary.id}
+              attached={attachedTags}
+              available={tagsCatalog}
+              onChange={onResourceTagsChange}
+              onTagsCatalogChange={onTagsCatalogChange}
+            />
+          ) : null}
+        </div>
       </td>
     </tr>
+  );
+}
+
+function PinGlyph({ size = 14, color = '#5c7080', filled = false }: { size?: number; color?: string; filled?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M14.5 3l6.5 6.5-2.5 2.5-1.5-1L13 15l1.5 1.5L12 19l-7-7 2.5-2.5L9 11l4-4-1-1.5L14.5 3z"
+        stroke={color}
+        fill={filled ? color : 'none'}
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M9.5 14.5L5 19" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -2204,6 +2687,235 @@ function PlaceholderView({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function FileReferencesView({ references }: { references: ProjectFileReference[] }) {
+  if (references.length === 0) {
+    return (
+      <PlaceholderView
+        icon="link"
+        title="No file references"
+        message="Cross-project resource dependencies show up here. Bind a resource owned by another project to surface it without copying."
+      />
+    );
+  }
+  return (
+    <div style={{ padding: '14px 24px', overflow: 'auto', flex: 1 }}>
+      <table className="of-table">
+        <thead>
+          <tr>
+            <th style={{ width: 80 }}>Direction</th>
+            <th>Resource</th>
+            <th>Owning project</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {references.map((ref) => (
+            <tr key={`${ref.direction}:${ref.resource_kind}:${ref.resource_id}:${ref.local_kind}:${ref.local_id}`}>
+              <td>
+                <span
+                  className="of-chip"
+                  style={{
+                    background: ref.direction === 'depends_on' ? '#e3eefc' : '#fdecd6',
+                    color: ref.direction === 'depends_on' ? '#1a4f9e' : '#8b5800',
+                    fontSize: 11,
+                  }}
+                >
+                  {ref.direction === 'depends_on' ? 'Depends on' : 'Used by'}
+                </span>
+              </td>
+              <td>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Glyph
+                    name={RESOURCE_KIND_GLYPH[toResourceKind(ref.resource_kind)]}
+                    size={14}
+                    tone={RESOURCE_KIND_TONE[toResourceKind(ref.resource_kind)]}
+                  />
+                  <span style={{ fontWeight: 500 }}>{ref.resource_id}</span>
+                </div>
+                <div className="of-text-soft" style={{ fontSize: 11, marginTop: 2 }}>
+                  {ref.relationship}
+                </div>
+              </td>
+              <td>
+                <Link
+                  to={`/projects/${ref.owning_project_id}`}
+                  className="of-link"
+                  style={{ fontSize: 12 }}
+                >
+                  {ref.owning_project_id}
+                </Link>
+              </td>
+              <td className="of-text-muted" style={{ fontSize: 12 }}>
+                {fmtDate(ref.created_at)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ExternalReferencesView({
+  references,
+  onAdd,
+  onRemove,
+}: {
+  references: ProjectExternalReference[];
+  onAdd: (body: { label: string; url: string; description?: string }) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [addOpen, setAddOpen] = useState(false);
+  const [label, setLabel] = useState('');
+  const [url, setUrl] = useState('');
+  const [description, setDescription] = useState('');
+
+  function submit() {
+    const trimmedLabel = label.trim();
+    const trimmedUrl = url.trim();
+    if (!trimmedLabel || !trimmedUrl) return;
+    onAdd({ label: trimmedLabel, url: trimmedUrl, description: description.trim() });
+    setLabel('');
+    setUrl('');
+    setDescription('');
+    setAddOpen(false);
+  }
+
+  return (
+    <div style={{ padding: '14px 24px', overflow: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#1c2127' }}>External references</h2>
+        <button
+          type="button"
+          className="of-button"
+          onClick={() => setAddOpen((value) => !value)}
+          style={{
+            background: '#137F4D',
+            borderColor: '#0F6A3F',
+            color: '#fff',
+            fontWeight: 600,
+            gap: 6,
+          }}
+        >
+          <Glyph name="plus" size={13} />
+          Add reference
+        </button>
+      </div>
+      {addOpen ? (
+        <div
+          style={{
+            border: '1px solid var(--border-default)',
+            borderRadius: 4,
+            padding: 12,
+            background: '#fff',
+            display: 'grid',
+            gap: 8,
+          }}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8 }}>
+            <input
+              type="text"
+              placeholder="Label"
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              className="of-input"
+            />
+            <input
+              type="url"
+              placeholder="https://"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              className="of-input"
+            />
+          </div>
+          <textarea
+            placeholder="Optional description"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            className="of-input"
+            style={{ minHeight: 48, resize: 'vertical' }}
+          />
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <button type="button" className="of-button of-button--ghost" onClick={() => setAddOpen(false)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="of-button of-button--primary"
+              onClick={submit}
+              disabled={!label.trim() || !url.trim()}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {references.length === 0 ? (
+        <PlaceholderView
+          icon="external-link"
+          title="No external references"
+          message="External references point to dashboards, datasets or APIs hosted outside this Compass instance."
+        />
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {references.map((ref) => (
+            <div
+              key={ref.id}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10,
+                padding: '10px 12px',
+                border: '1px solid var(--border-default)',
+                borderRadius: 4,
+                background: '#fff',
+              }}
+            >
+              <Glyph name="external-link" size={16} tone="#5c7080" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <a
+                  href={ref.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="of-link"
+                  style={{ fontWeight: 600, fontSize: 13 }}
+                >
+                  {ref.label}
+                </a>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: '#5c7080',
+                    marginTop: 2,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={ref.url}
+                >
+                  {ref.url}
+                </div>
+                {ref.description ? (
+                  <p style={{ margin: '6px 0 0', fontSize: 12, color: '#5c7080' }}>{ref.description}</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="of-button of-button--ghost"
+                aria-label="Remove external reference"
+                onClick={() => onRemove(ref.id)}
+                style={{ padding: '2px 6px' }}
+              >
+                <Glyph name="trash" size={13} tone="#5c7080" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

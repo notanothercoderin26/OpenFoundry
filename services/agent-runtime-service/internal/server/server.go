@@ -25,7 +25,8 @@ import (
 // handlers that need a collaborator simply remain unmounted when it
 // is missing.
 type Deps struct {
-	Threads *handlers.Threads
+	Threads   *handlers.Threads
+	Proposals *handlers.Proposals
 }
 
 func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
@@ -74,6 +75,7 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 		api.Use(authmw.Middleware(jwt))
 
 		api.Get("/logic/files", h.ListLogicFiles)
+		api.Get("/logic/functions/available", h.ListLogicFunctionsAsTools)
 		api.Post("/logic/files", h.CreateLogicFile)
 		api.Get("/logic/files/{id}", h.GetLogicFile)
 		api.Patch("/logic/files/{id}", h.UpdateLogicFileMetadata)
@@ -122,6 +124,17 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 			api.Get("/threads/{id}/messages", deps.Threads.ListMessages)
 			api.Post("/threads/{id}/messages", deps.Threads.PostMessage)
 			api.Get("/threads/{id}/trace", deps.Threads.Trace)
+		}
+
+		// Human-in-the-loop Action proposals queue. Always mounted so
+		// the UI can render an empty queue even when no agent has run
+		// yet; the staging path only kicks in when an action tool
+		// declares requires_human_approval in its config.
+		if deps.Proposals != nil {
+			api.Get("/action-proposals", deps.Proposals.List)
+			api.Get("/action-proposals/{id}", deps.Proposals.Get)
+			api.Post("/action-proposals/{id}/approve", deps.Proposals.Approve)
+			api.Post("/action-proposals/{id}/dismiss", deps.Proposals.Dismiss)
 		}
 	})
 

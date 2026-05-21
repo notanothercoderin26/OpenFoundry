@@ -158,7 +158,16 @@ func (h *Threads) PostMessage(w http.ResponseWriter, r *http.Request) {
 	if n := len(history); n > 0 && history[n-1].ID == userMsg.ID {
 		prior = history[:n-1]
 	}
-	result, err := h.Runner.Run(r.Context(), react.RunInput{
+	// Stamp the initiating user on the context so the tool router can
+	// attribute staged Action proposals to a real human, not the
+	// agent's service identity (B07 §AC#6 + Foundry "proposal review"
+	// semantics — the agent never owns the side effect).
+	claims, _ := authmw.FromContext(r.Context())
+	runCtx := r.Context()
+	if claims != nil {
+		runCtx = react.WithInitiatingUser(runCtx, claims.Sub.String())
+	}
+	result, err := h.Runner.Run(runCtx, react.RunInput{
 		Thread:      *thread,
 		History:     prior,
 		UserMessage: *userMsg,

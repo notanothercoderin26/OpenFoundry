@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -175,12 +176,43 @@ type HTTPToolRouter struct {
 	ObjectDatabaseURL string
 	// OntologyActionsURL backs ToolKindAction.
 	OntologyActionsURL string
-	// FunctionsURL backs ToolKindFunction (typically agent-runtime's
-	// own functions surface).
+	// FunctionsURL backs the generic "POST args to a function runtime"
+	// flavour of ToolKindFunction. Kept for backwards compatibility;
+	// LogicFunctionsURL takes precedence when the tool config carries
+	// a function_rid (Foundry's AIP Logic invocation path).
 	FunctionsURL string
+	// LogicFunctionsURL is the base URL of agent-runtime-service so
+	// ToolKindFunction with a function_rid in its config dispatches
+	// to /api/v1/agent-runtime/logic/functions/{rid}/invoke. In
+	// production this is the service's own URL (loopback through the
+	// gateway so JWT validation and auditing still apply).
+	LogicFunctionsURL string
 	// RetrievalURL backs ToolKindRetrieval (retrieval-context-service).
 	RetrievalURL string
-	HTTP         *http.Client
+	// Proposals is the sink action tools call when their config asks
+	// for human-in-the-loop approval. Nil means "feature not wired";
+	// the router falls back to executing the action immediately so
+	// dev/test setups without a DB keep working — but production
+	// wiring must set this when require_approval flags exist on any
+	// agent's tools.
+	Proposals ProposalSink
+	HTTP      *http.Client
+}
+
+type initiatingUserCtxKey struct{}
+
+// WithInitiatingUser threads the user_id of the human who owns the
+// current run through the context so the tool router can stamp it on
+// staged proposals without trusting LLM-supplied args.
+func WithInitiatingUser(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, initiatingUserCtxKey{}, userID)
+}
+
+// InitiatingUserFromContext returns the stamped user id or empty
+// string if none was set.
+func InitiatingUserFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(initiatingUserCtxKey{}).(string)
+	return v
 }
 
 // NewHTTPToolRouter builds the router with a 30 s per-request timeout.
@@ -195,14 +227,75 @@ type objectQueryConfig struct {
 	Tenant string `json:"tenant,omitempty"`
 }
 
-// actionConfig is the per-tool config for ToolKindAction.
+// actionConfig is the per-tool config for ToolKindAction. The
+// requires_human_approval flag stages the proposal through the
+// ProposalSink instead of executing the action immediately —
+// mirroring Foundry's "stage Actions for approval" automation mode.
 type actionConfig struct {
-	ActionID string `json:"action_id"`
+	ActionID               string `json:"action_id"`
+	RequiresHumanApproval  bool   `json:"requires_human_approval"`
+	Justification          string `json:"justification,omitempty"`
+}
+
+// ProposalSink is the seam the router uses to stage an Action proposal
+// for human review instead of executing it. Production wires the
+// agent-runtime Repo; tests inject an in-memory recorder.
+type ProposalSink interface {
+	StageActionProposal(ctx context.Context, req ProposalStageRequest) (proposalID string, err error)
+}
+
+// ProposalStageRequest captures everything the proposal row needs.
+// The router pulls these fields from the tool def + the call args; the
+// sink implementation maps to models.CreateActionProposalRequest.
+type ProposalStageRequest struct {
+	ActionTypeID     string
+	Arguments        json.RawMessage
+	Justification    string
+	// InitiatingUser is the human (or service identity) that owns the
+	// agent run that emitted the proposal. The router resolves this
+	// from the caller JWT context — never from the LLM's tool args.
+	InitiatingUserID string
 }
 
 // retrievalConfig is the per-tool config for ToolKindRetrieval.
 type retrievalConfig struct {
 	KnowledgeBaseID string `json:"knowledge_base_id"`
+}
+
+// functionConfig is the per-tool config for ToolKindFunction. When
+// FunctionRID is set, the router dispatches to the agent-runtime's
+// own /logic/functions/{rid}/invoke endpoint (a Foundry AIP Logic
+// function used as a tool). Otherwise it falls back to the legacy
+// generic FunctionsURL endpoint.
+type functionConfig struct {
+	FunctionRID string `json:"function_rid"`
+}
+
+// MaxLogicInvocationDepth caps Logic→Tool→Logic recursion. Foundry's
+// AIP Logic has a similar guard; without it a misbehaving function
+// graph could chain calls forever, burning compute and amplifying
+// downstream load on object-database / ontology-actions.
+const MaxLogicInvocationDepth = 4
+
+// LogicDepthHeader carries the recursion counter across service
+// boundaries. The Logic invoke handler reads it on the inbound side
+// and rejects requests that exceed the cap; this router increments
+// it on every Logic-function tool dispatch.
+const LogicDepthHeader = "X-Logic-Depth"
+
+type logicDepthCtxKey struct{}
+
+// WithLogicDepth threads the current invocation depth through the
+// context so the executor knows what to send on the next hop.
+func WithLogicDepth(ctx context.Context, depth int) context.Context {
+	return context.WithValue(ctx, logicDepthCtxKey{}, depth)
+}
+
+// LogicDepthFromContext returns the recorded invocation depth, or
+// zero if none was set (the request originated outside a Logic call).
+func LogicDepthFromContext(ctx context.Context) int {
+	v, _ := ctx.Value(logicDepthCtxKey{}).(int)
+	return v
 }
 
 // Invoke implements [ToolRouter]. Dispatches based on `def.Kind`;
@@ -217,14 +310,7 @@ func (r *HTTPToolRouter) Invoke(ctx context.Context, callerJWT string, def model
 	case models.ToolKindRetrieval:
 		return r.invokeRetrieval(ctx, callerJWT, def, args)
 	case models.ToolKindFunction:
-		// Functions live on agent-runtime-service itself today;
-		// callers wire FunctionsURL only if they have a separate
-		// runtime. When empty, surface a friendly observation rather
-		// than 500.
-		if strings.TrimSpace(r.FunctionsURL) == "" {
-			return json.RawMessage(`{"error":"function tool kind not configured"}`), nil
-		}
-		return r.invokePOST(ctx, callerJWT, r.FunctionsURL, args)
+		return r.invokeFunction(ctx, callerJWT, def, args)
 	case models.ToolKindCommand, models.ToolKindClarification:
 		// These are UI-side concerns (command palette, clarification
 		// prompt). The runner echoes the args back so the LLM sees
@@ -248,23 +334,113 @@ func (r *HTTPToolRouter) invokeObjectQuery(ctx context.Context, callerJWT string
 		strings.TrimRight(r.ObjectDatabaseURL, "/"),
 		url.PathEscape(cfg.TypeID),
 	)
-	return r.invokePOST(ctx, callerJWT, endpoint, args)
+	return r.invokePOST(ctx, callerJWT, endpoint, args, nil)
 }
 
 func (r *HTTPToolRouter) invokeAction(ctx context.Context, callerJWT string, def models.ToolDefinition, args json.RawMessage) (json.RawMessage, error) {
-	if r.OntologyActionsURL == "" {
-		return json.RawMessage(`{"error":"ontology actions not configured"}`), nil
-	}
 	var cfg actionConfig
 	_ = json.Unmarshal(def.Config, &cfg)
 	if cfg.ActionID == "" {
 		return json.RawMessage(`{"error":"action tool missing action_id in config"}`), nil
 	}
+	// Human-in-the-loop gate. When the agent's tool config flags this
+	// action as require-approval, we never call ontology-actions
+	// directly — instead we stage a proposal the operator reviews.
+	// Foundry's "Stage actions for approval" automation mode behaves
+	// identically: the LLM gets a "staged, awaiting review" reply and
+	// continues reasoning without the side effect.
+	if cfg.RequiresHumanApproval {
+		if r.Proposals == nil {
+			return json.RawMessage(`{"error":"action requires approval but no proposal sink is wired; refusing to auto-execute"}`),
+				fmt.Errorf("proposal sink not configured for require-approval action %q", cfg.ActionID)
+		}
+		proposalID, err := r.Proposals.StageActionProposal(ctx, ProposalStageRequest{
+			ActionTypeID:     cfg.ActionID,
+			Arguments:        args,
+			Justification:    cfg.Justification,
+			InitiatingUserID: InitiatingUserFromContext(ctx),
+		})
+		if err != nil {
+			return json.RawMessage(fmt.Sprintf(`{"error":"failed to stage proposal: %s"}`, err.Error())), err
+		}
+		return json.RawMessage(fmt.Sprintf(
+			`{"status":"staged","proposal_id":%q,"message":"Action %s requires human approval; the reviewer will see this in the proposals queue."}`,
+			proposalID, cfg.ActionID,
+		)), nil
+	}
+	if r.OntologyActionsURL == "" {
+		return json.RawMessage(`{"error":"ontology actions not configured"}`), nil
+	}
 	endpoint := fmt.Sprintf("%s/api/v1/ontology/actions/%s/execute",
 		strings.TrimRight(r.OntologyActionsURL, "/"),
 		url.PathEscape(cfg.ActionID),
 	)
-	return r.invokePOST(ctx, callerJWT, endpoint, args)
+	return r.invokePOST(ctx, callerJWT, endpoint, args, nil)
+}
+
+// invokeFunction is the production binding between the agent's ReAct
+// loop and an AIP Logic function used as a tool. When the tool's
+// config carries a function_rid, the router calls the
+// /logic/functions/{rid}/invoke endpoint on agent-runtime-service so
+// the published Logic function executes (real ontology queries, real
+// action invocations) under the caller's permissions. The Logic
+// response envelope is parsed and the `outputs` field is returned to
+// the LLM — the LLM does not need to see the full run metadata.
+//
+// When function_rid is absent the router falls back to the legacy
+// generic FunctionsURL (kept for callers that wired a separate
+// function runtime before AIP Logic existed).
+func (r *HTTPToolRouter) invokeFunction(ctx context.Context, callerJWT string, def models.ToolDefinition, args json.RawMessage) (json.RawMessage, error) {
+	var cfg functionConfig
+	_ = json.Unmarshal(def.Config, &cfg)
+	functionRID := strings.TrimSpace(cfg.FunctionRID)
+	if functionRID == "" {
+		if strings.TrimSpace(r.FunctionsURL) == "" {
+			return json.RawMessage(`{"error":"function tool kind not configured"}`), nil
+		}
+		return r.invokePOST(ctx, callerJWT, r.FunctionsURL, args, nil)
+	}
+	if strings.TrimSpace(r.LogicFunctionsURL) == "" {
+		return json.RawMessage(`{"error":"logic function tool not configured (LogicFunctionsURL unset)"}`), nil
+	}
+	depth := LogicDepthFromContext(ctx)
+	if depth >= MaxLogicInvocationDepth {
+		return json.RawMessage(fmt.Sprintf(`{"error":"logic invocation depth %d exceeds limit %d"}`, depth+1, MaxLogicInvocationDepth)), nil
+	}
+	endpoint := fmt.Sprintf("%s/api/v1/agent-runtime/logic/functions/%s/invoke",
+		strings.TrimRight(r.LogicFunctionsURL, "/"),
+		url.PathEscape(functionRID),
+	)
+	// Wrap the LLM-supplied args under "inputs" — the Logic invoke
+	// handler validates that shape (see models.InvokeLogicFunctionRequest).
+	envelope := map[string]json.RawMessage{"inputs": args}
+	if len(args) == 0 {
+		envelope["inputs"] = json.RawMessage(`{}`)
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, err
+	}
+	headers := map[string]string{LogicDepthHeader: strconv.Itoa(depth + 1)}
+	raw, err := r.invokePOST(ctx, callerJWT, endpoint, body, headers)
+	if err != nil {
+		return raw, err
+	}
+	// Extract just the outputs field so the LLM sees the function's
+	// declared return shape, not the run envelope. Malformed responses
+	// fall through unchanged so the LLM can still observe the error.
+	var envelopeResp struct {
+		Outputs json.RawMessage `json:"outputs"`
+		Status  string          `json:"status"`
+		Error   string          `json:"error_message,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &envelopeResp); err != nil || len(envelopeResp.Outputs) == 0 {
+		return raw, nil
+	}
+	if envelopeResp.Status == "failed" && envelopeResp.Error != "" {
+		return json.RawMessage(fmt.Sprintf(`{"error":%q,"outputs":%s}`, envelopeResp.Error, string(envelopeResp.Outputs))), nil
+	}
+	return envelopeResp.Outputs, nil
 }
 
 func (r *HTTPToolRouter) invokeRetrieval(ctx context.Context, callerJWT string, def models.ToolDefinition, args json.RawMessage) (json.RawMessage, error) {
@@ -284,10 +460,10 @@ func (r *HTTPToolRouter) invokeRetrieval(ctx context.Context, callerJWT string, 
 		merged["knowledge_base_id"] = cfg.KnowledgeBaseID
 	}
 	body, _ := json.Marshal(merged)
-	return r.invokePOST(ctx, callerJWT, endpoint, body)
+	return r.invokePOST(ctx, callerJWT, endpoint, body, nil)
 }
 
-func (r *HTTPToolRouter) invokePOST(ctx context.Context, callerJWT, endpoint string, body []byte) (json.RawMessage, error) {
+func (r *HTTPToolRouter) invokePOST(ctx context.Context, callerJWT, endpoint string, body []byte, extraHeaders map[string]string) (json.RawMessage, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -295,6 +471,9 @@ func (r *HTTPToolRouter) invokePOST(ctx context.Context, callerJWT, endpoint str
 	req.Header.Set("Content-Type", "application/json")
 	if callerJWT != "" {
 		req.Header.Set("Authorization", "Bearer "+stripBearer(callerJWT))
+	}
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
 	}
 	client := r.HTTP
 	if client == nil {

@@ -14,11 +14,17 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/logicexec"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/models"
 )
 
 type Repo struct {
 	Pool *pgxpool.Pool
+	// Logic executes published Logic functions for real when wired.
+	// Nil keeps the legacy "synthetic preview output" path so tests
+	// without an LLM seam keep passing. See cmd/agent-runtime-service
+	// for the production wiring.
+	Logic logicexec.Executor
 }
 
 const agentColumns = `id, slug, name, description, system_prompt,
@@ -150,6 +156,136 @@ func (r *Repo) RecordStep(ctx context.Context, runID uuid.UUID, body models.Reco
            VALUES ($1, $2, $3, $4, $5) RETURNING `+stepColumns,
 		uuid.New(), runID, body.StepIndex, body.Kind, body.Payload)
 	return scanStep(row)
+}
+
+// ErrActionProposalAlreadyDecided is returned when an Approve/Dismiss
+// call lands on a proposal that has already been resolved. The handler
+// surfaces it as 409 so the UI can re-fetch and show the current state.
+var ErrActionProposalAlreadyDecided = errors.New("action proposal already decided")
+
+const actionProposalColumns = `id, agent_run_id, logic_run_id, initiating_user_id,
+                              action_type_id, arguments, justification, status,
+                              decided_by, decision_note, applied_action_id,
+                              applied_response, created_at, decided_at`
+
+func scanActionProposal(s scanner) (models.AgentActionProposal, error) {
+	var p models.AgentActionProposal
+	err := s.Scan(
+		&p.ID, &p.AgentRunID, &p.LogicRunID, &p.InitiatingUserID,
+		&p.ActionTypeID, &p.Arguments, &p.Justification, &p.Status,
+		&p.DecidedBy, &p.DecisionNote, &p.AppliedActionID,
+		&p.AppliedResponse, &p.CreatedAt, &p.DecidedAt,
+	)
+	return p, err
+}
+
+// CreateActionProposal stages an Action that the agent proposed but
+// is not allowed to apply autonomously. The proposal is the queue
+// row the human reviewer picks up.
+func (r *Repo) CreateActionProposal(ctx context.Context, req models.CreateActionProposalRequest) (models.AgentActionProposal, error) {
+	args := req.Arguments
+	if len(args) == 0 {
+		args = json.RawMessage(`{}`)
+	}
+	row := r.Pool.QueryRow(ctx,
+		`INSERT INTO agent_action_proposals
+		   (id, agent_run_id, logic_run_id, initiating_user_id,
+		    action_type_id, arguments, justification, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+		 RETURNING `+actionProposalColumns,
+		uuid.New(), req.AgentRunID, req.LogicRunID, req.InitiatingUserID,
+		req.ActionTypeID, args, req.Justification)
+	return scanActionProposal(row)
+}
+
+// GetActionProposal returns the proposal by id. The handler decides
+// whether the caller is allowed to see it (today: any authenticated
+// user can; tighten later if the PoC requires per-tenant scoping).
+func (r *Repo) GetActionProposal(ctx context.Context, id uuid.UUID) (*models.AgentActionProposal, error) {
+	row := r.Pool.QueryRow(ctx,
+		`SELECT `+actionProposalColumns+` FROM agent_action_proposals WHERE id = $1`, id)
+	p, err := scanActionProposal(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// ListActionProposals filters by status (empty = pending), most-recent
+// first. The Workshop alerts queue consumes this.
+func (r *Repo) ListActionProposals(ctx context.Context, status string, limit int) ([]models.AgentActionProposal, error) {
+	if status == "" {
+		status = models.ActionProposalStatusPending
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := r.Pool.Query(ctx,
+		`SELECT `+actionProposalColumns+`
+		   FROM agent_action_proposals
+		  WHERE status = $1
+		  ORDER BY created_at DESC
+		  LIMIT $2`, status, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.AgentActionProposal, 0)
+	for rows.Next() {
+		p, err := scanActionProposal(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// MarkActionProposalDecided transitions a pending proposal to its
+// terminal state in one atomic step. Returns ErrActionProposalAlreadyDecided
+// if the row was already approved/dismissed (so two concurrent reviewers
+// cannot double-apply).
+func (r *Repo) MarkActionProposalDecided(ctx context.Context, id, reviewerID uuid.UUID, decision string, note *string, appliedActionID *string, appliedResponse json.RawMessage) (*models.AgentActionProposal, error) {
+	if decision != models.ActionProposalStatusApproved && decision != models.ActionProposalStatusDismissed {
+		return nil, fmt.Errorf("invalid decision %q", decision)
+	}
+	row := r.Pool.QueryRow(ctx,
+		`UPDATE agent_action_proposals
+		    SET status = $2,
+		        decided_by = $3,
+		        decision_note = $4,
+		        applied_action_id = $5,
+		        applied_response = $6,
+		        decided_at = now()
+		  WHERE id = $1 AND status = 'pending'
+		  RETURNING `+actionProposalColumns,
+		id, decision, reviewerID, note, appliedActionID, nullableJSON(appliedResponse))
+	p, err := scanActionProposal(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Either the row does not exist or it was already decided.
+		existing, getErr := r.GetActionProposal(ctx, id)
+		if getErr != nil {
+			return nil, getErr
+		}
+		if existing == nil {
+			return nil, nil
+		}
+		return existing, ErrActionProposalAlreadyDecided
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func nullableJSON(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	return raw
 }
 
 func (r *Repo) RecordHumanApproval(ctx context.Context, runID uuid.UUID, payload []byte) (models.AgentRunStep, error) {
@@ -2153,6 +2289,38 @@ func (r *Repo) PublishLogicVersion(ctx context.Context, fileID, versionID, actor
 	}, nil
 }
 
+// ListPublishedLogicFunctions returns every Logic function the actor
+// is allowed to invoke, scoped to one project if projectID is set.
+// Powering the "add a Logic function as an agent tool" picker; the
+// permission filter mirrors the invoker check in
+// getPublishedLogicFunctionByRID so the UI can never offer a function
+// the user could not actually call.
+func (r *Repo) ListPublishedLogicFunctions(ctx context.Context, projectID *uuid.UUID, actorID uuid.UUID, admin bool) ([]models.LogicFunction, error) {
+	rows, err := r.Pool.Query(ctx,
+		`SELECT f.`+strings.ReplaceAll(logicFunctionColumns, ", ", ", f.")+`
+		   FROM logic_functions f
+		   JOIN logic_files lf ON lf.id = f.logic_file_id
+		  WHERE lf.archived_at IS NULL
+		    AND lf.published_version_id = f.published_version_id
+		    AND ($1::uuid IS NULL OR lf.project_id = $1)
+		    AND ($3::bool OR lf.owner_id = $2 OR lf.permissions->'owners' ? $2::text OR lf.permissions->'managers' ? $2::text OR lf.permissions->'editors' ? $2::text OR lf.permissions->'invokers' ? $2::text)
+		  ORDER BY f.published_at DESC`,
+		nullableUUID(projectID), actorID, admin)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.LogicFunction, 0)
+	for rows.Next() {
+		fn, err := scanLogicFunction(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fn)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repo) getPublishedLogicFunctionForFile(ctx context.Context, fileID, actorID uuid.UUID, admin bool) (*models.LogicFunction, error) {
 	fn, err := scanLogicFunction(r.Pool.QueryRow(ctx,
 		`SELECT f.`+strings.ReplaceAll(logicFunctionColumns, ", ", ", f.")+`
@@ -2266,7 +2434,7 @@ func invocationInputs(body models.InvokeLogicFunctionRequest) (json.RawMessage, 
 	return normalizeJSONObject(inputs, json.RawMessage(`{}`))
 }
 
-func (r *Repo) InvokeLogicFunction(ctx context.Context, functionRID string, actorID uuid.UUID, body models.InvokeLogicFunctionRequest, admin bool) (*models.InvokeLogicFunctionResponse, error) {
+func (r *Repo) InvokeLogicFunction(ctx context.Context, functionRID string, actorID uuid.UUID, callerJWT string, body models.InvokeLogicFunctionRequest, admin bool) (*models.InvokeLogicFunctionResponse, error) {
 	functionRID = strings.TrimSpace(functionRID)
 	if functionRID == "" {
 		return nil, nil
@@ -2293,9 +2461,43 @@ func (r *Repo) InvokeLogicFunction(ctx context.Context, functionRID string, acto
 		return nil, errors.New("logic security boundary denied")
 	}
 	surface := invocationSurface(body.InvocationSurface)
-	outputs := logicInvocationOutputs(fn.Definition)
-	durationMS := int32(90 + len(logicArrayField(fn.Definition, "blocks"))*45 + len(inputs)/16)
-	logs := logicRunLogs(fn, execContext, surface)
+
+	// Execute for real when an Executor is wired; otherwise fall back
+	// to the synthetic preview output path so tests without an LLM
+	// catalog still pass. The fallback also gives operators a known-
+	// good degraded mode when llm-catalog-service is down — the run
+	// still persists with a clear placeholder marker.
+	var (
+		outputs    json.RawMessage
+		logs       json.RawMessage
+		durationMS int32
+		status     = "succeeded"
+		errMessage *string
+	)
+	if r.Logic != nil {
+		res, execErr := r.Logic.Execute(ctx, logicexec.Input{
+			Function:  fn,
+			Inputs:    inputs,
+			CallerJWT: callerJWT,
+			Context:   execContext,
+			Surface:   surface,
+		})
+		if execErr != nil {
+			return nil, fmt.Errorf("logic execute: %w", execErr)
+		}
+		outputs = res.Outputs
+		logs = res.Logs
+		durationMS = res.DurationMS
+		status = res.Status
+		if res.ErrorMessage != "" {
+			msg := res.ErrorMessage
+			errMessage = &msg
+		}
+	} else {
+		outputs = logicInvocationOutputs(fn.Definition)
+		logs = logicRunLogs(fn, execContext, surface)
+		durationMS = int32(90 + len(logicArrayField(fn.Definition, "blocks"))*45 + len(inputs)/16)
+	}
 
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
@@ -2305,7 +2507,7 @@ func (r *Repo) InvokeLogicFunction(ctx context.Context, functionRID string, acto
 	if _, err := tx.Exec(ctx, `DELETE FROM logic_runs WHERE retention_expires_at <= now()`); err != nil {
 		return nil, err
 	}
-	run, err := insertLogicRun(ctx, tx, fn, execContext, surface, "succeeded", inputs, outputs, nil, logs, durationMS, now)
+	run, err := insertLogicRun(ctx, tx, fn, execContext, surface, status, inputs, outputs, errMessage, logs, durationMS, now)
 	if err != nil {
 		return nil, err
 	}
@@ -2322,7 +2524,7 @@ func (r *Repo) InvokeLogicFunction(ctx context.Context, functionRID string, acto
 		ExecutionContext:  execContext,
 		Run:               run,
 		InvocationSurface: surface,
-		Status:            "succeeded",
+		Status:            status,
 		Inputs:            inputs,
 		Outputs:           outputs,
 		SecurityBoundary:  securityBoundary,
