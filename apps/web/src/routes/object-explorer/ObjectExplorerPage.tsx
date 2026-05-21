@@ -80,6 +80,7 @@ import { RecentObjectsList } from './components/RecentObjectsList';
 import { AffordancesPanel } from './components/AffordancesPanel';
 import { ObjectPreviewPanel } from './components/ObjectPreviewPanel';
 import { SavedExplorationsPanel } from './components/SavedExplorationsPanel';
+import { SearchResultsView } from './components/SearchResultsView';
 import { SideNavBrowse, type SideNavSelection } from './components/SideNavBrowse';
 import { SideNavSearch, type SearchSideNavSelection } from './components/SideNavSearch';
 import { TypePreviewPopover } from './components/TypePreviewPopover';
@@ -1382,7 +1383,22 @@ export function ObjectExplorerPage() {
             )}
 
             <div style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
-              {activeTab === 'overview' && (
+              {hasSearched && searchQuery.trim().length > 0 ? (
+                <SearchResultsView
+                  results={searchResults}
+                  typeById={typeById}
+                  query={searchQuery}
+                  activeTab={activeTab}
+                  onOpenResult={(result) => void selectResult(result)}
+                  onExploreType={(typeId) => {
+                    setActiveTab('objects');
+                    void browseType(typeId);
+                  }}
+                  onChangeActiveTab={(next) => setActiveTab(next)}
+                />
+              ) : (
+                <>
+                  {activeTab === 'overview' && (
                 <>
                   <ExplorationsHighlight
                     objectSets={visibleObjectSets}
@@ -1571,6 +1587,8 @@ export function ObjectExplorerPage() {
                   onOpenSavedExploration={(set) => void openSavedExploration(set)}
                   onEvaluateSet={(id, mode) => void evaluateSet(id, mode)}
                 />
+              )}
+                </>
               )}
             </div>
           </div>
