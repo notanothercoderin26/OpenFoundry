@@ -99,6 +99,7 @@ import { LinkEditor } from "@/lib/components/ontology/LinkEditor";
 import { OntologyEditsButton } from "@/lib/components/ontology/OntologyEditsButton";
 import { AuditLogPanel } from "@/lib/components/ontology/AuditLogPanel";
 import { OntologyShellTopBar } from "@/lib/components/ontology/OntologyShell";
+import { OntologySelector } from "@/lib/components/ontology/OntologySelector";
 import {
   stage as stageOntologyEdit,
   useOntologyWorkingState,
@@ -1745,6 +1746,11 @@ export function OntologyManagerPage() {
           className="of-panel"
           style={{ padding: 12, position: "sticky", top: 12 }}
         >
+          <OntologySelector
+            name={ontology.display_name}
+            spacePath={ontology.placement.folder_path || ontology.owning_space_slug}
+            className="mb-3"
+          />
           <p className="of-eyebrow" style={{ margin: "4px 4px 10px" }}>
             Ontology Manager navigation
           </p>
