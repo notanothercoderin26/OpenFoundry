@@ -173,7 +173,6 @@ github.com/compose-spec/compose-go/v2 v2.9.0/go.mod h1:Oky9AZGTRB4E+0VbTPZTUu4Kp
 github.com/containerd/console v1.0.3/go.mod h1:7LqA/THxQ86k76b8c/EMSiaJ3h1eZkMkXar0TQ1gf3U=
 github.com/containerd/console v1.0.5 h1:R0ymNeydRqH2DmakFNdmjR2k0t7UPuiOV/N/27/qqsc=
 github.com/containerd/console v1.0.5/go.mod h1:YynlIjWYF8myEu6sdkwKIvGQq+cOckRm6So2avqoYAk=
-github.com/containerd/containerd v1.7.18 h1:jqjZTQNfXGoEaZdW1WwPU0RqSn1Bm2Ay/KJPUuO8nao=
 github.com/containerd/containerd/api v1.9.0 h1:HZ/licowTRazus+wt9fM6r/9BQO7S0vD5lMcWspGIg0=
 github.com/containerd/containerd/api v1.9.0/go.mod h1:GhghKFmTR3hNtyznBoQ0EMWr9ju5AqHjcZPsSpTKutI=
 github.com/containerd/containerd/v2 v2.1.5 h1:pWSmPxUszaLZKQPvOx27iD4iH+aM6o0BoN9+hg77cro=
@@ -616,8 +615,8 @@ github.com/testcontainers/testcontainers-go v0.42.0 h1:He3IhTzTZOygSXLJPMX7n44Xt
 github.com/testcontainers/testcontainers-go v0.42.0/go.mod h1:vZjdY1YmUA1qEForxOIOazfsrdyORJAbhi0bp8plN30=
 github.com/testcontainers/testcontainers-go/modules/compose v0.40.0 h1:Bj8W7GieY56sRbVJx1yLh0JVEtOQ8SQMhX+jRtzenLA=
 github.com/testcontainers/testcontainers-go/modules/compose v0.40.0/go.mod h1:fEEGqtsoH1KS+sUi1WG4+vH3fqdCyip1U9Hd8P3SRMA=
-github.com/testcontainers/testcontainers-go/modules/kafka v0.34.0 h1:LrMlsBH+nKJ2c6M7rOjbi7UivgofgAQo+LAwsWttR+Q=
-github.com/testcontainers/testcontainers-go/modules/kafka v0.34.0/go.mod h1:4BIbeoKY/ZAf86MvWT5xJW5TvxbCPg67I5rBvwFsx4A=
+github.com/testcontainers/testcontainers-go/modules/kafka v0.42.0 h1:b3plW+MUoF6ZaVOAlLjNQMJsigPLsJFIOqHdzMFv/w4=
+github.com/testcontainers/testcontainers-go/modules/kafka v0.42.0/go.mod h1:U0K+PapjOOVJrQCpvRYe6gKk0Oqh+ffl+J80Ln4EKzg=
 github.com/testcontainers/testcontainers-go/modules/localstack v0.42.0 h1:UDpC8q/+b99GNPBOK5xFEZxvbNTzW4lPyuk9951e8nE=
 github.com/testcontainers/testcontainers-go/modules/localstack v0.42.0/go.mod h1:+Zn+tlLT6lFWq33ymGA2eTqODLfZkvY6eLedEsTL9MI=
 github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0 h1:GCbb1ndrF7OTDiIvxXyItaDab4qkzTFJ48LKFdM7EIo=
