@@ -104,6 +104,10 @@ import {
   type OntologySidebarItemId,
 } from "@/lib/components/ontology/OntologyShell";
 import { OntologySelector } from "@/lib/components/ontology/OntologySelector";
+import {
+  OntologyCommandPalette,
+  type OntologyCommandResult,
+} from "@/lib/components/ontology/OntologyCommandPalette";
 
 /**
  * When true, render the legacy 18-entry navigation panel below the curated
@@ -399,6 +403,8 @@ export function OntologyManagerPage() {
   const branchMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const resourceSearchIndexRef = useRef<OntologyResourceSearchIndex | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
 
   useEffect(() => {
     if (!newMenuOpen && !branchMenuOpen) return;
@@ -484,11 +490,13 @@ export function OntologyManagerPage() {
     function onGlobalSearchShortcut(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        searchInputRef.current?.focus();
+        event.stopPropagation();
+        setPaletteOpen((open) => !open);
       }
     }
-    window.addEventListener("keydown", onGlobalSearchShortcut);
-    return () => window.removeEventListener("keydown", onGlobalSearchShortcut);
+    window.addEventListener("keydown", onGlobalSearchShortcut, true);
+    return () =>
+      window.removeEventListener("keydown", onGlobalSearchShortcut, true);
   }, []);
 
   useEffect(() => {
@@ -1507,6 +1515,23 @@ export function OntologyManagerPage() {
     [indexedSearchResults],
   );
 
+  const paletteIndexed = useMemo(
+    () =>
+      paletteQuery.trim()
+        ? searchOntologyResourceIndex(resourceSearchIndex, {
+            query: paletteQuery,
+            page: 1,
+            per_page: 12,
+            permission_filter: "viewable",
+          })
+        : null,
+    [resourceSearchIndex, paletteQuery],
+  );
+  const paletteResults = useMemo<OntologyCommandResult[]>(
+    () => paletteIndexed?.data.map(searchDocumentToShellResult) ?? [],
+    [paletteIndexed],
+  );
+
   const shellWarnings = useMemo(
     () =>
       buildShellWarnings({ ontology, objectTypes, projects, projectResources }),
@@ -1604,70 +1629,90 @@ export function OntologyManagerPage() {
     <div ref={newMenuRef} style={{ position: "relative" }}>
       <button
         type="button"
-        className="of-button of-button--primary"
+        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-of-sm bg-of-accent hover:bg-of-accent-hover text-of-text-inverse text-of-13 font-of-semibold"
         onClick={() => setNewMenuOpen((open) => !open)}
+        aria-expanded={newMenuOpen}
+        aria-haspopup="menu"
       >
-        New <Glyph name="chevron-down" size={11} />
+        New <Glyph name="chevron-down" size={11} tone="#ffffff" />
       </button>
-            {newMenuOpen ? (
-              <div role="menu" style={popoverStyle({ minWidth: 320 })}>
-                <NewMenuItem
-                  glyph={
-                    <Glyph name="cube" size={14} tone="var(--status-info)" />
-                  }
-                  label="Object type"
-                  description="Map datasets and models to object types"
-                  enabled
-                  onClick={() => {
-                    setNewMenuOpen(false);
-                    setWizardOpen(true);
-                  }}
-                  highlighted
-                />
-                <NewMenuItem
-                  glyph={<Glyph name="link" size={14} tone="#5c7080" />}
-                  label="Link type"
-                  description="Create relationships between object types"
-                />
-                <NewMenuItem
-                  glyph={<Glyph name="run" size={14} tone="#7c5dd6" />}
-                  label="Action type"
-                  description="Allow users to writeback to their ontology"
-                />
-                <div
-                  style={{
-                    borderTop: "1px solid var(--border-subtle)",
-                    margin: "4px 0",
-                  }}
-                />
-                <NewMenuItem
-                  glyph={<Glyph name="ontology" size={14} tone="#5c7080" />}
-                  label="Shared property"
-                  description="Create properties that can be shared across object types"
-                />
-                <NewMenuItem
-                  glyph={<Glyph name="artifact" size={14} tone="#5c7080" />}
-                  label="Interface"
-                  description="Use interfaces to build against abstract types"
-                />
-                <NewMenuItem
-                  glyph={
-                    <span
-                      style={{
-                        fontFamily: "serif",
-                        fontStyle: "italic",
-                        fontSize: 14,
-                        color: "#5c7080",
-                      }}
-                    >
-                      fx
-                    </span>
-                  }
-                  label="Function"
-                  description="Define object modifications in code"
-                />
-              </div>
-            ) : null}
+      {newMenuOpen ? (
+        <div role="menu" style={popoverStyle({ minWidth: 320 })}>
+          <NewMenuItem
+            glyph={<Glyph name="cube" size={14} tone="var(--of-accent)" />}
+            label="Object type"
+            description="Map datasets and models to object types"
+            enabled
+            onClick={() => {
+              setNewMenuOpen(false);
+              setWizardOpen(true);
+            }}
+            highlighted
+          />
+          <NewMenuItem
+            glyph={<Glyph name="link" size={14} tone="#5c7080" />}
+            label="Link type"
+            description="Create relationships between object types"
+          />
+          <NewMenuItem
+            glyph={<Glyph name="run" size={14} tone="#7c5dd6" />}
+            label="Action type"
+            description="Allow users to writeback to their ontology"
+          />
+          <div
+            style={{
+              borderTop: "1px solid var(--of-border)",
+              margin: "4px 0",
+            }}
+          />
+          <NewMenuItem
+            glyph={<Glyph name="ontology" size={14} tone="#5c7080" />}
+            label="Shared property"
+            description="Create properties that can be shared across object types"
+            enabled
+            onClick={() => {
+              setNewMenuOpen(false);
+              setSection("shared");
+            }}
+          />
+          <NewMenuItem
+            glyph={<Glyph name="artifact" size={14} tone="#5c7080" />}
+            label="Interface"
+            description="Use interfaces to build against abstract types"
+            enabled
+            onClick={() => {
+              setNewMenuOpen(false);
+              setSection("interfaces");
+            }}
+          />
+          <NewMenuItem
+            glyph={
+              <span
+                style={{
+                  fontFamily: "serif",
+                  fontStyle: "italic",
+                  fontSize: 14,
+                  color: "#5c7080",
+                }}
+              >
+                fx
+              </span>
+            }
+            label="Function"
+            description="Define object modifications in code"
+          />
+          <NewMenuItem
+            glyph={<Glyph name="tag" size={14} tone="#0d9488" />}
+            label="Value type"
+            description="Space-scoped semantic types and constraints"
+            enabled
+            onClick={() => {
+              setNewMenuOpen(false);
+              setSection("valueTypes");
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 
@@ -2790,6 +2835,20 @@ export function OntologyManagerPage() {
           }}
         />
       ) : null}
+
+      <OntologyCommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        query={paletteQuery}
+        onQueryChange={setPaletteQuery}
+        results={paletteResults}
+        totalCount={paletteIndexed?.total}
+        onPick={(result) => {
+          setSection(result.section as Section);
+          setPaletteOpen(false);
+          setPaletteQuery("");
+        }}
+      />
     </section>
   );
 }
