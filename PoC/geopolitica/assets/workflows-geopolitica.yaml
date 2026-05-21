@@ -1,0 +1,388 @@
+# Canonical declarative spec for the Geopolitical Intelligence PoC
+# workflows + per-action side-effects. SOURCE OF TRUTH for the rows
+# the operator POSTs to:
+#
+#   workflow-automation-service     — POST /api/v1/workflows
+#   notification-alerting-service   — notification template + channel config
+#
+# The action types themselves are already seeded by
+# services/ontology-actions-service/internal/seed/geopolitica
+# (8 entries — Item 3 / Gap 2). This file adds the OUTER LAYER:
+# the workflow chain that fires them + the side-effects that fire
+# after each commit.
+#
+# Foundry-native framing
+# -----------------------
+# Per Palantir's Action Types pages, an Action Type carries rules
+# (validation), permissions, and side-effects (notifications +
+# webhooks). The PoC narrative is "Action → side-effect → Action →
+# side-effect". OpenFoundry splits the responsibilities:
+#
+#   - validation + permission  → action-type rows (already seeded)
+#   - side-effects + chaining  → workflow-automation-service
+#     definitions (this file)
+#   - dispatch (email / webhook / in-app) → notification-alerting-service
+#   - audit                    → audit-compliance-service ActionLog
+#
+# Customer-facing language stays "Action Type + side-effect". The
+# internal split is an implementation detail per
+# 00-contrato-foundry-native.md §"The customer hears Action; the
+# service routing is invisible".
+#
+# References:
+#   - https://www.palantir.com/docs/foundry/action-types/rules/
+#   - https://www.palantir.com/docs/foundry/action-types/use-actions/
+#   - https://www.palantir.com/docs/foundry/action-types/notifications/
+#   - https://www.palantir.com/docs/foundry/action-types/webhooks
+#   - https://www.palantir.com/docs/foundry/action-types/action-log
+#
+# Engine constraints
+# ------------------
+# workflow-automation-service stores trigger_type / step_type as
+# free-form strings (validated only as non-empty). The values below
+# match the dispatch table the runtime worker expects; if the worker
+# does not yet implement a step_type listed here, the workflow row
+# still persists and the operator sees the gap surfaced in the run
+# log. We document this honestly under engine_mapping_notes rather
+# than silently fail-soft.
+#
+# Naming rule
+# -----------
+# Every workflow uses kebab-case; every step id is unique within its
+# parent definition. escalation_target_role is the operator-configurable
+# knob the demo MUST patch before the rehearsal — never hard-code an
+# email address here.
+
+workflows:
+  schema_version: geopolitica.workflows.v1
+
+  # ──────────────────────────────────────────────────────────────────
+  # Configurable knobs — operator patches these before the rehearsal.
+  # The register script reads the env overrides and substitutes the
+  # placeholders below. NEVER ship a real Slack/email here in git.
+  # ──────────────────────────────────────────────────────────────────
+  parameters:
+    escalation_target_role:        compliance      # role that receives unacked-alert notifications
+    case_assignee_default:         marcos.fernandez@acme-intel.demo
+    case_opened_webhook_url:       "https://chat.acme-intel.demo/api/hooks/case-opened"
+    case_closed_webhook_url:       "https://chat.acme-intel.demo/api/hooks/case-closed"
+    actor_alert_sla_minutes:       5
+    notification_channels:         [email, in_app]
+
+  # ──────────────────────────────────────────────────────────────────
+  # Workflow #1 — Watchlist → ActorAlert
+  # Trigger: a new Event lands whose actor1_id or actor2_id is on any
+  # active Watchlist. The CDC consumer subscribes to the ontology
+  # link-event stream (INVOLVED_IN created); detect-watchlist-member
+  # does the membership lookup; create-actor-alert materialises the
+  # ActorAlert row; the next step schedules an SLA timer that
+  # delegates to Workflow #2 if no acknowledgement arrives within
+  # actor_alert_sla_minutes.
+  # ──────────────────────────────────────────────────────────────────
+  definitions:
+
+    - name: actor-watchlist-alert
+      description: Raise an ActorAlert when an Event involves an Actor on any active Watchlist.
+      status: active
+      trigger_type: event
+      trigger_config:
+        source: ontology.link_events
+        link_type: INVOLVED_IN
+        filter:
+          # Only fire when the source actor of the link is on any active watchlist.
+          # Engine evaluates against the ontology row at commit time.
+          expression: "left.actor.is_on_active_watchlist == true"
+      steps:
+        - id: detect-watchlist-member
+          name: Resolve watchlist memberships for the actor
+          step_type: query_ontology
+          description: Loads the Watchlist row(s) that contain left.actor for use in downstream steps.
+          config:
+            object_type: Watchlist
+            query: "members.actor_id == $event.left.actor_id AND status == 'ACTIVE'"
+            output_variable: matched_watchlists
+          next_step_id: create-actor-alert
+
+        - id: create-actor-alert
+          name: Create the ActorAlert row
+          step_type: create_object
+          description: Materialises the ActorAlert and links it back to the triggering Event + Watchlist.
+          config:
+            object_type: ActorAlert
+            parameters:
+              actor_id:        "$event.left.actor_id"
+              triggering_event_id: "$event.right.event_id"
+              watchlist_id:    "$matched_watchlists[0].watchlist_id"
+              raised_at_utc:   "$now"
+              status:          "OPEN"
+              due_at_utc:      "$now + minutes(${actor_alert_sla_minutes})"
+            links:
+              - link_type: RAISED_FROM
+                from_object_id: "$result.actor_alert_id"
+                to_object_id:   "$event.right.event_id"
+              - link_type: TARGETS
+                from_object_id: "$result.actor_alert_id"
+                to_object_id:   "$event.left.actor_id"
+          next_step_id: notify-watchlist-owner
+
+        - id: notify-watchlist-owner
+          name: Notify the watchlist owner (post-commit)
+          step_type: dispatch_notification
+          description: In-app + email to the analyst who owns the watchlist.
+          config:
+            template:        actor-alert-raised
+            channels:        ["${notification_channels}"]
+            target:
+              kind:          watchlist_owner
+              watchlist_id:  "$matched_watchlists[0].watchlist_id"
+            context:
+              actor_id:      "$event.left.actor_id"
+              alert_id:      "$result.actor_alert_id"
+              event_id:      "$event.right.event_id"
+          next_step_id: schedule-escalation
+
+        - id: schedule-escalation
+          name: Schedule the SLA escalation check
+          step_type: schedule_delayed_dispatch
+          description: Re-invokes the escalation workflow after the SLA window if the alert is still unacked.
+          config:
+            delay_minutes:   "${actor_alert_sla_minutes}"
+            target_workflow: actor-alert-escalation
+            payload:
+              alert_id:      "$result.actor_alert_id"
+
+    # ──────────────────────────────────────────────────────────────
+    # Workflow #2 — Escalation (SLA breach)
+    # Trigger: a delayed dispatch from Workflow #1, OR a periodic
+    # scheduled sweep (defence in depth — survives the delayed-step
+    # dispatcher going down). The escalation_target_role is the
+    # role that receives the breach notification.
+    # ──────────────────────────────────────────────────────────────
+    - name: actor-alert-escalation
+      description: Escalate unacknowledged ActorAlert rows once the SLA window has elapsed.
+      status: active
+      trigger_type: schedule
+      trigger_config:
+        cron: "*/1 * * * *"        # every minute; cheap because the query filters by due_at_utc < now()
+        # Also accepts payloads from Workflow #1's schedule_delayed_dispatch step.
+        delegated_from: [actor-watchlist-alert]
+      steps:
+        - id: load-unacked-alerts
+          name: Query ActorAlert rows past their due_at_utc with status=OPEN
+          step_type: query_ontology
+          config:
+            object_type: ActorAlert
+            query: "status == 'OPEN' AND acknowledged_at_utc IS NULL AND due_at_utc < $now"
+            output_variable: breached_alerts
+            limit: 100
+          next_step_id: dispatch-escalation
+
+        - id: dispatch-escalation
+          name: Dispatch escalation notification per breached alert
+          step_type: dispatch_notification
+          description: Notification to the configured escalation role with a link to the alert.
+          config:
+            template:        actor-alert-escalation
+            channels:        ["${notification_channels}"]
+            target:
+              kind:          role
+              role:          "${escalation_target_role}"
+            for_each:        breached_alerts
+            context:
+              alert_id:      "$item.actor_alert_id"
+              minutes_overdue: "minutes_between($item.due_at_utc, $now)"
+
+    # ──────────────────────────────────────────────────────────────
+    # Workflow #3 — Investigation case creation (manual)
+    # Trigger: a user submits the open-investigation-case action type
+    # (typically from the Workshop button group in Item 7, or
+    # programmatically by the AIP copilot in Item 4 after user
+    # confirmation). The workflow creates the InvestigationCase,
+    # links the originating ActorAlert (if any), and dispatches the
+    # side-effects from the per-action matrix below.
+    # ──────────────────────────────────────────────────────────────
+    - name: investigation-case-creation
+      description: Create an InvestigationCase + link the originating ActorAlert + notify the assignee + webhook to the compliance channel.
+      status: active
+      trigger_type: action_submission
+      trigger_config:
+        action_type: open-investigation-case
+      steps:
+        - id: create-case
+          name: Materialise the InvestigationCase
+          step_type: create_object
+          config:
+            object_type: InvestigationCase
+            parameters:
+              actor_id:    "$action.parameters.actor_id"
+              title:       "$action.parameters.title"
+              priority:    "$action.parameters.priority"
+              assigned_to: "$action.parameters.assigned_to"
+              summary:     "$action.parameters.summary"
+              status:      "OPEN"
+              opened_at_utc: "$now"
+              opened_by:   "$action.actor_user_id"
+          next_step_id: link-alert-to-case
+
+        - id: link-alert-to-case
+          name: Link the originating ActorAlert (if the action carried alert_id)
+          step_type: create_link
+          description: Conditional — only fires when the action submission includes alert_id in parameters.
+          config:
+            link_type: TRIGGERED_FROM
+            from_object_id: "$result.investigation_case_id"
+            to_object_id:   "$action.parameters.alert_id"
+            skip_if:        "$action.parameters.alert_id IS NULL"
+          next_step_id: notify-assignee
+
+        - id: notify-assignee
+          name: Email + in-app notification to the case assignee
+          step_type: dispatch_notification
+          config:
+            template:    case-assigned
+            channels:    ["${notification_channels}"]
+            target:
+              kind:      user_email
+              email:     "$action.parameters.assigned_to"
+            context:
+              case_id:   "$result.investigation_case_id"
+              priority:  "$action.parameters.priority"
+              actor_id:  "$action.parameters.actor_id"
+          next_step_id: dispatch-case-opened-webhook
+
+        - id: dispatch-case-opened-webhook
+          name: Webhook to the compliance chat channel
+          step_type: dispatch_webhook
+          config:
+            url:         "${case_opened_webhook_url}"
+            method:      POST
+            payload:
+              event:     case_opened
+              case_id:   "$result.investigation_case_id"
+              actor_id:  "$action.parameters.actor_id"
+              priority:  "$action.parameters.priority"
+              opened_by: "$action.actor_user_id"
+
+  # ──────────────────────────────────────────────────────────────────
+  # Per-action side-effect matrix — mirrors the table in
+  # 09-workflows-y-acciones.md §"Side effects per Action Type" so the
+  # operator wiring notification-alerting-service has one place to
+  # consult. The matrix is for non-workflow-triggered actions; the
+  # 3 workflows above already attach side-effects via dispatch_*
+  # steps for the chained writes they perform.
+  # ──────────────────────────────────────────────────────────────────
+  per_action_side_effects:
+
+    add-to-watchlist:
+      notifications:
+        - template: watchlist-membership-added
+          target:   { kind: user, user: "$action.actor_user_id" }
+          channels: [in_app]
+      webhooks: []
+
+    flag-actor:
+      notifications:
+        - template: actor-flagged
+          target:   { kind: actor_case_owners, actor_id: "$action.parameters.actor_id" }
+          channels: [in_app, email]
+      webhooks: []
+
+    open-investigation-case:
+      # Covered by Workflow #3; listed here for reference so reviewers
+      # do not duplicate the side-effects.
+      handled_by_workflow: investigation-case-creation
+
+    acknowledge-alert:
+      notifications: []
+      webhooks: []
+
+    close-investigation-case:
+      notifications:
+        - template: case-closed
+          target:   { kind: user_list, users: ["$case.opened_by", "$case.assigned_to"] }
+          channels: [email]
+      webhooks:
+        - url:    "${case_closed_webhook_url}"
+          method: POST
+          payload:
+            event: case_closed
+            case_id: "$action.parameters.case_id"
+            outcome: "$action.parameters.outcome"
+
+    propose-sanctions-extension:
+      # Branch-only — enforcement lives in the Workshop button + Item 9.
+      notifications:
+        - template: sanctions-extension-proposed
+          target:   { kind: role, role: senior-compliance }
+          channels: [email]
+      webhooks: []
+
+  # ──────────────────────────────────────────────────────────────────
+  # Notification templates — registered in notification-alerting-service.
+  # Body / subject string templates live in the service; only the IDs
+  # are declared here so the workflows above can reference them.
+  # ──────────────────────────────────────────────────────────────────
+  notification_templates:
+    - id: actor-alert-raised
+      subject: "[Geopolitica] Watchlist match — {{ actor.display_name }} on {{ watchlist.name }}"
+    - id: actor-alert-escalation
+      subject: "[Geopolitica] ESCALATION — alert {{ alert_id }} unacknowledged for {{ minutes_overdue }} min"
+    - id: case-assigned
+      subject: "[Geopolitica] Investigation case assigned — {{ case.title }} ({{ priority }})"
+    - id: case-closed
+      subject: "[Geopolitica] Investigation case closed — {{ case.title }} ({{ outcome }})"
+    - id: watchlist-membership-added
+      subject: "[Geopolitica] {{ actor.display_name }} added to {{ watchlist.name }}"
+    - id: actor-flagged
+      subject: "[Geopolitica] {{ actor.display_name }} flagged ({{ severity }})"
+    - id: sanctions-extension-proposed
+      subject: "[Geopolitica] Sanctions extension proposed on branch {{ branch_name }}"
+
+  # ──────────────────────────────────────────────────────────────────
+  # Engine-mapping notes — surfaced honestly per the 00-contract
+  # "do not oversell" rule. Each item is a runtime gap the operator
+  # must confirm is closed before the rehearsal.
+  # ──────────────────────────────────────────────────────────────────
+  engine_mapping_notes:
+
+    step_type_dispatch:
+      summary: |
+        workflow-automation-service stores trigger_type/step_type as
+        free-form strings — the runtime worker (saga consumer) must
+        implement dispatchers for: query_ontology, create_object,
+        create_link, dispatch_notification, dispatch_webhook,
+        schedule_delayed_dispatch. Any missing dispatcher surfaces
+        as "skipped" in the run log; the workflow row still persists.
+      verify: "POST a synthetic event and inspect GET /api/v1/workflows/{id}/runs — every step must show outcome=success."
+
+    branch_required_context:
+      summary: |
+        Foundry's `required_context: branch` is not part of the
+        action_type schema in OpenFoundry. The branch-only enforcement
+        for propose-sanctions-extension lives in the Workshop button's
+        disabled_when clause (Item 7) and is duplicated here as the
+        per-action note. Surface honestly in the demo script.
+
+    action_log_correlation:
+      summary: |
+        Every step of every workflow MUST produce an ActionLog row in
+        audit-compliance-service tagged with the originating
+        action_type_id, the workflow run id, and the produced edits.
+        Verify with: GET /api/v1/audit/v1/actions?workflow_run_id={id}.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Acceptance — the operator ticks each box before T-7 day.
+  # ──────────────────────────────────────────────────────────────────
+  acceptance:
+    - id: workflows-created
+      check: "GET /api/v1/workflows lists 3 rows with the names above; each has status=active."
+    - id: alert-roundtrip
+      check: "Insert a synthetic Event for an actor on an active Watchlist → ActorAlert appears in object-database-service within 60 s."
+    - id: sla-escalation
+      check: "Withhold acknowledgement for actor_alert_sla_minutes → escalation notification fires to the configured role."
+    - id: case-creation-chain
+      check: "POST /api/v1/actions/open-investigation-case → InvestigationCase row exists + alert TRIGGERED_FROM link present + assignee notification + webhook fired."
+    - id: action-log-queryable
+      check: "GET /api/v1/audit/v1/actions returns one row per submission across the 5-alerts-5-cases-5-notifications smoke."
+    - id: side-effect-failure-isolation
+      check: "If the webhook target is down, the ontology edit STILL commits and the failure surfaces as a Data Health warning, not as a transaction rollback."

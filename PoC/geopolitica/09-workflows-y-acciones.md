@@ -1,6 +1,8 @@
 # 09 — Workflows and actions
 
 > Foundry models human-driven and event-driven processes as combinations of **Action Types**, **Functions / AIP Logic**, **Notifications**, and **Webhooks** (see [Action Types — overview](https://www.palantir.com/docs/foundry/action-types/use-actions/), [notifications](https://www.palantir.com/docs/foundry/action-types/notifications/), [webhooks](https://www.palantir.com/docs/foundry/action-types/webhooks)). OpenFoundry's `workflow-automation-service` + `ontology-actions-service` + `notification-alerting-service` implement this. Anything that does not map cleanly to those primitives is labeled **OpenFoundry emulation**.
+>
+> The 3 workflow definitions + per-action side-effect matrix + notification templates are the declarative SOT in [`assets/workflows-geopolitica.yaml`](assets/workflows-geopolitica.yaml). The operator registers them via [`infra/scripts/poc-geopolitica/register-workflows.sh`](../../infra/scripts/poc-geopolitica/register-workflows.sh). Each definition round-trips into a valid `CreateWorkflowRequest` at `make test` (`services/workflow-automation-service/internal/models/poc_geopolitica_smoke_test.go`), so YAML drift breaks CI rather than the demo. The YAML wins on drift with this doc.
 
 The two main workflows demoed are:
 - **Watchlist → Alert → Acknowledge** (the "passive monitoring" loop).
