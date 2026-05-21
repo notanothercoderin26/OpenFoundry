@@ -98,8 +98,59 @@ import { CreateObjectTypeWizard } from "@/lib/components/ontology/CreateObjectTy
 import { LinkEditor } from "@/lib/components/ontology/LinkEditor";
 import { OntologyEditsButton } from "@/lib/components/ontology/OntologyEditsButton";
 import { AuditLogPanel } from "@/lib/components/ontology/AuditLogPanel";
-import { OntologyShellTopBar } from "@/lib/components/ontology/OntologyShell";
+import {
+  OntologyShellSidebar,
+  OntologyShellTopBar,
+  type OntologySidebarItemId,
+} from "@/lib/components/ontology/OntologyShell";
 import { OntologySelector } from "@/lib/components/ontology/OntologySelector";
+
+/**
+ * When true, render the legacy 18-entry navigation panel below the curated
+ * Foundry sidebar. Off by default; flip to true while iterating on the
+ * sidebar to compare both nav layouts side by side. The underlying
+ * `Section` ids and routing stay identical regardless.
+ */
+const SHOW_LEGACY_SIDEBAR = false;
+
+const SIDEBAR_TO_SECTION: Record<OntologySidebarItemId, Section> = {
+  discover: "overview",
+  proposals: "changes",
+  history: "history",
+  "object-types": "types",
+  properties: "types",
+  "shared-properties": "shared",
+  "link-types": "links",
+  "action-types": "actions",
+  groups: "groups",
+  interfaces: "interfaces",
+  "value-types": "valueTypes",
+  functions: "overview",
+  health: "auditHealth",
+  cleanup: "cleanup",
+  configuration: "permissions",
+};
+
+const SECTION_TO_SIDEBAR: Record<Section, OntologySidebarItemId> = {
+  overview: "discover",
+  registry: "discover",
+  types: "object-types",
+  links: "link-types",
+  actions: "action-types",
+  interfaces: "interfaces",
+  shared: "shared-properties",
+  valueTypes: "value-types",
+  groups: "groups",
+  views: "object-types",
+  usage: "discover",
+  permissions: "configuration",
+  changes: "proposals",
+  history: "history",
+  importExport: "configuration",
+  cleanup: "cleanup",
+  auditHealth: "health",
+  projects: "configuration",
+};
 import {
   stage as stageOntologyEdit,
   useOntologyWorkingState,
@@ -1633,6 +1684,20 @@ export function OntologyManagerPage() {
     </>
   );
 
+  const sidebarCounts: Partial<Record<OntologySidebarItemId, number>> = {
+    "object-types": objectTypes.length,
+    properties: objectTypes.reduce(
+      (acc, ot) => acc + (ot.properties?.length ?? 0),
+      0,
+    ),
+    "shared-properties": shared.length,
+    "link-types": linkTypes.length,
+    "action-types": actionTypes.length,
+    groups: objectTypeGroups.length,
+    interfaces: interfaces.length,
+    "value-types": valueTypes.length,
+  };
+
   return (
     <section
       className="of-page"
@@ -1648,7 +1713,28 @@ export function OntologyManagerPage() {
         branchSlot={branchSlot}
         newSlot={newSlot}
       />
-      <div style={{ padding: "16px 24px 24px", display: "grid", gap: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "stretch",
+          minHeight: "calc(100vh - 48px)",
+        }}
+      >
+        <OntologyShellSidebar
+          active={SECTION_TO_SIDEBAR[section]}
+          onSelect={(id) => setSection(SIDEBAR_TO_SECTION[id])}
+          counts={sidebarCounts}
+          header={
+            <OntologySelector
+              name={ontology.display_name}
+              spacePath={
+                ontology.placement.folder_path || ontology.owning_space_slug
+              }
+            />
+          }
+        />
+        <main style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ padding: "16px 24px 24px", display: "grid", gap: 16 }}>
       {error && (
         <div
           className="of-status-danger"
@@ -1734,28 +1820,16 @@ export function OntologyManagerPage() {
         ) : null}
       </section>
 
-      <section
-        style={{
-          display: "grid",
-          gridTemplateColumns: "280px minmax(0, 1fr)",
-          gap: 16,
-          alignItems: "start",
-        }}
-      >
+      {SHOW_LEGACY_SIDEBAR ? (
         <aside
           className="of-panel"
-          style={{ padding: 12, position: "sticky", top: 12 }}
+          style={{ padding: 12 }}
         >
-          <OntologySelector
-            name={ontology.display_name}
-            spacePath={ontology.placement.folder_path || ontology.owning_space_slug}
-            className="mb-3"
-          />
           <p className="of-eyebrow" style={{ margin: "4px 4px 10px" }}>
-            Ontology Manager navigation
+            Ontology Manager navigation (legacy)
           </p>
           <nav
-            aria-label="Ontology Manager sections"
+            aria-label="Ontology Manager sections (legacy)"
             style={{ display: "grid", gap: 4 }}
           >
             {shellNavItems.map((item) => (
@@ -1809,6 +1883,7 @@ export function OntologyManagerPage() {
             </p>
           </div>
         </aside>
+      ) : null}
         <div style={{ display: "grid", gap: 16 }}>
           {shellWarnings.map((warning) => (
             <div
@@ -2689,7 +2764,9 @@ export function OntologyManagerPage() {
             </section>
           )}
         </div>
-      </section>
+          </div>
+        </main>
+      </div>
 
       <CreateObjectTypeWizard
         open={wizardOpen}
@@ -2713,7 +2790,6 @@ export function OntologyManagerPage() {
           }}
         />
       ) : null}
-      </div>
     </section>
   );
 }
