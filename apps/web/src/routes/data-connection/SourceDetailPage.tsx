@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { Tabs } from '@/lib/components/Tabs';
 import { ComputeTypePopover } from '@/lib/components/data-connection/ComputeTypePopover';
+import { MigrateToFoundryWorkerWizard } from '@/lib/components/data-connection/MigrateToFoundryWorkerWizard';
 import { SelectAgentsPanel } from '@/lib/components/data-connection/SelectAgentsPanel';
 import { VirtualTablesTab } from '@/lib/components/data-connection/VirtualTablesTab';
 import { Breadcrumb } from '@/lib/components/ui/Breadcrumb';
@@ -460,6 +461,7 @@ export function SourceDetailPage() {
   const [outerTab, setOuterTab] = useState<OuterTab>('overview');
   const [previewOpen, setPreviewOpen] = useState(false);
   const [computePopoverOpen, setComputePopoverOpen] = useState(false);
+  const [migrateWizardOpen, setMigrateWizardOpen] = useState(false);
   const computePillRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -2812,8 +2814,16 @@ export function SourceDetailPage() {
             }}
             onMigrateClick={() => {
               setComputePopoverOpen(false);
-              // Phase 7 wizard will be opened from here.
-              window.alert('Migrate to Foundry worker wizard arrives in Phase 7.');
+              setMigrateWizardOpen(true);
+            }}
+          />
+          <MigrateToFoundryWorkerWizard
+            open={migrateWizardOpen}
+            source={source}
+            onClose={() => setMigrateWizardOpen(false)}
+            onMigrated={(updated) => {
+              setSource(updated);
+              setMigrateWizardOpen(false);
             }}
           />
 

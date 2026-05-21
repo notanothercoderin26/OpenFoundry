@@ -621,6 +621,14 @@ export interface UpdateSourceRequest {
   config?: Record<string, unknown>;
 }
 
+export interface MigrateToFoundryWorkerRequest {
+  representative_agent_id?: string;
+  certificates?: string[];
+  driver_id?: string;
+  egress_policy_ids?: string[];
+  acknowledged: boolean;
+}
+
 export interface DuplicateSourceRequest {
   name: string;
   description?: string;
@@ -3578,6 +3586,15 @@ export const dataConnection = {
   unassignAgentFromSource(sourceId: string, agentId: string): Promise<void> {
     return api.delete(
       `${BASE}/sources/${encodeURIComponent(sourceId)}/agents/${encodeURIComponent(agentId)}`,
+    );
+  },
+  migrateToFoundryWorker(
+    sourceId: string,
+    body: MigrateToFoundryWorkerRequest,
+  ): Promise<Source> {
+    return api.post(
+      `${BASE}/sources/${encodeURIComponent(sourceId)}/migrate-to-foundry-worker`,
+      body,
     );
   },
 

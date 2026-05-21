@@ -36,6 +36,7 @@ type Store interface {
 	CreateConnection(ctx context.Context, body *models.CreateConnectionRequest, ownerID uuid.UUID) (*models.Connection, error)
 	UpdateConnection(ctx context.Context, id uuid.UUID, body *models.UpdateConnectionRequest) (*models.Connection, error)
 	DeleteConnection(ctx context.Context, id uuid.UUID) (bool, error)
+	MigrateConnectionToFoundryWorker(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (*models.Connection, error)
 	CheckSourceRole(ctx context.Context, sourceID uuid.UUID, actorID uuid.UUID, role models.SourcePermissionRole) (bool, error)
 	GetSourceGovernance(ctx context.Context, sourceID uuid.UUID, actorID uuid.UUID) (*models.SourceGovernance, error)
 	UpdateSourceGovernance(ctx context.Context, sourceID uuid.UUID, actorID uuid.UUID, body *models.UpdateSourceGovernanceRequest) (*models.SourceGovernance, error)
@@ -747,6 +748,72 @@ func (h *Handlers) UnassignSourceFromAgent(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// MigrateToFoundryWorkerRequest carries the wizard's optional context so the
+// audit trail can record what the user picked. None of the fields are
+// required: the migration itself only needs the source id and the caller's
+// claims; the wizard data is forwarded to slog for traceability.
+type MigrateToFoundryWorkerRequest struct {
+	RepresentativeAgentID string   `json:"representative_agent_id,omitempty"`
+	Certificates          []string `json:"certificates,omitempty"`
+	DriverID              string   `json:"driver_id,omitempty"`
+	EgressPolicyIDs       []string `json:"egress_policy_ids,omitempty"`
+	Acknowledged          bool     `json:"acknowledged,omitempty"`
+}
+
+// MigrateToFoundryWorker snapshots the source's current config and flips its
+// `worker` key to "foundry". The previous snapshot lives in
+// `previous_config_snapshot` for 30 days to support revert.
+func (h *Handlers) MigrateToFoundryWorker(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requireClaims(w, r)
+	if !ok {
+		return
+	}
+	sourceID, _, err := routeUUIDParam(r, "id", "source_id")
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid source id")
+		return
+	}
+	var body MigrateToFoundryWorkerRequest
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+	}
+	if !body.Acknowledged {
+		writeJSONErr(w, http.StatusBadRequest, "acknowledged must be true")
+		return
+	}
+	conn, err := h.Repo.GetConnection(r.Context(), sourceID)
+	if err != nil {
+		slog.Error("migrate to foundry worker: load source", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to load source")
+		return
+	}
+	if conn == nil || conn.OwnerID != claims.Sub {
+		writeJSONErr(w, http.StatusNotFound, "source not found")
+		return
+	}
+	updated, err := h.Repo.MigrateConnectionToFoundryWorker(r.Context(), sourceID, claims.Sub)
+	if err != nil {
+		slog.Error("migrate to foundry worker", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to migrate source")
+		return
+	}
+	if updated == nil {
+		writeJSONErr(w, http.StatusNotFound, "source not found")
+		return
+	}
+	slog.Info("migrated source to foundry worker",
+		slog.String("source_id", sourceID.String()),
+		slog.String("representative_agent_id", body.RepresentativeAgentID),
+		slog.Int("certificate_count", len(body.Certificates)),
+		slog.String("driver_id", body.DriverID),
+		slog.Int("egress_policy_count", len(body.EgressPolicyIDs)),
+	)
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func normalizeJSONObject(raw *json.RawMessage, field string, w http.ResponseWriter) bool {

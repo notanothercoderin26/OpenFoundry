@@ -158,6 +158,9 @@ func (s *routerStore) DeleteConnectorAgent(context.Context, uuid.UUID, uuid.UUID
 func (s *routerStore) GetConnectorAgent(context.Context, uuid.UUID) (*models.ConnectorAgent, error) {
 	return &models.ConnectorAgent{ID: s.agent, Name: "edge", AgentURL: "https://agent.local", OwnerID: s.owner, Status: "online", Capabilities: json.RawMessage(`{}`), Metadata: json.RawMessage(`{}`)}, nil
 }
+func (s *routerStore) MigrateConnectionToFoundryWorker(context.Context, uuid.UUID, uuid.UUID) (*models.Connection, error) {
+	return &models.Connection{ID: s.source, Name: "edge", ConnectorType: "rest_api", OwnerID: s.owner, Status: "online", Config: json.RawMessage(`{"worker":"foundry"}`)}, nil
+}
 func (s *routerStore) ListSourcePolicies(context.Context, uuid.UUID, uuid.UUID) ([]models.SourcePolicyBindingResponse, error) {
 	return []models.SourcePolicyBindingResponse{}, nil
 }

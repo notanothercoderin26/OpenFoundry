@@ -135,6 +135,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/data-connection/sources/{id}/agents", h.ListSourceAgents)
 		api.Post("/data-connection/sources/{id}/agents", h.AssignSourceToAgent)
 		api.Delete("/data-connection/sources/{source_id}/agents/{agent_id}", h.UnassignSourceFromAgent)
+		api.Post("/data-connection/sources/{id}/migrate-to-foundry-worker", h.MigrateToFoundryWorker)
 		api.Get("/data-connection/sources/{id}/egress-policies", h.ListSourcePolicies)
 		api.Post("/data-connection/sources/{id}/egress-policies", h.AttachPolicy)
 		api.Delete("/data-connection/sources/{source_id}/egress-policies/{policy_id}", h.DetachPolicy)
