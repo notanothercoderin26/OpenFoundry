@@ -17053,3 +17053,499 @@ export function applyRule(
 export function deleteRule(id: string) {
   return api.delete(`/ontology/rules/${id}`);
 }
+
+/* ========================================================================= */
+/* Discover-page helpers                                                      */
+/* ========================================================================= */
+
+/*
+ * Foundry-style Discover view needs to track favourites, recently-viewed
+ * resources and the user-configured "Customize homepage" layout. The data is
+ * per-user × per-ontology, low-volume and rarely contested across sessions —
+ * which is exactly the sweet spot for `localStorage`. When a real backend
+ * endpoint lands these helpers should be turned into network calls without
+ * changing the call sites.
+ */
+
+export type OntologyFavoriteKind = "object-type" | "group";
+
+export type OntologyHomepageSectionId =
+  | "recent"
+  | "favorite-object-types"
+  | "favorite-groups"
+  | `group:${string}`;
+
+export interface OntologyHomepageSection {
+  id: OntologyHomepageSectionId;
+  visible: boolean;
+}
+
+export interface OntologyHomepageConfig {
+  itemsPerSection: number;
+  sections: OntologyHomepageSection[];
+}
+
+export const DEFAULT_HOMEPAGE_CONFIG: OntologyHomepageConfig = {
+  itemsPerSection: 6,
+  sections: [
+    { id: "recent", visible: true },
+    { id: "favorite-object-types", visible: true },
+    { id: "favorite-groups", visible: true },
+  ],
+};
+
+const DISCOVER_STORAGE_PREFIX = "openfoundry.ontology";
+const DISCOVER_RECENT_LIMIT = 32;
+
+function discoverStorageKey(ontologyId: string, suffix: string): string {
+  return `${DISCOVER_STORAGE_PREFIX}.${ontologyId}.${suffix}`;
+}
+
+function readDiscoverStorage<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeDiscoverStorage<T>(key: string, value: T): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage quota exceeded or private-mode browser — ignore.
+  }
+}
+
+export function getHomepageConfig(ontologyId: string): OntologyHomepageConfig {
+  return readDiscoverStorage<OntologyHomepageConfig>(
+    discoverStorageKey(ontologyId, "homepage"),
+    DEFAULT_HOMEPAGE_CONFIG,
+  );
+}
+
+export function updateHomepageConfig(
+  ontologyId: string,
+  config: OntologyHomepageConfig,
+): void {
+  writeDiscoverStorage(discoverStorageKey(ontologyId, "homepage"), config);
+}
+
+function favoritesKey(ontologyId: string, kind: OntologyFavoriteKind): string {
+  return discoverStorageKey(ontologyId, `favorites.${kind}`);
+}
+
+export function listFavorites(
+  ontologyId: string,
+  kind: OntologyFavoriteKind,
+): string[] {
+  return readDiscoverStorage<string[]>(favoritesKey(ontologyId, kind), []);
+}
+
+export function isFavorite(
+  ontologyId: string,
+  kind: OntologyFavoriteKind,
+  id: string,
+): boolean {
+  return listFavorites(ontologyId, kind).includes(id);
+}
+
+/** Returns the new favourite state (`true` = is favourite after the toggle). */
+export function toggleFavorite(
+  ontologyId: string,
+  kind: OntologyFavoriteKind,
+  id: string,
+): boolean {
+  const current = listFavorites(ontologyId, kind);
+  const idx = current.indexOf(id);
+  const next = idx >= 0 ? current.filter((x) => x !== id) : [...current, id];
+  writeDiscoverStorage(favoritesKey(ontologyId, kind), next);
+  return idx < 0;
+}
+
+export function listFavoriteObjectTypes(
+  ontologyId: string,
+  objectTypes: ObjectType[],
+  limit?: number,
+): ObjectType[] {
+  const ids = new Set(listFavorites(ontologyId, "object-type"));
+  const out = objectTypes.filter((entry) => ids.has(entry.id));
+  return limit ? out.slice(0, limit) : out;
+}
+
+export function listFavoriteGroups(
+  ontologyId: string,
+  groups: OntologyObjectTypeGroup[],
+  limit?: number,
+): OntologyObjectTypeGroup[] {
+  const ids = new Set(listFavorites(ontologyId, "group"));
+  const out = groups.filter((entry) => ids.has(entry.id));
+  return limit ? out.slice(0, limit) : out;
+}
+
+function recentKey(ontologyId: string): string {
+  return discoverStorageKey(ontologyId, "recent.object-type");
+}
+
+export function pushRecentObjectType(
+  ontologyId: string,
+  objectTypeId: string,
+): void {
+  const list = readDiscoverStorage<string[]>(recentKey(ontologyId), []);
+  const filtered = list.filter((id) => id !== objectTypeId);
+  filtered.unshift(objectTypeId);
+  writeDiscoverStorage(recentKey(ontologyId), filtered.slice(0, DISCOVER_RECENT_LIMIT));
+}
+
+export function listRecentObjectTypes(
+  ontologyId: string,
+  objectTypes: ObjectType[],
+  limit?: number,
+): ObjectType[] {
+  const ids = readDiscoverStorage<string[]>(recentKey(ontologyId), []);
+  const byId = new Map(objectTypes.map((entry) => [entry.id, entry]));
+  const out: ObjectType[] = [];
+  for (const id of ids) {
+    const entry = byId.get(id);
+    if (entry) out.push(entry);
+    if (limit && out.length >= limit) break;
+  }
+  return out;
+}
+
+/* ========================================================================= */
+/* Bloque 8 — Backend gap clients                                             */
+/* ========================================================================= */
+
+/*
+ * Each client tries the real endpoint first and falls back to a sensible
+ * mock derived from data the frontend already has. As the Go services land
+ * the corresponding handlers, the call sites need no change — the network
+ * branch will simply start to succeed.
+ */
+
+/* ----- Discover aggregator ---------------------------------------------- */
+
+export interface OntologyDiscoverPayload {
+  recent_object_type_ids: string[];
+  favorite_object_type_ids: string[];
+  favorite_group_ids: string[];
+}
+
+export async function fetchOntologyDiscover(
+  ontologyId: string,
+): Promise<OntologyDiscoverPayload> {
+  try {
+    return await api.get<OntologyDiscoverPayload>(
+      `/ontologies/${ontologyId}/discover`,
+    );
+  } catch {
+    if (typeof window === "undefined") {
+      return {
+        recent_object_type_ids: [],
+        favorite_object_type_ids: [],
+        favorite_group_ids: [],
+      };
+    }
+    const recent = readDiscoverStorage<string[]>(
+      discoverStorageKey(ontologyId, "recent.object-type"),
+      [],
+    );
+    return {
+      recent_object_type_ids: recent,
+      favorite_object_type_ids: listFavorites(ontologyId, "object-type"),
+      favorite_group_ids: listFavorites(ontologyId, "group"),
+    };
+  }
+}
+
+/* ----- Homepage config (network-aware wrappers) -------------------------- */
+
+export async function fetchHomepageConfig(
+  ontologyId: string,
+): Promise<OntologyHomepageConfig> {
+  try {
+    return await api.get<OntologyHomepageConfig>(
+      `/ontologies/${ontologyId}/homepage-config`,
+    );
+  } catch {
+    return getHomepageConfig(ontologyId);
+  }
+}
+
+export async function pushHomepageConfig(
+  ontologyId: string,
+  config: OntologyHomepageConfig,
+): Promise<OntologyHomepageConfig> {
+  try {
+    return await api.put<OntologyHomepageConfig>(
+      `/ontologies/${ontologyId}/homepage-config`,
+      config,
+    );
+  } catch {
+    updateHomepageConfig(ontologyId, config);
+    return config;
+  }
+}
+
+/* ----- Favorites (network-aware POST/DELETE) ----------------------------- */
+
+export async function postFavorite(
+  ontologyId: string,
+  kind: OntologyFavoriteKind,
+  id: string,
+): Promise<void> {
+  try {
+    await api.post(`/ontologies/${ontologyId}/favorites`, { kind, id });
+  } catch {
+    if (!isFavorite(ontologyId, kind, id)) toggleFavorite(ontologyId, kind, id);
+  }
+}
+
+export async function deleteFavorite(
+  ontologyId: string,
+  kind: OntologyFavoriteKind,
+  id: string,
+): Promise<void> {
+  try {
+    await api.delete(
+      `/ontologies/${ontologyId}/favorites/${kind}/${encodeURIComponent(id)}`,
+    );
+  } catch {
+    if (isFavorite(ontologyId, kind, id)) toggleFavorite(ontologyId, kind, id);
+  }
+}
+
+/* ----- Object type dependents ------------------------------------------- */
+
+export type ObjectTypeDependentKindServer =
+  | "workshop"
+  | "function"
+  | "graph-template"
+  | "quiver"
+  | "use-cases"
+  | "automation"
+  | "developer-console"
+  | "map-layer"
+  | "map-template";
+
+export interface ObjectTypeDependentResourceServer {
+  id: string;
+  label: string;
+  href?: string;
+  hint?: string;
+}
+
+export interface ObjectTypeDependentsResponse {
+  by_kind: Partial<
+    Record<ObjectTypeDependentKindServer, ObjectTypeDependentResourceServer[]>
+  >;
+}
+
+export async function fetchObjectTypeDependents(
+  objectTypeId: string,
+): Promise<ObjectTypeDependentsResponse> {
+  try {
+    return await api.get<ObjectTypeDependentsResponse>(
+      `/object-types/${objectTypeId}/dependents`,
+    );
+  } catch {
+    /* Empty map until the aggregator endpoint lands — the panel renders the
+     * per-kind empty states gracefully. */
+    return { by_kind: {} };
+  }
+}
+
+/* ----- Usage time-series (object types / actions / functions) ----------- */
+
+export type UsageRange = "30d" | "90d";
+
+export interface UsageSeriesResponse {
+  range: UsageRange;
+  labels: string[];
+  values: number[];
+}
+
+function generateMockUsageSeries(
+  seedId: string,
+  range: UsageRange,
+  unit: "day" | "month",
+): UsageSeriesResponse {
+  let h = 0;
+  for (let i = 0; i < seedId.length; i++) {
+    h = ((h << 5) - h + seedId.charCodeAt(i)) | 0;
+  }
+  const random = mulberry32Local(Math.abs(h) || 1);
+  const labels: string[] = [];
+  const values: number[] = [];
+  const now = new Date();
+  if (unit === "day") {
+    const days = range === "30d" ? 30 : 90;
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(now.getDate() - i);
+      labels.push(
+        date.toLocaleString(undefined, { month: "short", day: "numeric" }),
+      );
+      values.push(Math.floor(random() * 40) + (i % 7 === 0 ? 20 : 0));
+    }
+  } else {
+    const months = range === "30d" ? 3 : 9;
+    for (let i = months; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      labels.push(
+        i === months
+          ? date.toLocaleString(undefined, { year: "numeric" })
+          : date.toLocaleString(undefined, { month: "short", year: "2-digit" }),
+      );
+      values.push(Math.floor(random() * 10));
+    }
+  }
+  return { range, labels, values };
+}
+
+function mulberry32Local(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export async function fetchObjectTypeUsage(
+  objectTypeId: string,
+  range: UsageRange,
+): Promise<UsageSeriesResponse> {
+  try {
+    return await api.get<UsageSeriesResponse>(
+      `/object-types/${objectTypeId}/usage?range=${range}`,
+    );
+  } catch {
+    return generateMockUsageSeries(objectTypeId, range, "month");
+  }
+}
+
+export async function fetchActionTypeUsage(
+  actionTypeId: string,
+  range: UsageRange,
+): Promise<UsageSeriesResponse> {
+  try {
+    return await api.get<UsageSeriesResponse>(
+      `/action-types/${actionTypeId}/usage?range=${range}`,
+    );
+  } catch {
+    return generateMockUsageSeries(actionTypeId, range, "day");
+  }
+}
+
+export async function fetchFunctionUsage(
+  functionId: string,
+  range: UsageRange,
+): Promise<UsageSeriesResponse> {
+  try {
+    return await api.get<UsageSeriesResponse>(
+      `/functions/${functionId}/usage?range=${range}`,
+    );
+  } catch {
+    return generateMockUsageSeries(functionId, range, "day");
+  }
+}
+
+/* ----- Action type monitoring rules ------------------------------------- */
+
+export type ActionTypeMonitoringRuleStatus =
+  | "healthy"
+  | "warning"
+  | "failing"
+  | "paused";
+
+export interface ActionTypeMonitoringRule {
+  id: string;
+  name: string;
+  condition: string;
+  status: ActionTypeMonitoringRuleStatus;
+  last_run_at: string | null;
+}
+
+export async function fetchActionTypeMonitoringRules(
+  actionTypeId: string,
+): Promise<ActionTypeMonitoringRule[]> {
+  try {
+    const response = await api.get<{ rules: ActionTypeMonitoringRule[] }>(
+      `/action-types/${actionTypeId}/monitoring-rules`,
+    );
+    return response.rules ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/* ----- Function usage history (consuming apps + versions) --------------- */
+
+export interface FunctionUsageHistoryEntry {
+  app_id: string;
+  app_name: string;
+  app_kind: string;
+  version: string;
+  updated_at?: string | null;
+}
+
+export async function fetchFunctionUsageHistory(
+  functionId: string,
+): Promise<FunctionUsageHistoryEntry[]> {
+  try {
+    const response = await api.get<{ apps: FunctionUsageHistoryEntry[] }>(
+      `/functions/${functionId}/usage-history`,
+    );
+    return response.apps ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/* ----- Function versions ------------------------------------------------ */
+
+export interface FunctionVersionEntry {
+  id: string;
+  version: string;
+  display_name: string;
+  created_at: string;
+  is_latest: boolean;
+}
+
+export async function fetchFunctionVersions(
+  functionId: string,
+): Promise<FunctionVersionEntry[]> {
+  try {
+    const response = await api.get<{ versions: FunctionVersionEntry[] }>(
+      `/functions/${functionId}/versions`,
+    );
+    return response.versions ?? [];
+  } catch {
+    /* Fallback: list every function package and filter by name — matches
+     * what the function detail page is doing in-line today. */
+    try {
+      const pkg = await getFunctionPackage(functionId);
+      const all = await listFunctionPackages({ per_page: 200 });
+      const matching = all.data.filter((entry) => entry.name === pkg.name);
+      const sorted = [...matching].sort((a, b) =>
+        b.version.localeCompare(a.version),
+      );
+      return sorted.map((entry, index) => ({
+        id: entry.id,
+        version: entry.version,
+        display_name: entry.display_name,
+        created_at: entry.created_at,
+        is_latest: index === 0,
+      }));
+    } catch {
+      return [];
+    }
+  }
+}

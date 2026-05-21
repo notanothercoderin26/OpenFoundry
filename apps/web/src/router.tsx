@@ -328,6 +328,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/object-link-types/ObjectLinkTypesPage')).ObjectLinkTypesPage }),
       },
       {
+        path: 'object-link-types/:id',
+        lazy: async () => ({ Component: (await import('./routes/link-types/LinkTypeDetailPage')).LinkTypeDetailPage }),
+      },
+      {
         path: 'builds',
         lazy: async () => ({ Component: (await import('./routes/builds/BuildsPage')).BuildsPage }),
       },
@@ -410,6 +414,14 @@ export const router = createBrowserRouter([
       {
         path: 'compute-modules',
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionsPage')).FunctionsPage }),
+      },
+      {
+        path: 'compute-modules/:id',
+        lazy: async () => ({ Component: (await import('./routes/functions/FunctionDetailPage')).FunctionDetailPage }),
+      },
+      {
+        path: 'dev/components',
+        lazy: async () => ({ Component: (await import('./routes/dev/ComponentsGalleryPage')).ComponentsGalleryPage }),
       },
       {
         path: 'functions',

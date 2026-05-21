@@ -1,5 +1,76 @@
 @import 'tailwindcss';
 
+/*
+ * Foundry-style design tokens (Tailwind v4 @theme).
+ *
+ * Namespaced under `of-*` so existing utilities keep their current values.
+ * Opt in from new components with `bg-of-surface`, `text-of-text`,
+ * `border-of-border`, `rounded-of-md`, `shadow-of-card`, etc.
+ *
+ * Mirror in `apps/web/tailwind.config.ts` is for IDE/docs only — Tailwind v4
+ * reads tokens from this @theme block.
+ */
+@theme {
+  /* Colors */
+  --color-of-surface: #f6f7f9;
+  --color-of-surface-raised: #ffffff;
+  --color-of-surface-muted: #f0f2f5;
+  --color-of-canvas: #f6f7f9;
+
+  --color-of-border: #e5e8eb;
+  --color-of-border-strong: #cdd2d8;
+  --color-of-border-focus: #215db0;
+
+  --color-of-text: #1c2127;
+  --color-of-text-muted: #5f6b7c;
+  --color-of-text-soft: #8b95a4;
+  --color-of-text-inverse: #ffffff;
+
+  --color-of-accent: #215db0;
+  --color-of-accent-hover: #184a8a;
+  --color-of-accent-soft: #e8f0fb;
+  --color-of-accent-strong: #2d72d2;
+
+  --color-of-success: #1d8348;
+  --color-of-success-soft: #e8f6ec;
+  --color-of-warning: #9a5b00;
+  --color-of-warning-soft: #fff3df;
+  --color-of-danger: #b42318;
+  --color-of-danger-soft: #fde7e7;
+  --color-of-info: #215db0;
+  --color-of-info-soft: #e8f0fb;
+
+  /* Font sizes — 12 / 13 / 14 / 16 / 20 / 24 px */
+  --text-of-12: 12px;
+  --text-of-12--line-height: 16px;
+  --text-of-13: 13px;
+  --text-of-13--line-height: 18px;
+  --text-of-14: 14px;
+  --text-of-14--line-height: 20px;
+  --text-of-16: 16px;
+  --text-of-16--line-height: 22px;
+  --text-of-20: 20px;
+  --text-of-20--line-height: 26px;
+  --text-of-24: 24px;
+  --text-of-24--line-height: 30px;
+
+  /* Font weights — 400 / 500 / 600 */
+  --font-weight-of-regular: 400;
+  --font-weight-of-medium: 500;
+  --font-weight-of-semibold: 600;
+
+  /* Border radius — uniform, near-rectangular */
+  --radius-of-sm: 3px;
+  --radius-of-md: 4px;
+  --radius-of-lg: 6px;
+
+  /* Shadows — flat, no glow */
+  --shadow-of-none: 0 0 #0000;
+  --shadow-of-sm: 0 1px 0 rgba(17, 24, 39, 0.04);
+  --shadow-of-card: 0 1px 0 rgba(17, 24, 39, 0.04);
+  --shadow-of-popover: 0 6px 18px rgba(17, 24, 39, 0.12);
+}
+
 :root {
   --font-sans:
     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Helvetica Neue',
@@ -9,16 +80,31 @@
 
   --bg-app: #e9edf2;
   --bg-app-portal: #ffffff;
+  /* Foundry-aligned brand vars (also accessible from non-Tailwind CSS). */
+  --of-surface: #f6f7f9;
+  --of-surface-raised: #ffffff;
+  --of-surface-muted: #f0f2f5;
+  --of-border: #e5e8eb;
+  --of-border-strong: #cdd2d8;
+  --of-text: #1c2127;
+  --of-text-muted: #5f6b7c;
+  --of-text-soft: #8b95a4;
+  --of-accent: #215db0;
+  --of-accent-hover: #184a8a;
+  --of-accent-soft: #e8f0fb;
+
+  /* Legacy semantic vars — aligned to the Foundry palette. */
+  --bg-app: #f6f7f9;
   --bg-default: #ffffff;
-  --bg-canvas: #eef1f5;
+  --bg-canvas: #f6f7f9;
   --bg-panel: #ffffff;
-  --bg-panel-muted: #f5f7fa;
-  --bg-panel-subtle: #eef2f6;
-  --bg-subtle: #f5f7fa;
+  --bg-panel-muted: #f6f7f9;
+  --bg-panel-subtle: #f0f2f5;
+  --bg-subtle: #f6f7f9;
   --bg-sidebar: #20262d;
   --bg-sidebar-active: #151a20;
   --bg-sidebar-hover: #2b323b;
-  --bg-topbar: #f7f8fa;
+  --bg-topbar: #ffffff;
   --bg-input: #ffffff;
   --bg-chip: #edf1f5;
   --bg-chip-active: #dbe9fb;
@@ -36,11 +122,27 @@
   --text-default: #344154;
   --text-muted: #5f6b7a;
   --text-soft: #8b96a5;
+  --bg-chip: #eef0f3;
+  --bg-chip-active: #e8f0fb;
+  --bg-chip-strong: #215db0;
+  --bg-hover: #eef0f3;
+
+  --border-subtle: #e5e8eb;
+  --border-default: #e5e8eb;
+  --border-strong: #cdd2d8;
+  --border-topbar-trail: #e5e8eb;
+  --border-topbar-action: #cdd2d8;
+  --border-focus: #215db0;
+
+  --text-strong: #1c2127;
+  --text-default: #1c2127;
+  --text-muted: #5f6b7c;
+  --text-soft: #8b95a4;
   --text-sidebar-icon: #8c98a8;
   --text-inverse: #ffffff;
-  --text-link: #1f5ea8;
+  --text-link: #215db0;
 
-  --status-success: #15803d;
+  --status-success: #1d8348;
   --status-success-bg: #e8f6ec;
   --status-warning: #9a5b00;
   --status-warning-bg: #fff3df;
@@ -48,6 +150,8 @@
   --status-danger-bg: #fde7e7;
   --status-info: #2965cc;
   --status-info-bg: #e8f1ff;
+  --status-info: #215db0;
+  --status-info-bg: #e8f0fb;
 
   --chip-recommended-bg: #dde9f8;
   --chip-recommended-text: #1f5ea8;
@@ -60,9 +164,10 @@
   --badge-healthy-text: #117a39;
 
   --shadow-panel: none;
-  --shadow-popover: 0 12px 28px rgba(17, 24, 39, 0.18);
-  --radius-sm: 2px;
-  --radius-md: 3px;
+  --shadow-card: 0 1px 0 rgba(17, 24, 39, 0.04);
+  --shadow-popover: 0 6px 18px rgba(17, 24, 39, 0.12);
+  --radius-sm: 3px;
+  --radius-md: 4px;
   --radius-lg: 6px;
   --radius-card: 4px;
   --radius-pill: 999px;
