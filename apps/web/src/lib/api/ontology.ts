@@ -17053,3 +17053,165 @@ export function applyRule(
 export function deleteRule(id: string) {
   return api.delete(`/ontology/rules/${id}`);
 }
+
+/* ========================================================================= */
+/* Discover-page helpers                                                      */
+/* ========================================================================= */
+
+/*
+ * Foundry-style Discover view needs to track favourites, recently-viewed
+ * resources and the user-configured "Customize homepage" layout. The data is
+ * per-user × per-ontology, low-volume and rarely contested across sessions —
+ * which is exactly the sweet spot for `localStorage`. When a real backend
+ * endpoint lands these helpers should be turned into network calls without
+ * changing the call sites.
+ */
+
+export type OntologyFavoriteKind = "object-type" | "group";
+
+export type OntologyHomepageSectionId =
+  | "recent"
+  | "favorite-object-types"
+  | "favorite-groups"
+  | `group:${string}`;
+
+export interface OntologyHomepageSection {
+  id: OntologyHomepageSectionId;
+  visible: boolean;
+}
+
+export interface OntologyHomepageConfig {
+  itemsPerSection: number;
+  sections: OntologyHomepageSection[];
+}
+
+export const DEFAULT_HOMEPAGE_CONFIG: OntologyHomepageConfig = {
+  itemsPerSection: 6,
+  sections: [
+    { id: "recent", visible: true },
+    { id: "favorite-object-types", visible: true },
+    { id: "favorite-groups", visible: true },
+  ],
+};
+
+const DISCOVER_STORAGE_PREFIX = "openfoundry.ontology";
+const DISCOVER_RECENT_LIMIT = 32;
+
+function discoverStorageKey(ontologyId: string, suffix: string): string {
+  return `${DISCOVER_STORAGE_PREFIX}.${ontologyId}.${suffix}`;
+}
+
+function readDiscoverStorage<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeDiscoverStorage<T>(key: string, value: T): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage quota exceeded or private-mode browser — ignore.
+  }
+}
+
+export function getHomepageConfig(ontologyId: string): OntologyHomepageConfig {
+  return readDiscoverStorage<OntologyHomepageConfig>(
+    discoverStorageKey(ontologyId, "homepage"),
+    DEFAULT_HOMEPAGE_CONFIG,
+  );
+}
+
+export function updateHomepageConfig(
+  ontologyId: string,
+  config: OntologyHomepageConfig,
+): void {
+  writeDiscoverStorage(discoverStorageKey(ontologyId, "homepage"), config);
+}
+
+function favoritesKey(ontologyId: string, kind: OntologyFavoriteKind): string {
+  return discoverStorageKey(ontologyId, `favorites.${kind}`);
+}
+
+export function listFavorites(
+  ontologyId: string,
+  kind: OntologyFavoriteKind,
+): string[] {
+  return readDiscoverStorage<string[]>(favoritesKey(ontologyId, kind), []);
+}
+
+export function isFavorite(
+  ontologyId: string,
+  kind: OntologyFavoriteKind,
+  id: string,
+): boolean {
+  return listFavorites(ontologyId, kind).includes(id);
+}
+
+/** Returns the new favourite state (`true` = is favourite after the toggle). */
+export function toggleFavorite(
+  ontologyId: string,
+  kind: OntologyFavoriteKind,
+  id: string,
+): boolean {
+  const current = listFavorites(ontologyId, kind);
+  const idx = current.indexOf(id);
+  const next = idx >= 0 ? current.filter((x) => x !== id) : [...current, id];
+  writeDiscoverStorage(favoritesKey(ontologyId, kind), next);
+  return idx < 0;
+}
+
+export function listFavoriteObjectTypes(
+  ontologyId: string,
+  objectTypes: ObjectType[],
+  limit?: number,
+): ObjectType[] {
+  const ids = new Set(listFavorites(ontologyId, "object-type"));
+  const out = objectTypes.filter((entry) => ids.has(entry.id));
+  return limit ? out.slice(0, limit) : out;
+}
+
+export function listFavoriteGroups(
+  ontologyId: string,
+  groups: OntologyObjectTypeGroup[],
+  limit?: number,
+): OntologyObjectTypeGroup[] {
+  const ids = new Set(listFavorites(ontologyId, "group"));
+  const out = groups.filter((entry) => ids.has(entry.id));
+  return limit ? out.slice(0, limit) : out;
+}
+
+function recentKey(ontologyId: string): string {
+  return discoverStorageKey(ontologyId, "recent.object-type");
+}
+
+export function pushRecentObjectType(
+  ontologyId: string,
+  objectTypeId: string,
+): void {
+  const list = readDiscoverStorage<string[]>(recentKey(ontologyId), []);
+  const filtered = list.filter((id) => id !== objectTypeId);
+  filtered.unshift(objectTypeId);
+  writeDiscoverStorage(recentKey(ontologyId), filtered.slice(0, DISCOVER_RECENT_LIMIT));
+}
+
+export function listRecentObjectTypes(
+  ontologyId: string,
+  objectTypes: ObjectType[],
+  limit?: number,
+): ObjectType[] {
+  const ids = readDiscoverStorage<string[]>(recentKey(ontologyId), []);
+  const byId = new Map(objectTypes.map((entry) => [entry.id, entry]));
+  const out: ObjectType[] = [];
+  for (const id of ids) {
+    const entry = byId.get(id);
+    if (entry) out.push(entry);
+    if (limit && out.length >= limit) break;
+  }
+  return out;
+}

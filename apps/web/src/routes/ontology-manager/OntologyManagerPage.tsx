@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { projectStablePath } from "@/lib/compass/stableResourceUrls";
 import {
   buildOntologyAuditEventLog,
   buildOntologyCleanupAssistant,
+  pushRecentObjectType,
   buildOntologyHealthReport,
   buildOntologyUsageImpactAnalysis,
   buildCoreObjectViews,
@@ -108,6 +109,7 @@ import {
   OntologyCommandPalette,
   type OntologyCommandResult,
 } from "@/lib/components/ontology/OntologyCommandPalette";
+import { DiscoverPage } from "@/routes/ontology-manager/DiscoverPage";
 
 /**
  * When true, render the legacy 18-entry navigation panel below the curated
@@ -405,6 +407,7 @@ export function OntologyManagerPage() {
   const resourceSearchIndexRef = useRef<OntologyResourceSearchIndex | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!newMenuOpen && !branchMenuOpen) return;
@@ -1944,7 +1947,25 @@ export function OntologyManagerPage() {
             </div>
           ))}
 
-          {section === "overview" && (
+          {section === "overview" && !SHOW_LEGACY_SIDEBAR && (
+            <DiscoverPage
+              ontologyId={ontology.id}
+              objectTypes={objectTypes}
+              objectTypeGroups={objectTypeGroups}
+              registry={ontologyRegistry}
+              onPickObjectType={(objectType) => {
+                pushRecentObjectType(ontology.id, objectType.id);
+                navigate(`/ontology/${objectType.id}`);
+              }}
+              onSeeAllRecent={() => setSection("types")}
+              onSeeAllFavorites={() => setSection("types")}
+              onConfigure={() => {
+                /* TODO: Customize-homepage modal (next iteration). */
+              }}
+            />
+          )}
+
+          {section === "overview" && SHOW_LEGACY_SIDEBAR && (
             <section
               style={{
                 display: "grid",
