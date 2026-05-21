@@ -1,0 +1,209 @@
+# Canonical declarative spec for the Geopolitical Intelligence PoC
+# sample-data subset. SOURCE OF TRUTH for:
+#
+#   infra/scripts/poc-geopolitica/fetch-sample-data.sh
+#   infra/runbooks/poc-geopolitica-ingest.md
+#
+# Foundry-native framing
+# -----------------------
+# The PoC contract (03-datasets-y-fuentes-de-datos.md) targets ≈ 1 TB
+# for production-style claims, but the demo only needs a SUBSET that
+# exercises the full bronze → silver → gold pipeline coherently. This
+# manifest declares the subset. Each source maps to a SeedConnection
+# already registered in connector-management-service (Gap 3 / Item 3);
+# the operator triggers a sync per source via the API documented in
+# the runbook, and the rows land in dataset-versioning-service as
+# transactions with markings propagated from the SeedConnection.
+#
+# References:
+#   - https://www.palantir.com/docs/foundry/data-connection/overview
+#   - https://www.palantir.com/docs/foundry/data-integration/datasets
+#
+# Storage convention
+# -------------------
+# Fetched payloads are written under `infra/poc-data/geopolitica/`
+# (gitignored — see top-level .gitignore). The fetch script writes
+# one subdirectory per source slug; the sync script reads from those
+# paths and uploads to MinIO before triggering the bronze ingest.
+#
+# License attribution rule
+# -------------------------
+# Every fetched source carries its license in the manifest below and
+# MUST be surfaced in the demo app footer + Workshop module footer
+# (per 03-datasets §"Mandatory attribution" for GDELT and the
+# per-source notes below). Failing to attribute is a PoC contract
+# violation, not just a polish issue.
+
+sample_data:
+  schema_version: geopolitica.sample-data.v1
+
+  defaults:
+    output_root: infra/poc-data/geopolitica
+    on_missing_api_key: skip-with-warning   # never fail-hard during fetch; the runbook surfaces what was skipped
+    compression: gzip
+    attribution_required: true
+
+  sources:
+
+    # ── GDELT 2.0 events — 7 days, ~1M rows ────────────────────────
+    - slug: gdelt-events
+      seed_connection_name: "GDELT 2.0 events (15-min drop)"
+      subset:
+        window_days: 7
+        expected_rows: 1_000_000   # ~6k events / 15-min drop × 96 × 7 ≈ 4M; deduped + filtered ≈ 1M
+      fetch:
+        url_template: "http://data.gdeltproject.org/gdeltv2/{ts}.export.CSV.zip"
+        cadence_minutes: 15
+        api_key_env: null
+      output_subpath: gdelt/events/
+      bronze_dataset: bronze.gdelt_events
+      silver_dataset: silver.events_cameo_enriched
+      markings: [GDELT-RAW, OPEN-SOURCE]
+      license: CC-BY
+      attribution: "Source: GDELT Project — gdeltproject.org. CC-BY."
+
+    # ── GDELT 2.0 GKG — same window, ~3M mentions ──────────────────
+    - slug: gdelt-gkg
+      seed_connection_name: "GDELT 2.0 GKG mentions"
+      subset:
+        window_days: 7
+        expected_rows: 3_000_000
+      fetch:
+        url_template: "http://data.gdeltproject.org/gdeltv2/{ts}.gkg.csv.zip"
+        cadence_minutes: 15
+        api_key_env: null
+      output_subpath: gdelt/gkg/
+      bronze_dataset: bronze.gdelt_gkg
+      silver_dataset: silver.news_article
+      markings: [GDELT-RAW, OPEN-SOURCE]
+      license: CC-BY
+      attribution: "Source: GDELT Project — gdeltproject.org. CC-BY."
+
+    # ── ACLED — 12 months, ~200k events ────────────────────────────
+    - slug: acled
+      seed_connection_name: "ACLED conflict events"
+      subset:
+        window_days: 365
+        expected_rows: 200_000
+      fetch:
+        endpoint: "https://api.acleddata.com/acled/read"
+        page_size: 5000
+        api_key_env: ACLED_API_KEY   # operator-supplied; fetch script skips with warning when unset
+        rate_limit_rps: 1            # ACLED informally caps at "be polite"; 1 rps is comfortable
+      output_subpath: acled/
+      bronze_dataset: bronze.acled_events
+      silver_dataset: silver.events_acled_normalised
+      markings: [ACLED-RAW, OPEN-SOURCE]
+      license: "ACLED Terms of Use — non-commercial demo with attribution"
+      attribution: "Source: ACLED — acleddata.com. Non-commercial use; attribution required."
+
+    # ── OFAC SDN — full snapshot, ~12k entries ─────────────────────
+    - slug: ofac-sdn
+      seed_connection_name: "OFAC SDN list (US Treasury)"
+      subset:
+        window_days: null           # full snapshot
+        expected_rows: 12_000
+      fetch:
+        url: "https://www.treasury.gov/ofac/downloads/sdn.xml"
+        api_key_env: null
+      output_subpath: sanctions/ofac/
+      bronze_dataset: bronze.sanctions_ofac
+      silver_dataset: silver.sanctions_entry
+      markings: [SANCTIONS-LIST, OFAC]
+      license: "US public domain"
+      attribution: "Source: U.S. Treasury OFAC SDN list (public domain)."
+
+    # ── EU Consolidated — full snapshot, ~3k entries ───────────────
+    - slug: eu-consolidated
+      seed_connection_name: "EU Consolidated sanctions"
+      subset:
+        window_days: null
+        expected_rows: 3_000
+      fetch:
+        url_env: EU_SANCTIONS_TOKEN_URL   # token-gated; operator-supplied per SeedConnection runtime hint
+        api_key_env: null
+      output_subpath: sanctions/eu/
+      bronze_dataset: bronze.sanctions_eu
+      silver_dataset: silver.sanctions_entry   # shared with OFAC via sanctions-aggregator
+      markings: [SANCTIONS-LIST, EU]
+      license: "Commission Decision 2011/833/EU — re-use with attribution"
+      attribution: "Source: EU Consolidated Sanctions List — Council of the EU."
+
+    # ── OpenSanctions — PEPs+sanctions subset, ~200k entries ───────
+    - slug: opensanctions
+      seed_connection_name: "OpenSanctions consolidated"
+      subset:
+        scope: peps-plus-sanctions
+        expected_rows: 200_000
+      fetch:
+        endpoint: "https://api.opensanctions.org/match/default"
+        page_size: 1000
+        api_key_env: OPENSANCTIONS_API_KEY   # optional — free tier works at 500 req/day without key
+        rate_limit_rps: 0.5
+        free_tier_daily_cap: 500
+      output_subpath: sanctions/opensanctions/
+      bronze_dataset: bronze.sanctions_opensanctions
+      silver_dataset: silver.sanctions_entry
+      markings: [SANCTIONS-LIST, OPENSANCTIONS]
+      license: "CC-BY 4.0 (standard edition)"
+      attribution: "Source: OpenSanctions — opensanctions.org. CC-BY 4.0 (standard edition)."
+
+    # ── Wikidata — country-bounded SPARQL, ~50k actors ─────────────
+    - slug: wikidata
+      seed_connection_name: "Wikidata SPARQL (geopolitical actors)"
+      subset:
+        scope: country-bounded
+        # Demo focus countries; extend via the runbook if a different region is rehearsed.
+        countries_iso2: [UA, RU, SD, SY, IL, PS, YE, MX, CO, VE]
+        expected_rows: 50_000
+      fetch:
+        endpoint: "https://query.wikidata.org/sparql"
+        api_key_env: null
+        rate_limit_rps: 5            # public-endpoint soft cap; honour the Wikidata etiquette policy
+        user_agent: "OpenFoundry-PoC-Geopolitica/1.0 (https://github.com/openfoundry; contact: openfoundry@example.org)"
+      output_subpath: wikidata/
+      bronze_dataset: bronze.wikidata_actors
+      silver_dataset: silver.actors_wikidata_enriched
+      markings: [WIKIDATA, OPEN-SOURCE]
+      license: CC0
+      attribution: "Source: Wikidata — wikidata.org. CC0."
+
+  # ──────────────────────────────────────────────────────────────────
+  # Gold convergence — produced by silver → gold transforms registered
+  # in pipeline-build-service (Item 2). Documented here so operators
+  # know what they should observe after the chain finishes.
+  # ──────────────────────────────────────────────────────────────────
+  gold_outputs:
+    - dataset: gold.canonical_actor
+      produced_by: entity-resolution-service
+      inputs: [silver.actors_wikidata_enriched, silver.sanctions_entry, silver.events_cameo_enriched, silver.events_acled_normalised]
+      expected_rows: 5_000          # post-dedup; the ER target for the demo
+      notes: "Vladimir Putin / Bashar al-Assad / etc. must dedupe across OFAC + EU + Wikidata to a single Actor row."
+
+    - dataset: gold.event_union
+      produced_by: pipeline-build-service::event-union-and-normalize
+      inputs: [silver.events_cameo_enriched, silver.events_acled_normalised]
+      expected_rows: 1_200_000
+
+    - dataset: gold.news_article
+      produced_by: pipeline-build-service::news-article-projector
+      inputs: [silver.news_article]
+      expected_rows: 3_000_000
+
+  # ──────────────────────────────────────────────────────────────────
+  # Acceptance — operator runs `infra/scripts/poc-geopolitica/verify.sh`
+  # (or the steps in the runbook) and ticks each box.
+  # ──────────────────────────────────────────────────────────────────
+  acceptance:
+    - id: bronze-populated
+      check: "GET /api/v1/datasets/{rid}/transactions returns ≥ 1 successful tx for each of the 7 bronze datasets above."
+    - id: silver-populated
+      check: "Each silver_dataset has ≥ 1 successful tx; row counts within ±20% of the expected_rows declared above."
+    - id: gold-canonical-actor
+      check: "gold.canonical_actor row count ≥ 4500; a known multi-source actor (e.g. wd:Q7747 'Vladimir Putin') resolves to exactly 1 row."
+    - id: object-explorer-roundtrip
+      check: "Object Explorer search 'Vladimir Putin' returns 1 Actor row whose `source_ids` lists OFAC + EU + Wikidata."
+    - id: markings-applied
+      check: "Sampling 100 rows per bronze dataset shows the `marking` column equals the SeedConnection's MARKING:<source> attribution."
+    - id: attribution-surfaced
+      check: "Workshop module footer renders the 7 attribution strings above; missing any = demo-blocker."

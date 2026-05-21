@@ -148,3 +148,9 @@ docs_original_palantir_foundry/
 infra/argocd/notifications/slack-secret.yaml
 # Claude Code local config / worktrees.
 .claude/
+# PoC sample-data downloads (multi-GB; spec lives in
+# PoC/<vertical>/assets/sample-data-manifest.yaml — the payloads
+# themselves are operator-fetched per the runbook, not committed).
+infra/poc-data/
+# Operator-supplied env files for PoC fetch scripts (API keys etc.).
+.openfoundry/poc-*.env

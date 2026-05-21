@@ -1,6 +1,8 @@
 # 03 — Datasets and data sources (≥ 1 TB real and legal)
 
 > **Golden rule:** all PoC data is **public, legal, and licensed for use under the terms each provider publishes**. Zero customer data, zero classified data, zero non-public PII. Every source has attribution and a license note shown in the app footer.
+>
+> The demo-day subset (≪ 1 TB; designed to exercise the full pipeline coherently) is declared in [`assets/sample-data-manifest.yaml`](assets/sample-data-manifest.yaml) and ingested via [`infra/scripts/poc-geopolitica/fetch-sample-data.sh`](../../infra/scripts/poc-geopolitica/fetch-sample-data.sh) per the runbook at [`infra/runbooks/poc-geopolitica-ingest.md`](../../infra/runbooks/poc-geopolitica-ingest.md). This document remains the source for license/attribution and the production-style 1 TB target.
 
 ---
 
