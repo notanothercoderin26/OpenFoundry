@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
+import './styles.css';
+
 import {
   buildObjectCommentThread,
   buildCoreObjectViews,
@@ -1205,7 +1207,7 @@ export function ObjectExplorerPage() {
   }
 
   return (
-    <section className="of-page" style={{ display: 'grid', gap: 12 }}>
+    <section className="oe of-page" style={{ display: 'grid', gap: 12 }}>
       <HeaderToolbar
         visibleObjectTypes={visibleObjectTypes}
         visibleObjectSets={visibleObjectSets}
