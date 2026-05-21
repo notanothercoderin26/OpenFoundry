@@ -1,0 +1,480 @@
+{
+  "_comment_header": [
+    "Canonical declarative spec for the Geopolitical Intelligence PoC",
+    "Workshop module 'Geopolitical Intel Workbench'. SOURCE OF TRUTH for",
+    "the rows the operator POSTs to application-composition-service via:",
+    "",
+    "  POST  /api/v1/apps                          (create the app)",
+    "  PATCH /api/v1/apps/{id}                     (update pages / settings)",
+    "  POST  /api/v1/apps/{id}/publish             (promote to published)",
+    "",
+    "Foundry-native framing",
+    "-----------------------",
+    "Per the Workshop concepts-widgets page, a module is declarative JSON:",
+    "variables + sections + widgets + layout. The 19 widget types this",
+    "module uses are all in the v1 widget catalog (Gap 1 closed). The",
+    "vertex_graph_embed widget renders an Object-Explorer-equivalent",
+    "graph that lives in OpenFoundry's Vertex-equivalent app —",
+    "Workshop embeds a saved graph by RID per the embed page.",
+    "",
+    "References (all in 00-contrato-foundry-native.md baseline):",
+    "  - https://www.palantir.com/docs/foundry/workshop/concepts-widgets",
+    "  - https://www.palantir.com/docs/foundry/workshop/widgets-object-table",
+    "  - https://www.palantir.com/docs/foundry/workshop/widgets-map/",
+    "  - https://www.palantir.com/docs/foundry/workshop/widgets-button-group/",
+    "  - https://www.palantir.com/docs/foundry/workshop/widgets-embed-foundry-apps/",
+    "  - https://www.palantir.com/docs/foundry/workshop/branching-rebasing/",
+    "",
+    "Branching caveat",
+    "-----------------",
+    "Per the Workshop branching docs, the vertex_graph_embed and agent",
+    "widgets are NOT editable on a Workshop branch — only the surrounding",
+    "widgets are. The UC-6 branch demo MUST avoid edits to these two and",
+    "demonstrate the branch experience through the editable widgets",
+    "(filter_list, object_table, map, timeline, button_group).",
+    "",
+    "Vertex graph dependency",
+    "------------------------",
+    "vertex_graph_embed needs an existing saved Vertex graph RID. The",
+    "operator MUST create the 'Actor neighborhood' saved graph in the",
+    "Vertex-equivalent app BEFORE registering this module, and patch",
+    "the placeholder rid below (vertexGraphRid default) with the real",
+    "RID. The register script surfaces this prereq explicitly."
+  ],
+
+  "name": "Geopolitical Intel Workbench",
+  "slug": "geopolitical-intel-workbench",
+  "branch": "main",
+  "description": "Interactive analyst workbench: filters + Actor table + Map + Timeline + Vertex graph + AIP copilot + Action buttons. Configured (not coded) via application-composition-service. Inherits the caller's markings end-to-end.",
+  "status": "draft",
+  "template_key": null,
+
+  "theme": {
+    "name": "geopolitica-default",
+    "accent": "navy",
+    "footer_attributions": [
+      "Source: GDELT Project — gdeltproject.org. CC-BY.",
+      "Source: ACLED — acleddata.com. Non-commercial use; attribution required.",
+      "Source: U.S. Treasury OFAC SDN list (public domain).",
+      "Source: EU Consolidated Sanctions List — Council of the EU.",
+      "Source: OpenSanctions — opensanctions.org. CC-BY 4.0.",
+      "Source: Wikidata — wikidata.org. CC0."
+    ]
+  },
+
+  "settings": {
+    "navigation_style": "tabs",
+    "max_width": "1440px",
+    "show_branding": true,
+    "home_page_id": "workbench",
+    "workshop_variables": [
+      {
+        "id": "selectedActor",
+        "kind": "object",
+        "name": "Selected actor",
+        "object_type_id": "Actor",
+        "source_widget_id": "actor-object-table"
+      },
+      {
+        "id": "selectedActorSet",
+        "kind": "object_set",
+        "name": "Filtered actor set",
+        "object_type_id": "Actor",
+        "source_widget_id": "actor-filter-list"
+      },
+      {
+        "id": "selectedTimeWindow",
+        "kind": "timestamp_range",
+        "name": "Date window",
+        "default_value": {"start": "now-72h", "end": "now"}
+      },
+      {
+        "id": "vertexGraphRid",
+        "kind": "string",
+        "name": "Saved Vertex graph RID",
+        "default_value": "ri.vertex.main.graph.PLACEHOLDER-actor-neighborhood",
+        "metadata": {
+          "operator_note": "Replace with the real RID from the Vertex-equivalent app's 'Actor neighborhood' saved graph before publishing."
+        }
+      }
+    ]
+  },
+
+  "pages": [
+    {
+      "id": "workbench",
+      "name": "Workbench",
+      "path": "/",
+      "description": "Main analyst workbench page.",
+      "visible": true,
+      "layout": {"kind": "grid", "columns": 12, "gap": "1rem", "max_width": "1440px"},
+
+      "widgets": [
+        {
+          "id": "header-title",
+          "widget_type": "text",
+          "title": "Title",
+          "description": "",
+          "position": {"x": 0, "y": 0, "width": 8, "height": 2},
+          "props": {
+            "content": "# Geopolitical Intel Workbench\nFilter, pivot, and act on Actors / Events / Sanctions / News with the AIP copilot in-pane.",
+            "align": "left"
+          },
+          "events": [],
+          "children": []
+        },
+
+        {
+          "id": "header-agent",
+          "widget_type": "agent",
+          "title": "AIP Copilot",
+          "description": "Embedded geopolitical analyst copilot.",
+          "position": {"x": 8, "y": 0, "width": 4, "height": 4},
+          "props": {
+            "agent_id": "geopolitica-analyst-copilot",
+            "welcome_message": "Ask about actors, events, or sanctions. I read the selected actor + date window from the panel.",
+            "submit_label": "Ask"
+          },
+          "events": [],
+          "children": []
+        }
+      ],
+
+      "sections": [
+        {
+          "id": "left-col-filters-and-table",
+          "title": "",
+          "layout": {"kind": "grid", "columns": 12, "gap": "0.75rem"},
+          "widgets": [
+            {
+              "id": "actor-filter-list",
+              "widget_type": "filter_list",
+              "title": "Actor filters",
+              "description": "Filter the Actor set by country, sanctioned-only, kind.",
+              "position": {"x": 0, "y": 4, "width": 5, "height": 4},
+              "props": {
+                "source_variable_id": "selectedActorSet",
+                "output_variable_id": "selectedActorSet",
+                "layout": "vertical",
+                "allow_add_remove": false,
+                "filters": [
+                  {"property": "country_iso2", "control": "multi_select", "label": "Country"},
+                  {"property": "is_sanctioned", "control": "toggle",       "label": "Sanctioned only"},
+                  {"property": "kind",          "control": "multi_select", "label": "Actor kind",
+                    "options": ["PERSON", "ORG", "ARMED_GROUP", "GOV"]}
+                ]
+              },
+              "bindings": [
+                {"source_type": "ontology", "source_id": "Actor", "fields": ["actor_id", "display_name", "country_iso2", "is_sanctioned", "kind"], "parameters": {}}
+              ],
+              "events": [],
+              "children": []
+            },
+
+            {
+              "id": "actor-object-table",
+              "widget_type": "object_table",
+              "title": "Actors",
+              "description": "Actor rows matching the current filters. Click selects an Actor.",
+              "position": {"x": 0, "y": 8, "width": 5, "height": 6},
+              "props": {
+                "source_variable_id": "selectedActorSet",
+                "active_object_variable_id": "selectedActor",
+                "default_sort_property": "event_count_30d",
+                "default_sort_direction": "desc",
+                "row_height_lines": 2,
+                "wrap_values": false,
+                "multi_select": false,
+                "columns": [
+                  {"property": "display_name",     "label": "Name",       "width": 220},
+                  {"property": "kind",             "label": "Kind",       "width": 90},
+                  {"property": "country_iso2",     "label": "Country",    "width": 70},
+                  {"property": "is_sanctioned",    "label": "Sanctioned", "width": 90},
+                  {"property": "event_count_30d",  "label": "Events/30d", "width": 90}
+                ]
+              },
+              "bindings": [
+                {"source_type": "variable", "source_id": "selectedActorSet", "fields": ["actor_id", "display_name", "kind", "country_iso2", "is_sanctioned", "event_count_30d"], "parameters": {}}
+              ],
+              "events": [
+                {"id": "row-click", "trigger": "row_click", "action": "set_variable",
+                  "label": "Select actor",
+                  "config": {"variable_id": "selectedActor", "value_path": "$.row.object"}}
+              ],
+              "children": []
+            },
+
+            {
+              "id": "actor-property-list",
+              "widget_type": "property_list",
+              "title": "Actor detail",
+              "description": "Properties of the selected actor.",
+              "position": {"x": 0, "y": 14, "width": 5, "height": 4},
+              "props": {
+                "source_variable_id": "selectedActor",
+                "number_of_columns": 2,
+                "hide_nulls": true,
+                "value_layout": "adjacent",
+                "properties": [
+                  {"property": "display_name"},
+                  {"property": "kind"},
+                  {"property": "country_iso2"},
+                  {"property": "is_sanctioned"},
+                  {"property": "wikidata_qid"},
+                  {"property": "event_count_30d"},
+                  {"property": "last_seen_at_utc"},
+                  {"property": "reliability_score"}
+                ]
+              },
+              "bindings": [
+                {"source_type": "variable", "source_id": "selectedActor",
+                  "fields": ["display_name", "kind", "country_iso2", "is_sanctioned", "wikidata_qid", "event_count_30d", "last_seen_at_utc", "reliability_score"],
+                  "parameters": {}}
+              ],
+              "events": [],
+              "children": []
+            }
+          ]
+        },
+
+        {
+          "id": "center-col-visualizations",
+          "title": "",
+          "layout": {"kind": "grid", "columns": 12, "gap": "0.75rem"},
+          "widgets": [
+            {
+              "id": "events-map",
+              "widget_type": "map",
+              "title": "Events",
+              "description": "Event points coloured by CAMEO quad-class; Actor pins iconified by kind.",
+              "position": {"x": 5, "y": 4, "width": 7, "height": 5},
+              "props": {
+                "base_layer_kind": "raster",
+                "base_tile_url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                "center_lat": 48.5,
+                "center_lon": 32.0,
+                "zoom": 4,
+                "show_legend": true,
+                "layers": [
+                  {
+                    "id": "events-layer",
+                    "title": "Events",
+                    "source": "object_type",
+                    "object_type_id": "Event",
+                    "loading_mode": "viewport_tiles",
+                    "geometry_type": "point",
+                    "latitude_field": "action_geo_lat",
+                    "longitude_field": "action_geo_lon",
+                    "label_field": "title",
+                    "color": "#d6433c",
+                    "visible": true,
+                    "cluster_enabled": true
+                  },
+                  {
+                    "id": "actors-layer",
+                    "title": "Actors",
+                    "source": "variable",
+                    "source_variable_id": "selectedActorSet",
+                    "geometry_type": "point",
+                    "latitude_field": "hq_lat",
+                    "longitude_field": "hq_lon",
+                    "label_field": "display_name",
+                    "color": "#2d72d2",
+                    "visible": true,
+                    "cluster_enabled": false
+                  }
+                ],
+                "time_configuration": {
+                  "enabled": true,
+                  "open_by_default": false,
+                  "time_zone": "utc",
+                  "time_format": "24h",
+                  "event_time_field": "event_time_utc",
+                  "time_window_start_variable_id": "selectedTimeWindow.start",
+                  "time_window_end_variable_id": "selectedTimeWindow.end"
+                },
+                "output_variable_id": "selectedActor"
+              },
+              "events": [],
+              "children": []
+            },
+
+            {
+              "id": "events-timeline",
+              "widget_type": "timeline",
+              "title": "Event timeline",
+              "description": "Events bucketed by date, coloured by source.",
+              "position": {"x": 5, "y": 9, "width": 7, "height": 4},
+              "props": {
+                "orientation": "horizontal",
+                "order": "newest_first",
+                "show_legend": true,
+                "show_time_between_events": false,
+                "highlight_selection": true,
+                "max_events": 2000,
+                "layers": [
+                  {
+                    "id": "events-by-source",
+                    "title": "Events",
+                    "source_variable_id": "selectedActorSet",
+                    "object_type_id": "Event",
+                    "date_property": "event_time_utc",
+                    "title_mode": "property",
+                    "title_property": "title",
+                    "properties_mode": "specific",
+                    "displayed_properties": ["cameo_code", "source", "country_iso2"],
+                    "color_mode": "dynamic",
+                    "color": "#2d72d2",
+                    "color_rules": [
+                      {"property_name": "source", "operator": "equals", "value": "GDELT", "color": "#2d72d2"},
+                      {"property_name": "source", "operator": "equals", "value": "ACLED", "color": "#cf662f"}
+                    ],
+                    "icon_mode": "default",
+                    "icon": "calendar"
+                  }
+                ],
+                "selected_object_variable_id": "selectedActor"
+              },
+              "events": [],
+              "children": []
+            },
+
+            {
+              "id": "actor-vertex-graph",
+              "widget_type": "vertex_graph_embed",
+              "title": "Actor neighborhood (Vertex)",
+              "description": "Saved Vertex graph centred on the selected Actor.",
+              "position": {"x": 5, "y": 13, "width": 7, "height": 5},
+              "props": {
+                "resource": {
+                  "kind": "variable",
+                  "variable_id": "vertexGraphRid"
+                },
+                "selected_objects_variable_id": "selectedActor",
+                "zoom_to_variable_id": "selectedActor",
+                "append_on_parameter_change": false,
+                "parameters": [
+                  {"id": "actorId", "kind": "object_set", "variable_id": "selectedActor"}
+                ],
+                "available_actions": "some",
+                "available_action_type_ids": ["add-to-watchlist", "flag-actor", "open-investigation-case"],
+                "capabilities": {
+                  "read_only": false,
+                  "enable_transition_to_vertex": true,
+                  "enable_export_png": true
+                },
+                "panels": {
+                  "legend": true,
+                  "selection": true,
+                  "info": true,
+                  "search": true,
+                  "subgraph_navigation": true,
+                  "timeline": false,
+                  "series": false,
+                  "time_selection": false,
+                  "layers": false,
+                  "histogram": false,
+                  "version_history": false,
+                  "add_object": false
+                },
+                "incomplete_inputs_message": "Select an Actor in the table to centre the graph."
+              },
+              "events": [],
+              "children": []
+            }
+          ]
+        },
+
+        {
+          "id": "bottom-actions",
+          "title": "",
+          "layout": {"kind": "toolbar", "columns": 12, "gap": "0.5rem"},
+          "widgets": [
+            {
+              "id": "action-button-group",
+              "widget_type": "button_group",
+              "title": "Actions",
+              "description": "All writes flow through ontology-actions-service and require confirmation.",
+              "position": {"x": 0, "y": 18, "width": 12, "height": 2},
+              "props": {
+                "orientation": "horizontal",
+                "buttons": [
+                  {
+                    "id": "btn-add-to-watchlist",
+                    "label": "Add to Watchlist",
+                    "intent": "primary",
+                    "action_id": "act-add-to-watchlist",
+                    "disabled_when": {"variable_unset": "selectedActor"}
+                  },
+                  {
+                    "id": "btn-flag-actor",
+                    "label": "Flag Actor",
+                    "intent": "warning",
+                    "action_id": "act-flag-actor",
+                    "disabled_when": {"variable_unset": "selectedActor"}
+                  },
+                  {
+                    "id": "btn-open-case",
+                    "label": "Open Investigation Case",
+                    "intent": "danger",
+                    "action_id": "act-open-investigation-case",
+                    "disabled_when": {"variable_unset": "selectedActor"},
+                    "role_required": "compliance"
+                  }
+                ]
+              },
+              "actions": [
+                {
+                  "id": "act-add-to-watchlist",
+                  "kind": "submit_action_type",
+                  "action_type_id": "add-to-watchlist",
+                  "label": "Add to Watchlist",
+                  "config": {
+                    "require_confirmation": true,
+                    "context_variable_id": "selectedActor",
+                    "parameters": {"actor_id": "$.selectedActor.actor_id"}
+                  }
+                },
+                {
+                  "id": "act-flag-actor",
+                  "kind": "submit_action_type",
+                  "action_type_id": "flag-actor",
+                  "label": "Flag Actor",
+                  "config": {
+                    "require_confirmation": true,
+                    "context_variable_id": "selectedActor",
+                    "parameters": {"actor_id": "$.selectedActor.actor_id"}
+                  }
+                },
+                {
+                  "id": "act-open-investigation-case",
+                  "kind": "submit_action_type",
+                  "action_type_id": "open-investigation-case",
+                  "label": "Open Investigation Case",
+                  "config": {
+                    "require_confirmation": true,
+                    "context_variable_id": "selectedActor",
+                    "parameters": {"actor_id": "$.selectedActor.actor_id"}
+                  }
+                }
+              ],
+              "events": [
+                {"id": "btn-click", "trigger": "click", "action": "run_action",
+                  "config": {"action_id": "$.button.action_id"}}
+              ],
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+
+  "_acceptance": [
+    "App appears in GET /api/v1/apps with name 'Geopolitical Intel Workbench'.",
+    "Every widget renders without console errors at GET /apps/geopolitical-intel-workbench — including the vertex_graph_embed (which requires the saved-graph RID to be patched).",
+    "Click on a row in actor-object-table → actor-property-list updates, events-map re-centres on the actor's HQ, events-timeline filters to the actor, and actor-vertex-graph re-centres.",
+    "Click on 'Add to Watchlist' opens the confirmation dialog for action.add_to_watchlist; submitting writes a row to the Action Log.",
+    "Marcos's session shows OFAC-restricted Actor rows as placeholders (the marking filter is applied server-side by object-database-service before the row reaches the widget)."
+  ]
+}

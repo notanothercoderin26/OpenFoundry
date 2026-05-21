@@ -63,6 +63,8 @@ Branching caveat: the Quiver dashboard does **not** need to be modifiable on a b
 
 The workbench is the heart of the demo. It is **configured**, not coded — the JSON config in `application-composition-service` declares widgets, variables, and bindings.
 
+> The canonical declarative module is [`assets/workshop-module.json`](assets/workshop-module.json) (4 variables, 2 header widgets, 3 sections, button group with 3 confirmable Actions, vertex_graph_embed wired through a `vertexGraphRid` variable). Operator registers it via [`infra/scripts/poc-geopolitica/register-workshop-module.sh`](../../infra/scripts/poc-geopolitica/register-workshop-module.sh). The JSON is smoke-tested against `NormalizeAppContract` at `make test` (see `services/application-composition-service/internal/models/poc_workshop_smoke_test.go`), so drift breaks CI rather than the demo. The JSON wins on drift with this doc.
+
 ### Layout
 
 ```
