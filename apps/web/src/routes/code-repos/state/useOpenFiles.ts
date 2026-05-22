@@ -15,6 +15,9 @@ interface OpenFilesSnapshot {
   openFiles: OpenFileTab[];
   activePath: string;
   dirty: Record<string, string>;
+  /** Paths whose save is currently in flight. Used by the status bar to
+   *  surface "Saving…" between blur and the persist round-trip. */
+  saving: ReadonlyArray<string>;
   /** In-memory breakpoint set per file path. Persisted only for the
    *  current session — see master plan §6 (debugger Phase 4). */
   breakpoints: Record<string, ReadonlyArray<number>>;
@@ -26,6 +29,7 @@ let snapshot: OpenFilesSnapshot = {
   openFiles: [],
   activePath: '',
   dirty: {},
+  saving: [],
   breakpoints: {},
   executionLine: null,
 };
@@ -163,8 +167,25 @@ function setExecutionLine(location: ExecutionLocation | null) {
   setSnapshot({ ...snapshot, executionLine: location });
 }
 
+function markSaving(path: string) {
+  if (snapshot.saving.includes(path)) return;
+  setSnapshot({ ...snapshot, saving: [...snapshot.saving, path] });
+}
+
+function markSaved(path: string) {
+  if (!snapshot.saving.includes(path)) return;
+  setSnapshot({ ...snapshot, saving: snapshot.saving.filter((entry) => entry !== path) });
+}
+
 function reset() {
-  setSnapshot({ openFiles: [], activePath: '', dirty: {}, breakpoints: {}, executionLine: null });
+  setSnapshot({
+    openFiles: [],
+    activePath: '',
+    dirty: {},
+    saving: [],
+    breakpoints: {},
+    executionLine: null,
+  });
 }
 
 export const openFiles = {
@@ -181,6 +202,8 @@ export const openFiles = {
   setLanguage,
   toggleBreakpoint,
   setExecutionLine,
+  markSaving,
+  markSaved,
   reset,
   subscribe,
   getSnapshot,
@@ -237,5 +260,13 @@ export function useExecutionLine(): ExecutionLocation | null {
     subscribe,
     () => snapshot.executionLine,
     () => snapshot.executionLine,
+  );
+}
+
+export function useSavingCount(): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => snapshot.saving.length,
+    () => snapshot.saving.length,
   );
 }

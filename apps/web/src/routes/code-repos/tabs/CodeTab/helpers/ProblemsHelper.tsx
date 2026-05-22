@@ -1,43 +1,12 @@
 import { Glyph } from '@/lib/components/ui/Glyph';
 
+import { useProblems, type ProblemSeverity } from '../../../state/problems';
 import { useRepoIdentity } from '../../../state/RepoContext';
 import { openFiles, useOpenFiles } from '../../../state/useOpenFiles';
 
 import { HelperTodoBanner } from './HelperTodoBanner';
 
-interface MockProblem {
-  severity: 'error' | 'warning' | 'info';
-  file: string;
-  line: number;
-  message: string;
-  code: string;
-}
-
-const MOCK_PROBLEMS: MockProblem[] = [
-  {
-    severity: 'warning',
-    file: 'src/lib.rs',
-    line: 12,
-    message: 'unused import: `serde::Deserialize`',
-    code: 'unused_imports',
-  },
-  {
-    severity: 'error',
-    file: 'src/lib.rs',
-    line: 47,
-    message: 'expected `;`, found `}`',
-    code: 'E0001',
-  },
-  {
-    severity: 'info',
-    file: 'README.md',
-    line: 3,
-    message: 'Consider adding a license badge',
-    code: 'docs.licence',
-  },
-];
-
-function severityGlyph(severity: MockProblem['severity']) {
+function severityGlyph(severity: ProblemSeverity) {
   if (severity === 'error') return { glyph: 'circle-x', tone: 'text-of-danger' } as const;
   if (severity === 'warning') return { glyph: 'info', tone: 'text-of-warning' } as const;
   return { glyph: 'info', tone: 'text-of-text-muted' } as const;
@@ -46,10 +15,7 @@ function severityGlyph(severity: MockProblem['severity']) {
 export function ProblemsHelper() {
   const { selectedFile } = useRepoIdentity();
   const { openFiles: tabs } = useOpenFiles();
-
-  const problems = MOCK_PROBLEMS.filter((problem) =>
-    selectedFile ? problem.file === selectedFile.path : true,
-  );
+  const problems = useProblems(selectedFile?.path);
 
   return (
     <div className="flex flex-col h-full">

@@ -143,8 +143,13 @@ export function EditorPanel({ minHeight = 480 }: EditorPanelProps) {
               openFiles.clearDirty(activePath);
               return;
             }
-            await saveFileAction(file, content);
-            openFiles.clearDirty(activePath);
+            openFiles.markSaving(activePath);
+            try {
+              await saveFileAction(file, content);
+              openFiles.clearDirty(activePath);
+            } finally {
+              openFiles.markSaved(activePath);
+            }
           }}
         />
       </div>
