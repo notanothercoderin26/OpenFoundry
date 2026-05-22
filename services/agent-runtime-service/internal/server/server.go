@@ -123,6 +123,7 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 			api.Delete("/threads/{id}", deps.Threads.Delete)
 			api.Get("/threads/{id}/messages", deps.Threads.ListMessages)
 			api.Post("/threads/{id}/messages", deps.Threads.PostMessage)
+			api.Post("/threads/{id}/mode", deps.Threads.SetMode)
 			api.Get("/threads/{id}/trace", deps.Threads.Trace)
 		}
 

@@ -63,8 +63,27 @@ type Thread struct {
 	MaxPromptTokens int32           `json:"max_prompt_tokens"`
 	Status          string          `json:"status"`
 	Metadata        json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	// Mode is the AI Operator mode string (one of the 9 AgentMode
+	// values; see libs/ai-kernel-go/domain/agents/mode_context.go).
+	// Defaults to PLATFORM_QA at the DB layer.
+	Mode string `json:"mode"`
+	// ModeConfig is the JSON-encoded proto ModeConfig (oneof settings
+	// + documentation_bundle_id). Empty object when the active mode
+	// has no configurable knobs.
+	ModeConfig json.RawMessage `json:"mode_config,omitempty"`
+	// ActiveModeTools is the per-thread allowlist of tool execution
+	// modes (subset of models.SupportedExecutionModes from the kernel).
+	// Empty slice = fall back to the per-mode default.
+	ActiveModeTools []string  `json:"active_mode_tools"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// SetModeRequest is the PATCH/POST /threads/{id}/mode body.
+type SetModeRequest struct {
+	Mode            string          `json:"mode"`
+	ModeConfig      json.RawMessage `json:"mode_config,omitempty"`
+	ActiveModeTools []string        `json:"active_mode_tools,omitempty"`
 }
 
 // CreateThreadRequest is the POST /threads body.

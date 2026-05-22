@@ -11,6 +11,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/agents"
+	kernelmodels "github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/models"
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/react"
@@ -210,6 +212,69 @@ func (h *Threads) PostMessage(w http.ResponseWriter, r *http.Request) {
 		resp.StepsUsed = result.StepsUsed
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// SetMode handles POST /api/v1/threads/{id}/mode.
+//
+// Body shape:
+//
+//	{ "mode": "DATA_INTEGRATION",
+//	  "mode_config": { ...proto ModeConfig... },
+//	  "active_mode_tools": ["native_pipeline", "native_dataset"] }
+//
+// Validates that `mode` is one of the 9 AgentMode names (case-sensitive,
+// matching the threads.mode CHECK constraint and the proto enum), that
+// every entry in `active_mode_tools` is a known tool execution mode
+// (from kernelmodels.SupportedExecutionModes), and persists all three
+// columns in a single UPDATE. Returns the refreshed thread.
+//
+// `mode_config` is round-tripped as JSON without per-oneof validation —
+// the proto is the documentation surface; the storage column is JSONB.
+// Empty body for mode_config means "clear settings"; empty
+// active_mode_tools means "fall back to the per-mode default".
+func (h *Threads) SetMode(w http.ResponseWriter, r *http.Request) {
+	id, ok := threadIDParam(w, r)
+	if !ok {
+		return
+	}
+	var body models.SetModeRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid body: " + err.Error(),
+		})
+		return
+	}
+	mode, err := agents.ValidateAgentMode(body.Mode)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if mode == agents.ModeUnspecified {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "mode is required",
+		})
+		return
+	}
+	for _, kind := range body.ActiveModeTools {
+		if !kernelmodels.ValidateExecutionMode(kind) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "unknown tool execution mode: " + kind,
+			})
+			return
+		}
+	}
+	thread, err := h.Repo.SetThreadMode(
+		r.Context(), id, string(mode), body.ModeConfig, body.ActiveModeTools,
+	)
+	if errors.Is(err, repo.ErrThreadNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "thread not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, thread)
 }
 
 // Trace handles GET /api/v1/threads/{id}/trace.

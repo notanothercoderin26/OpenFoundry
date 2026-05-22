@@ -28,7 +28,8 @@ type ThreadsRepo struct{ Pool *pgxpool.Pool }
 
 const threadCols = `id, user_id, title, agent_id, model_rid,
                     tool_manifest, max_tool_calls, max_prompt_tokens,
-                    status, metadata, created_at, updated_at`
+                    status, metadata, mode, mode_config,
+                    active_mode_tools, created_at, updated_at`
 
 const messageCols = `id, thread_id, position, role, content,
                      tool_name, tool_call_id, metadata, created_at`
@@ -119,6 +120,49 @@ func (r *ThreadsRepo) GetThread(ctx context.Context, id uuid.UUID) (*models.Thre
 func (r *ThreadsRepo) DeleteThread(ctx context.Context, id uuid.UUID) error {
 	_, err := r.Pool.Exec(ctx, "DELETE FROM threads WHERE id = $1", id)
 	return err
+}
+
+// SetThreadMode updates threads.mode + mode_config + active_mode_tools
+// in a single UPDATE and returns the refreshed row. mode is the
+// caller-validated AgentMode string (the CHECK constraint on the column
+// is the final guard — handlers must call agents.ValidateAgentMode
+// before reaching here).
+//
+// A nil modeConfig is stored as the empty JSON object (matching the
+// column default); a nil activeModeTools is stored as the empty JSON
+// array so callers can "clear" overrides explicitly.
+func (r *ThreadsRepo) SetThreadMode(
+	ctx context.Context,
+	id uuid.UUID,
+	mode string,
+	modeConfig json.RawMessage,
+	activeModeTools []string,
+) (*models.Thread, error) {
+	if len(modeConfig) == 0 {
+		modeConfig = json.RawMessage(`{}`)
+	}
+	if activeModeTools == nil {
+		activeModeTools = []string{}
+	}
+	toolsJSON, err := json.Marshal(activeModeTools)
+	if err != nil {
+		return nil, fmt.Errorf("encode active_mode_tools: %w", err)
+	}
+	row := r.Pool.QueryRow(ctx,
+		`UPDATE threads
+		    SET mode = $2,
+		        mode_config = $3,
+		        active_mode_tools = $4,
+		        updated_at = now()
+		  WHERE id = $1
+		  RETURNING `+threadCols,
+		id, mode, []byte(modeConfig), toolsJSON,
+	)
+	t, err := scanThread(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrThreadNotFound
+	}
+	return t, err
 }
 
 // touchThread bumps updated_at after a message is appended. Called
@@ -249,17 +293,20 @@ type rowScannerThreads interface {
 
 func scanThread(row rowScannerThreads) (*models.Thread, error) {
 	var (
-		t        models.Thread
-		userID   *uuid.UUID
-		agentID  *uuid.UUID
-		modelRID *uuid.UUID
-		manifest []byte
-		metadata []byte
+		t               models.Thread
+		userID          *uuid.UUID
+		agentID         *uuid.UUID
+		modelRID        *uuid.UUID
+		manifest        []byte
+		metadata        []byte
+		modeConfig      []byte
+		activeModeTools []byte
 	)
 	err := row.Scan(
 		&t.ID, &userID, &t.Title, &agentID, &modelRID,
 		&manifest, &t.MaxToolCalls, &t.MaxPromptTokens,
-		&t.Status, &metadata, &t.CreatedAt, &t.UpdatedAt,
+		&t.Status, &metadata, &t.Mode, &modeConfig,
+		&activeModeTools, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -275,6 +322,15 @@ func scanThread(row rowScannerThreads) (*models.Thread, error) {
 	}
 	if len(metadata) > 0 {
 		t.Metadata = json.RawMessage(metadata)
+	}
+	if len(modeConfig) > 0 {
+		t.ModeConfig = json.RawMessage(modeConfig)
+	}
+	if len(activeModeTools) > 0 {
+		_ = json.Unmarshal(activeModeTools, &t.ActiveModeTools)
+	}
+	if t.ActiveModeTools == nil {
+		t.ActiveModeTools = []string{}
 	}
 	return &t, nil
 }
