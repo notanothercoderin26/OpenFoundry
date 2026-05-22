@@ -104,7 +104,48 @@ def gather_counts() -> dict[str, int]:
     }
 
 
-def check(counts: dict[str, int]) -> int:
+INVENTORY_DOC = "docs/reference/repository-layout.md"
+
+
+def _actual_dirs(name: str) -> set[str]:
+    return {
+        p.name
+        for p in (ROOT / name).iterdir()
+        if p.is_dir() and not p.name.startswith(".")
+    }
+
+
+def _services_in_doc() -> set[str]:
+    """Every ``services/X`` reference in the inventory doc.
+
+    Excludes the placeholder ``services/<name>/`` literal used in the
+    explanatory note about gateway aliases.
+    """
+    text = (ROOT / INVENTORY_DOC).read_text(encoding="utf-8")
+    return set(re.findall(r"`services/([a-z][a-z0-9-]+)`", text))
+
+
+def _libs_in_doc() -> set[str]:
+    """Lib names listed in the canonical libs/ paragraph.
+
+    Anchored on the ``\\`libs/\\` contains N cross-cutting`` paragraph
+    so we don't pick up unrelated backticks elsewhere in the doc.
+    """
+    text = (ROOT / INVENTORY_DOC).read_text(encoding="utf-8")
+    match = re.search(
+        r"`libs/` contains \d+ cross-cutting Go packages.*?(?=\n\n)",
+        text,
+        flags=re.DOTALL,
+    )
+    if not match:
+        raise RuntimeError(
+            f"could not locate the libs paragraph in {INVENTORY_DOC}; "
+            "did the phrasing change?"
+        )
+    return set(re.findall(r"`([a-z][a-z0-9-]+)`", match.group(0)))
+
+
+def _check_counts(counts: dict[str, int]) -> list[str]:
     failures: list[str] = []
     for fact in FACTS:
         path = ROOT / fact.path
@@ -120,13 +161,50 @@ def check(counts: dict[str, int]) -> int:
                 f"{fact.path}: expected {fact.kind}={expected}, "
                 f"found {sorted(set(wrong))} via {fact.pattern!r}"
             )
+    return failures
+
+
+def _check_inventory() -> list[str]:
+    failures: list[str] = []
+
+    actual_services = _actual_dirs("services")
+    doc_services = _services_in_doc()
+    for missing in sorted(actual_services - doc_services):
+        failures.append(
+            f"{INVENTORY_DOC}: service `services/{missing}` exists on disk "
+            "but is not referenced anywhere in this doc"
+        )
+    for stale in sorted(doc_services - actual_services):
+        failures.append(
+            f"{INVENTORY_DOC}: references `services/{stale}` but no such "
+            "directory exists"
+        )
+
+    actual_libs = _actual_dirs("libs")
+    doc_libs = _libs_in_doc()
+    for missing in sorted(actual_libs - doc_libs):
+        failures.append(
+            f"{INVENTORY_DOC}: lib `{missing}` exists in libs/ but is not "
+            "listed in the canonical libs paragraph"
+        )
+    for stale in sorted(doc_libs - actual_libs):
+        failures.append(
+            f"{INVENTORY_DOC}: libs paragraph lists `{stale}` but no such "
+            "directory exists in libs/"
+        )
+
+    return failures
+
+
+def check(counts: dict[str, int]) -> int:
+    failures = _check_counts(counts) + _check_inventory()
     if failures:
         print("Documentation inventory drift detected:", file=sys.stderr)
         for f in failures:
             print(f"- {f}", file=sys.stderr)
         print(
-            "\nRun 'make docs-stats' to refresh, or revise tools/repo_stats.py "
-            "if a canonical docs location intentionally changed.",
+            "\nRun 'make docs-stats' to refresh counts, or edit "
+            f"{INVENTORY_DOC} by hand to fix inventory drift.",
             file=sys.stderr,
         )
         return 1
