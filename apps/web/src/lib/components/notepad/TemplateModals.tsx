@@ -12,10 +12,10 @@
 //
 // Both modals are presentational; the parent owns API calls + navigation.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
+import { Glyph } from '@/lib/components/ui/Glyph';
 import type {
-  NotepadTemplate,
   NotepadTemplateInput,
   NotepadTemplateInputType,
 } from '@/lib/api/notepad';
@@ -279,55 +279,70 @@ export function SaveAsTemplateModal({
 
 // ── New from template ────────────────────────────────────────────────
 
+// One entry in the modal's vertical list. The parent merges built-in
+// templates (literals) and user-owned ones into the same shape so the
+// modal stays agnostic of where each row came from.
+export interface TemplateRow {
+  id: string;
+  name: string;
+  description: string;
+  // Display strings; the modal does not format them.
+  author: string;
+  path: string;
+  // ISO string. Pass null for built-in entries with no edit history.
+  updatedAt: string | null;
+  // Built-ins and user templates without inputs go straight to create;
+  // user templates with required parameters advance to the form step.
+  hasInputs: boolean;
+  inputsSchema?: NotepadTemplateInput[];
+  // Default title for the new document — used as placeholder in the
+  // title field and as fallback when the user does not override.
+  defaultTitle: string;
+}
+
 export interface NewFromTemplateModalProps {
-  templates: NotepadTemplate[];
-  initialTemplateId?: string | null;
+  templates: TemplateRow[];
   onCancel: () => void;
+  // Single creation entry-point. The parent maps the row id back to
+  // the right API call (createNotepadDocument vs instantiateNotepadTemplate).
   onCreate: (templateId: string, inputs: Record<string, string>, title: string) => Promise<void>;
 }
 
-export function NewFromTemplateModal({ templates, initialTemplateId, onCancel, onCreate }: NewFromTemplateModalProps) {
-  const [selectedId, setSelectedId] = useState<string>(
-    initialTemplateId ?? templates[0]?.id ?? '',
-  );
+type Step =
+  | { kind: 'list' }
+  | { kind: 'form'; row: TemplateRow };
+
+function formatRowDate(value: string | null): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(date);
+}
+
+export function NewFromTemplateModal({ templates, onCancel, onCreate }: NewFromTemplateModalProps) {
+  const [step, setStep] = useState<Step>({ kind: 'list' });
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [titleOverride, setTitleOverride] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const selected = useMemo(() => templates.find((t) => t.id === selectedId) ?? null, [templates, selectedId]);
-
-  // Seed defaults whenever the selected template changes.
+  // Seed default inputs whenever we advance to the form view.
   useEffect(() => {
-    if (!selected) {
-      setInputs({});
-      setTitleOverride('');
-      return;
-    }
+    if (step.kind !== 'form') return;
     const next: Record<string, string> = {};
-    for (const field of selected.inputs_schema) {
+    for (const field of step.row.inputsSchema ?? []) {
       if (field.default) next[field.key] = field.default;
     }
     setInputs(next);
     setTitleOverride('');
-  }, [selected]);
+    setError('');
+  }, [step]);
 
-  async function handleSubmit() {
-    if (!selected) {
-      setError('Pick a template first');
-      return;
-    }
-    // Frontend-side required check; backend re-validates.
-    for (const field of selected.inputs_schema) {
-      if (field.required && !inputs[field.key]?.toString().trim()) {
-        setError(`"${field.label || field.key}" is required`);
-        return;
-      }
-    }
+  async function instantiate(row: TemplateRow, withInputs: Record<string, string>, title: string) {
     setError('');
     setSubmitting(true);
     try {
-      await onCreate(selected.id, inputs, titleOverride.trim());
+      await onCreate(row.id, withInputs, title);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to create document');
     } finally {
@@ -335,46 +350,87 @@ export function NewFromTemplateModal({ templates, initialTemplateId, onCancel, o
     }
   }
 
+  async function handleSelect(row: TemplateRow) {
+    if (row.hasInputs && (row.inputsSchema?.length ?? 0) > 0) {
+      setStep({ kind: 'form', row });
+      return;
+    }
+    // No required form — create immediately using the template's defaults.
+    await instantiate(row, {}, '');
+  }
+
+  async function handleFormSubmit() {
+    if (step.kind !== 'form') return;
+    for (const field of step.row.inputsSchema ?? []) {
+      if (field.required && !inputs[field.key]?.toString().trim()) {
+        setError(`"${field.label || field.key}" is required`);
+        return;
+      }
+    }
+    await instantiate(step.row, inputs, titleOverride.trim());
+  }
+
+  const title = step.kind === 'form' ? `Configure "${step.row.name}"` : 'New from template';
+
   return (
-    <ModalShell title="New from template" onCancel={onCancel}>
-      {templates.length === 0 ? (
-        <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>
-          No templates yet. Open any document and use "Save as template" to create one.
-        </p>
+    <ModalShell title={title} onCancel={onCancel}>
+      {step.kind === 'list' ? (
+        templates.length === 0 ? (
+          <p style={{ fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>
+            No templates yet. Open any document and use "Save as template" to create one.
+          </p>
+        ) : (
+          <ul className="of-template-list" role="list">
+            {templates.map((row) => (
+              <li key={row.id} className="of-template-list__item">
+                <button
+                  type="button"
+                  className="of-template-row"
+                  onClick={() => void handleSelect(row)}
+                  disabled={submitting}
+                  aria-label={`Use ${row.name}`}
+                >
+                  <span className="of-template-row__icon" aria-hidden="true">
+                    <Glyph name="file-type" size={18} />
+                  </span>
+                  <span className="of-template-row__copy">
+                    <span className="of-template-row__name">{row.name}</span>
+                    <span className="of-template-row__path">{row.path}</span>
+                  </span>
+                  <span className="of-template-row__meta of-template-row__meta--author">
+                    {row.author}
+                  </span>
+                  <span className="of-template-row__meta of-template-row__meta--date">
+                    {formatRowDate(row.updatedAt)}
+                  </span>
+                  <span className="of-template-row__action" aria-hidden="true">
+                    New from this template
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
       ) : (
         <>
-          <Section label="Template">
-            <select
-              className="of-select"
-              value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value)}
-            >
-              {templates.map((tpl) => (
-                <option key={tpl.id} value={tpl.id}>
-                  {tpl.name}
-                </option>
-              ))}
-            </select>
-          </Section>
-
-          {selected?.description && (
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>{selected.description}</p>
-          )}
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
+            {step.row.description || 'Fill in the values used by this template.'}
+          </p>
 
           <Section label="Document title override (optional)">
             <input
               type="text"
               value={titleOverride}
               onChange={(e) => setTitleOverride(e.target.value)}
-              placeholder={selected?.title || 'Untitled'}
+              placeholder={step.row.defaultTitle || 'Untitled'}
               style={inputStyle}
             />
           </Section>
 
-          {selected && selected.inputs_schema.length > 0 && (
+          {(step.row.inputsSchema?.length ?? 0) > 0 && (
             <div style={{ display: 'grid', gap: 10 }}>
               <p className="of-eyebrow" style={{ margin: 0 }}>Inputs</p>
-              {selected.inputs_schema.map((field) => (
+              {step.row.inputsSchema!.map((field) => (
                 <TemplateInputField
                   key={field.key}
                   field={field}
@@ -394,17 +450,30 @@ export function NewFromTemplateModal({ templates, initialTemplateId, onCancel, o
       )}
 
       <ModalFooter>
+        {step.kind === 'form' && (
+          <button
+            type="button"
+            className="of-btn"
+            onClick={() => setStep({ kind: 'list' })}
+            disabled={submitting}
+            style={{ marginRight: 'auto' }}
+          >
+            ← Back
+          </button>
+        )}
         <button type="button" className="of-btn" onClick={onCancel} disabled={submitting}>
           Cancel
         </button>
-        <button
-          type="button"
-          className="of-btn of-btn-primary"
-          onClick={() => void handleSubmit()}
-          disabled={submitting || !selected}
-        >
-          {submitting ? 'Creating…' : 'Create document'}
-        </button>
+        {step.kind === 'form' && (
+          <button
+            type="button"
+            className="of-btn of-btn-primary"
+            onClick={() => void handleFormSubmit()}
+            disabled={submitting}
+          >
+            {submitting ? 'Creating…' : 'Create document'}
+          </button>
+        )}
       </ModalFooter>
     </ModalShell>
   );

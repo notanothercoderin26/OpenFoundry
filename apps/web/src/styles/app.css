@@ -3224,6 +3224,129 @@ button {
   font-weight: 600;
 }
 
+/* "New from template" modal — vertical list of template rows with a
+   floating CTA on hover (T3.4). */
+.of-template-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.of-template-list__item {
+  margin: 0;
+}
+
+.of-template-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-default);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.of-template-row:hover:not(:disabled),
+.of-template-row:focus-visible {
+  background: var(--row-hover);
+}
+
+.of-template-row:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(41, 101, 204, 0.2);
+}
+
+.of-template-row:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.of-template-row__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--chip-bg-template);
+  color: var(--chip-text-template);
+}
+
+.of-template-row__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.of-template-row__name {
+  color: var(--text-strong);
+  font-size: var(--text-13);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.of-template-row__path {
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.of-template-row__meta {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.of-template-row__meta--author {
+  min-width: 100px;
+  text-align: right;
+}
+
+.of-template-row__meta--date {
+  min-width: 110px;
+  text-align: right;
+}
+
+/* Floating CTA: hidden by default, overlays the meta columns on hover
+   so the row reads "name + path" in idle state and surfaces the
+   action when the user actually hovers it. */
+.of-template-row__action {
+  display: none;
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--text-strong);
+  color: #fff;
+  font-size: var(--text-12);
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+}
+
+.of-template-row:hover .of-template-row__action,
+.of-template-row:focus-visible .of-template-row__action {
+  display: inline-flex;
+}
+
 .of-topbar__identity {
   display: grid;
   min-width: 0;

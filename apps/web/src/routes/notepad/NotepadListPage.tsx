@@ -3,7 +3,11 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { ConfirmDialog } from '@components/ConfirmDialog';
 import { CreateDocumentPanel } from '@/lib/components/notepad/CreateDocumentPanel';
-import { NewFromTemplateModal } from '@/lib/components/notepad/TemplateModals';
+import {
+  NewFromTemplateModal,
+  type TemplateRow,
+} from '@/lib/components/notepad/TemplateModals';
+import { useCurrentUser } from '@/lib/stores/auth';
 import {
   createNotepadDocument,
   deleteNotepadDocument,
@@ -157,6 +161,7 @@ function templateLabel(key: string | null) {
 
 export function NotepadListPage() {
   const navigate = useNavigate();
+  const currentUser = useCurrentUser();
   const [documents, setDocuments] = useState<NotepadDocument[]>([]);
   const [presenceByDocument, setPresenceByDocument] = useState<Record<string, NotepadPresence[]>>({});
   const [loading, setLoading] = useState(true);
@@ -236,20 +241,69 @@ export function NotepadListPage() {
     void refreshUserTemplates();
   }, []);
 
-  async function createFromUserTemplate(templateId: string, inputs: Record<string, string>, titleOverride: string) {
+  // Dispatch creation for the merged template list shown in the modal.
+  // Row ids carry a "builtin:" or "user:" prefix so the same callback
+  // covers both code paths without leaking the discriminator into the
+  // modal itself.
+  async function createFromAnyTemplate(
+    rowId: string,
+    inputs: Record<string, string>,
+    titleOverride: string,
+  ) {
     setError('');
     setFeedback('');
-    try {
-      const document = await instantiateNotepadTemplate(templateId, {
-        inputs,
-        title: titleOverride || undefined,
+    if (rowId.startsWith('builtin:')) {
+      const key = rowId.slice('builtin:'.length);
+      const tpl = TEMPLATES.find((t) => t.key === key);
+      if (!tpl) throw new Error('Template not found');
+      const created = await createNotepadDocument({
+        title: titleOverride.trim() || tpl.name,
+        description: tpl.description,
+        content: tpl.content,
+        template_key: tpl.key,
+        widgets: tpl.widgets,
       });
       setShowTemplateModal(false);
-      navigate(`/notepad/${document.id}`);
-    } catch (cause) {
-      throw cause instanceof Error ? cause : new Error('Failed to instantiate template');
+      navigate(`/notepad/${created.id}`);
+      return;
     }
+    if (rowId.startsWith('user:')) {
+      const id = rowId.slice('user:'.length);
+      const created = await instantiateNotepadTemplate(id, {
+        inputs,
+        title: titleOverride.trim() || undefined,
+      });
+      setShowTemplateModal(false);
+      navigate(`/notepad/${created.id}`);
+      return;
+    }
+    throw new Error(`Unknown template row id: ${rowId}`);
   }
+
+  const templateRows = useMemo<TemplateRow[]>(() => {
+    const builtIn: TemplateRow[] = TEMPLATES.map((t) => ({
+      id: `builtin:${t.key}`,
+      name: t.name,
+      description: t.description,
+      author: 'OpenFoundry',
+      path: '/Foundry/Built-in/Notepad templates',
+      updatedAt: null,
+      hasInputs: false,
+      defaultTitle: t.name,
+    }));
+    const userRows: TemplateRow[] = userTemplates.map((t) => ({
+      id: `user:${t.id}`,
+      name: t.name,
+      description: t.description,
+      author: currentUser?.name ?? 'You',
+      path: '/Personal/Notepad/Templates',
+      updatedAt: t.updated_at,
+      hasInputs: (t.inputs_schema?.length ?? 0) > 0,
+      inputsSchema: t.inputs_schema,
+      defaultTitle: t.title || t.name,
+    }));
+    return [...builtIn, ...userRows];
+  }, [userTemplates, currentUser]);
 
   async function createFromTemplate(template: Template) {
     setCreatingTarget(template.key);
@@ -680,9 +734,9 @@ export function NotepadListPage() {
 
       {showTemplateModal && (
         <NewFromTemplateModal
-          templates={userTemplates}
+          templates={templateRows}
           onCancel={() => setShowTemplateModal(false)}
-          onCreate={createFromUserTemplate}
+          onCreate={createFromAnyTemplate}
         />
       )}
     </section>
