@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { CiRun } from '@/lib/api/code-repos';
-import { Glyph } from '@/lib/components/ui/Glyph';
+import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { notifications } from '@stores/notifications';
 
 import { useRepoState } from '../../state/RepoContext';
+
+type DetailTab = 'summary' | 'logs' | 'tests';
+
+interface StatusMeta {
+  glyph: GlyphName;
+  cls: string;
+  label: string;
+}
 
 function relativeTime(iso: string) {
   if (!iso) return '';
@@ -29,18 +37,20 @@ function formatDuration(startedAt: string, completedAt: string | null) {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-function statusMeta(status: CiRun['status']) {
+function statusMeta(status: CiRun['status']): StatusMeta {
   switch (status) {
     case 'passed':
-      return { glyph: 'check', cls: 'text-of-success', label: 'Passed' } as const;
+      return { glyph: 'check', cls: 'text-of-success', label: 'Passed' };
     case 'failed':
-      return { glyph: 'circle-x', cls: 'text-of-danger', label: 'Failed' } as const;
+      return { glyph: 'circle-x', cls: 'text-of-danger', label: 'Failed' };
     case 'running':
-      return { glyph: 'run', cls: 'text-of-accent', label: 'Running' } as const;
+      return { glyph: 'run', cls: 'text-of-accent', label: 'Running' };
     case 'queued':
-      return { glyph: 'history', cls: 'text-of-text-muted', label: 'Queued' } as const;
+      return { glyph: 'history', cls: 'text-of-text-muted', label: 'Queued' };
+    case 'skipped':
+      return { glyph: 'circle-x', cls: 'text-of-text-soft', label: 'Skipped' };
     default:
-      return { glyph: 'info', cls: 'text-of-text-muted', label: status } as const;
+      return { glyph: 'info', cls: 'text-of-text-muted', label: status };
   }
 }
 
@@ -53,15 +63,37 @@ const MOCK_LOG = `[runner] preparing workspace…
 [test]   PASS                42.108s
 [finish] check passed in 1m 42.3s`;
 
+interface MockTestResult {
+  framework: 'pytest' | 'go-test' | 'junit';
+  suite: string;
+  name: string;
+  status: 'passed' | 'failed' | 'skipped';
+  duration_ms: number;
+  failure_message?: string;
+}
+
+const MOCK_TESTS: ReadonlyArray<MockTestResult> = [
+  { framework: 'pytest', suite: 'tests/test_filters.py', name: 'test_blank_arr_time', status: 'passed', duration_ms: 18 },
+  {
+    framework: 'pytest',
+    suite: 'tests/test_filters.py',
+    name: 'test_unknown_carrier',
+    status: 'failed',
+    duration_ms: 22,
+    failure_message:
+      'AssertionError: expected carrier to be "UA" but got None\n  at filters.py:88 in apply_filters',
+  },
+  { framework: 'pytest', suite: 'tests/test_uniq.py', name: 'test_unique_airports', status: 'passed', duration_ms: 8 },
+  { framework: 'pytest', suite: 'tests/test_uniq.py', name: 'test_skips_blanks', status: 'skipped', duration_ms: 0 },
+];
+
 /**
- * Foundry-style Checks tab. The left column lists every CiRun grouped by
- * branch (filterable via a dropdown); the right column expands the
- * selected run with summary, checks list, mock log output and an
- * "Error enhancer" placeholder.
- *
- * Real log streaming will go through the WebSocket endpoint planned in
- * master plan gap B6; the mock log here keeps the layout honest until
- * that ships.
+ * Foundry-style Checks tab. Left column lists every CiRun (filterable by
+ * branch) with per-row Re-run; right column expands the selected run
+ * into Summary / Logs / Tests sub-tabs and surfaces an AIP error-enhancer
+ * widget for failures. Real log streaming and structured test results
+ * await master plan gaps B6 (WebSocket logs) and B2 (test runner) — the
+ * mock data here mirrors the eventual wire shape.
  */
 export function ChecksTab() {
   const { ciRuns, branchOptions, currentBranch, triggerCiAction, busy } = useRepoState();
@@ -118,42 +150,19 @@ export function ChecksTab() {
           </button>
         </header>
         {filtered.length === 0 ? (
-          <p className="px-3 py-6 text-of-12 text-of-text-soft text-center">
-            No CI runs for this filter.
-          </p>
+          <p className="px-3 py-6 text-of-12 text-of-text-soft text-center">No CI runs for this filter.</p>
         ) : (
           <ul className="divide-y divide-of-border max-h-[70vh] overflow-auto">
-            {filtered.map((run) => {
-              const meta = statusMeta(run.status);
-              const active = selectedId === run.id;
-              return (
-                <li key={run.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(run.id)}
-                    className={`flex items-start gap-2 w-full text-left px-3 py-2 ${
-                      active ? 'bg-of-accent-soft' : 'hover:bg-of-surface-muted'
-                    }`}
-                  >
-                    <Glyph
-                      name={meta.glyph}
-                      size={13}
-                      tone={meta.cls === 'text-of-danger' ? 'danger' : 'currentColor'}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-of-13 font-of-semibold truncate">{run.pipeline_name}</p>
-                      <p className="mt-0.5 text-of-12 text-of-text-soft font-mono truncate">
-                        {run.branch_name} · {run.commit_sha.slice(0, 8)}
-                      </p>
-                    </div>
-                    <div className="text-right text-of-12 text-of-text-soft whitespace-nowrap">
-                      <p>{relativeTime(run.started_at)}</p>
-                      <p>{formatDuration(run.started_at, run.completed_at)}</p>
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
+            {filtered.map((run) => (
+              <CheckRunRow
+                key={run.id}
+                run={run}
+                active={selectedId === run.id}
+                onSelect={() => setSelectedId(run.id)}
+                onReRun={() => void triggerCiAction()}
+                disabled={busy}
+              />
+            ))}
           </ul>
         )}
       </section>
@@ -163,11 +172,65 @@ export function ChecksTab() {
           <CheckRunDetail run={selectedRun} onReRun={() => void triggerCiAction()} busy={busy} />
         ) : (
           <p className="px-3 py-6 text-of-12 text-of-text-soft text-center">
-            Select a run on the left to inspect its checks and output.
+            Select a run on the left to inspect its checks, tests and output.
           </p>
         )}
       </section>
     </div>
+  );
+}
+
+interface CheckRunRowProps {
+  run: CiRun;
+  active: boolean;
+  onSelect: () => void;
+  onReRun: () => void;
+  disabled: boolean;
+}
+
+function CheckRunRow({ run, active, onSelect, onReRun, disabled }: CheckRunRowProps) {
+  const meta = statusMeta(run.status);
+  return (
+    <li className="relative group">
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`flex items-start gap-2 w-full text-left px-3 py-2 ${
+          active ? 'bg-of-accent-soft' : 'hover:bg-of-surface-muted'
+        }`}
+      >
+        <Glyph
+          name={meta.glyph}
+          size={13}
+          tone={meta.cls === 'text-of-danger' ? 'danger' : 'currentColor'}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-of-13 font-of-semibold truncate">{run.pipeline_name}</p>
+          <p className="mt-0.5 text-of-12 text-of-text-soft font-mono truncate">
+            {run.branch_name} · {run.commit_sha.slice(0, 8)}
+          </p>
+        </div>
+        <div className="text-right text-of-12 text-of-text-soft whitespace-nowrap">
+          <p>{relativeTime(run.started_at)}</p>
+          <p>{formatDuration(run.started_at, run.completed_at)}</p>
+        </div>
+      </button>
+      <button
+        type="button"
+        aria-label={`Re-run ${run.pipeline_name}`}
+        title="Re-run"
+        disabled={disabled}
+        onClick={(event) => {
+          event.stopPropagation();
+          onReRun();
+        }}
+        className={`absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-6 h-6 rounded-of-sm text-of-text-muted hover:bg-of-surface-raised hover:text-of-text ${
+          disabled ? 'opacity-30 cursor-not-allowed' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <Glyph name="undo" size={11} tone="currentColor" />
+      </button>
+    </li>
   );
 }
 
@@ -179,6 +242,11 @@ interface CheckRunDetailProps {
 
 function CheckRunDetail({ run, onReRun, busy }: CheckRunDetailProps) {
   const meta = statusMeta(run.status);
+  const [tab, setTab] = useState<DetailTab>('summary');
+
+  useEffect(() => {
+    setTab('summary');
+  }, [run.id]);
 
   return (
     <>
@@ -213,7 +281,45 @@ function CheckRunDetail({ run, onReRun, busy }: CheckRunDetailProps) {
         </button>
       </header>
 
-      <section className="px-3 py-3 border-b border-of-border">
+      <nav className="flex items-end gap-1 px-3 border-b border-of-border">
+        {([
+          ['summary', 'Summary'],
+          ['logs', 'Logs'],
+          ['tests', 'Tests'],
+        ] as Array<[DetailTab, string]>).map(([id, label]) => {
+          const active = id === tab;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className={`inline-flex items-center h-8 px-3 -mb-px border-b-2 text-of-12 font-of-medium ${
+                active
+                  ? 'border-of-accent text-of-accent'
+                  : 'border-transparent text-of-text-muted hover:text-of-text'
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="flex-1 min-h-0 overflow-auto">
+        {tab === 'summary' ? <SummaryPane run={run} meta={meta} /> : null}
+        {tab === 'logs' ? <LogsPane run={run} /> : null}
+        {tab === 'tests' ? <TestsPane /> : null}
+      </div>
+
+      {run.status === 'failed' ? <ErrorEnhancer /> : null}
+    </>
+  );
+}
+
+function SummaryPane({ run, meta }: { run: CiRun; meta: StatusMeta }) {
+  return (
+    <section className="px-3 py-3 space-y-4">
+      <div>
         <h3 className="text-of-12 font-of-semibold uppercase tracking-wider text-of-text-muted">
           Checks
         </h3>
@@ -234,44 +340,197 @@ function CheckRunDetail({ run, onReRun, busy }: CheckRunDetailProps) {
             No individual checks reported. The run is treated as a single black-box CI invocation.
           </p>
         )}
-      </section>
+      </div>
 
-      <section className="flex-1 min-h-0 flex flex-col">
-        <h3 className="px-3 pt-3 text-of-12 font-of-semibold uppercase tracking-wider text-of-text-muted">
-          Output
+      <div>
+        <h3 className="text-of-12 font-of-semibold uppercase tracking-wider text-of-text-muted">
+          Test summary
         </h3>
-        <pre className="mx-3 my-2 flex-1 min-h-0 overflow-auto text-of-12 font-mono text-of-text bg-of-surface-muted rounded-of-sm p-3 whitespace-pre">
-          {MOCK_LOG}
-        </pre>
-        <p className="px-3 pb-2 text-of-12 text-of-text-soft">
-          Mock log — live streaming arrives with gap B6 (WebSocket endpoint).
-        </p>
-      </section>
+        <TestStatsRow />
+      </div>
+    </section>
+  );
+}
 
-      {run.status === 'failed' ? (
-        <section className="px-3 py-3 border-t border-of-border bg-of-warning-soft">
-          <div className="flex items-start gap-2">
-            <Glyph name="sparkles" size={14} tone="warning" />
-            <div>
-              <p className="text-of-13 font-of-semibold text-of-warning">AIP error enhancer</p>
-              <p className="mt-1 text-of-12 text-of-warning">
-                When AIP is enabled, this widget surfaces an explanation of the failure plus suggested fixes. The
-                hook-up arrives in Phase 5.
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  notifications.info('AIP error enhancer is wired in Phase 5')
-                }
-                className="mt-2 inline-flex items-center gap-1 h-7 px-2 rounded-of-sm text-of-12 font-of-medium bg-of-warning text-white hover:opacity-90"
-              >
-                <Glyph name="sparkles" size={12} tone="currentColor" />
-                Explain failure
-              </button>
-            </div>
-          </div>
-        </section>
-      ) : null}
-    </>
+function TestStatsRow() {
+  const totals = MOCK_TESTS.reduce(
+    (acc, test) => {
+      acc[test.status] += 1;
+      return acc;
+    },
+    { passed: 0, failed: 0, skipped: 0 } as Record<MockTestResult['status'], number>,
+  );
+
+  return (
+    <ul className="mt-2 grid grid-cols-3 gap-2">
+      <li className="rounded-of-sm border border-of-border bg-of-surface p-2 text-center">
+        <p className="text-of-12 text-of-text-soft uppercase tracking-wider">Passed</p>
+        <p className="mt-1 text-of-14 font-of-semibold text-of-success">{totals.passed}</p>
+      </li>
+      <li className="rounded-of-sm border border-of-border bg-of-surface p-2 text-center">
+        <p className="text-of-12 text-of-text-soft uppercase tracking-wider">Failed</p>
+        <p className="mt-1 text-of-14 font-of-semibold text-of-danger">{totals.failed}</p>
+      </li>
+      <li className="rounded-of-sm border border-of-border bg-of-surface p-2 text-center">
+        <p className="text-of-12 text-of-text-soft uppercase tracking-wider">Skipped</p>
+        <p className="mt-1 text-of-14 font-of-semibold text-of-text-muted">{totals.skipped}</p>
+      </li>
+    </ul>
+  );
+}
+
+function LogsPane({ run }: { run: CiRun }) {
+  const streaming = run.status === 'running' || run.status === 'queued';
+  const [chunkCount, setChunkCount] = useState(streaming ? 4 : MOCK_LOG.split('\n').length);
+  const scrollRef = useRef<HTMLPreElement | null>(null);
+
+  // Fake streaming: when the run is still running, drop one log line at a
+  // time into view until the mock log is exhausted. Once the WebSocket
+  // endpoint (gap B6) ships, swap this for a useEffect that subscribes
+  // and pushes new chunks into the same state shape.
+  useEffect(() => {
+    if (!streaming) {
+      setChunkCount(MOCK_LOG.split('\n').length);
+      return;
+    }
+    const total = MOCK_LOG.split('\n').length;
+    setChunkCount(Math.min(4, total));
+    const id = window.setInterval(() => {
+      setChunkCount((value) => Math.min(total, value + 1));
+    }, 1500);
+    return () => window.clearInterval(id);
+  }, [streaming, run.id]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [chunkCount]);
+
+  const lines = MOCK_LOG.split('\n').slice(0, chunkCount).join('\n');
+
+  return (
+    <section className="px-3 py-3 flex flex-col gap-2 h-full min-h-0">
+      <div className="flex items-center gap-2 text-of-12 text-of-text-soft">
+        {streaming ? (
+          <>
+            <span className="w-2 h-2 rounded-full bg-of-accent animate-pulse" aria-hidden />
+            Streaming…
+          </>
+        ) : (
+          <>
+            <span className="w-2 h-2 rounded-full bg-of-text-soft" aria-hidden />
+            Run finished — log replay is offline until the WebSocket endpoint ships (gap B6)
+          </>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            const el = scrollRef.current;
+            if (el) el.scrollTop = el.scrollHeight;
+          }}
+          className="ml-auto inline-flex items-center gap-1 h-6 px-2 rounded-of-sm text-of-12 text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
+        >
+          <Glyph name="chevron-down" size={10} tone="currentColor" />
+          Scroll to bottom
+        </button>
+      </div>
+      <pre
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-auto text-of-12 font-mono text-of-text bg-of-surface-muted rounded-of-sm p-3 whitespace-pre"
+      >
+        {lines}
+      </pre>
+    </section>
+  );
+}
+
+function TestsPane() {
+  const grouped = useMemo(() => {
+    const map = new Map<string, MockTestResult[]>();
+    for (const test of MOCK_TESTS) {
+      const list = map.get(test.suite) ?? [];
+      list.push(test);
+      map.set(test.suite, list);
+    }
+    return [...map.entries()];
+  }, []);
+
+  return (
+    <section className="px-3 py-3 space-y-3">
+      <p className="text-of-12 text-of-text-soft">
+        Structured test output is mocked until the runner endpoint (gap B2) populates this view.
+      </p>
+      {grouped.map(([suite, tests]) => {
+        const framework = tests[0]?.framework ?? 'pytest';
+        return (
+          <article
+            key={suite}
+            className="rounded-of-md border border-of-border bg-of-surface-raised overflow-hidden"
+          >
+            <header className="flex items-center gap-2 px-3 h-9 border-b border-of-border bg-of-surface">
+              <Glyph name="badge-check" size={12} tone="muted" />
+              <span className="text-of-13 font-of-semibold font-mono truncate">{suite}</span>
+              <span className="text-of-12 text-of-text-soft uppercase tracking-wider">{framework}</span>
+              <span className="ml-auto text-of-12 text-of-text-soft">{tests.length} tests</span>
+            </header>
+            <ul className="divide-y divide-of-border">
+              {tests.map((test, index) => {
+                const tone =
+                  test.status === 'passed'
+                    ? { glyph: 'check' as const, cls: 'text-of-success' }
+                    : test.status === 'failed'
+                      ? { glyph: 'circle-x' as const, cls: 'text-of-danger' }
+                      : { glyph: 'circle-x' as const, cls: 'text-of-text-soft' };
+                return (
+                  <li key={`${suite}:${test.name}:${index}`} className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <Glyph
+                        name={tone.glyph}
+                        size={12}
+                        tone={tone.cls === 'text-of-danger' ? 'danger' : 'currentColor'}
+                      />
+                      <span className="text-of-13 font-mono truncate">{test.name}</span>
+                      <span className={`text-of-12 ml-2 capitalize ${tone.cls}`}>{test.status}</span>
+                      <span className="ml-auto text-of-12 text-of-text-soft">{test.duration_ms}ms</span>
+                    </div>
+                    {test.status === 'failed' && test.failure_message ? (
+                      <pre className="mt-1 px-2 py-1 text-of-12 font-mono text-of-danger bg-of-danger-soft rounded-of-sm whitespace-pre-wrap">
+                        {test.failure_message}
+                      </pre>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
+function ErrorEnhancer() {
+  return (
+    <section className="px-3 py-3 border-t border-of-border bg-of-warning-soft">
+      <div className="flex items-start gap-2">
+        <Glyph name="sparkles" size={14} tone="warning" />
+        <div>
+          <p className="text-of-13 font-of-semibold text-of-warning">AIP error enhancer</p>
+          <p className="mt-1 text-of-12 text-of-warning">
+            When AIP is enabled, this widget surfaces an explanation of the failure plus suggested fixes. The
+            hook-up arrives in Phase 5.
+          </p>
+          <button
+            type="button"
+            onClick={() => notifications.info('AIP error enhancer is wired in Phase 5')}
+            className="mt-2 inline-flex items-center gap-1 h-7 px-2 rounded-of-sm text-of-12 font-of-medium bg-of-warning text-white hover:opacity-90"
+          >
+            <Glyph name="sparkles" size={12} tone="currentColor" />
+            Explain failure
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
