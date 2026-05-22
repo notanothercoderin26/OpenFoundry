@@ -69,6 +69,63 @@
   --shadow-of-sm: 0 1px 0 rgba(17, 24, 39, 0.04);
   --shadow-of-card: 0 1px 0 rgba(17, 24, 39, 0.04);
   --shadow-of-popover: 0 6px 18px rgba(17, 24, 39, 0.12);
+
+  /* Notepad redesign tokens (T0.2 — Tailwind v4 utilities).
+     Mirrors the semantic vars declared in :root so they also generate
+     `bg-*` / `text-*` / `border-*` / `text-<n>` utilities. The :root
+     declarations remain the single source of truth at runtime; values
+     here must match. Naming: `--color-<token>` for colour utilities,
+     `--text-<n>` for font-size utilities, `--font-<name>` for font
+     families. */
+  --color-surface-app: #f6f7f9;
+  --color-surface-panel: #ffffff;
+  --color-surface-panel-muted: #f4f6f8;
+  --color-surface-sidebar: #20262d;
+  --color-surface-sidebar-hover: #2b323b;
+  --color-surface-sidebar-active: #151a20;
+
+  --color-toolbar-bg: #ffffff;
+  --color-toolbar-border: #e5e8eb;
+
+  --color-accent-primary: #137f4d;
+  --color-accent-primary-hover: #0f6a3f;
+  --color-accent-primary-active: #0c5634;
+  --color-accent-primary-contrast: #ffffff;
+  --color-accent-link: #215db0;
+  --color-accent-link-hover: #184a8a;
+  --color-accent-danger: #b42318;
+
+  --color-chip-bg: #eef0f3;
+  --color-chip-text: #1c2127;
+  --color-chip-bg-document: #e6efff;
+  --color-chip-text-document: #1f5ea8;
+  --color-chip-bg-template: #ececf2;
+  --color-chip-text-template: #4a5160;
+
+  --color-row-hover: #f3f5f8;
+  --color-row-selected: #e8f0fb;
+
+  /* Neutral 11/12/13/14/15/18/24/28 type scale. Sits alongside the
+     existing `--text-of-*` so neither set overrides the other. */
+  --font-sans-neutral:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui,
+    'Helvetica Neue', Arial, sans-serif;
+  --text-11: 11px;
+  --text-11--line-height: 14px;
+  --text-12: 12px;
+  --text-12--line-height: 16px;
+  --text-13: 13px;
+  --text-13--line-height: 18px;
+  --text-14: 14px;
+  --text-14--line-height: 20px;
+  --text-15: 15px;
+  --text-15--line-height: 22px;
+  --text-18: 18px;
+  --text-18--line-height: 24px;
+  --text-24: 24px;
+  --text-24--line-height: 30px;
+  --text-28: 28px;
+  --text-28--line-height: 34px;
 }
 
 :root {

@@ -9,7 +9,8 @@ export type GlyphName =
   | 'pie-chart' | 'project' | 'undo' | 'circle-x' | 'add-user' | 'tour' | 'pencil'
   | 'move' | 'badge-check' | 'view-grid' | 'login'
   | 'mail' | 'apps-grid' | 'filter' | 'back-arrow' | 'share' | 'lineage' | 'book-open'
-  | 'notebook' | 'pipeline' | 'workflow' | 'model' | 'dashboard' | 'schedule' | 'stream' | 'vertex-analysis';
+  | 'notebook' | 'pipeline' | 'workflow' | 'model' | 'dashboard' | 'schedule' | 'stream' | 'vertex-analysis'
+  | 'clock' | 'file-type' | 'more-vertical';
 
 interface GlyphProps {
   name?: GlyphName;
@@ -165,6 +166,21 @@ const PATHS: Record<string, string[]> = {
   'vertex-analysis': [
     'M12 4l1.7 4.4 4.6.3-3.5 3 1.1 4.5L12 13.7 8.1 16.2l1.1-4.5-3.5-3 4.6-.3z',
     'M5 19h14',
+  ],
+  clock: [
+    'M12 4.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15z',
+    'M12 8v4.4l2.8 1.7',
+  ],
+  'file-type': [
+    'M7 4.5h7l4 4v11H7z',
+    'M14 4.5v4h4',
+    'M10 12h4',
+    'M12 12v4',
+  ],
+  'more-vertical': [
+    'M12 5.5h.01',
+    'M12 12h.01',
+    'M12 18.5h.01',
   ],
 };
 

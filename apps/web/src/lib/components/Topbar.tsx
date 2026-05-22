@@ -79,7 +79,7 @@ export function Topbar() {
             );
           })}
           <button type="button" className="of-topbar__star" aria-label={`Favorite ${current}`}>
-            ☆
+            <Glyph name="star" size={14} />
           </button>
         </div>
       </div>
