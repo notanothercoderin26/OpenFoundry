@@ -25,6 +25,10 @@ import (
 //`client`, `incomingHeaders`, and `ctx` are forwarded to the HTTP
 // tool dispatch (http_json + openfoundry_api). All other tool modes
 // are pure-logic and don't touch the network.
+//
+// This wrapper retains the pre-mode signature so the existing
+// handlers/agents.go caller compiles unchanged. New code should call
+// ExecutePlanWithMode and pass the active thread mode + allowlist.
 func ExecutePlan(
 	ctx context.Context,
 	client *http.Client,
@@ -35,9 +39,37 @@ func ExecutePlan(
 	incomingHeaders http.Header,
 	knowledgeHits []models.KnowledgeSearchResult,
 ) []models.AgentExecutionTrace {
+	return ExecutePlanWithMode(
+		ctx, client, plan, tools, ModeUnspecified, nil,
+		userMessage, objective, contextValue, incomingHeaders, knowledgeHits,
+	)
+}
+
+// ExecutePlanWithMode is ExecutePlan with mode-aware tool gating.
+// When mode != ModeUnspecified, every tool dispatch is checked against
+// ModeToolRegistry.IsToolAllowed; a tool the LLM names but that is not
+// allowed under the active mode is rejected without dispatch and a
+// `rejected` trace step is emitted instead.
+//
+// enabledToolKinds is the per-thread override from
+// threads.active_mode_tools (empty = use the per-mode default in
+// defaultToolKindsByMode).
+func ExecutePlanWithMode(
+	ctx context.Context,
+	client *http.Client,
+	plan []models.AgentPlanStep,
+	tools []models.ToolDefinition,
+	mode AgentMode,
+	enabledToolKinds []string,
+	userMessage, objective string,
+	contextValue json.RawMessage,
+	incomingHeaders http.Header,
+	knowledgeHits []models.KnowledgeSearchResult,
+) []models.AgentExecutionTrace {
 	if client == nil {
 		client = http.DefaultClient
 	}
+	registry := NewModeToolRegistry(tools)
 	traces := make([]models.AgentExecutionTrace, 0, len(plan))
 	successfulInvocations := 0
 
@@ -48,6 +80,29 @@ func ExecutePlan(
 		if step.ToolName != nil && *step.ToolName != "" {
 			toolName := *step.ToolName
 			tool := findTool(tools, toolName)
+			// Defense-in-depth: even when the planner is given the
+			// mode-filtered catalog, a buggy or adversarial LLM can
+			// hallucinate a tool name. Reject before dispatch.
+			if tool != nil && mode != ModeUnspecified &&
+				!registry.IsToolAllowed(tool, mode, enabledToolKinds) {
+				output, _ = json.Marshal(map[string]any{
+					"tool":   toolName,
+					"status": "rejected",
+					"reason": fmt.Sprintf(
+						"tool not allowed in mode '%s'", mode),
+				})
+				observation = fmt.Sprintf(
+					"Tool '%s' rejected: not allowed in mode '%s'.",
+					toolName, mode)
+				traces = append(traces, models.AgentExecutionTrace{
+					StepID:      step.ID,
+					Title:       step.Title,
+					ToolName:    step.ToolName,
+					Observation: observation,
+					Output:      output,
+				})
+				continue
+			}
 			out := ExecuteTool(ctx, client, tool, toolName, userMessage, objective, contextValue, incomingHeaders, knowledgeHits)
 			output = out
 			status := jsonStringField(out, "status")
