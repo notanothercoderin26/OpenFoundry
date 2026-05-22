@@ -14,8 +14,8 @@ from this tree but its vocabulary still leaks into docs.
 
 ```
 apps/web/        React 19 + Vite + TypeScript frontend
-services/        50 service directories (current inventory: docs/reference/repository-layout.md)
-libs/            36 shared Go libraries (kernels, observability, auth, …)
+services/        51 service directories (current inventory: docs/reference/repository-layout.md)
+libs/            38 shared Go libraries (37 hand-written + 1 generated `proto-gen`)
 proto/           Source-of-truth .proto files (Go code generated to libs/proto-gen/)
 sdks/            Generated client SDKs (TS/Python/Java)
 infra/           Helm charts, ArgoCD, Terraform, runbooks
@@ -24,19 +24,46 @@ docs/archive/    Historical migration logs — DO NOT READ unless asked
 tools/           CLIs (of-cli, route-audit, lint helpers)
 ```
 
-Per-service shape (uniform — copy from `docs/templates/service-skeleton/`):
+> Counts above are enforced by `make docs-drift-check`. After adding or
+> removing a service/lib/proto domain, run `make docs-stats` to refresh
+> every doc in one shot (or update CLAUDE.md, README.md, ARCHITECTURE.md,
+> and the two `docs/reference/` pages by hand and let the drift check
+> verify them).
+
+Per-service shape — **baseline mínimo**, copy from
+`docs/templates/service-skeleton/` and prune/extend per the service's domain:
 
 ```
 services/<svc>/
-  cmd/<svc>/main.go         entrypoint
-  internal/server/          chi router wiring (/healthz /metrics /api)
-  internal/handlers/        HTTP handlers
-  internal/domain/          pure logic
-  internal/repo/            data access (sqlc-generated when relevant)
-  internal/repo/migrations/ goose-style SQL migrations
-  internal/models/          wire types
-  internal/config/          koanf-backed config
+  cmd/<svc>/main.go         entrypoint                                  (always)
+  internal/server/          chi router wiring (/healthz /metrics /api)  (always)
+  internal/handlers/        HTTP handlers                               (always when HTTP-exposed)
+  internal/config/          koanf-backed config                         (always)
+  internal/models/          wire types                                  (always)
+  internal/domain/          pure logic                                  (when domain logic is non-trivial)
+  internal/repo/            data access (sqlc-generated when relevant)  (when persistence is owned)
+  internal/repo/migrations/ goose-style SQL migrations                  (when persistence is owned)
 ```
+
+Accepted variants — don't force the baseline onto these shapes:
+
+- **Protocol services** (`identity-federation-service`,
+  `edge-gateway-service`) replace `internal/domain/` with
+  protocol-specific subpackages (`internal/oidc/`, `internal/saml/`,
+  `internal/scim/`, `internal/proxy/`). Edge gateway has no
+  `internal/repo/` because it owns no persistence.
+- **Adapter / driver services** (`connector-management-service`) keep
+  `internal/adapters/` and `internal/drivers/` instead of a single
+  `internal/domain/` package.
+- **Sink / worker services** (`*-sink`, `pipeline-runner`,
+  `iceberg-object-indexer`) often only have `cmd/` + `internal/config/`
+  + a consumer/runner package, with neither `handlers/` nor `repo/`.
+- **Non-Go runtime services** (`pipeline-runner-spark`) live in
+  `services/` for delivery/Helm cohesion but ship as a different
+  toolchain (Scala/sbt here) and have their own per-service layout.
+
+When in doubt, read a neighbouring service before copying the skeleton
+verbatim.
 
 ## Canonical commands
 
