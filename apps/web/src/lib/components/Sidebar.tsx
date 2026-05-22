@@ -52,9 +52,9 @@ const SECONDARY_NAV: NavItem[] = [
 ];
 
 // Favorites are now user-driven via the launcher star toggle (see
-// FAVORITES_KEY below). Workshop ships as a default favorite on first
-// load so the section is not empty on a fresh install.
-const DEFAULT_FAVORITES: string[] = ['workshop'];
+// FAVORITES_KEY below). Notepad + Workshop ship as default favorites
+// on first load so the rail is not empty on a fresh install.
+const DEFAULT_FAVORITES: string[] = ['notepad', 'workshop'];
 
 const FOOTER_NAV: NavItem[] = [
   { to: '/ai', label: 'AI Assist', icon: 'asterisk', shortcut: 'ctrl + shift + U', iconTone: '#67e8f9' },
@@ -70,8 +70,12 @@ function isActive(href: string, pathname: string, end?: boolean) {
 }
 
 function readCollapsedPref(): boolean {
-  if (typeof localStorage === 'undefined') return false;
-  return localStorage.getItem(COLLAPSED_KEY) === '1';
+  // The rail (collapsed) is the default look. Existing users who
+  // explicitly expanded the sidebar (stored '0') keep that preference;
+  // everyone else lands on the icon-only rail.
+  if (typeof localStorage === 'undefined') return true;
+  const stored = localStorage.getItem(COLLAPSED_KEY);
+  return stored === null ? true : stored === '1';
 }
 
 interface SidebarLinkProps {
