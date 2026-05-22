@@ -192,6 +192,58 @@
   --of-foundry-surface: #f5f8fa;
   --of-foundry-text-muted: #5c7080;
   --of-foundry-text-soft: #8a96a6;
+
+  /* Notepad redesign tokens (T0.1).
+     Semantic surface/accent/chip/row/toolbar tokens for the calco.
+     Aliased to existing vars where possible so adopting them in a new
+     component does not drift from the rest of the app. */
+  --surface-app: #f6f7f9;
+  --surface-panel: #ffffff;
+  --surface-panel-muted: #f4f6f8;
+  --surface-sidebar: #20262d;
+  --surface-sidebar-hover: #2b323b;
+  --surface-sidebar-active: #151a20;
+  --toolbar-bg: #ffffff;
+  --toolbar-border: #e5e8eb;
+
+  --accent-primary: #137f4d;
+  --accent-primary-hover: #0f6a3f;
+  --accent-primary-active: #0c5634;
+  --accent-primary-contrast: #ffffff;
+  --accent-link: #215db0;
+  --accent-link-hover: #184a8a;
+  --accent-danger: #b42318;
+
+  --chip-bg: #eef0f3;
+  --chip-text: #1c2127;
+  --chip-bg-document: #e6efff;
+  --chip-text-document: #1f5ea8;
+  --chip-bg-template: #ececf2;
+  --chip-text-template: #4a5160;
+
+  --row-hover: #f3f5f8;
+  --row-selected: #e8f0fb;
+
+  /* Neutral sans stack + 11/12/13/14/15/18/24/28 type scale. */
+  --font-sans-neutral:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui,
+    'Helvetica Neue', Arial, sans-serif;
+  --text-11: 11px;
+  --text-11-lh: 14px;
+  --text-12: 12px;
+  --text-12-lh: 16px;
+  --text-13: 13px;
+  --text-13-lh: 18px;
+  --text-14: 14px;
+  --text-14-lh: 20px;
+  --text-15: 15px;
+  --text-15-lh: 22px;
+  --text-18: 18px;
+  --text-18-lh: 24px;
+  --text-24: 24px;
+  --text-24-lh: 30px;
+  --text-28: 28px;
+  --text-28-lh: 34px;
 }
 
 html,
