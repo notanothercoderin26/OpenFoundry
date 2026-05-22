@@ -48,7 +48,7 @@ Key limitation: **you cannot move 1 TB of NOAA locally in a reasonable time**. I
 # Provisión
 ssh root@poc-server
 apt update && apt install -y docker.io docker-compose-plugin git
-git clone https://github.com/unnamedlab/OpenFoundry.git
+git clone https://github.com/DioCrafts/OpenFoundry.git
 cd OpenFoundry && cp .env.example .env
 
 # Editar .env con secretos reales (Keycloak admin, MinIO root, OpenSky creds, Azure OpenAI key)

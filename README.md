@@ -1,5 +1,5 @@
 <div align="center">
-  <a href="https://github.com/openfoundry/openfoundry-go">
+  <a href="https://github.com/DioCrafts/OpenFoundry">
     <img src="images/logo.png" alt="OpenFoundry" width="420" />
   </a>
 
@@ -7,19 +7,19 @@
 <p align="center">The Open-Source Data Operating System</p>
 
 <p align="center">
-  <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/openfoundry-go.yml"><img alt="Go CI" src="https://github.com/openfoundry/openfoundry-go/actions/workflows/openfoundry-go.yml/badge.svg" /></a>
-  <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/ci-frontend.yml"><img alt="Frontend CI" src="https://github.com/openfoundry/openfoundry-go/actions/workflows/ci-frontend.yml/badge.svg" /></a>
-  <a href="https://github.com/openfoundry/openfoundry-go/actions/workflows/proto-check.yml"><img alt="Proto Check" src="https://github.com/openfoundry/openfoundry-go/actions/workflows/proto-check.yml/badge.svg" /></a>
-  <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/openfoundry/openfoundry-go" />
-  <img alt="GitHub Last Commit" src="https://img.shields.io/github/last-commit/openfoundry/openfoundry-go" />
+  <a href="https://github.com/DioCrafts/OpenFoundry/actions/workflows/openfoundry-go.yml"><img alt="Go CI" src="https://github.com/DioCrafts/OpenFoundry/actions/workflows/openfoundry-go.yml/badge.svg" /></a>
+  <a href="https://github.com/DioCrafts/OpenFoundry/actions/workflows/ci-frontend.yml"><img alt="Frontend CI" src="https://github.com/DioCrafts/OpenFoundry/actions/workflows/ci-frontend.yml/badge.svg" /></a>
+  <a href="https://github.com/DioCrafts/OpenFoundry/actions/workflows/proto-check.yml"><img alt="Proto Check" src="https://github.com/DioCrafts/OpenFoundry/actions/workflows/proto-check.yml/badge.svg" /></a>
+  <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/DioCrafts/OpenFoundry" />
+  <img alt="GitHub Last Commit" src="https://img.shields.io/github/last-commit/DioCrafts/OpenFoundry" />
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg" /></a>
 </p>
 
 <p align="center">
   <a href="docs/">Getting Started</a>
   · <a href="docs/">Docs</a>
-  · <a href="https://github.com/openfoundry/openfoundry-go/issues">Bug reports</a>
-  · <a href="https://github.com/openfoundry/openfoundry-go/discussions">Discussions</a>
+  · <a href="https://github.com/DioCrafts/OpenFoundry/issues">Bug reports</a>
+  · <a href="https://github.com/DioCrafts/OpenFoundry/discussions">Discussions</a>
 </p>
 
 OpenFoundry is an open-source operational data platform inspired by the capability model of Palantir Foundry, implemented as auditable, extensible software. It combines **50 service directories**, **36 shared libraries**, Protobuf/OpenAPI contracts, generated SDKs, a **React 19 + Vite + TypeScript** web console, and declarative infrastructure for Kubernetes.
@@ -70,8 +70,8 @@ To get started with OpenFoundry, follow these steps:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/openfoundry/openfoundry-go.git
-cd openfoundry-go
+git clone https://github.com/DioCrafts/OpenFoundry.git
+cd OpenFoundry
 ```
 
 ### 2. Local development (Option 1)
@@ -182,29 +182,29 @@ For detailed documentation, including configuration options, API references, ADR
 
 If you have any questions or need assistance:
 
-- Check the existing [GitHub Discussions](https://github.com/openfoundry/openfoundry-go/discussions) for common issues and solutions.
-- Ask questions and share your experiences in [Discussions](https://github.com/openfoundry/openfoundry-go/discussions).
-- Open an issue on [GitHub Issues](https://github.com/openfoundry/openfoundry-go/issues) for bug reports or feature requests.
+- Check the existing [GitHub Discussions](https://github.com/DioCrafts/OpenFoundry/discussions) for common issues and solutions.
+- Ask questions and share your experiences in [Discussions](https://github.com/DioCrafts/OpenFoundry/discussions).
+- Open an issue on [GitHub Issues](https://github.com/DioCrafts/OpenFoundry/issues) for bug reports or feature requests.
 
 ## Links
 
 - [Documentation](docs/) — The manual you should read
-- [Changelog](https://github.com/openfoundry/openfoundry-go/releases) — Releases and notable changes
-- [GitHub Discussions](https://github.com/openfoundry/openfoundry-go/discussions) — Where the community lives
+- [Changelog](https://github.com/DioCrafts/OpenFoundry/releases) — Releases and notable changes
+- [GitHub Discussions](https://github.com/DioCrafts/OpenFoundry/discussions) — Where the community lives
 
 ## Contact
 
-- **Bugs**: [GitHub Issues](https://github.com/openfoundry/openfoundry-go/issues)
-- **General Discussion**: [GitHub Discussions](https://github.com/openfoundry/openfoundry-go/discussions)
+- **Bugs**: [GitHub Issues](https://github.com/DioCrafts/OpenFoundry/issues)
+- **General Discussion**: [GitHub Discussions](https://github.com/DioCrafts/OpenFoundry/discussions)
 - **Security**: [SECURITY.md](SECURITY.md)
 - **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Contributors
 
-OpenFoundry is a community-driven project, and we appreciate all contributions. Check out the [Contributors](https://github.com/openfoundry/openfoundry-go/graphs/contributors) page to see the amazing people who have helped make OpenFoundry better.
+OpenFoundry is a community-driven project, and we appreciate all contributions. Check out the [Contributors](https://github.com/DioCrafts/OpenFoundry/graphs/contributors) page to see the amazing people who have helped make OpenFoundry better.
 
-<a href="https://github.com/openfoundry/openfoundry-go/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=openfoundry/openfoundry-go" alt="Contributors" />
+<a href="https://github.com/DioCrafts/OpenFoundry/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=DioCrafts/OpenFoundry" alt="Contributors" />
 </a>
 
 ## Star History

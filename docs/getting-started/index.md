@@ -14,7 +14,7 @@ This section is the contributor entry point for the OpenFoundry documentation se
 OpenFoundry now ships as **six Helm releases** plus the
 `of-shared` library chart. See
 [ADR-0031](/architecture/adr/ADR-0031-helm-chart-split-five-releases)
-and [`infra/helm/apps/MIGRATION.md`](https://github.com/diocrafts/OpenFoundry/blob/main/infra/helm/apps/MIGRATION.md):
+and [`infra/helm/apps/MIGRATION.md`](https://github.com/DioCrafts/OpenFoundry/blob/main/infra/helm/apps/MIGRATION.md):
 
 - `of-platform` — gateway, identity, authz, tenancy.
 - `of-data-engine` — connectors, ingestion, datasets, lineage, pipeline, SQL/BI.
