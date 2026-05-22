@@ -12,13 +12,17 @@ interface RepoTabsNavProps {
 export function RepoTabsNav({ active, onChange }: RepoTabsNavProps) {
   const { mergeRequests, branches, ciRuns } = useRepoState();
 
-  const openMergeRequests = mergeRequests.filter((mr) => mr.status === 'open' || mr.status === 'approved').length;
+  const openMergeRequests = mergeRequests.filter(
+    (mr) => mr.status === 'open' || mr.status === 'approved',
+  ).length;
   const failingCiRuns = ciRuns.filter((run) => run.status === 'failed').length;
 
   const tabs: TabBarItem<RepoTabId>[] = [
     { id: 'code', label: 'Code', glyph: 'code' },
     { id: 'branches', label: 'Branches', glyph: 'workflow', count: branches.length || undefined },
-    { id: 'pull-requests', label: 'Pull requests', glyph: 'graph', count: openMergeRequests || undefined },
+    // Pull request badge always shows the count — even when zero — to match
+    // Foundry, where the empty state is informative.
+    { id: 'pull-requests', label: 'Pull requests', glyph: 'graph', count: openMergeRequests },
     { id: 'checks', label: 'Checks', glyph: 'shield', count: failingCiRuns || undefined },
     { id: 'settings', label: 'Settings', glyph: 'settings' },
   ];

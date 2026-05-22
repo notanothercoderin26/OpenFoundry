@@ -1,43 +1,96 @@
+import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { Glyph } from '@/lib/components/ui/Glyph';
+import { Popover } from '@/lib/components/ui/Popover';
+import { StarFavoriteButton } from '@/lib/components/ui/StarFavoriteButton';
+import { favorites, useIsFavorite } from '@stores/favorites';
 import { notifications } from '@stores/notifications';
 
+import { ResetDialog } from '../dialogs/ResetDialog';
+import { ShareDialog } from '../dialogs/ShareDialog';
+import { UpgradeDialog } from '../dialogs/UpgradeDialog';
 import { useRepoIdentity } from '../state/RepoContext';
+
+import { HeaderMenu } from './HeaderMenu';
 
 interface RepoHeaderProps {
   unreadNotificationCount?: number;
 }
 
 /**
- * Top header for the Code Repositories IDE. Mirrors the Foundry layout:
+ * Foundry-style top header for the IDE shell:
  *
- *   [<>]  Project › Repo ★   |   Code  Branches  PRs  Checks  Settings   |   Explore lineage  Clone  ?  🔔  Share  ≡
+ *   [<>] owner › … › repo ⭐ branch | File ▾  Help ▾ | Explore lineage  Clone ▾  ?  🔔  Share
  *
- * Phase 0 ships the structure with working Clone-URL copy and breadcrumb
- * navigation. Share / Help / Notifications are wired with placeholders that
- * surface a toast — they get real behaviour in F1 (Help tour) and F3
- * (permission dialog).
+ * Star is backed by the local favorites store (no /star endpoint yet, see
+ * master plan §10 B7). Clone opens a popover with HTTPS / SSH URLs ready
+ * to copy. File / Help are real menus wired to the placeholder dialogs and
+ * to documentation links. Share opens a placeholder permissions dialog.
  */
 export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
   const navigate = useNavigate();
   const { repository, currentUser, currentBranch } = useRepoIdentity();
+  const starred = useIsFavorite(repository.id);
 
-  async function copyCloneUrl() {
+  const cloneTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+
+  async function copyToClipboard(value: string, label: string) {
     try {
-      await navigator.clipboard.writeText(repository.git_http_url);
-      notifications.success(`Copied HTTPS clone URL for ${repository.name}`);
+      await navigator.clipboard.writeText(value);
+      notifications.success(`Copied ${label}`);
     } catch {
-      notifications.error('Unable to copy clone URL');
+      notifications.error(`Unable to copy ${label}`);
     }
   }
 
-  const helpTitle = currentUser
-    ? `Help — signed in as ${currentUser.name}`
-    : 'Help (coming in Phase 3 — tour)';
+  const helpItems = [
+    {
+      id: 'tour',
+      label: 'Take the tour',
+      glyph: 'tour' as const,
+      description: 'Step-by-step walkthrough of the IDE.',
+      onSelect: () => notifications.info('In-app tour ships in Phase 3'),
+    },
+    {
+      id: 'docs',
+      label: 'Open documentation',
+      glyph: 'book-open' as const,
+      onSelect: () => navigate('/developers'),
+    },
+    {
+      id: 'shortcuts',
+      label: 'Keyboard shortcuts',
+      glyph: 'asterisk' as const,
+      shortcut: 'F1',
+      onSelect: () => notifications.info('Command palette ships in Phase 3 (F1)'),
+    },
+  ];
+
+  const fileItems = [
+    {
+      id: 'reset',
+      label: 'Reset branch…',
+      glyph: 'undo' as const,
+      description: `Discard uncommitted changes on ${currentBranch}.`,
+      onSelect: () => setResetOpen(true),
+    },
+    {
+      id: 'upgrade',
+      label: 'Upgrade language versions…',
+      glyph: 'shield-plus' as const,
+      onSelect: () => setUpgradeOpen(true),
+    },
+  ];
+
+  const helpTooltip = currentUser ? `Help — signed in as ${currentUser.name}` : 'Help';
 
   return (
-    <header className="flex items-center h-12 px-3 gap-2 border-b border-of-border bg-of-surface-raised">
+    <header className="flex items-center h-12 px-3 gap-1 border-b border-of-border bg-of-surface-raised">
       <Link
         to="/code-repos"
         className="inline-flex items-center justify-center w-8 h-8 rounded-of-sm text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
@@ -46,11 +99,11 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
         <Glyph name="code" size={16} tone="currentColor" />
       </Link>
 
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-of-13 text-of-text-muted min-w-0">
-        <Link
-          to="/code-repos"
-          className="hover:text-of-text hover:underline truncate"
-        >
+      <nav
+        aria-label="Breadcrumb"
+        className="flex items-center gap-1.5 text-of-13 text-of-text-muted min-w-0"
+      >
+        <Link to="/code-repos" className="hover:text-of-text hover:underline truncate">
           {repository.owner || 'Code Repositories'}
         </Link>
         <span aria-hidden className="text-of-text-soft">›</span>
@@ -61,19 +114,27 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
         <span className="text-of-text font-of-semibold truncate" title={repository.name}>
           {repository.name}
         </span>
-        <button
-          type="button"
-          className="inline-flex items-center justify-center w-6 h-6 rounded-of-sm text-of-text-soft hover:text-of-accent"
-          title="Star repository (coming in F5)"
-          onClick={() => notifications.info('Star is coming in Phase 5')}
-        >
-          <Glyph name="star" size={14} tone="currentColor" />
-        </button>
+        <StarFavoriteButton
+          value={starred}
+          size="sm"
+          onChange={() => {
+            favorites.toggle(repository.id);
+            notifications.info(starred ? 'Removed from favorites' : 'Added to favorites');
+          }}
+        />
         <span aria-hidden className="text-of-text-soft">·</span>
-        <span className="text-of-12 text-of-text-soft truncate" title={`Current branch: ${currentBranch}`}>
+        <span
+          className="text-of-12 text-of-text-soft truncate"
+          title={`Current branch: ${currentBranch}`}
+        >
           {currentBranch}
         </span>
       </nav>
+
+      <div className="ml-3 flex items-center gap-0.5">
+        <HeaderMenu label="File" items={fileItems} width={260} />
+        <HeaderMenu label="Help" items={helpItems} width={240} title={helpTooltip} />
+      </div>
 
       <div className="flex items-center gap-1 ml-auto">
         <button
@@ -85,23 +146,60 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
           <Glyph name="lineage" size={14} tone="currentColor" />
           Explore lineage
         </button>
+
         <button
+          ref={cloneTriggerRef}
           type="button"
           className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-of-sm text-of-12 font-of-medium text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
-          onClick={() => void copyCloneUrl()}
-          title={repository.git_http_url}
+          aria-haspopup="dialog"
+          aria-expanded={cloneOpen}
+          onClick={() => setCloneOpen((v) => !v)}
         >
           Clone
           <Glyph name="chevron-down" size={12} tone="currentColor" />
         </button>
-        <button
-          type="button"
-          className="inline-flex items-center justify-center w-8 h-8 rounded-of-sm text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
-          title={helpTitle}
-          onClick={() => notifications.info('In-app tour is coming in Phase 3')}
+        <Popover
+          open={cloneOpen}
+          anchorRef={cloneTriggerRef}
+          onClose={() => setCloneOpen(false)}
+          placement="bottom"
+          align="end"
+          width={420}
+          showArrow={false}
+          ariaLabel="Clone repository"
         >
-          <Glyph name="help" size={16} tone="currentColor" />
-        </button>
+          <div className="p-3 space-y-3">
+            <CloneUrlRow
+              label="HTTPS"
+              value={repository.git_http_url}
+              onCopy={() => void copyToClipboard(repository.git_http_url, 'HTTPS clone URL')}
+            />
+            {repository.git_ssh_enabled ? (
+              <CloneUrlRow
+                label="SSH"
+                value={repository.git_ssh_url}
+                onCopy={() => void copyToClipboard(repository.git_ssh_url, 'SSH clone URL')}
+              />
+            ) : (
+              <div className="text-of-12 text-of-text-soft">
+                SSH access is disabled for this repository.
+              </div>
+            )}
+            <p className="text-of-12 text-of-text-soft">
+              Authenticate with your OIDC session credentials when prompted.
+            </p>
+          </div>
+        </Popover>
+
+        <HeaderMenu
+          iconOnly
+          glyph="help"
+          title={helpTooltip}
+          items={helpItems}
+          align="end"
+          width={240}
+        />
+
         <button
           type="button"
           className="relative inline-flex items-center justify-center w-8 h-8 rounded-of-sm text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
@@ -115,16 +213,53 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
             </span>
           )}
         </button>
+
         <button
           type="button"
           className="inline-flex items-center gap-1.5 h-8 px-3 rounded-of-sm text-of-12 font-of-medium text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
-          title="Share repository (coming in Phase 5)"
-          onClick={() => notifications.info('Share dialog is coming in Phase 5')}
+          title="Share repository"
+          onClick={() => setShareOpen(true)}
         >
           <Glyph name="users" size={14} tone="currentColor" />
           Share
         </button>
       </div>
+
+      <ResetDialog open={resetOpen} onClose={() => setResetOpen(false)} />
+      <UpgradeDialog open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
+      <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} />
     </header>
+  );
+}
+
+interface CloneUrlRowProps {
+  label: string;
+  value: string;
+  onCopy: () => void;
+}
+
+function CloneUrlRow({ label, value, onCopy }: CloneUrlRowProps) {
+  return (
+    <div>
+      <p className="text-of-12 font-of-semibold uppercase tracking-wider text-of-text-muted">
+        {label}
+      </p>
+      <div className="mt-1 flex items-center gap-1.5">
+        <input
+          readOnly
+          value={value}
+          onFocus={(event) => event.currentTarget.select()}
+          className="flex-1 min-w-0 h-8 px-2 rounded-of-sm border border-of-border bg-of-surface-muted text-of-12 font-mono text-of-text"
+        />
+        <button
+          type="button"
+          onClick={onCopy}
+          className="inline-flex items-center justify-center w-8 h-8 rounded-of-sm text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
+          title={`Copy ${label} URL`}
+        >
+          <Glyph name="duplicate" size={14} tone="currentColor" />
+        </button>
+      </div>
+    </div>
   );
 }
