@@ -484,7 +484,7 @@ export function NotepadDetailPage() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gap: 16 }}>
+      <div className="of-doc-page-body">
         {historyOpen && (
           <section className="of-panel" style={{ padding: 24 }}>
             <VersionHistoryPanel
@@ -503,79 +503,60 @@ export function NotepadDetailPage() {
           </section>
         )}
 
-        <section className="of-panel" style={{ padding: 24 }}>
-            {previewRevision && compareRevision ? (
-              <RevisionDiffView left={compareRevision} right={previewRevision} />
-            ) : (
-            <div
-              style={{
-                marginTop: 16,
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border-default)',
-                overflow: 'hidden',
-              }}
+        {previewRevision !== null && !compareRevision && (
+          <div className="of-revision-banner">
+            <span>
+              Viewing <strong>v{previewRevision.rev}</strong>{' '}
+              {previewRevision.name || revisionKindLabel(previewRevision.kind)} ·{' '}
+              {new Date(previewRevision.created_at).toLocaleString()}
+            </span>
+            <button
+              type="button"
+              className="of-btn"
+              onClick={() => setPreviewRevision(null)}
+              style={{ height: 24, padding: '0 8px', fontSize: 12 }}
             >
-              <TipTapEditor
-                initialContent={initialContent ?? undefined}
-                placeholder="Type your notes — / for shortcuts, @ to mention"
-                minHeight={560}
-                editable={previewRevision === null}
-                onEditorReady={(editor) => {
-                  editorRef.current = editor;
-                  contentDocRef.current = editor.getJSON() as ProseMirrorDoc;
-                  contentHTMLRef.current = editor.getHTML();
-                }}
-                onChange={({ json, html }) => {
-                  if (previewRevision !== null) return;
-                  contentDocRef.current = json as ProseMirrorDoc;
-                  contentHTMLRef.current = html;
-                  setExportNotice('');
-                  // Compare against the last persisted snapshot so the
-                  // initial onChange TipTap fires on seed does not
-                  // flip the autosave indicator on a fresh document.
-                  const next = JSON.stringify(json);
-                  setDirty(next !== lastSavedJSONRef.current);
-                }}
-                onFocus={() => previewRevision === null && void sendPresence('editing body')}
-                onBlur={() => previewRevision === null && void sendPresence('reviewing body')}
-              />
-              {previewRevision !== null && (
-                <div
-                  style={{
-                    padding: '8px 14px',
-                    background: '#eff6ff',
-                    color: '#1d4ed8',
-                    fontSize: 12,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                  }}
-                >
-                  <span>
-                    Viewing <strong>v{previewRevision.rev}</strong>{' '}
-                    {previewRevision.name || revisionKindLabel(previewRevision.kind)} ·{' '}
-                    {new Date(previewRevision.created_at).toLocaleString()}
-                  </span>
-                  <button
-                    type="button"
-                    className="of-btn"
-                    onClick={() => setPreviewRevision(null)}
-                    style={{ height: 24, padding: '0 8px', fontSize: 12 }}
-                  >
-                    Return to current
-                  </button>
-                </div>
-              )}
-            </div>
-            )}
-          </section>
+              Return to current
+            </button>
+          </div>
+        )}
 
-          <WidgetEmbeds
-            widgets={documentWidgets(doc)}
-            onChange={updateWidgets}
-            onInsertReference={insertWidgetReference}
-          />
+        <article className="of-doc-canvas">
+          {previewRevision && compareRevision ? (
+            <RevisionDiffView left={compareRevision} right={previewRevision} />
+          ) : (
+            <TipTapEditor
+              initialContent={initialContent ?? undefined}
+              placeholder="Type your notes — / for shortcuts, @ to mention"
+              minHeight={560}
+              editable={previewRevision === null}
+              onEditorReady={(editor) => {
+                editorRef.current = editor;
+                contentDocRef.current = editor.getJSON() as ProseMirrorDoc;
+                contentHTMLRef.current = editor.getHTML();
+              }}
+              onChange={({ json, html }) => {
+                if (previewRevision !== null) return;
+                contentDocRef.current = json as ProseMirrorDoc;
+                contentHTMLRef.current = html;
+                setExportNotice('');
+                // Compare against the last persisted snapshot so the
+                // initial onChange TipTap fires on seed does not
+                // flip the autosave indicator on a fresh document.
+                const next = JSON.stringify(json);
+                setDirty(next !== lastSavedJSONRef.current);
+              }}
+              onFocus={() => previewRevision === null && void sendPresence('editing body')}
+              onBlur={() => previewRevision === null && void sendPresence('reviewing body')}
+            />
+          )}
+        </article>
+
+        <WidgetEmbeds
+          widgets={documentWidgets(doc)}
+          onChange={updateWidgets}
+          onInsertReference={insertWidgetReference}
+        />
       </div>
 
       {showSaveAsTemplate && doc && (
