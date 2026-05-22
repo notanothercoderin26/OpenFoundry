@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Glyph, type GlyphName } from './Glyph';
@@ -21,7 +21,9 @@ export type DropdownMenuItem =
     };
 
 interface DropdownMenuProps {
-  label: string;
+  // ReactNode so callers can render a chevron, an icon + text, or any
+  // custom trigger content. Plain strings still work.
+  label: ReactNode;
   items: DropdownMenuItem[];
   triggerClassName?: string;
   menuClassName?: string;

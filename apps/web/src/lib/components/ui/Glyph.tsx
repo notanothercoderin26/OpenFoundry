@@ -10,7 +10,8 @@ export type GlyphName =
   | 'move' | 'badge-check' | 'view-grid' | 'login'
   | 'mail' | 'apps-grid' | 'filter' | 'back-arrow' | 'share' | 'lineage' | 'book-open'
   | 'notebook' | 'pipeline' | 'workflow' | 'model' | 'dashboard' | 'schedule' | 'stream' | 'vertex-analysis'
-  | 'clock' | 'file-type' | 'more-vertical';
+  | 'clock' | 'file-type' | 'more-vertical'
+  | 'align-left' | 'align-center' | 'align-right';
 
 interface GlyphProps {
   name?: GlyphName;
@@ -182,6 +183,9 @@ const PATHS: Record<string, string[]> = {
     'M12 12h.01',
     'M12 18.5h.01',
   ],
+  'align-left': ['M5 7h14', 'M5 12h9', 'M5 17h14'],
+  'align-center': ['M5 7h14', 'M8 12h8', 'M5 17h14'],
+  'align-right': ['M5 7h14', 'M10 12h9', 'M5 17h14'],
 };
 
 export function Glyph({ name = 'cube', size = 18, strokeWidth = 1.8, tone = null, filled }: GlyphProps) {

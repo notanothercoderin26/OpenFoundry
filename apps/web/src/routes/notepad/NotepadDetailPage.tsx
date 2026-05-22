@@ -521,7 +521,11 @@ export function NotepadDetailPage() {
           </div>
         )}
 
-        <article className="of-doc-canvas">
+        <article
+          className={`of-doc-canvas${
+            previewRevision && compareRevision ? '' : ' of-doc-canvas--editor'
+          }`}
+        >
           {previewRevision && compareRevision ? (
             <RevisionDiffView left={compareRevision} right={previewRevision} />
           ) : (
@@ -530,6 +534,8 @@ export function NotepadDetailPage() {
               placeholder="Type your notes — / for shortcuts, @ to mention"
               minHeight={560}
               editable={previewRevision === null}
+              historyOpen={historyOpen}
+              onToggleHistory={() => setHistoryOpen((open) => !open)}
               onEditorReady={(editor) => {
                 editorRef.current = editor;
                 contentDocRef.current = editor.getJSON() as ProseMirrorDoc;

@@ -11,6 +11,9 @@ import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table
 import Image from '@tiptap/extension-image';
 import { useEffect, useRef, useState } from 'react';
 
+import { DropdownMenu, type DropdownMenuItem } from '@/lib/components/ui/DropdownMenu';
+import { Glyph } from '@/lib/components/ui/Glyph';
+
 import { Column, Columns, PageBreak } from './TipTapNodes';
 import { SlashCommand } from './SlashCommand';
 import { Embed } from './EmbedNode';
@@ -25,6 +28,13 @@ export interface TipTapEditorProps {
   onFocus?: () => void;
   onBlur?: () => void;
   onEditorReady?: (editor: Editor) => void;
+  // Toolbar bindings (T5.1). When the parent owns the version history
+  // panel, pass these so the toolbar's history icon can toggle it.
+  onToggleHistory?: () => void;
+  historyOpen?: boolean;
+  // Stub for the gear icon in the toolbar; opens an editor-settings
+  // surface when the parent wants to handle it.
+  onOpenSettings?: () => void;
 }
 
 const DEFAULT_DOC: object = { type: 'doc', content: [{ type: 'paragraph' }] };
@@ -38,6 +48,9 @@ export function TipTapEditor({
   onFocus,
   onBlur,
   onEditorReady,
+  onToggleHistory,
+  historyOpen,
+  onOpenSettings,
 }: TipTapEditorProps) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -142,18 +155,20 @@ export function TipTapEditor({
   if (!editor) return null;
 
   return (
-    <div className="of-tiptap-editor" style={{ display: 'grid', gap: 0 }}>
-      {editable && <EditorToolbar editor={editor} onAip={(snapshot) => setAip(snapshot)} />}
+    <div className="of-tiptap-editor of-tiptap-shell">
+      {editable && (
+        <EditorToolbar
+          editor={editor}
+          onAip={(snapshot) => setAip(snapshot)}
+          onToggleHistory={onToggleHistory}
+          historyOpen={historyOpen}
+          onOpenSettings={onOpenSettings}
+        />
+      )}
       <div
-        style={{
-          padding: '16px 18px',
-          minHeight,
-          background: editable ? 'var(--bg-panel)' : 'var(--bg-panel-muted)',
-          borderTop: editable ? '1px solid var(--border-default)' : 0,
-          fontSize: 15,
-          lineHeight: 1.65,
-          color: 'var(--text-strong)',
-        }}
+        className="of-tiptap-content"
+        data-readonly={editable ? undefined : 'true'}
+        style={{ minHeight }}
         onClick={() => editable && editor.commands.focus()}
       >
         <EditorContent editor={editor} />
@@ -285,9 +300,23 @@ export function TipTapEditor({
 interface ToolbarProps {
   editor: Editor;
   onAip: (snapshot: { from: number; to: number; text: string }) => void;
+  onToggleHistory?: () => void;
+  historyOpen?: boolean;
+  onOpenSettings?: () => void;
 }
 
-function EditorToolbar({ editor, onAip }: ToolbarProps) {
+function currentBlockLabel(editor: Editor): string {
+  if (editor.isActive('heading', { level: 1 })) return 'Heading 1';
+  if (editor.isActive('heading', { level: 2 })) return 'Heading 2';
+  if (editor.isActive('heading', { level: 3 })) return 'Heading 3';
+  if (editor.isActive('blockquote')) return 'Quote';
+  if (editor.isActive('codeBlock')) return 'Code block';
+  if (editor.isActive('bulletList')) return 'Bullet list';
+  if (editor.isActive('orderedList')) return 'Numbered list';
+  return 'Paragraph';
+}
+
+function EditorToolbar({ editor, onAip, onToggleHistory, historyOpen, onOpenSettings }: ToolbarProps) {
   const selectionEmpty = editor.state.selection.empty;
   const selectedText = selectionEmpty
     ? ''
@@ -297,17 +326,80 @@ function EditorToolbar({ editor, onAip }: ToolbarProps) {
         '\n',
         ' ',
       );
+  // Visual-only state until we add @tiptap/extension-font-size in a
+  // follow-up. The input value is captured here so the UI is complete.
+  const [fontSize, setFontSize] = useState(15);
+  const [blockView, setBlockView] = useState(false);
+
+  const blockItems: DropdownMenuItem[] = [
+    { kind: 'item', key: 'p', label: 'Paragraph', onClick: () => editor.chain().focus().setParagraph().run() },
+    { kind: 'item', key: 'h1', label: 'Heading 1', onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run() },
+    { kind: 'item', key: 'h2', label: 'Heading 2', onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
+    { kind: 'item', key: 'h3', label: 'Heading 3', onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run() },
+    { kind: 'separator' },
+    { kind: 'item', key: 'quote', label: 'Quote', onClick: () => editor.chain().focus().toggleBlockquote().run() },
+    { kind: 'item', key: 'code-block', label: 'Code block', onClick: () => editor.chain().focus().toggleCodeBlock().run() },
+    { kind: 'separator' },
+    { kind: 'item', key: 'bullet', label: 'Bullet list', onClick: () => editor.chain().focus().toggleBulletList().run() },
+    { kind: 'item', key: 'numbered', label: 'Numbered list', onClick: () => editor.chain().focus().toggleOrderedList().run() },
+  ];
+
+  const widgetItems: DropdownMenuItem[] = [
+    { kind: 'item', key: 'image', label: 'Image', icon: 'image', onClick: () => promptImage(editor) },
+    {
+      kind: 'item',
+      key: 'table',
+      label: 'Table',
+      onClick: () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+    },
+    { kind: 'item', key: 'columns', label: 'Two columns', onClick: () => editor.chain().focus().setColumns(2).run() },
+    { kind: 'item', key: 'pagebreak', label: 'Page break', onClick: () => editor.chain().focus().setPageBreak().run() },
+  ];
+
+  const aipReady = !selectionEmpty && selectedText.trim().length > 0;
+  const actionItems: DropdownMenuItem[] = [
+    { kind: 'item', key: 'undo', label: 'Undo', icon: 'undo', shortcut: '⌘Z', onClick: () => editor.chain().focus().undo().run() },
+    { kind: 'item', key: 'redo', label: 'Redo', icon: 'undo', shortcut: '⇧⌘Z', onClick: () => editor.chain().focus().redo().run() },
+    { kind: 'separator' },
+    {
+      kind: 'item',
+      key: 'aip',
+      label: aipReady ? 'Edit selection with AIP' : 'Edit with AIP (select text first)',
+      icon: 'sparkles',
+      disabled: !aipReady,
+      onClick: () => {
+        if (!aipReady) return;
+        onAip({
+          from: editor.state.selection.from,
+          to: editor.state.selection.to,
+          text: selectedText,
+        });
+      },
+    },
+  ];
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 4,
-        padding: '8px 10px',
-        background: 'var(--bg-panel-muted)',
-        borderBottom: '1px solid var(--border-default)',
-      }}
-    >
+    <div className="of-tiptap-toolbar" role="toolbar" aria-label="Editor toolbar">
+      <DropdownMenu
+        label={
+          <>
+            <span>{currentBlockLabel(editor)}</span>
+            <Glyph name="chevron-down" size={11} />
+          </>
+        }
+        items={blockItems}
+        triggerClassName="of-tiptap-toolbar__block-trigger"
+      />
+
+      <FontSizeControl
+        value={fontSize}
+        onChange={setFontSize}
+        // TODO(T5.x): apply via TextStyle / extension-font-size once
+        // the extension is added — currently captured but not applied.
+      />
+
+      <span className="of-tiptap-toolbar__divider" aria-hidden="true" />
+
       <ToolbarButton active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} title="Bold (⌘B)">
         <strong>B</strong>
       </ToolbarButton>
@@ -317,100 +409,149 @@ function EditorToolbar({ editor, onAip }: ToolbarProps) {
       <ToolbarButton active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} title="Underline (⌘U)">
         <span style={{ textDecoration: 'underline' }}>U</span>
       </ToolbarButton>
-      <ToolbarButton active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} title="Strikethrough">
-        <span style={{ textDecoration: 'line-through' }}>S</span>
-      </ToolbarButton>
       <ToolbarButton active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()} title="Inline code">
         {'</>'}
       </ToolbarButton>
-      <ToolbarButton active={editor.isActive('highlight')} onClick={() => editor.chain().focus().toggleHighlight().run()} title="Highlight">
-        <span style={{ background: 'rgba(250, 204, 21, 0.55)', padding: '0 4px' }}>H</span>
+      <ToolbarButton active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} title="Strikethrough">
+        <span style={{ textDecoration: 'line-through' }}>S</span>
       </ToolbarButton>
-      <Divider />
-      <ToolbarButton active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} title="Heading 1">
-        H1
-      </ToolbarButton>
-      <ToolbarButton active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} title="Heading 2">
-        H2
-      </ToolbarButton>
-      <ToolbarButton active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} title="Heading 3">
-        H3
-      </ToolbarButton>
-      <Divider />
-      <ToolbarButton active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} title="Bullet list">
-        •
-      </ToolbarButton>
-      <ToolbarButton active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} title="Ordered list">
-        1.
-      </ToolbarButton>
-      <ToolbarButton active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()} title="Blockquote">
-        “”
-      </ToolbarButton>
-      <ToolbarButton active={editor.isActive('codeBlock')} onClick={() => editor.chain().focus().toggleCodeBlock().run()} title="Code block">
-        {'{}'}
-      </ToolbarButton>
-      <Divider />
-      <ToolbarButton active={editor.isActive({ textAlign: 'left' })} onClick={() => editor.chain().focus().setTextAlign('left').run()} title="Align left">
-        ⯇
-      </ToolbarButton>
-      <ToolbarButton active={editor.isActive({ textAlign: 'center' })} onClick={() => editor.chain().focus().setTextAlign('center').run()} title="Align center">
-        ≡
-      </ToolbarButton>
-      <ToolbarButton active={editor.isActive({ textAlign: 'right' })} onClick={() => editor.chain().focus().setTextAlign('right').run()} title="Align right">
-        ⯈
-      </ToolbarButton>
-      <Divider />
+
+      <span className="of-tiptap-toolbar__divider" aria-hidden="true" />
+
       <ToolbarButton active={editor.isActive('link')} onClick={() => promptLink(editor)} title="Insert link">
-        🔗
+        <Glyph name="link" size={14} />
       </ToolbarButton>
-      <Divider />
       <ToolbarButton
-        active={editor.isActive('table')}
-        onClick={() =>
-          editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+        className="of-tiptap-toolbar__swatch"
+        title="Text color (coming soon)"
+        // TODO(T5.x): swatch popover wired to TextStyle/Color.
+        style={{ ['--swatch-color' as string]: '#1c2127' }}
+      >
+        A
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive('highlight')}
+        onClick={() => editor.chain().focus().toggleHighlight().run()}
+        title="Highlight"
+        className="of-tiptap-toolbar__swatch"
+        style={{ ['--swatch-color' as string]: '#facc15' }}
+      >
+        H
+      </ToolbarButton>
+
+      <span className="of-tiptap-toolbar__divider" aria-hidden="true" />
+
+      <ToolbarButton
+        active={editor.isActive({ textAlign: 'left' })}
+        onClick={() => editor.chain().focus().setTextAlign('left').run()}
+        title="Align left"
+      >
+        <Glyph name="align-left" size={14} />
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive({ textAlign: 'center' })}
+        onClick={() => editor.chain().focus().setTextAlign('center').run()}
+        title="Align center"
+      >
+        <Glyph name="align-center" size={14} />
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive({ textAlign: 'right' })}
+        onClick={() => editor.chain().focus().setTextAlign('right').run()}
+        title="Align right"
+      >
+        <Glyph name="align-right" size={14} />
+      </ToolbarButton>
+
+      <span className="of-tiptap-toolbar__divider" aria-hidden="true" />
+
+      <DropdownMenu
+        label={
+          <>
+            <Glyph name="plus" size={13} />
+            <span>Widget</span>
+          </>
         }
-        title="Insert 3×3 table"
-      >
-        ⊞
-      </ToolbarButton>
-      <ToolbarButton onClick={() => promptImage(editor)} title="Insert image">
-        🖼
-      </ToolbarButton>
-      <ToolbarButton onClick={() => editor.chain().focus().setPageBreak().run()} title="Page break">
-        ⤓
-      </ToolbarButton>
-      <ToolbarButton onClick={() => editor.chain().focus().setColumns(2).run()} title="Two columns">
-        ⫴
-      </ToolbarButton>
-      <Divider />
-      <ToolbarButton onClick={() => editor.chain().focus().undo().run()} title="Undo (⌘Z)">
-        ↶
-      </ToolbarButton>
-      <ToolbarButton onClick={() => editor.chain().focus().redo().run()} title="Redo (⇧⌘Z)">
-        ↷
-      </ToolbarButton>
-      <Divider />
+        items={widgetItems}
+        triggerClassName="of-tiptap-toolbar__btn of-tiptap-toolbar__widget"
+      />
       <ToolbarButton
-        onClick={() => {
-          if (selectionEmpty || !selectedText.trim()) return;
-          onAip({
-            from: editor.state.selection.from,
-            to: editor.state.selection.to,
-            text: selectedText,
-          });
-        }}
-        title={selectionEmpty ? 'Select text first' : 'Edit with AIP'}
+        active={blockView}
+        onClick={() => setBlockView((open) => !open)}
+        title={blockView ? 'Exit block view' : 'Enter block view'}
+        // TODO(T5.x): toggle a real `.is-block-view` class on the
+        // editor wrapper that surfaces block boundaries.
       >
-        <span
-          aria-hidden
-          style={{
-            color: selectionEmpty || !selectedText.trim() ? 'var(--text-muted)' : '#7c3aed',
-            fontWeight: 700,
-          }}
-        >
-          ✨
-        </span>
+        <Glyph name="view-grid" size={14} />
       </ToolbarButton>
+
+      <div className="of-tiptap-toolbar__right">
+        <span className="of-tiptap-toolbar__status" title="Connected to autosave channel">
+          <span className="of-tiptap-toolbar__status-dot" aria-hidden="true" />
+          <span>Connected</span>
+        </span>
+        <ToolbarButton
+          active={Boolean(historyOpen)}
+          onClick={() => onToggleHistory?.()}
+          disabled={!onToggleHistory}
+          title="Version history"
+        >
+          <Glyph name="history" size={14} />
+        </ToolbarButton>
+        <DropdownMenu
+          label={
+            <>
+              <span>Actions</span>
+              <Glyph name="chevron-down" size={11} />
+            </>
+          }
+          items={actionItems}
+          triggerClassName="of-tiptap-toolbar__block-trigger"
+          align="right"
+        />
+        <ToolbarButton
+          onClick={() => onOpenSettings?.()}
+          disabled={!onOpenSettings}
+          title="Editor settings"
+        >
+          <Glyph name="settings" size={14} />
+        </ToolbarButton>
+      </div>
+    </div>
+  );
+}
+
+interface FontSizeControlProps {
+  value: number;
+  onChange: (next: number) => void;
+}
+
+function FontSizeControl({ value, onChange }: FontSizeControlProps) {
+  function step(delta: number) {
+    const next = Math.max(8, Math.min(72, value + delta));
+    onChange(next);
+  }
+  return (
+    <div className="of-tiptap-toolbar__fontsize" title="Font size">
+      <input
+        type="number"
+        min={8}
+        max={72}
+        value={value}
+        onChange={(event) => {
+          const parsed = parseInt(event.target.value || '15', 10);
+          if (Number.isFinite(parsed)) onChange(parsed);
+        }}
+        aria-label="Font size"
+      />
+      <div className="of-tiptap-toolbar__fontsize-steps">
+        <button type="button" onClick={() => step(1)} aria-label="Increase font size">
+          ▲
+        </button>
+        <button type="button" onClick={() => step(-1)} aria-label="Decrease font size">
+          ▼
+        </button>
+      </div>
     </div>
   );
 }
@@ -445,46 +586,28 @@ function promptImage(editor: Editor) {
 
 interface ToolbarButtonProps {
   active?: boolean;
-  onClick: () => void;
+  onClick?: () => void;
   title: string;
+  disabled?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }
 
-function ToolbarButton({ active, onClick, title, children }: ToolbarButtonProps) {
+function ToolbarButton({ active, onClick, title, disabled, className, style, children }: ToolbarButtonProps) {
+  const composed = ['of-tiptap-toolbar__btn', active ? 'is-active' : '', className ?? '']
+    .filter(Boolean)
+    .join(' ');
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
-      style={{
-        minWidth: 28,
-        height: 28,
-        padding: '0 8px',
-        border: '1px solid transparent',
-        borderRadius: 4,
-        background: active ? 'var(--bg-panel)' : 'transparent',
-        color: 'var(--text-strong)',
-        fontSize: 13,
-        cursor: 'pointer',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
+      disabled={disabled}
+      className={composed}
+      style={style}
     >
       {children}
     </button>
-  );
-}
-
-function Divider() {
-  return (
-    <span
-      aria-hidden
-      style={{
-        width: 1,
-        margin: '2px 4px',
-        background: 'var(--border-default)',
-      }}
-    />
   );
 }

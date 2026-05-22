@@ -3851,6 +3851,222 @@ button {
   font-size: var(--text-12);
 }
 
+/* Editor canvas modifier — hands padding back to TipTapEditor so the
+   toolbar can sit flush against the paper border. */
+.of-doc-canvas--editor {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Editor shell (T5.1) — toolbar above, content below. */
+.of-tiptap-shell {
+  display: grid;
+  gap: 0;
+}
+
+.of-tiptap-content {
+  padding: 56px 72px;
+  background: var(--surface-panel);
+  font-size: var(--text-15);
+  line-height: 1.65;
+  color: var(--text-strong);
+  cursor: text;
+}
+
+.of-tiptap-content[data-readonly='true'] {
+  background: var(--surface-panel-muted);
+  cursor: default;
+}
+
+@media (max-width: 720px) {
+  .of-tiptap-content {
+    padding: 32px 24px;
+  }
+}
+
+/* Editor toolbar (T5.1) — block dropdown + font size + marks + +Widget
+   + block view toggle on the left; connected / history / Actions /
+   settings on the right. */
+.of-tiptap-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+}
+
+.of-tiptap-toolbar__right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.of-tiptap-toolbar__divider {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--border-subtle);
+}
+
+.of-tiptap-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--text-13);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.of-tiptap-toolbar__btn:hover:not(:disabled) {
+  background: var(--row-hover);
+}
+
+.of-tiptap-toolbar__btn.is-active {
+  background: var(--row-selected);
+  color: var(--accent-link);
+}
+
+.of-tiptap-toolbar__btn:disabled {
+  color: var(--text-soft);
+  cursor: not-allowed;
+}
+
+/* Block style trigger — wider than other buttons, shows current
+   selection + caret. */
+.of-tiptap-toolbar__block-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 110px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--text-13);
+  cursor: pointer;
+}
+
+.of-tiptap-toolbar__block-trigger:hover,
+.of-tiptap-toolbar__block-trigger[aria-expanded='true'] {
+  background: var(--row-hover);
+}
+
+.of-tiptap-toolbar__block-trigger > span {
+  flex: 1;
+  text-align: left;
+}
+
+/* Font-size control — numeric input with stacked up/down step
+   buttons on the right. */
+.of-tiptap-toolbar__fontsize {
+  display: inline-flex;
+  align-items: stretch;
+  height: 28px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-panel);
+}
+
+.of-tiptap-toolbar__fontsize input {
+  width: 36px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  text-align: center;
+  font-size: var(--text-13);
+  color: var(--text-strong);
+  outline: none;
+  appearance: textfield;
+}
+
+.of-tiptap-toolbar__fontsize input::-webkit-outer-spin-button,
+.of-tiptap-toolbar__fontsize input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.of-tiptap-toolbar__fontsize-steps {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  border-left: 1px solid var(--border-default);
+}
+
+.of-tiptap-toolbar__fontsize-steps button {
+  width: 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.of-tiptap-toolbar__fontsize-steps button:hover {
+  background: var(--row-hover);
+}
+
+/* "+ Widget" button — labeled, slightly wider, with the plus glyph. */
+.of-tiptap-toolbar__widget {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+}
+
+/* Connected status pill. */
+.of-tiptap-toolbar__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 6px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.of-tiptap-toolbar__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18);
+}
+
+/* Color swatch underline indicator inside text-colour / highlight
+   buttons. */
+.of-tiptap-toolbar__swatch {
+  position: relative;
+}
+
+.of-tiptap-toolbar__swatch::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  left: 7px;
+  right: 7px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--swatch-color, currentColor);
+}
+
 /* Shared dropdown primitive (T4.2). Used by the document File / View /
    Help menus and reusable for future menus across the redesign. */
 .of-dropdown {
