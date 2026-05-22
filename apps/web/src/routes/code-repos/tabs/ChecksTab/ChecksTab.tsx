@@ -1,6 +1,6 @@
 import { CommitHistory } from '@/lib/components/code-repo/CommitHistory';
 
-import { useRepoContext } from '../../state/useRepoContext';
+import { useRepoState } from '../../state/RepoContext';
 
 /**
  * Checks tab — Phase 0 mirrors Foundry's surface by showing the CI runs and
@@ -18,7 +18,7 @@ export function ChecksTab() {
     setCommitDraft,
     createCommitAction,
     triggerCiAction,
-  } = useRepoContext();
+  } = useRepoState();
 
   return (
     <div className="p-4">

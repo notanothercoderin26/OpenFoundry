@@ -1,6 +1,6 @@
 import { BranchManager } from '@/lib/components/code-repo/BranchManager';
 
-import { useRepoContext } from '../../state/useRepoContext';
+import { useRepoState } from '../../state/RepoContext';
 
 export function BranchesTab() {
   const {
@@ -14,7 +14,7 @@ export function BranchesTab() {
     deleteBranchAction,
     mergeBranchAction,
     createTagAction,
-  } = useRepoContext();
+  } = useRepoState();
 
   return (
     <div className="p-4">

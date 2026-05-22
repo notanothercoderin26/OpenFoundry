@@ -1,7 +1,7 @@
 import { DiffViewer } from '@/lib/components/code-repo/DiffViewer';
 import { FileViewer } from '@/lib/components/code-repo/FileViewer';
 
-import { useRepoContext } from '../../state/useRepoContext';
+import { useRepoState } from '../../state/RepoContext';
 
 /**
  * The Code tab is the main authoring surface. Phase 0 lays out the existing
@@ -26,7 +26,7 @@ export function CodeTab() {
     fileTreeAction,
     setPendingFileChanges,
     refreshDiff,
-  } = useRepoContext();
+  } = useRepoState();
 
   return (
     <div className="grid gap-4 p-4" style={{ gridTemplateColumns: 'minmax(0, 1.02fr) minmax(0, 0.98fr)' }}>

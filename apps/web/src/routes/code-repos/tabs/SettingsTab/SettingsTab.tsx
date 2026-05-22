@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { RepoExplorer } from '@/lib/components/code-repo/RepoExplorer';
 
-import { useRepoContext } from '../../state/useRepoContext';
+import { useRepoIdentity, useRepoState } from '../../state/RepoContext';
 
 /**
  * Settings tab — Phase 0 reuses the existing RepoExplorer form scoped to the
@@ -11,9 +11,8 @@ import { useRepoContext } from '../../state/useRepoContext';
  */
 export function SettingsTab() {
   const navigate = useNavigate();
-  const { repository, repositoryDraft, busy, setRepositoryDraft, saveRepository } = useRepoContext();
-
-  if (!repository) return null;
+  const { repository } = useRepoIdentity();
+  const { repositoryDraft, busy, setRepositoryDraft, saveRepository } = useRepoState();
 
   return (
     <div className="p-4">

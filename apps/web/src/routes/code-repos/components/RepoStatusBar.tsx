@@ -1,7 +1,7 @@
 import { Glyph } from '@/lib/components/ui/Glyph';
 
+import { useRepoIdentity, useRepoState } from '../state/RepoContext';
 import { useDirtyFileCount } from '../state/useOpenFiles';
-import { useRepoContext } from '../state/useRepoContext';
 
 /**
  * Sticky bar at the bottom of the IDE.
@@ -13,7 +13,8 @@ import { useRepoContext } from '../state/useRepoContext';
  * until F4 ships the helpers.
  */
 export function RepoStatusBar() {
-  const { repository, ciRuns, currentBranch, busy } = useRepoContext();
+  const { repository, currentBranch } = useRepoIdentity();
+  const { ciRuns, busy } = useRepoState();
   const dirtyCount = useDirtyFileCount();
 
   const latestCiForBranch = ciRuns.find((run) => run.branch_name === currentBranch);
@@ -50,7 +51,7 @@ export function RepoStatusBar() {
         </span>
       </div>
       <div className="flex items-center gap-3 ml-auto">
-        <span>{repository?.visibility === 'private' ? 'Project scoped' : 'Global'}</span>
+        <span>{repository.visibility === 'private' ? 'Project scoped' : 'Global'}</span>
         <span aria-hidden className="text-of-text-soft">·</span>
         <span className={dirtyCount > 0 ? 'text-of-warning' : undefined}>{fileSavingLabel}</span>
         <span aria-hidden className="text-of-text-soft">·</span>

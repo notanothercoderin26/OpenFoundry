@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Glyph } from '@/lib/components/ui/Glyph';
 import { notifications } from '@stores/notifications';
 
-import { useRepoContext } from '../state/useRepoContext';
+import { useRepoIdentity } from '../state/RepoContext';
 
 interface RepoHeaderProps {
   unreadNotificationCount?: number;
@@ -21,10 +21,9 @@ interface RepoHeaderProps {
  */
 export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
   const navigate = useNavigate();
-  const { repository } = useRepoContext();
+  const { repository, currentUser, currentBranch } = useRepoIdentity();
 
   async function copyCloneUrl() {
-    if (!repository) return;
     try {
       await navigator.clipboard.writeText(repository.git_http_url);
       notifications.success(`Copied HTTPS clone URL for ${repository.name}`);
@@ -33,14 +32,9 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
     }
   }
 
-  if (!repository) {
-    return (
-      <header className="flex items-center h-12 px-4 border-b border-of-border bg-of-surface-raised">
-        <Glyph name="code" size={16} tone="muted" />
-        <span className="ml-2 text-of-13 text-of-text-muted">Code Repositories</span>
-      </header>
-    );
-  }
+  const helpTitle = currentUser
+    ? `Help — signed in as ${currentUser.name}`
+    : 'Help (coming in Phase 3 — tour)';
 
   return (
     <header className="flex items-center h-12 px-3 gap-2 border-b border-of-border bg-of-surface-raised">
@@ -77,6 +71,10 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
         >
           <Glyph name="star" size={14} tone="currentColor" />
         </button>
+        <span aria-hidden className="text-of-text-soft">·</span>
+        <span className="text-of-12 text-of-text-soft truncate" title={`Current branch: ${currentBranch}`}>
+          {currentBranch}
+        </span>
       </nav>
 
       <div className="flex items-center gap-1 ml-auto">
@@ -101,7 +99,7 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
         <button
           type="button"
           className="inline-flex items-center justify-center w-8 h-8 rounded-of-sm text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
-          title="Help (coming in Phase 3 — tour)"
+          title={helpTitle}
           onClick={() => notifications.info('In-app tour is coming in Phase 3')}
         >
           <Glyph name="help" size={16} tone="currentColor" />

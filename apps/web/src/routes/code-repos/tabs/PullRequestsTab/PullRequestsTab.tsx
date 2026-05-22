@@ -1,7 +1,7 @@
 import { MergeRequestDetail } from '@/lib/components/code-repo/MergeRequestDetail';
 import { MergeRequestList } from '@/lib/components/code-repo/MergeRequestList';
 
-import { useRepoContext } from '../../state/useRepoContext';
+import { useRepoState } from '../../state/RepoContext';
 
 export function PullRequestsTab() {
   const {
@@ -23,7 +23,7 @@ export function PullRequestsTab() {
     changeMergeRequestStatus,
     updateReviewerState,
     mergeSelectedMergeRequest,
-  } = useRepoContext();
+  } = useRepoState();
 
   return (
     <div className="grid gap-4 p-4" style={{ gridTemplateColumns: 'minmax(0, 0.92fr) minmax(0, 1.08fr)' }}>

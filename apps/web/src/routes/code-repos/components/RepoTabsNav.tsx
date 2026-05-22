@@ -1,6 +1,6 @@
 import { TabBar, type TabBarItem } from '@/lib/components/ui/TabBar';
 
-import { useRepoContext } from '../state/useRepoContext';
+import { useRepoState } from '../state/RepoContext';
 
 export type RepoTabId = 'code' | 'branches' | 'pull-requests' | 'checks' | 'settings';
 
@@ -10,7 +10,7 @@ interface RepoTabsNavProps {
 }
 
 export function RepoTabsNav({ active, onChange }: RepoTabsNavProps) {
-  const { mergeRequests, branches, ciRuns } = useRepoContext();
+  const { mergeRequests, branches, ciRuns } = useRepoState();
 
   const openMergeRequests = mergeRequests.filter((mr) => mr.status === 'open' || mr.status === 'approved').length;
   const failingCiRuns = ciRuns.filter((run) => run.status === 'failed').length;

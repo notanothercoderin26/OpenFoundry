@@ -6,7 +6,7 @@ import { Glyph } from '@/lib/components/ui/Glyph';
 import { RepoHeader } from './components/RepoHeader';
 import { RepoStatusBar } from './components/RepoStatusBar';
 import { RepoTabsNav, type RepoTabId } from './components/RepoTabsNav';
-import { RepoContext } from './state/useRepoContext';
+import { RepoProvider } from './state/RepoContext';
 import { useRepoData } from './state/useRepoData';
 import { BranchesTab } from './tabs/BranchesTab/BranchesTab';
 import { ChecksTab } from './tabs/ChecksTab/ChecksTab';
@@ -63,7 +63,7 @@ export function CodeReposPage() {
   }
 
   return (
-    <RepoContext.Provider value={data}>
+    <RepoProvider state={data}>
       <div className="flex flex-col bg-of-canvas" style={{ minHeight: 'calc(100vh - 3rem)' }}>
         <RepoHeader />
         <RepoTabsNav active={activeTab} onChange={setActiveTab} />
@@ -87,6 +87,6 @@ export function CodeReposPage() {
 
         <RepoStatusBar />
       </div>
-    </RepoContext.Provider>
+    </RepoProvider>
   );
 }
