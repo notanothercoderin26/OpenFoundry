@@ -140,14 +140,9 @@ function templateLabel(key: string | null) {
   return TEMPLATES.find((template) => template.key === key)?.name ?? key;
 }
 
-function activePresenceCount(presence: Record<string, NotepadPresence[]>) {
-  return Object.values(presence).reduce((sum, collaborators) => sum + collaborators.length, 0);
-}
-
 export function NotepadListPage() {
   const navigate = useNavigate();
   const [documents, setDocuments] = useState<NotepadDocument[]>([]);
-  const [total, setTotal] = useState(0);
   const [presenceByDocument, setPresenceByDocument] = useState<Record<string, NotepadPresence[]>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -158,7 +153,6 @@ export function NotepadListPage() {
   const [feedback, setFeedback] = useState('');
   const [userTemplates, setUserTemplates] = useState<NotepadTemplate[]>([]);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [instantiating, setInstantiating] = useState(false);
 
   async function hydratePresence(nextDocuments: NotepadDocument[]) {
     if (nextDocuments.length === 0) {
@@ -191,13 +185,11 @@ export function NotepadListPage() {
       });
       const data = response.data ?? [];
       setDocuments(data);
-      setTotal(response.total ?? data.length);
       setPresenceByDocument({});
       void hydratePresence(data);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to load notepad documents');
       setDocuments([]);
-      setTotal(0);
       setPresenceByDocument({});
     } finally {
       setLoading(false);
@@ -224,7 +216,6 @@ export function NotepadListPage() {
   }, []);
 
   async function createFromUserTemplate(templateId: string, inputs: Record<string, string>, titleOverride: string) {
-    setInstantiating(true);
     setError('');
     setFeedback('');
     try {
@@ -236,8 +227,6 @@ export function NotepadListPage() {
       navigate(`/notepad/${document.id}`);
     } catch (cause) {
       throw cause instanceof Error ? cause : new Error('Failed to instantiate template');
-    } finally {
-      setInstantiating(false);
     }
   }
 
@@ -322,10 +311,6 @@ export function NotepadListPage() {
     () => documents.reduce((sum, document) => sum + countWords(document.content), 0),
     [documents],
   );
-  const activeCollaborators = useMemo(
-    () => activePresenceCount(presenceByDocument),
-    [presenceByDocument],
-  );
   const latestDocument = useMemo(() => {
     return [...documents].sort((left, right) => {
       return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
@@ -341,56 +326,11 @@ export function NotepadListPage() {
 
   return (
     <section className="of-page" style={{ display: 'grid', gap: 10 }}>
-      <header className="of-panel" style={{ display: 'grid', gap: 10, padding: 12 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-          <div style={{ minWidth: 280 }}>
-            <p className="of-eyebrow">Notepad</p>
-            <h1 className="of-heading-xl" style={{ marginTop: 4 }}>
-              Documents
-            </h1>
-            <p className="of-text-muted" style={{ marginTop: 4, maxWidth: 720 }}>
-              Narrative notes, evidence embeds, and AIP-ready document exports.
-            </p>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6 }}>
-            <button type="button" className="of-button" onClick={() => void load(search)} disabled={loading}>
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </button>
-            <button
-              type="button"
-              className="of-button"
-              onClick={() => setShowTemplateModal(true)}
-              disabled={creating || instantiating}
-              title={userTemplates.length === 0 ? 'No templates saved yet' : 'New document from a saved template'}
-            >
-              New from template
-            </button>
-            <button
-              type="button"
-              className="of-button of-button--primary"
-              onClick={() => void createBlankDocument()}
-              disabled={creating}
-            >
-              {creatingTarget === 'blank' ? 'Creating...' : 'New document'}
-            </button>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
-          {[
-            ['Documents', total || documents.length],
-            ['Indexed', indexedCount],
-            ['Embeds', embedCount],
-            ['Active', activeCollaborators],
-          ].map(([label, value]) => (
-            <div key={label} className="of-panel-muted" style={{ padding: 10 }}>
-              <p className="of-eyebrow">{label}</p>
-              <strong style={{ display: 'block', marginTop: 4, color: 'var(--text-strong)', fontSize: 18 }}>
-                {value}
-              </strong>
-            </div>
-          ))}
-        </div>
+      <header style={{ display: 'grid', gap: 4, padding: '4px 4px 0' }}>
+        <h1 className="of-heading-xl">Notepad</h1>
+        <p className="of-text-muted" style={{ maxWidth: 720 }}>
+          Create, share and export object-aware documents and reports.
+        </p>
       </header>
 
       {error && (
