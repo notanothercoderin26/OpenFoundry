@@ -18,11 +18,12 @@ import (
 
 // CompassTag is the wire shape of a tag definition.
 type CompassTag struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Color     string    `json:"color"`
-	CreatedBy uuid.UUID `json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
+	ID             uuid.UUID  `json:"id"`
+	Name           string     `json:"name"`
+	Color          string     `json:"color"`
+	OrganizationID *uuid.UUID `json:"organization_id,omitempty"`
+	CreatedBy      uuid.UUID  `json:"created_by"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 // ResourceTagAttachment is one (resource, tag) link, used for both the
@@ -42,8 +43,9 @@ type ListCompassTagsResponse struct {
 
 // CreateCompassTagRequest is the body for POST /workspace/tags.
 type CreateCompassTagRequest struct {
-	Name  string `json:"name"`
-	Color string `json:"color"`
+	Name           string  `json:"name"`
+	Color          string  `json:"color"`
+	OrganizationID *string `json:"organization_id,omitempty"`
 }
 
 // TagResourceRequest is the body for POST /workspace/resources/{kind}/{id}/tags.
@@ -83,12 +85,28 @@ type ResourceTagsEntry struct {
 // ─── Repo ───────────────────────────────────────────────────────────
 
 // ListCompassTags returns every tag in the catalog, ordered by name.
-func (r *Repo) ListCompassTags(ctx context.Context) ([]CompassTag, error) {
-	rows, err := r.Pool.Query(ctx,
-		`SELECT id, name, color, created_by, created_at
-		   FROM compass_tags
-		  ORDER BY name ASC`,
+// orgID filters to that organization's catalogue + the instance-wide
+// catalogue (NULL org); pass uuid.Nil for an unfiltered listing.
+func (r *Repo) ListCompassTags(ctx context.Context, orgID uuid.UUID) ([]CompassTag, error) {
+	var (
+		rows pgx.Rows
+		err  error
 	)
+	if orgID == uuid.Nil {
+		rows, err = r.Pool.Query(ctx,
+			`SELECT id, name, color, organization_id, created_by, created_at
+			   FROM compass_tags
+			  ORDER BY name ASC`,
+		)
+	} else {
+		rows, err = r.Pool.Query(ctx,
+			`SELECT id, name, color, organization_id, created_by, created_at
+			   FROM compass_tags
+			  WHERE organization_id IS NULL OR organization_id = $1
+			  ORDER BY name ASC`,
+			orgID,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +114,7 @@ func (r *Repo) ListCompassTags(ctx context.Context) ([]CompassTag, error) {
 	out := make([]CompassTag, 0)
 	for rows.Next() {
 		var t CompassTag
-		if err := rows.Scan(&t.ID, &t.Name, &t.Color, &t.CreatedBy, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Color, &t.OrganizationID, &t.CreatedBy, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -105,21 +123,21 @@ func (r *Repo) ListCompassTags(ctx context.Context) ([]CompassTag, error) {
 }
 
 // CreateCompassTag inserts a new tag. Returns ErrTagNameTaken if the
-// (case-insensitive) name already exists.
-func (r *Repo) CreateCompassTag(ctx context.Context, createdBy uuid.UUID, name, color string) (*CompassTag, error) {
+// (case-insensitive) name already exists within the same org scope.
+func (r *Repo) CreateCompassTag(ctx context.Context, createdBy uuid.UUID, name, color string, orgID *uuid.UUID) (*CompassTag, error) {
 	id := uuid.New()
 	if color == "" {
 		color = "#5f6b7a"
 	}
-	t := &CompassTag{ID: id, Name: name, Color: color, CreatedBy: createdBy}
+	t := &CompassTag{ID: id, Name: name, Color: color, OrganizationID: orgID, CreatedBy: createdBy}
 	err := r.Pool.QueryRow(ctx,
-		`INSERT INTO compass_tags (id, name, color, created_by)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO compass_tags (id, name, color, organization_id, created_by)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING created_at`,
-		id, name, color, createdBy,
+		id, name, color, orgID, createdBy,
 	).Scan(&t.CreatedAt)
 	if err != nil {
-		if strings.Contains(err.Error(), "compass_tags_name_key") || strings.Contains(err.Error(), "duplicate key") {
+		if strings.Contains(err.Error(), "compass_tags_org_name_uniq") || strings.Contains(err.Error(), "duplicate key") {
 			return nil, ErrTagNameTaken
 		}
 		return nil, err
@@ -277,7 +295,16 @@ func (h *Handlers) ListCompassTags(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	tags, err := h.Repo.ListCompassTags(r.Context())
+	var orgID uuid.UUID
+	if raw := strings.TrimSpace(r.URL.Query().Get("organization_id")); raw != "" {
+		parsed, err := uuid.Parse(raw)
+		if err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "invalid organization_id")
+			return
+		}
+		orgID = parsed
+	}
+	tags, err := h.Repo.ListCompassTags(r.Context(), orgID)
 	if err != nil {
 		slog.Error("list compass tags", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "failed to list tags")
@@ -302,7 +329,16 @@ func (h *Handlers) CreateCompassTag(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "name required")
 		return
 	}
-	tag, err := h.Repo.CreateCompassTag(r.Context(), c.Sub, name, strings.TrimSpace(body.Color))
+	var orgID *uuid.UUID
+	if body.OrganizationID != nil && strings.TrimSpace(*body.OrganizationID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(*body.OrganizationID))
+		if err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "invalid organization_id")
+			return
+		}
+		orgID = &parsed
+	}
+	tag, err := h.Repo.CreateCompassTag(r.Context(), c.Sub, name, strings.TrimSpace(body.Color), orgID)
 	if err != nil {
 		if errors.Is(err, ErrTagNameTaken) {
 			writeJSONErr(w, http.StatusConflict, err.Error())

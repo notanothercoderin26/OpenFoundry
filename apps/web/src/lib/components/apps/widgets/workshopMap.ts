@@ -17,6 +17,8 @@ export interface WorkshopMapVariableLike {
   static_filters?: Array<{ property_name: string; operator?: string; value?: unknown }>;
 }
 
+export type WorkshopMapAggregationFunction = 'count' | 'sum' | 'avg' | 'min' | 'max';
+
 export interface WorkshopMapLayerConfig {
   id: string;
   title: string;
@@ -45,6 +47,22 @@ export interface WorkshopMapLayerConfig {
   cluster_radius: number;
   cluster_max_zoom: number;
   cluster_color: string;
+  // Choropleth mode: aggregate this layer's objects grouped by a region
+  // object type, render polygons read from the region's geoshape
+  // property, and color by the aggregation. Foundry calls this "group
+  // by linked object" — here we join by a shared key property rather
+  // than a link type, which is equivalent at this scale and avoids an
+  // extra ontology round-trip per child.
+  choropleth_enabled: boolean;
+  region_object_type_id: string;
+  region_join_property: string;
+  child_join_property: string;
+  region_geoshape_property: string;
+  region_label_property: string;
+  aggregation_function: WorkshopMapAggregationFunction;
+  aggregation_property: string;
+  choropleth_min_color: string;
+  choropleth_max_color: string;
   features?: Array<{ id?: string; label?: string; geometry?: unknown; properties?: unknown }>;
 }
 
@@ -98,6 +116,8 @@ export const EMPTY_FEATURE_COLLECTION: WorkshopMapFeatureCollection = {
 const DEFAULT_POINT_COLOR = '#2d72d2';
 const DEFAULT_LINE_COLOR = '#c2410c';
 const DEFAULT_POLYGON_COLOR = '#15803d';
+const DEFAULT_CHOROPLETH_MIN_COLOR = '#e0f2fe';
+const DEFAULT_CHOROPLETH_MAX_COLOR = '#1e3a8a';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -170,6 +190,16 @@ export function readMapLayerConfigs(props: Record<string, unknown> | null | unde
       cluster_radius: readNumber(props?.cluster_radius, 64),
       cluster_max_zoom: readNumber(props?.cluster_max_zoom, 10),
       cluster_color: readString(props?.cluster_color, readString(props?.color, defaultColor(geometryType))),
+      choropleth_enabled: false,
+      region_object_type_id: '',
+      region_join_property: '',
+      child_join_property: '',
+      region_geoshape_property: '',
+      region_label_property: '',
+      aggregation_function: 'count',
+      aggregation_property: '',
+      choropleth_min_color: DEFAULT_CHOROPLETH_MIN_COLOR,
+      choropleth_max_color: DEFAULT_CHOROPLETH_MAX_COLOR,
       features: [],
     },
   ];
@@ -209,8 +239,24 @@ function normalizeLayerConfig(entry: Record<string, unknown>, index: number): Wo
     cluster_radius: readNumber(entry.cluster_radius, 64),
     cluster_max_zoom: readNumber(entry.cluster_max_zoom, readNumber(entry.clusterMaxZoom, 10)),
     cluster_color: readString(entry.cluster_color, readString(entry.color, defaultColor(geometryType))),
+    choropleth_enabled: readBoolean(entry.choropleth_enabled, false),
+    region_object_type_id: readString(entry.region_object_type_id),
+    region_join_property: readString(entry.region_join_property, readString(entry.region_key_property)),
+    child_join_property: readString(entry.child_join_property, readString(entry.group_by_property)),
+    region_geoshape_property: readString(entry.region_geoshape_property),
+    region_label_property: readString(entry.region_label_property),
+    aggregation_function: normalizeAggregationFunction(entry.aggregation_function),
+    aggregation_property: readString(entry.aggregation_property),
+    choropleth_min_color: readString(entry.choropleth_min_color, DEFAULT_CHOROPLETH_MIN_COLOR),
+    choropleth_max_color: readString(entry.choropleth_max_color, DEFAULT_CHOROPLETH_MAX_COLOR),
     features: Array.isArray(entry.features) ? entry.features.filter(isRecord) : [],
   };
+}
+
+function normalizeAggregationFunction(value: unknown): WorkshopMapAggregationFunction {
+  if (value === 'sum' || value === 'avg' || value === 'min' || value === 'max') return value;
+  if (value === 'average' || value === 'mean') return 'avg';
+  return 'count';
 }
 
 function normalizeLayerSource(value: unknown): WorkshopMapLayerSource {
@@ -365,6 +411,229 @@ export function buildFeaturesFromObjects(
     });
   }
   return features;
+}
+
+export interface WorkshopMapChoroplethInput {
+  childObjects: ObjectInstance[];
+  regionObjects: ObjectInstance[];
+  layer: WorkshopMapLayerConfig;
+  regionObjectType?: { geoshape_property_names?: string[] | null } | null;
+  variable?: WorkshopMapVariableLike | null;
+}
+
+export interface WorkshopMapChoroplethResult {
+  features: WorkshopMapFeature[];
+  valueRange: { min: number; max: number } | null;
+  groupedCount: number;
+  skipped: { children: number; regionsWithoutGeometry: number };
+}
+
+export function buildChoroplethFeatures(input: WorkshopMapChoroplethInput): WorkshopMapChoroplethResult {
+  const { childObjects, regionObjects, layer, regionObjectType, variable } = input;
+  const childKeyProp = layer.child_join_property.trim();
+  const regionKeyProp = layer.region_join_property.trim();
+  if (!childKeyProp || !regionKeyProp) {
+    return { features: [], valueRange: null, groupedCount: 0, skipped: { children: childObjects.length, regionsWithoutGeometry: 0 } };
+  }
+  const geoshapeProp = pickChoroplethGeoshapeProperty(layer, regionObjects, regionObjectType);
+  const labelProp = layer.region_label_property.trim();
+  const aggregator = createAggregator(layer.aggregation_function, layer.aggregation_property);
+
+  let skippedChildren = 0;
+  for (const child of childObjects) {
+    const rawKey = (child.properties ?? {})[childKeyProp];
+    const key = normalizeJoinKey(rawKey);
+    if (key === '') {
+      skippedChildren += 1;
+      continue;
+    }
+    aggregator.add(key, child);
+  }
+
+  const features: WorkshopMapFeature[] = [];
+  let minValue = Number.POSITIVE_INFINITY;
+  let maxValue = Number.NEGATIVE_INFINITY;
+  let groupedCount = 0;
+  let regionsWithoutGeometry = 0;
+
+  const groupValues = aggregator.values();
+  for (const value of groupValues) {
+    if (value === null) continue;
+    if (value < minValue) minValue = value;
+    if (value > maxValue) maxValue = value;
+  }
+  const valueRange = Number.isFinite(minValue) && Number.isFinite(maxValue) ? { min: minValue, max: maxValue } : null;
+
+  for (const region of regionObjects) {
+    const props = region.properties ?? {};
+    const rawKey = props[regionKeyProp];
+    const key = normalizeJoinKey(rawKey);
+    if (key === '') continue;
+    const aggregated = aggregator.valueFor(key);
+    if (aggregated === undefined) continue;
+    const geometry = geoshapeProp ? parseGeometry(props[geoshapeProp]) : null;
+    if (!geometry || !(isPolygonGeometry(geometry) || isLineGeometry(geometry) || isPointGeometry(geometry))) {
+      regionsWithoutGeometry += 1;
+      continue;
+    }
+    groupedCount += 1;
+    const numericValue = aggregated === null ? 0 : aggregated;
+    const color = valueRange
+      ? interpolateChoroplethColor(numericValue, valueRange, layer.choropleth_min_color, layer.choropleth_max_color)
+      : layer.choropleth_min_color || DEFAULT_CHOROPLETH_MIN_COLOR;
+    const label = (labelProp ? stringifyLabel(props[labelProp]) : '') || stringifyLabel(props.name) || stringifyLabel(props.title) || stringifyLabel(region.id) || key;
+    features.push({
+      type: 'Feature',
+      properties: {
+        ...props,
+        __of_source: 'choropleth',
+        __of_object_id: region.id,
+        __of_object_type_id: region.object_type_id,
+        __of_object_json: JSON.stringify(region),
+        __of_variable_id: variable?.id ?? '',
+        __of_label: label,
+        __of_layer_id: layer.id,
+        __of_layer_title: layer.title,
+        __of_color: color,
+        __of_radius: layer.radius,
+        __of_line_width: layer.line_width,
+        __of_fill_opacity: layer.fill_opacity,
+        __of_locked: layer.locked,
+        __of_value: aggregated,
+        __of_value_function: layer.aggregation_function,
+        __of_value_property: layer.aggregation_property,
+        __of_join_key: key,
+      },
+      geometry,
+    });
+  }
+
+  return {
+    features,
+    valueRange,
+    groupedCount,
+    skipped: { children: skippedChildren, regionsWithoutGeometry },
+  };
+}
+
+function pickChoroplethGeoshapeProperty(
+  layer: WorkshopMapLayerConfig,
+  regionObjects: ObjectInstance[],
+  regionObjectType?: { geoshape_property_names?: string[] | null } | null,
+): string {
+  const configured = layer.region_geoshape_property.trim();
+  if (configured) return configured;
+  const fromObjectType = regionObjectType?.geoshape_property_names?.[0];
+  if (fromObjectType) return fromObjectType;
+  for (const region of regionObjects) {
+    const props = region.properties ?? {};
+    for (const [name, value] of Object.entries(props)) {
+      const geometry = parseGeometry(value);
+      if (geometry && (isPolygonGeometry(geometry) || isLineGeometry(geometry))) return name;
+    }
+  }
+  return '';
+}
+
+function normalizeJoinKey(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.trim().toLowerCase();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value).toLowerCase();
+  return '';
+}
+
+interface ChoroplethAggregator {
+  add(key: string, object: ObjectInstance): void;
+  valueFor(key: string): number | null | undefined;
+  values(): Array<number | null>;
+}
+
+function createAggregator(
+  fn: WorkshopMapAggregationFunction,
+  property: string,
+): ChoroplethAggregator {
+  const propertyName = property.trim();
+  if (fn === 'count') {
+    const counts = new Map<string, number>();
+    return {
+      add(key) {
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      },
+      valueFor(key) {
+        return counts.has(key) ? counts.get(key)! : undefined;
+      },
+      values() {
+        return Array.from(counts.values());
+      },
+    };
+  }
+  const buckets = new Map<string, number[]>();
+  return {
+    add(key, object) {
+      if (!propertyName) return;
+      const raw = (object.properties ?? {})[propertyName];
+      const numeric = readCoordinateNumber(raw);
+      if (numeric === null) return;
+      const bucket = buckets.get(key);
+      if (bucket) bucket.push(numeric);
+      else buckets.set(key, [numeric]);
+    },
+    valueFor(key) {
+      const bucket = buckets.get(key);
+      if (!bucket) return undefined;
+      if (bucket.length === 0) return null;
+      const total = bucket.reduce((acc, value) => acc + value, 0);
+      if (fn === 'sum') return total;
+      if (fn === 'avg') return total / bucket.length;
+      if (fn === 'min') return Math.min(...bucket);
+      if (fn === 'max') return Math.max(...bucket);
+      return null;
+    },
+    values() {
+      return Array.from(buckets.values()).map((bucket) => {
+        if (bucket.length === 0) return null;
+        const total = bucket.reduce((acc, value) => acc + value, 0);
+        if (fn === 'sum') return total;
+        if (fn === 'avg') return total / bucket.length;
+        if (fn === 'min') return Math.min(...bucket);
+        if (fn === 'max') return Math.max(...bucket);
+        return null;
+      });
+    },
+  };
+}
+
+function interpolateChoroplethColor(
+  value: number,
+  range: { min: number; max: number },
+  minColor: string,
+  maxColor: string,
+): string {
+  const min = parseHexColor(minColor) ?? parseHexColor(DEFAULT_CHOROPLETH_MIN_COLOR)!;
+  const max = parseHexColor(maxColor) ?? parseHexColor(DEFAULT_CHOROPLETH_MAX_COLOR)!;
+  const span = range.max - range.min;
+  const t = span > 0 ? (value - range.min) / span : 1;
+  const clamped = Math.min(1, Math.max(0, t));
+  const r = Math.round(min.r + (max.r - min.r) * clamped);
+  const g = Math.round(min.g + (max.g - min.g) * clamped);
+  const b = Math.round(min.b + (max.b - min.b) * clamped);
+  return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function parseHexColor(value: string): { r: number; g: number; b: number } | null {
+  const match = /^#?([0-9a-f]{6})$/i.exec(value.trim());
+  if (!match) {
+    const short = /^#?([0-9a-f]{3})$/i.exec(value.trim());
+    if (!short) return null;
+    const [r, g, b] = short[1].split('').map((channel) => parseInt(channel + channel, 16));
+    return { r, g, b };
+  }
+  const hex = match[1];
+  return {
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16),
+  };
 }
 
 export function buildFeaturesFromLinkedEdges(

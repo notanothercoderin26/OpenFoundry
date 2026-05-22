@@ -13,8 +13,17 @@ import { GlobalSearchBar } from '@/lib/components/projects/GlobalSearchBar';
 import { QuickFilterCards, type QuickFilterKind } from '@/lib/components/projects/QuickFilterCards';
 import { RequestDataDialog } from '@/lib/components/projects/RequestDataDialog';
 import {
+  createCompassNamespace,
+  createCompassPortfolio,
   deleteProject,
+  listCompassNamespaces,
+  listCompassPortfolios,
+  listPortfolioProjects,
   listProjects,
+  promoteProject,
+  unpromoteProject,
+  type CompassNamespace,
+  type CompassPortfolio,
   type OntologyProject,
 } from '@/lib/api/ontology';
 import { listSpaces, type NexusSpace } from '@/lib/api/nexus';
@@ -107,12 +116,12 @@ function isSection(value: string | null): value is Section {
   );
 }
 
-const MOCK_PORTFOLIOS: PortfolioOption[] = [
-  { id: 'example-portfolio', name: 'Example Portfolio' },
-];
-
 function tagsToOptions(tags: CompassTag[]): TagOption[] {
   return tags.map((tag) => ({ id: tag.id, name: tag.name, color: tag.color }));
+}
+
+function portfoliosToOptions(portfolios: CompassPortfolio[]): PortfolioOption[] {
+  return portfolios.map((p) => ({ id: p.id, name: p.name }));
 }
 
 function filtersFromSearchParams(params: URLSearchParams): CompassFilterState {
@@ -315,7 +324,7 @@ export function ProjectsListPage() {
   const [manageOpen, setManageOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<OntologyProject | null>(null);
   const [purgeTarget, setPurgeTarget] = useState<TrashEntry | null>(null);
-  const [namespace, setNamespace] = useState<string | null>('Governance Documentation Namespace');
+  const [namespace, setNamespace] = useState<string | null>(null);
   const [filters, setFilters] = useState<CompassFilterState>(() => filtersFromSearchParams(searchParams));
   const [globalQuery, setGlobalQuery] = useState<string>(() => searchParams.get('q') ?? '');
   const [searchResults, setSearchResults] = useState<CompassSearchResult[]>([]);
@@ -323,15 +332,44 @@ export function ProjectsListPage() {
   const [orgs, setOrgs] = useState<NexusSpace[]>([]);
   const [tags, setTags] = useState<CompassTag[]>([]);
   const [tagsByProject, setTagsByProject] = useState<Record<string, CompassTag[]>>({});
+  const [portfolios, setPortfolios] = useState<CompassPortfolio[]>([]);
+  const [portfoliosByProject, setPortfoliosByProject] = useState<Record<string, CompassPortfolio[]>>({});
+  const [namespaces, setNamespaces] = useState<CompassNamespace[]>([]);
 
   const manageRef = useRef<HTMLDivElement>(null);
 
+  const activeNamespaceId = useMemo(() => {
+    if (!namespace) return null;
+    return namespaces.find((ns) => ns.name === namespace)?.id ?? null;
+  }, [namespace, namespaces]);
+
   const filteredProjects = useMemo(() => {
+    let rows = projects;
     if (section === 'your-files' && currentUser?.id) {
-      return projects.filter((project) => project.owner_id === currentUser.id);
+      rows = rows.filter((project) => project.owner_id === currentUser.id);
     }
-    return projects;
-  }, [projects, section, currentUser?.id]);
+    if (filters.promoted) {
+      rows = rows.filter((project) => project.is_promoted === true);
+    }
+    if (filters.projects.length > 0) {
+      const allowed = new Set(filters.projects);
+      rows = rows.filter((project) => allowed.has(project.id));
+    }
+    if (filters.tags.length > 0) {
+      const allowed = new Set(filters.tags);
+      rows = rows.filter((project) =>
+        (tagsByProject[project.id] ?? []).some((tag) => allowed.has(tag.id)),
+      );
+    }
+    if (filters.orgs.length > 0) {
+      const allowed = new Set(filters.orgs);
+      rows = rows.filter((project) => project.workspace_slug != null && allowed.has(project.workspace_slug));
+    }
+    if (activeNamespaceId) {
+      rows = rows.filter((project) => project.namespace_id === activeNamespaceId);
+    }
+    return rows;
+  }, [projects, section, currentUser?.id, filters, tagsByProject, activeNamespaceId]);
 
   async function refreshSection(next: Section) {
     setLoading(true);
@@ -429,6 +467,41 @@ export function ProjectsListPage() {
       }
     })();
     void refreshTagsCatalog();
+    void (async () => {
+      try {
+        const res = await listCompassPortfolios();
+        const list = res.data ?? [];
+        setPortfolios(list);
+        const memberships = await Promise.all(
+          list.map(async (portfolio) => {
+            try {
+              const projectsRes = await listPortfolioProjects(portfolio.id);
+              return { portfolio, members: projectsRes.data ?? [] };
+            } catch {
+              return { portfolio, members: [] };
+            }
+          }),
+        );
+        const next: Record<string, CompassPortfolio[]> = {};
+        for (const { portfolio, members } of memberships) {
+          for (const m of members) {
+            (next[m.project_id] ??= []).push(portfolio);
+          }
+        }
+        setPortfoliosByProject(next);
+      } catch {
+        setPortfolios([]);
+        setPortfoliosByProject({});
+      }
+    })();
+    void (async () => {
+      try {
+        const res = await listCompassNamespaces();
+        setNamespaces(res.data ?? []);
+      } catch {
+        setNamespaces([]);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -554,6 +627,47 @@ export function ProjectsListPage() {
     setSection(next);
   }
 
+  async function togglePromoted(project: OntologyProject) {
+    try {
+      if (project.is_promoted) {
+        await unpromoteProject(project.id);
+      } else {
+        await promoteProject(project.id);
+      }
+      await refreshSection(section);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Promote update failed');
+    }
+  }
+
+  function nameToSlug(name: string): string {
+    return name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 64) || 'item';
+  }
+
+  async function handleCreatePortfolio(name: string) {
+    try {
+      const portfolio = await createCompassPortfolio({ name, slug: nameToSlug(name) });
+      setPortfolios((current) => [...current, portfolio]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to create portfolio');
+    }
+  }
+
+  async function handleCreateNamespace(name: string) {
+    try {
+      const ns = await createCompassNamespace({ name, slug: nameToSlug(name) });
+      setNamespaces((current) => [...current, ns]);
+      setNamespace(ns.name);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to create namespace');
+    }
+  }
+
   function handleQuickFilter(kind: QuickFilterKind) {
     if (kind === 'portfolios') {
       handleSection('portfolios');
@@ -661,7 +775,12 @@ export function ProjectsListPage() {
           })}
         </nav>
         <div style={{ flex: 1 }} />
-        <NamespaceSelector name={namespace} onChange={setNamespace} />
+        <NamespaceSelector
+          name={namespace}
+          onChange={setNamespace}
+          namespaces={namespaces}
+          onCreate={(name) => void handleCreateNamespace(name)}
+        />
       </div>
 
       {/* ── Section header (title + actions + manage spaces) ──────────── */}
@@ -824,13 +943,14 @@ export function ProjectsListPage() {
         <CompassFilterRail
           filters={filters}
           onChange={setFilters}
-          portfolios={MOCK_PORTFOLIOS}
+          portfolios={portfoliosToOptions(portfolios)}
           projects={projects.map((project) => ({
             id: project.id,
             name: project.display_name || project.slug,
           }))}
           tags={tagsToOptions(tags)}
-          orgs={orgs.map((space) => ({ id: space.id, name: space.display_name || space.slug }))}
+          orgs={orgs.map((space) => ({ id: space.slug, name: space.display_name || space.slug }))}
+          onCreatePortfolio={(name) => void handleCreatePortfolio(name)}
         />
         <div style={{ display: 'grid', gap: 0 }}>
           {globalQuery.trim() ? (
@@ -852,6 +972,8 @@ export function ProjectsListPage() {
                   tagsByProject={tagsByProject}
                   onTagsCatalogChange={() => void refreshTagsCatalog()}
                   onProjectTagsChange={() => void refreshTagsForVisibleProjects()}
+                  portfoliosByProject={portfoliosByProject}
+                  onTogglePromoted={(project) => void togglePromoted(project)}
                 />
               ) : null}
 
@@ -867,6 +989,8 @@ export function ProjectsListPage() {
                   tagsByProject={tagsByProject}
                   onTagsCatalogChange={() => void refreshTagsCatalog()}
                   onProjectTagsChange={() => void refreshTagsForVisibleProjects()}
+                  portfoliosByProject={portfoliosByProject}
+                  onTogglePromoted={(project) => void togglePromoted(project)}
                 />
               ) : null}
 
@@ -930,8 +1054,6 @@ export function ProjectsListPage() {
 }
 
 // ─── Sub-views ───────────────────────────────────────────────────────────────
-
-const DEFAULT_NAMESPACE = 'Governance Documentation Namespace';
 
 function DocumentIcon({ size = 14, color = '#5f6b7a' }: IconProps) {
   return (
@@ -1064,120 +1186,318 @@ function NamespaceBreadcrumb({
 function NamespaceSelector({
   name,
   onChange,
+  namespaces,
+  onCreate,
 }: {
   name: string | null;
   onChange: (next: string | null) => void;
+  namespaces: CompassNamespace[];
+  onCreate?: (name: string) => void | Promise<void>;
 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(event: MouseEvent) {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onEsc(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false);
+    }
+    window.addEventListener('mousedown', onClickOutside);
+    window.addEventListener('keydown', onEsc);
+    return () => {
+      window.removeEventListener('mousedown', onClickOutside);
+      window.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+
   if (!name) {
     return (
-      <button
-        type="button"
-        className="of-button"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 12,
-          padding: '4px 10px',
-          color: '#5f6b7a',
-        }}
-        onClick={() => onChange(DEFAULT_NAMESPACE)}
-      >
-        <NamespaceChipIcon />
-        <span>Select namespace</span>
-        <ChevronDownIcon />
-      </button>
+      <div ref={ref} style={{ position: 'relative' }}>
+        <button
+          type="button"
+          className="of-button"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12,
+            padding: '4px 10px',
+            color: '#5f6b7a',
+          }}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <NamespaceChipIcon />
+          <span>Select namespace</span>
+          <ChevronDownIcon />
+        </button>
+        {open ? (
+          <NamespaceDropdown
+            namespaces={namespaces}
+            onPick={(ns) => {
+              onChange(ns.name);
+              setOpen(false);
+            }}
+            onCreate={
+              onCreate
+                ? async (next) => {
+                    await onCreate(next);
+                    setOpen(false);
+                  }
+                : undefined
+            }
+          />
+        ) : null}
+      </div>
     );
   }
   return (
-    <div
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 0,
-        border: '1px solid var(--border-default)',
-        borderRadius: 3,
-        background: '#fff',
-        height: 28,
-        maxWidth: 320,
-        fontSize: 12,
-        color: 'var(--text-strong)',
-      }}
-    >
-      <span
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div
         style={{
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 6,
-          padding: '0 8px',
-          height: '100%',
-          minWidth: 0,
+          gap: 0,
+          border: '1px solid var(--border-default)',
+          borderRadius: 3,
+          background: '#fff',
+          height: 28,
+          maxWidth: 320,
+          fontSize: 12,
+          color: 'var(--text-strong)',
         }}
       >
-        <NamespaceChipIcon />
         <span
           style={{
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            maxWidth: 220,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '0 8px',
+            height: '100%',
+            minWidth: 0,
           }}
-          title={name}
         >
-          {name}
+          <NamespaceChipIcon />
+          <span
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: 220,
+            }}
+            title={name}
+          >
+            {name}
+          </span>
         </span>
-      </span>
-      <button
-        type="button"
-        aria-label="Clear namespace"
-        onClick={() => onChange(null)}
-        style={{
-          border: 0,
-          background: 'transparent',
-          padding: '0 6px',
-          height: '100%',
-          cursor: 'pointer',
-          color: '#5f6b7a',
-          display: 'inline-flex',
-          alignItems: 'center',
-        }}
-      >
-        <CloseIcon />
-      </button>
-      <button
-        type="button"
-        aria-label="Choose namespace"
-        style={{
-          border: 0,
-          borderLeft: '1px solid var(--border-default)',
-          background: 'transparent',
-          padding: '0 6px',
-          height: '100%',
-          cursor: 'pointer',
-          color: '#5f6b7a',
-          display: 'inline-flex',
-          alignItems: 'center',
-        }}
-      >
-        <ChevronDownIcon />
-      </button>
-      <button
-        type="button"
-        aria-label="Namespace settings"
-        style={{
-          border: 0,
-          borderLeft: '1px solid var(--border-default)',
-          background: 'transparent',
-          padding: '0 8px',
-          height: '100%',
-          cursor: 'pointer',
-          color: '#5f6b7a',
-          display: 'inline-flex',
-          alignItems: 'center',
-        }}
-      >
-        <GearIcon size={13} />
-      </button>
+        <button
+          type="button"
+          aria-label="Clear namespace"
+          onClick={() => onChange(null)}
+          style={{
+            border: 0,
+            background: 'transparent',
+            padding: '0 6px',
+            height: '100%',
+            cursor: 'pointer',
+            color: '#5f6b7a',
+            display: 'inline-flex',
+            alignItems: 'center',
+          }}
+        >
+          <CloseIcon />
+        </button>
+        <button
+          type="button"
+          aria-label="Choose namespace"
+          onClick={() => setOpen((value) => !value)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          style={{
+            border: 0,
+            borderLeft: '1px solid var(--border-default)',
+            background: 'transparent',
+            padding: '0 6px',
+            height: '100%',
+            cursor: 'pointer',
+            color: '#5f6b7a',
+            display: 'inline-flex',
+            alignItems: 'center',
+          }}
+        >
+          <ChevronDownIcon />
+        </button>
+        <button
+          type="button"
+          aria-label="Namespace settings"
+          style={{
+            border: 0,
+            borderLeft: '1px solid var(--border-default)',
+            background: 'transparent',
+            padding: '0 8px',
+            height: '100%',
+            cursor: 'pointer',
+            color: '#5f6b7a',
+            display: 'inline-flex',
+            alignItems: 'center',
+          }}
+        >
+          <GearIcon size={13} />
+        </button>
+      </div>
+      {open ? (
+        <NamespaceDropdown
+          namespaces={namespaces}
+          onPick={(ns) => {
+            onChange(ns.name);
+            setOpen(false);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function NamespaceDropdown({
+  namespaces,
+  onPick,
+  onCreate,
+}: {
+  namespaces: CompassNamespace[];
+  onPick: (ns: CompassNamespace) => void;
+  onCreate?: (name: string) => void | Promise<void>;
+}) {
+  const [draftName, setDraftName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submitCreate() {
+    const trimmed = draftName.trim();
+    if (!trimmed || !onCreate) return;
+    setBusy(true);
+    try {
+      await onCreate(trimmed);
+      setDraftName('');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      role="menu"
+      style={{
+        position: 'absolute',
+        top: '100%',
+        right: 0,
+        marginTop: 4,
+        zIndex: 30,
+        minWidth: 240,
+        maxWidth: 320,
+        background: '#fff',
+        border: '1px solid var(--border-default)',
+        borderRadius: 4,
+        boxShadow: 'var(--shadow-popover)',
+        padding: 4,
+      }}
+    >
+      {namespaces.length === 0 ? (
+        <p style={{ margin: '6px 8px', fontSize: 11, color: '#a1a8b3' }}>
+          No namespaces defined yet.
+        </p>
+      ) : (
+        namespaces.map((ns) => (
+          <button
+            key={ns.id}
+            type="button"
+            role="menuitem"
+            onClick={() => onPick(ns)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              textAlign: 'left',
+              border: 0,
+              background: 'transparent',
+              padding: '6px 8px',
+              fontSize: 12,
+              color: 'var(--text-strong)',
+              borderRadius: 3,
+              cursor: 'pointer',
+            }}
+          >
+            <NamespaceChipIcon size={13} />
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {ns.name}
+              </div>
+              {ns.description ? (
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: '#8a96a6',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {ns.description}
+                </div>
+              ) : null}
+            </div>
+          </button>
+        ))
+      )}
+      {onCreate ? (
+        <div
+          style={{
+            borderTop: '1px solid var(--border-subtle)',
+            marginTop: 4,
+            paddingTop: 6,
+            display: 'flex',
+            gap: 4,
+          }}
+        >
+          <input
+            type="text"
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void submitCreate();
+              }
+            }}
+            placeholder="New namespace name"
+            disabled={busy}
+            style={{
+              flex: 1,
+              padding: '4px 6px',
+              fontSize: 11,
+              border: '1px solid var(--border-default)',
+              borderRadius: 3,
+              outline: 'none',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => void submitCreate()}
+            disabled={busy || !draftName.trim()}
+            className="of-button"
+            style={{ padding: '2px 8px', fontSize: 11 }}
+          >
+            Add
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1221,6 +1541,8 @@ function ProjectsTable({
   tagsByProject,
   onTagsCatalogChange,
   onProjectTagsChange,
+  portfoliosByProject,
+  onTogglePromoted,
 }: {
   projects: OntologyProject[];
   loading: boolean;
@@ -1232,6 +1554,8 @@ function ProjectsTable({
   tagsByProject: Record<string, CompassTag[]>;
   onTagsCatalogChange: () => void;
   onProjectTagsChange: () => void;
+  portfoliosByProject: Record<string, CompassPortfolio[]>;
+  onTogglePromoted: (project: OntologyProject) => void;
 }) {
   const [sortKey, setSortKey] = useState<ProjectSortKey>('updated');
   const [sortDir, setSortDir] = useState<ProjectSortDir>('desc');
@@ -1319,6 +1643,8 @@ function ProjectsTable({
                 tagsCatalog={tagsCatalog}
                 onTagsCatalogChange={onTagsCatalogChange}
                 onProjectTagsChange={onProjectTagsChange}
+                projectPortfolios={portfoliosByProject[project.id] ?? []}
+                onTogglePromoted={onTogglePromoted}
               />
             ))
           )}
@@ -1337,6 +1663,8 @@ function ProjectsTableRow({
   tagsCatalog,
   onTagsCatalogChange,
   onProjectTagsChange,
+  projectPortfolios,
+  onTogglePromoted,
 }: {
   project: OntologyProject;
   busy: boolean;
@@ -1346,6 +1674,8 @@ function ProjectsTableRow({
   tagsCatalog: CompassTag[];
   onTagsCatalogChange: () => void;
   onProjectTagsChange: () => void;
+  projectPortfolios: CompassPortfolio[];
+  onTogglePromoted: (project: OntologyProject) => void;
 }) {
   const [hover, setHover] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1374,6 +1704,7 @@ function ProjectsTableRow({
               {linkCount > 0 ? (
                 <LinkCountBadge count={linkCount} />
               ) : null}
+              {project.is_promoted ? <PromotedBadge /> : null}
             </div>
             <div
               className="of-text-soft"
@@ -1420,6 +1751,14 @@ function ProjectsTableRow({
                     minWidth: 180,
                   }}
                 >
+                  <MenuItem
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onTogglePromoted(project);
+                    }}
+                  >
+                    {project.is_promoted ? 'Unpromote' : 'Promote'}
+                  </MenuItem>
                   <MenuItem
                     onClick={() => {
                       setMenuOpen(false);
@@ -1470,7 +1809,7 @@ function ProjectsTableRow({
         </div>
       </td>
       <td>
-        <PortfolioCell project={project} />
+        <PortfolioCell portfolios={projectPortfolios} />
       </td>
     </tr>
   );
@@ -1535,6 +1874,38 @@ function SortGlyph({ active, dir }: { active: boolean; dir: ProjectSortDir }) {
   );
 }
 
+function PromotedBadge() {
+  return (
+    <span
+      title="Promoted item"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 3,
+        padding: '0 5px',
+        height: 16,
+        borderRadius: 8,
+        background: '#f2ecfb',
+        color: '#7c5dd6',
+        fontSize: 10,
+        fontWeight: 600,
+      }}
+    >
+      <svg width={10} height={10} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="#7c5dd6" />
+        <path
+          d="M8 12.5l2.5 2.5L16 9.5"
+          stroke="#fff"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      Promoted
+    </span>
+  );
+}
+
 function LinkCountBadge({ count }: { count: number }) {
   return (
     <span
@@ -1561,20 +1932,28 @@ function LinkCountBadge({ count }: { count: number }) {
   );
 }
 
-function PortfolioCell({ project: _project }: { project: OntologyProject }) {
+function PortfolioCell({ portfolios }: { portfolios: CompassPortfolio[] }) {
+  if (portfolios.length === 0) {
+    return <span style={{ fontSize: 12, color: '#a1a8b3' }}>—</span>;
+  }
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        fontSize: 12,
-        color: 'var(--text-strong)',
-      }}
-    >
-      <FolderClosedIcon size={14} color="#5f6b7a" />
-      <span>Example Portfolio</span>
-    </span>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+      {portfolios.map((portfolio) => (
+        <span
+          key={portfolio.id}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 12,
+            color: 'var(--text-strong)',
+          }}
+        >
+          <FolderClosedIcon size={14} color="#5f6b7a" />
+          <span>{portfolio.name}</span>
+        </span>
+      ))}
+    </div>
   );
 }
 

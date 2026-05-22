@@ -4,6 +4,7 @@ import type { ObjectInstance } from '@/lib/api/ontology';
 import type { QueryResult } from '@/lib/api/queries';
 
 import {
+  buildChoroplethFeatures,
   buildFeaturesFromGeospatialLayer,
   buildFeaturesFromLinkedEdges,
   buildFeaturesFromConfiguredLayers,
@@ -215,6 +216,181 @@ describe('Workshop Map widget feature shaping', () => {
     expect(links[0].geometry).toEqual({ type: 'LineString', coordinates: [[-105, 40], [-105.01, 40.01]] });
     expect(links[0].properties.__of_source).toBe('link');
     expect(links[0].properties.__of_locked).toBe(true);
+  });
+
+  it('builds choropleth features by joining child objects to region polygons and aggregating', () => {
+    const [layer] = readMapLayerConfigs({
+      layers: [
+        {
+          id: 'contracts-by-country',
+          title: 'Contracts by country',
+          source: 'object_set',
+          source_variable_id: 'contracts-variable',
+          geometry_type: 'polygon',
+          color: '#15803d',
+          choropleth_enabled: true,
+          region_object_type_id: 'Country',
+          child_join_property: 'country_iso2',
+          region_join_property: 'iso2',
+          region_geoshape_property: 'geometry',
+          region_label_property: 'name',
+          aggregation_function: 'sum',
+          aggregation_property: 'value_eur',
+          choropleth_min_color: '#000000',
+          choropleth_max_color: '#ffffff',
+        },
+      ],
+    });
+
+    const square = (lon: number, lat: number, size = 1) => ({
+      type: 'Polygon' as const,
+      coordinates: [[
+        [lon, lat],
+        [lon + size, lat],
+        [lon + size, lat + size],
+        [lon, lat + size],
+        [lon, lat],
+      ]],
+    });
+
+    const result = buildChoroplethFeatures({
+      childObjects: [
+        {
+          id: 'c-1',
+          object_type_id: 'Contract',
+          properties: { country_iso2: 'DE', value_eur: 100 },
+          created_by: 'test',
+          created_at: '2026-05-11T00:00:00Z',
+          updated_at: '2026-05-11T00:00:00Z',
+        },
+        {
+          id: 'c-2',
+          object_type_id: 'Contract',
+          properties: { country_iso2: 'de', value_eur: 50 },
+          created_by: 'test',
+          created_at: '2026-05-11T00:00:00Z',
+          updated_at: '2026-05-11T00:00:00Z',
+        },
+        {
+          id: 'c-3',
+          object_type_id: 'Contract',
+          properties: { country_iso2: 'FR', value_eur: 25 },
+          created_by: 'test',
+          created_at: '2026-05-11T00:00:00Z',
+          updated_at: '2026-05-11T00:00:00Z',
+        },
+        {
+          id: 'c-4',
+          object_type_id: 'Contract',
+          properties: { country_iso2: '', value_eur: 999 },
+          created_by: 'test',
+          created_at: '2026-05-11T00:00:00Z',
+          updated_at: '2026-05-11T00:00:00Z',
+        },
+      ],
+      regionObjects: [
+        {
+          id: 'r-de',
+          object_type_id: 'Country',
+          properties: { iso2: 'DE', name: 'Germany', geometry: square(10, 50) },
+          created_by: 'test',
+          created_at: '2026-05-11T00:00:00Z',
+          updated_at: '2026-05-11T00:00:00Z',
+        },
+        {
+          id: 'r-fr',
+          object_type_id: 'Country',
+          properties: { iso2: 'FR', name: 'France', geometry: square(2, 46) },
+          created_by: 'test',
+          created_at: '2026-05-11T00:00:00Z',
+          updated_at: '2026-05-11T00:00:00Z',
+        },
+        {
+          id: 'r-es',
+          object_type_id: 'Country',
+          properties: { iso2: 'ES', name: 'Spain', geometry: square(-4, 40) },
+          created_by: 'test',
+          created_at: '2026-05-11T00:00:00Z',
+          updated_at: '2026-05-11T00:00:00Z',
+        },
+      ],
+      layer,
+    });
+
+    expect(result.features).toHaveLength(2);
+    const byKey = Object.fromEntries(result.features.map((feature) => [feature.properties.__of_join_key, feature]));
+    expect(byKey.de.properties.__of_value).toBe(150);
+    expect(byKey.fr.properties.__of_value).toBe(25);
+    expect(byKey.de.properties.__of_label).toBe('Germany');
+    expect(byKey.de.geometry.type).toBe('Polygon');
+    expect(result.valueRange).toEqual({ min: 25, max: 150 });
+    expect(byKey.de.properties.__of_color).toBe('#ffffff');
+    expect(byKey.fr.properties.__of_color).toBe('#000000');
+    expect(result.skipped.children).toBe(1);
+  });
+
+  it('counts matched children when no aggregation property is configured', () => {
+    const [layer] = readMapLayerConfigs({
+      layers: [
+        {
+          id: 'count-suppliers',
+          title: 'Suppliers per jurisdiction',
+          source: 'object_set',
+          source_variable_id: 'suppliers',
+          geometry_type: 'polygon',
+          choropleth_enabled: true,
+          region_object_type_id: 'Jurisdiction',
+          child_join_property: 'jurisdiction_code',
+          region_join_property: 'code',
+          region_geoshape_property: 'geometry',
+        },
+      ],
+    });
+
+    const triangle = (lon: number, lat: number) => ({
+      type: 'Polygon' as const,
+      coordinates: [[
+        [lon, lat],
+        [lon + 1, lat],
+        [lon, lat + 1],
+        [lon, lat],
+      ]],
+    });
+
+    const result = buildChoroplethFeatures({
+      childObjects: ['gb_eng', 'gb_eng', 'gb_eng', 'gb_sct'].map((code, index) => ({
+        id: `s-${index}`,
+        object_type_id: 'Supplier',
+        properties: { jurisdiction_code: code },
+        created_by: 'test',
+        created_at: '2026-05-11T00:00:00Z',
+        updated_at: '2026-05-11T00:00:00Z',
+      })),
+      regionObjects: [
+        {
+          id: 'j-eng',
+          object_type_id: 'Jurisdiction',
+          properties: { code: 'gb_eng', name: 'England & Wales', geometry: triangle(-2, 52) },
+          created_by: 'test',
+          created_at: '2026-05-11T00:00:00Z',
+          updated_at: '2026-05-11T00:00:00Z',
+        },
+        {
+          id: 'j-sct',
+          object_type_id: 'Jurisdiction',
+          properties: { code: 'gb_sct', name: 'Scotland', geometry: triangle(-4, 56) },
+          created_by: 'test',
+          created_at: '2026-05-11T00:00:00Z',
+          updated_at: '2026-05-11T00:00:00Z',
+        },
+      ],
+      layer,
+    });
+
+    expect(result.features).toHaveLength(2);
+    const byKey = Object.fromEntries(result.features.map((feature) => [feature.properties.__of_join_key, feature]));
+    expect(byKey.gb_eng.properties.__of_value).toBe(3);
+    expect(byKey.gb_sct.properties.__of_value).toBe(1);
   });
 
   it('adds GeoJSON and MVT overlay layers to the MapLibre style', () => {

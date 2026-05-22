@@ -34,6 +34,8 @@ func New(
 	h *handlers.Handlers,
 	ph *handlers.ProjectsHandlers,
 	sh *handlers.SpacesHandlers,
+	portfolios *handlers.PortfoliosHandlers,
+	namespaces *handlers.NamespacesHandlers,
 	ws *workspace.Handlers,
 	m *observability.Metrics,
 	probes ...capabilities.DependencyProbe,
@@ -110,6 +112,23 @@ func New(
 		api.Get("/projects/{id}/external-references", ph.ListProjectExternalReferences)
 		api.Post("/projects/{id}/external-references", ph.CreateProjectExternalReference)
 		api.Delete("/projects/{id}/external-references/{reference_id}", ph.DeleteProjectExternalReference)
+
+		api.Post("/projects/{id}/promote", ph.PromoteProject)
+		api.Delete("/projects/{id}/promote", ph.UnpromoteProject)
+		api.Post("/projects/{id}/resources/{kind}/{resource_id}/promote", ph.PromoteResource)
+		api.Delete("/projects/{id}/resources/{kind}/{resource_id}/promote", ph.UnpromoteResource)
+
+		api.Get("/portfolios", portfolios.List)
+		api.Post("/portfolios", portfolios.Create)
+		api.Patch("/portfolios/{id}", portfolios.Update)
+		api.Delete("/portfolios/{id}", portfolios.Delete)
+		api.Get("/portfolios/{id}/projects", portfolios.ListProjects)
+		api.Post("/portfolios/{id}/projects/{project_id}", portfolios.AddProject)
+		api.Delete("/portfolios/{id}/projects/{project_id}", portfolios.RemoveProject)
+
+		api.Get("/namespaces", namespaces.List)
+		api.Post("/namespaces", namespaces.Create)
+		api.Delete("/namespaces/{id}", namespaces.Delete)
 
 		// SG.6: group-based memberships + project-level access
 		// requests + viewer/editor/owner group setup shortcut.

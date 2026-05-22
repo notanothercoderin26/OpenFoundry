@@ -96,6 +96,10 @@ type OntologyProject struct {
 	MarkingRIDs                         []string                   `json:"marking_rids"`
 	PropagateViewRequirementsEnabled    bool                       `json:"propagate_view_requirements_enabled"`
 	PropagateViewRequirementsDisabledAt *time.Time                 `json:"propagate_view_requirements_disabled_at,omitempty"`
+	NamespaceID                         *uuid.UUID                 `json:"namespace_id,omitempty"`
+	IsPromoted                          bool                       `json:"is_promoted"`
+	PromotedAt                          *time.Time                 `json:"promoted_at,omitempty"`
+	PromotedBy                          *uuid.UUID                 `json:"promoted_by,omitempty"`
 	CreatedAt                           time.Time                  `json:"created_at"`
 	UpdatedAt                           time.Time                  `json:"updated_at"`
 }
@@ -128,6 +132,9 @@ type OntologyProjectResourceBinding struct {
 	CreatedAt                  time.Time  `json:"created_at"`
 	PinnedAt                   *time.Time `json:"pinned_at,omitempty"`
 	PinnedBy                   *uuid.UUID `json:"pinned_by,omitempty"`
+	IsPromoted                 bool       `json:"is_promoted"`
+	PromotedAt                 *time.Time `json:"promoted_at,omitempty"`
+	PromotedBy                 *uuid.UUID `json:"promoted_by,omitempty"`
 }
 
 // OntologyProjectFolder mirrors `models::project::OntologyProjectFolder`.
@@ -478,6 +485,71 @@ type CreateProjectExternalReferenceRequest struct {
 	Label       string `json:"label"`
 	URL         string `json:"url"`
 	Description string `json:"description"`
+}
+
+// CompassPortfolio is the wire shape of one portfolio.
+type CompassPortfolio struct {
+	ID             uuid.UUID  `json:"id"`
+	Name           string     `json:"name"`
+	Slug           string     `json:"slug"`
+	Description    string     `json:"description"`
+	OrganizationID *uuid.UUID `json:"organization_id,omitempty"`
+	CreatedBy      uuid.UUID  `json:"created_by"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	ProjectCount   int        `json:"project_count"`
+}
+
+// ListCompassPortfoliosResponse envelopes GET /portfolios.
+type ListCompassPortfoliosResponse struct {
+	Data []CompassPortfolio `json:"data"`
+}
+
+// CreateCompassPortfolioRequest is the POST /portfolios body.
+type CreateCompassPortfolioRequest struct {
+	Name            string  `json:"name"`
+	Slug            string  `json:"slug"`
+	Description     string  `json:"description"`
+	OrganizationID  *string `json:"organization_id,omitempty"`
+}
+
+// UpdateCompassPortfolioRequest is the PATCH body — every field optional.
+type UpdateCompassPortfolioRequest struct {
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// PortfolioProjectMembership is one entry in a portfolio's project list.
+type PortfolioProjectMembership struct {
+	PortfolioID uuid.UUID `json:"portfolio_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	AddedBy     uuid.UUID `json:"added_by"`
+	AddedAt     time.Time `json:"added_at"`
+}
+
+// CompassNamespace is the wire shape of one Compass namespace.
+type CompassNamespace struct {
+	ID             uuid.UUID  `json:"id"`
+	Name           string     `json:"name"`
+	Slug           string     `json:"slug"`
+	Description    string     `json:"description"`
+	OrganizationID *uuid.UUID `json:"organization_id,omitempty"`
+	CreatedBy      uuid.UUID  `json:"created_by"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// ListCompassNamespacesResponse envelopes GET /namespaces.
+type ListCompassNamespacesResponse struct {
+	Data []CompassNamespace `json:"data"`
+}
+
+// CreateCompassNamespaceRequest is the POST body.
+type CreateCompassNamespaceRequest struct {
+	Name           string  `json:"name"`
+	Slug           string  `json:"slug"`
+	Description    string  `json:"description"`
+	OrganizationID *string `json:"organization_id,omitempty"`
 }
 
 // ListOntologyProjectFoldersResponse is the body of GET /projects/:id/folders.

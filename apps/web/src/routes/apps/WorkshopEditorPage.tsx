@@ -3203,6 +3203,16 @@ function MapWidgetInspector({
         cluster_radius: 64,
         cluster_max_zoom: 10,
         cluster_color: '#15803d',
+        choropleth_enabled: false,
+        region_object_type_id: '',
+        region_join_property: '',
+        child_join_property: '',
+        region_geoshape_property: '',
+        region_label_property: '',
+        aggregation_function: 'count',
+        aggregation_property: '',
+        choropleth_min_color: '#e0f2fe',
+        choropleth_max_color: '#1e3a8a',
       },
     ]);
   }
@@ -3464,6 +3474,121 @@ function MapWidgetInspector({
                       <input value={layer.filter_value} onChange={(event) => patchLayer(layer.id, { filter_value: event.target.value })} placeholder="trail_start" style={inputStyle()} />
                     </Field>
                   </div>
+                  <Toggle
+                    label="Choropleth (group by region)"
+                    value={layer.choropleth_enabled}
+                    onChange={(checked) => patchLayer(layer.id, { choropleth_enabled: checked })}
+                  />
+                  {layer.choropleth_enabled ? (
+                    <div style={{ display: 'grid', gap: 8, padding: 8, border: '1px dashed var(--border-subtle)', borderRadius: 4, background: '#fbfdff' }}>
+                      <Field label="Region object type">
+                        <select
+                          value={layer.region_object_type_id}
+                          onChange={(event) => {
+                            const regionTypeId = event.target.value;
+                            const regionType = objectTypes.find((entry) => entry.id === regionTypeId) ?? null;
+                            const inferredGeoshape = regionType?.geoshape_property_names?.[0] ?? '';
+                            patchLayer(layer.id, {
+                              region_object_type_id: regionTypeId,
+                              region_geoshape_property: layer.region_geoshape_property || inferredGeoshape,
+                            });
+                          }}
+                          style={inputStyle()}
+                        >
+                          <option value="">Select region object type…</option>
+                          {objectTypes.map((type) => (
+                            <option key={type.id} value={type.id}>{type.display_name || type.name}</option>
+                          ))}
+                        </select>
+                      </Field>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <Field label="Child join property">
+                          <input
+                            value={layer.child_join_property}
+                            onChange={(event) => patchLayer(layer.id, { child_join_property: event.target.value })}
+                            placeholder="country_iso2"
+                            style={inputStyle()}
+                          />
+                        </Field>
+                        <Field label="Region key property">
+                          <input
+                            value={layer.region_join_property}
+                            onChange={(event) => patchLayer(layer.id, { region_join_property: event.target.value })}
+                            placeholder="iso2"
+                            style={inputStyle()}
+                          />
+                        </Field>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <Field label="Region geoshape property">
+                          <input
+                            value={layer.region_geoshape_property}
+                            onChange={(event) => patchLayer(layer.id, { region_geoshape_property: event.target.value })}
+                            placeholder="geometry"
+                            style={inputStyle()}
+                          />
+                        </Field>
+                        <Field label="Region label property">
+                          <input
+                            value={layer.region_label_property}
+                            onChange={(event) => patchLayer(layer.id, { region_label_property: event.target.value })}
+                            placeholder="name"
+                            style={inputStyle()}
+                          />
+                        </Field>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <Field label="Aggregation">
+                          <select
+                            value={layer.aggregation_function}
+                            onChange={(event) => patchLayer(layer.id, { aggregation_function: event.target.value as WorkshopMapLayerConfig['aggregation_function'] })}
+                            style={inputStyle()}
+                          >
+                            <option value="count">Count</option>
+                            <option value="sum">Sum</option>
+                            <option value="avg">Average</option>
+                            <option value="min">Min</option>
+                            <option value="max">Max</option>
+                          </select>
+                        </Field>
+                        {layer.aggregation_function !== 'count' ? (
+                          <Field label="Aggregation property">
+                            <input
+                              value={layer.aggregation_property}
+                              onChange={(event) => patchLayer(layer.id, { aggregation_property: event.target.value })}
+                              placeholder="value_eur"
+                              style={inputStyle()}
+                            />
+                          </Field>
+                        ) : (
+                          <Field label="&nbsp;">
+                            <span className="of-text-muted" style={{ fontSize: 11 }}>Counting matched objects.</span>
+                          </Field>
+                        )}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <Field label="Low value color">
+                          <input
+                            type="color"
+                            value={layer.choropleth_min_color || '#e0f2fe'}
+                            onChange={(event) => patchLayer(layer.id, { choropleth_min_color: event.target.value })}
+                            style={{ ...inputStyle(), padding: 2, height: 32 }}
+                          />
+                        </Field>
+                        <Field label="High value color">
+                          <input
+                            type="color"
+                            value={layer.choropleth_max_color || '#1e3a8a'}
+                            onChange={(event) => patchLayer(layer.id, { choropleth_max_color: event.target.value })}
+                            style={{ ...inputStyle(), padding: 2, height: 32 }}
+                          />
+                        </Field>
+                      </div>
+                      <span className="of-text-muted" style={{ fontSize: 11 }}>
+                        Regions render as polygons from the region geoshape; child objects are joined by the property pair and aggregated per region.
+                      </span>
+                    </div>
+                  ) : null}
                   <Toggle label="Selectable" value={!layer.locked} onChange={(checked) => patchLayer(layer.id, { locked: !checked })} />
                   <Toggle label="Cluster points" value={layer.cluster_enabled} onChange={(checked) => patchLayer(layer.id, { cluster_enabled: checked })} />
                   {layer.cluster_enabled ? (

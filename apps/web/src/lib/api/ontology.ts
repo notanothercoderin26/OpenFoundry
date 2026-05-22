@@ -2504,6 +2504,10 @@ export interface OntologyProject {
   marking_rids?: string[];
   propagate_view_requirements_enabled?: boolean;
   propagate_view_requirements_disabled_at?: string | null;
+  namespace_id?: string | null;
+  is_promoted?: boolean;
+  promoted_at?: string | null;
+  promoted_by?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -3141,6 +3145,126 @@ export function deleteProjectExternalReference(id: string, referenceId: string) 
   return api.delete(
     `/ontology/projects/${id}/external-references/${referenceId}`,
   );
+}
+
+export function promoteProject(id: string) {
+  return api.post<void>(`/ontology/projects/${id}/promote`, {});
+}
+
+export function unpromoteProject(id: string) {
+  return api.delete(`/ontology/projects/${id}/promote`);
+}
+
+export function promoteProjectResource(
+  projectId: string,
+  kind: string,
+  resourceId: string,
+) {
+  return api.post<void>(
+    `/ontology/projects/${projectId}/resources/${kind}/${resourceId}/promote`,
+    {},
+  );
+}
+
+export function unpromoteProjectResource(
+  projectId: string,
+  kind: string,
+  resourceId: string,
+) {
+  return api.delete(
+    `/ontology/projects/${projectId}/resources/${kind}/${resourceId}/promote`,
+  );
+}
+
+export interface CompassPortfolio {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  organization_id?: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  project_count: number;
+}
+
+export function listCompassPortfolios() {
+  return api.get<{ data: CompassPortfolio[] }>('/ontology/portfolios');
+}
+
+export function createCompassPortfolio(body: {
+  name: string;
+  slug: string;
+  description?: string;
+  organization_id?: string;
+}) {
+  return api.post<CompassPortfolio>('/ontology/portfolios', body);
+}
+
+export function deleteCompassPortfolio(id: string) {
+  return api.delete(`/ontology/portfolios/${id}`);
+}
+
+export function updateCompassPortfolio(
+  id: string,
+  body: { name?: string; description?: string },
+) {
+  return api.patch<CompassPortfolio>(`/ontology/portfolios/${id}`, body);
+}
+
+export interface PortfolioProjectMembership {
+  portfolio_id: string;
+  project_id: string;
+  added_by: string;
+  added_at: string;
+}
+
+export function listPortfolioProjects(id: string) {
+  return api.get<{ data: PortfolioProjectMembership[] }>(
+    `/ontology/portfolios/${id}/projects`,
+  );
+}
+
+export function addProjectToPortfolio(portfolioId: string, projectId: string) {
+  return api.post<PortfolioProjectMembership>(
+    `/ontology/portfolios/${portfolioId}/projects/${projectId}`,
+    {},
+  );
+}
+
+export function removeProjectFromPortfolio(
+  portfolioId: string,
+  projectId: string,
+) {
+  return api.delete(`/ontology/portfolios/${portfolioId}/projects/${projectId}`);
+}
+
+export interface CompassNamespace {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  organization_id?: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listCompassNamespaces() {
+  return api.get<{ data: CompassNamespace[] }>('/ontology/namespaces');
+}
+
+export function createCompassNamespace(body: {
+  name: string;
+  slug: string;
+  description?: string;
+  organization_id?: string;
+}) {
+  return api.post<CompassNamespace>('/ontology/namespaces', body);
+}
+
+export function deleteCompassNamespace(id: string) {
+  return api.delete(`/ontology/namespaces/${id}`);
 }
 
 export function unpinProjectResource(
@@ -10481,6 +10605,9 @@ export interface OntologyProjectResourceBinding {
   created_at: string;
   pinned_at?: string | null;
   pinned_by?: string | null;
+  is_promoted?: boolean;
+  promoted_at?: string | null;
+  promoted_by?: string | null;
 }
 
 export interface OntologyProjectMigrationResource {

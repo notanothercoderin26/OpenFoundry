@@ -40,6 +40,7 @@ interface CompassFilterRailProps {
   projects: ProjectOption[];
   tags: TagOption[];
   orgs: OrgOption[];
+  onCreatePortfolio?: (name: string) => void | Promise<void>;
 }
 
 interface FacetCounts {
@@ -75,6 +76,7 @@ export function CompassFilterRail({
   projects,
   tags,
   orgs,
+  onCreatePortfolio,
 }: CompassFilterRailProps) {
   const count = activeFilterCount(filters);
 
@@ -171,6 +173,13 @@ export function CompassFilterRail({
             />
           ))
         )}
+        {onCreatePortfolio ? (
+          <InlineCreate
+            placeholder="New portfolio name"
+            buttonLabel="Add"
+            onCreate={(name) => onCreatePortfolio(name)}
+          />
+        ) : null}
       </Disclosure>
 
       <Disclosure title="Projects" defaultOpen={false}>
@@ -357,6 +366,66 @@ function CheckboxRow({
 function EmptyHint({ children }: { children: ReactNode }) {
   return (
     <p style={{ margin: '4px 4px', fontSize: 11, color: '#a1a8b3' }}>{children}</p>
+  );
+}
+
+function InlineCreate({
+  placeholder,
+  buttonLabel,
+  onCreate,
+}: {
+  placeholder: string;
+  buttonLabel: string;
+  onCreate: (name: string) => void | Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      await onCreate(trimmed);
+      setName('');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 4, marginTop: 6, padding: '0 4px' }}>
+      <input
+        type="text"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            void submit();
+          }
+        }}
+        placeholder={placeholder}
+        disabled={busy}
+        style={{
+          flex: 1,
+          padding: '4px 6px',
+          fontSize: 11,
+          border: '1px solid var(--border-default)',
+          borderRadius: 3,
+          outline: 'none',
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => void submit()}
+        disabled={busy || !name.trim()}
+        className="of-button"
+        style={{ padding: '2px 8px', fontSize: 11 }}
+      >
+        {buttonLabel}
+      </button>
+    </div>
   );
 }
 

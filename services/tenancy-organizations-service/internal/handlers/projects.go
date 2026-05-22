@@ -185,6 +185,8 @@ func loadProject(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models
 		        "references", COALESCE(marking_rids, '[]'::jsonb),
 		        COALESCE(propagate_view_requirements_enabled, FALSE),
 		        propagate_view_requirements_disabled_at,
+		        namespace_id,
+		        COALESCE(is_promoted, FALSE), promoted_at, promoted_by,
 		        created_at, updated_at
 		 FROM ontology_projects
 		 WHERE id = $1 AND is_deleted = FALSE`,
@@ -217,7 +219,10 @@ func scanProjectRow(row projectScannable) (*models.OntologyProject, error) {
 		&p.WorkspaceSlug, &p.OwnerID,
 		&defaultRole, &p.PointOfContactUserID, &p.PointOfContactEmail,
 		&refs, &markings, &p.PropagateViewRequirementsEnabled,
-		&p.PropagateViewRequirementsDisabledAt, &p.CreatedAt, &p.UpdatedAt,
+		&p.PropagateViewRequirementsDisabledAt,
+		&p.NamespaceID,
+		&p.IsPromoted, &p.PromotedAt, &p.PromotedBy,
+		&p.CreatedAt, &p.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -489,6 +494,8 @@ func (h *ProjectsHandlers) ListProjects(w http.ResponseWriter, r *http.Request) 
 		        "references", COALESCE(marking_rids, '[]'::jsonb),
 		        COALESCE(propagate_view_requirements_enabled, FALSE),
 		        propagate_view_requirements_disabled_at,
+		        namespace_id,
+		        COALESCE(is_promoted, FALSE), promoted_at, promoted_by,
 		        created_at, updated_at
 		 FROM ontology_projects
 		 WHERE is_deleted = FALSE
@@ -1705,7 +1712,8 @@ func (h *ProjectsHandlers) ListProjectResources(w http.ResponseWriter, r *http.R
 	rows, err := h.Pool.Query(r.Context(),
 		`SELECT project_id, resource_kind, resource_id, bound_by,
 		        COALESCE(view_requirement_marking_rids, '[]'::jsonb),
-		        created_at, pinned_at, pinned_by
+		        created_at, pinned_at, pinned_by,
+		        COALESCE(is_promoted, FALSE), promoted_at, promoted_by
 		 FROM ontology_project_resources
 		 WHERE project_id = $1 AND is_deleted = FALSE
 		 ORDER BY pinned_at DESC NULLS LAST, created_at DESC`,
@@ -1721,7 +1729,9 @@ func (h *ProjectsHandlers) ListProjectResources(w http.ResponseWriter, r *http.R
 	for rows.Next() {
 		var b models.OntologyProjectResourceBinding
 		var markings []byte
-		if err := rows.Scan(&b.ProjectID, &b.ResourceKind, &b.ResourceID, &b.BoundBy, &markings, &b.CreatedAt, &b.PinnedAt, &b.PinnedBy); err != nil {
+		if err := rows.Scan(&b.ProjectID, &b.ResourceKind, &b.ResourceID, &b.BoundBy, &markings,
+			&b.CreatedAt, &b.PinnedAt, &b.PinnedBy,
+			&b.IsPromoted, &b.PromotedAt, &b.PromotedBy); err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list ontology project resources: %s", err))
 			return
 		}

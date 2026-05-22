@@ -13,6 +13,7 @@ import {
 } from './workshopVariables';
 import { executeWorkshopObjectSet, type WorkshopObjectSetExecutionResult } from './workshopObjectSets';
 import {
+  buildChoroplethFeatures,
   buildFeaturesFromObjects,
   buildFeaturesFromGeospatialLayer,
   buildFeaturesFromConfiguredLayers,
@@ -337,7 +338,19 @@ export function WorkshopMapWidget({
           if (!objectTypeId) continue;
           const result = await loadObjectSetForLayer(objectTypeId, variable, variables, layer, variableEngine);
           if (cancelled) return;
-          objectLayerFeatures.push(...buildFeaturesFromObjects(result.data, layer, variable));
+          if (layer.choropleth_enabled && layer.region_object_type_id) {
+            const regions = await loadRegionObjectsForLayer(layer.region_object_type_id);
+            if (cancelled) return;
+            const choropleth = buildChoroplethFeatures({
+              childObjects: result.data,
+              regionObjects: regions,
+              layer,
+              variable,
+            });
+            objectLayerFeatures.push(...choropleth.features);
+          } else {
+            objectLayerFeatures.push(...buildFeaturesFromObjects(result.data, layer, variable));
+          }
           if (result.linkedEdges.length > 0) {
             linkedEdgeGroups.push({ layer, edges: result.linkedEdges });
           }
@@ -854,6 +867,17 @@ function splitClusterableFeatures(collection: WorkshopMapFeatureCollection) {
 function clampNumber(value: number, min: number, max: number, fallback: number) {
   if (!Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, value));
+}
+
+async function loadRegionObjectsForLayer(regionObjectTypeId: string) {
+  const response = await executeWorkshopObjectSet({
+    objectTypeId: regionObjectTypeId,
+    variables: [],
+    variable: null,
+    engine: null,
+    limit: 5000,
+  });
+  return response.data;
 }
 
 async function loadObjectSetForLayer(

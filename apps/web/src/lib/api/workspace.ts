@@ -554,6 +554,7 @@ export interface CompassTag {
   id: string;
   name: string;
   color: string;
+  organization_id?: string | null;
   created_by: string;
   created_at: string;
 }
@@ -564,11 +565,20 @@ export interface ResourceTagsEntry {
   tags: CompassTag[];
 }
 
-export function listCompassTags() {
-  return api.get<{ data: CompassTag[] }>('/workspace/tags');
+export function listCompassTags(params?: { organization_id?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.organization_id) qs.set('organization_id', params.organization_id);
+  const query = qs.toString();
+  return api.get<{ data: CompassTag[] }>(
+    `/workspace/tags${query ? `?${query}` : ''}`,
+  );
 }
 
-export function createCompassTag(body: { name: string; color?: string }) {
+export function createCompassTag(body: {
+  name: string;
+  color?: string;
+  organization_id?: string;
+}) {
   return api.post<CompassTag>('/workspace/tags', body);
 }
 
