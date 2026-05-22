@@ -114,8 +114,12 @@ capabilities-check: ## Fail if the stable-capabilities snapshot is out of date.
 
 .PHONY: docs-drift-check
 docs-drift-check: ## Fail if code-first docs inventory, route, or port facts drift.
-	python3 tools/check_docs_drift.py
+	python3 tools/repo_stats.py check
 	$(GO) test ./services/edge-gateway-service/internal/proxy -run 'TestServicesAndPorts'
+
+.PHONY: docs-stats
+docs-stats: ## Refresh service/lib/proto counts embedded in canonical docs.
+	python3 tools/repo_stats.py write
 
 # ---------------------------------------------------------------------------
 # Build / test / lint

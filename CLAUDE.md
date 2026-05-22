@@ -15,7 +15,7 @@ from this tree but its vocabulary still leaks into docs.
 ```
 apps/web/        React 19 + Vite + TypeScript frontend
 services/        51 service directories (current inventory: docs/reference/repository-layout.md)
-libs/            37 shared Go libraries + 1 generated (kernels, observability, auth, …)
+libs/            38 shared Go libraries (37 hand-written + 1 generated `proto-gen`)
 proto/           Source-of-truth .proto files (Go code generated to libs/proto-gen/)
 sdks/            Generated client SDKs (TS/Python/Java)
 infra/           Helm charts, ArgoCD, Terraform, runbooks
@@ -24,9 +24,11 @@ docs/archive/    Historical migration logs — DO NOT READ unless asked
 tools/           CLIs (of-cli, route-audit, lint helpers)
 ```
 
-> Counts above drift as services/libs are added. Re-run
-> `ls -d services/*/ | wc -l` and `ls libs/ | wc -l` after touching either
-> tree and update this file + `docs/reference/repository-layout.md`.
+> Counts above are enforced by `make docs-drift-check`. After adding or
+> removing a service/lib/proto domain, run `make docs-stats` to refresh
+> every doc in one shot (or update CLAUDE.md, README.md, ARCHITECTURE.md,
+> and the two `docs/reference/` pages by hand and let the drift check
+> verify them).
 
 Per-service shape — **baseline mínimo**, copy from
 `docs/templates/service-skeleton/` and prune/extend per the service's domain:
