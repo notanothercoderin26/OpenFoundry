@@ -1,16 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
-
-export interface DocumentTopbarAction {
-  key: string;
-  label: string;
-  icon?: GlyphName;
-  onClick: () => void;
-  disabled?: boolean;
-  danger?: boolean;
-}
+import { Glyph } from '@/lib/components/ui/Glyph';
 
 export interface DocumentTopbarNewAction {
   primaryLabel: string;
@@ -18,14 +9,34 @@ export interface DocumentTopbarNewAction {
   menu: Array<{ label: string; to: string }>;
 }
 
+// Autosave indicator rendered just left of the meta cluster. Mirrors
+// the three states the editor's autosave loop can be in.
+export type DocumentSaveState =
+  | { kind: 'idle'; lastSavedAt: Date | null }
+  | { kind: 'saving' }
+  | { kind: 'dirty' };
+
 export interface DocumentTopbarProps {
   title: string;
   folder?: string;
   isFavorite: boolean;
   onToggleFavorite?: () => void;
   isLocked?: boolean;
-  actions?: DocumentTopbarAction[];
+  saveState?: DocumentSaveState;
   newAction?: DocumentTopbarNewAction;
+}
+
+function formatSaveState(state: DocumentSaveState): string {
+  if (state.kind === 'saving') return 'Saving…';
+  if (state.kind === 'dirty') return 'Unsaved changes';
+  if (state.lastSavedAt) {
+    const time = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(state.lastSavedAt);
+    return `Saved · ${time}`;
+  }
+  return 'Saved';
 }
 
 export function DocumentTopbar({
@@ -34,30 +45,19 @@ export function DocumentTopbar({
   isFavorite,
   onToggleFavorite,
   isLocked = false,
-  actions,
+  saveState,
   newAction,
 }: DocumentTopbarProps) {
-  const [actionsOpen, setActionsOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
-  const actionsRef = useRef<HTMLDivElement | null>(null);
   const newRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!actionsOpen && !newOpen) return;
+    if (!newOpen) return;
     function onPointer(event: globalThis.MouseEvent) {
-      const target = event.target as Node;
-      if (actionsOpen && actionsRef.current && !actionsRef.current.contains(target)) {
-        setActionsOpen(false);
-      }
-      if (newOpen && newRef.current && !newRef.current.contains(target)) {
-        setNewOpen(false);
-      }
+      if (!newRef.current?.contains(event.target as Node)) setNewOpen(false);
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setActionsOpen(false);
-        setNewOpen(false);
-      }
+      if (event.key === 'Escape') setNewOpen(false);
     }
     document.addEventListener('mousedown', onPointer);
     document.addEventListener('keydown', onKey);
@@ -65,7 +65,7 @@ export function DocumentTopbar({
       document.removeEventListener('mousedown', onPointer);
       document.removeEventListener('keydown', onKey);
     };
-  }, [actionsOpen, newOpen]);
+  }, [newOpen]);
 
   return (
     <header className="of-doc-topbar">
@@ -111,41 +111,13 @@ export function DocumentTopbar({
       </div>
 
       <div className="of-doc-topbar__actions">
-        {actions && actions.length > 0 && (
-          <div className="of-doc-topbar__menu-wrap" ref={actionsRef}>
-            <button
-              type="button"
-              className="of-doc-topbar__btn"
-              aria-haspopup="menu"
-              aria-expanded={actionsOpen}
-              onClick={() => setActionsOpen((open) => !open)}
-            >
-              <span>Actions</span>
-              <Glyph name="chevron-down" size={11} />
-            </button>
-            {actionsOpen && (
-              <div role="menu" className="of-doc-topbar__menu">
-                {actions.map((action) => (
-                  <button
-                    key={action.key}
-                    type="button"
-                    role="menuitem"
-                    className={`of-doc-topbar__menu-item${
-                      action.danger ? ' of-doc-topbar__menu-item--danger' : ''
-                    }`}
-                    disabled={action.disabled}
-                    onClick={() => {
-                      setActionsOpen(false);
-                      action.onClick();
-                    }}
-                  >
-                    {action.icon && <Glyph name={action.icon} size={13} />}
-                    <span>{action.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+        {saveState && (
+          <span
+            className={`of-doc-topbar__save-state of-doc-topbar__save-state--${saveState.kind}`}
+            aria-live="polite"
+          >
+            {formatSaveState(saveState)}
+          </span>
         )}
 
         {newAction && (

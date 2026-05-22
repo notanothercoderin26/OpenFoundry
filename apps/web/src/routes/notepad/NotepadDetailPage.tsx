@@ -11,7 +11,7 @@ import { ConfirmDialog } from '@components/ConfirmDialog';
 import { DocumentMenuBar } from '@/lib/components/notepad/DocumentMenuBar';
 import {
   DocumentTopbar,
-  type DocumentTopbarAction,
+  type DocumentSaveState,
 } from '@/lib/components/notepad/DocumentTopbar';
 import { SaveAsTemplateModal } from '@/lib/components/notepad/TemplateModals';
 import { TipTapEditor } from '@/lib/components/notepad/TipTapEditor';
@@ -91,18 +91,6 @@ function downloadBlob(payload: NotepadBinaryExport) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function downloadHTMLPayload(payload: NotepadExportPayload) {
-  const blob = new Blob([payload.html], { type: payload.mime_type || 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = payload.file_name || 'notepad-export.html';
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
 export function NotepadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const documentId = id ?? '';
@@ -130,6 +118,13 @@ export function NotepadDetailPage() {
   const [showSaveAsTemplate, setShowSaveAsTemplate] = useState(false);
   const [showTrashConfirm, setShowTrashConfirm] = useState(false);
   const [trashing, setTrashing] = useState(false);
+  // Autosave state (T4.3). `dirty` flips on local edits; `lastSavedAt`
+  // drives the "Saved · 14:32" indicator. Baseline ref holds the
+  // JSON-stringified content_doc as last persisted, so onChange knows
+  // whether the editor truly diverged or just rebroadcast the seed.
+  const [dirty, setDirty] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const lastSavedJSONRef = useRef<string>('');
 
   // The TipTap editor is the source of truth for live edits. We mirror
   // its current JSON + HTML into refs so save / export handlers can
@@ -238,6 +233,30 @@ export function NotepadDetailPage() {
     setExportNotice('');
   }
 
+  // Seed the autosave baseline whenever the document identity changes
+  // (initial load, navigating to another doc). lastSavedAt mirrors the
+  // server's updated_at so the indicator does not flash "Saved" with
+  // an empty time on first paint.
+  useEffect(() => {
+    if (!doc) return;
+    lastSavedJSONRef.current = JSON.stringify(doc.content_doc ?? {});
+    setLastSavedAt(new Date(doc.updated_at));
+    setDirty(false);
+  }, [doc?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debounced autosave: 1.5 s of quiet after an edit triggers a save.
+  // Skipped while previewing past revisions, exporting, or already
+  // saving; if the timer fires mid-flight the next edit will re-arm it.
+  useEffect(() => {
+    if (!dirty) return;
+    if (previewRevision !== null) return;
+    if (exporting || saving) return;
+    const timer = window.setTimeout(() => {
+      void saveDocument();
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [dirty, previewRevision, exporting, saving]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function refreshHTMLPreview(sourceDoc: NotepadDocument) {
     const exp = await exportNotepadDocumentHTML(sourceDoc.id, {
       id: sourceDoc.id,
@@ -266,6 +285,9 @@ export function NotepadDetailPage() {
         widgets: doc.widgets,
       });
       setDoc(updated);
+      lastSavedJSONRef.current = JSON.stringify(contentDocRef.current ?? {});
+      setLastSavedAt(new Date());
+      setDirty(false);
       await refreshHTMLPreview(updated);
       setExportNotice('Saved and refreshed the export preview.');
       await sendPresence('reviewing latest changes');
@@ -273,23 +295,6 @@ export function NotepadDetailPage() {
       setError(cause instanceof Error ? cause.message : 'Failed to save document');
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function exportHTML() {
-    if (!doc) return;
-    setExporting(true);
-    setError('');
-    setExportNotice('');
-    try {
-      const exp = await refreshHTMLPreview(doc);
-      downloadHTMLPayload(exp);
-      setExportNotice(`Exported ${exp.file_name}.`);
-      await sendPresence('exporting document');
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to export document');
-    } finally {
-      setExporting(false);
     }
   }
 
@@ -470,65 +475,11 @@ export function NotepadDetailPage() {
   }
 
   const documentTitle = doc.title.trim() || 'Untitled document';
-  // Bag of operations the legacy header exposed. Lives in the Actions ▾
-  // dropdown until T4.2 splits these across File / View / Help menus
-  // and T4.3 retires Save into autosave.
-  const topbarActions: DocumentTopbarAction[] = [
-    {
-      key: 'history',
-      label: historyOpen ? 'Hide version history' : 'Version history',
-      icon: 'history',
-      onClick: () => setHistoryOpen((open) => !open),
-    },
-    {
-      key: 'save-as-template',
-      label: 'Save as template…',
-      icon: 'duplicate',
-      disabled: previewRevision !== null,
-      onClick: () => setShowSaveAsTemplate(true),
-    },
-    {
-      key: 'print',
-      label: 'Print…',
-      icon: 'document',
-      disabled: exporting,
-      onClick: () => void openPrintView(),
-    },
-    {
-      key: 'export-pdf',
-      label: exporting ? 'Exporting…' : 'Export as PDF…',
-      icon: 'document',
-      disabled: exporting,
-      onClick: () => void exportBinary('pdf'),
-    },
-    {
-      key: 'export-docx',
-      label: exporting ? 'Exporting…' : 'Export as DOCX…',
-      icon: 'document',
-      disabled: exporting,
-      onClick: () => void exportBinary('docx'),
-    },
-    {
-      key: 'export-html',
-      label: exporting ? 'Exporting…' : 'Export as HTML…',
-      icon: 'document',
-      disabled: exporting,
-      onClick: () => void exportHTML(),
-    },
-    {
-      key: 'save',
-      label: saving ? 'Saving…' : 'Save now',
-      icon: 'autosaved',
-      disabled: saving || exporting || previewRevision !== null,
-      onClick: () => void saveDocument(),
-    },
-    {
-      key: 'close',
-      label: 'Close document',
-      icon: 'x',
-      onClick: () => navigate('/notepad'),
-    },
-  ];
+  const saveState: DocumentSaveState = saving
+    ? { kind: 'saving' }
+    : dirty
+      ? { kind: 'dirty' }
+      : { kind: 'idle', lastSavedAt };
 
   return (
     <section className="of-page" style={{ display: 'grid', gap: 16 }}>
@@ -538,7 +489,7 @@ export function NotepadDetailPage() {
         isFavorite={doc.is_favorite}
         // TODO(T8.3): wire to POST /notepad/documents/:id/favorite once
         // the toggle endpoint exists. Until then the star is read-only.
-        actions={topbarActions}
+        saveState={saveState}
         newAction={{
           primaryLabel: 'New document',
           primaryTo: '/notepad?new=blank',
@@ -628,6 +579,11 @@ export function NotepadDetailPage() {
                   contentDocRef.current = json as ProseMirrorDoc;
                   contentHTMLRef.current = html;
                   setExportNotice('');
+                  // Compare against the last persisted snapshot so the
+                  // initial onChange TipTap fires on seed does not
+                  // flip the autosave indicator on a fresh document.
+                  const next = JSON.stringify(json);
+                  setDirty(next !== lastSavedJSONRef.current);
                 }}
                 onFocus={() => previewRevision === null && void sendPresence('editing body')}
                 onBlur={() => previewRevision === null && void sendPresence('reviewing body')}

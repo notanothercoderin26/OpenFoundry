@@ -3754,75 +3754,26 @@ button {
 .of-doc-topbar__actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
 }
 
-.of-doc-topbar__menu-wrap {
-  position: relative;
-}
-
-.of-doc-topbar__btn {
+/* Autosave indicator (T4.3). Three states — idle (shows last saved
+   time), saving (in flight) and dirty (unsaved local edits). Lives
+   left of the + New ▾ split button in the right zone of the topbar. */
+.of-doc-topbar__save-state {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border-topbar-action);
-  border-radius: var(--radius-sm);
-  background: var(--surface-panel);
-  color: var(--text-default);
+  color: var(--text-muted);
   font-size: var(--text-12);
-  font-weight: 600;
-  cursor: pointer;
+  white-space: nowrap;
 }
 
-.of-doc-topbar__btn:hover {
-  background: var(--row-hover);
+.of-doc-topbar__save-state--saving {
+  color: var(--accent-link);
 }
 
-.of-doc-topbar__menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 30;
-  display: grid;
-  min-width: 220px;
-  padding: 4px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--surface-panel);
-  box-shadow: var(--shadow-popover);
-}
-
-.of-doc-topbar__menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-default);
-  font-size: var(--text-13);
-  text-align: left;
-  cursor: pointer;
-}
-
-.of-doc-topbar__menu-item:hover:not(:disabled) {
-  background: var(--row-hover);
-}
-
-.of-doc-topbar__menu-item:disabled {
-  color: var(--text-soft);
-  cursor: not-allowed;
-}
-
-.of-doc-topbar__menu-item--danger {
-  color: var(--accent-danger);
-}
-
-.of-doc-topbar__menu-item--danger:hover:not(:disabled) {
-  background: rgba(180, 35, 24, 0.08);
+.of-doc-topbar__save-state--dirty {
+  color: #9a5b00;
 }
 
 /* Shared dropdown primitive (T4.2). Used by the document File / View /
