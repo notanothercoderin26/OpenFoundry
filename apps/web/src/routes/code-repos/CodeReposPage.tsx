@@ -3,9 +3,21 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 
 import { Glyph } from '@/lib/components/ui/Glyph';
 
+import { CommitDialog } from './dialogs/CommitDialog';
+import { MergeDialog } from './dialogs/MergeDialog';
+import { NewBranchDialog } from './dialogs/NewBranchDialog';
+import { NewMergeRequestDialog } from './dialogs/NewMergeRequestDialog';
+import { NewTagDialog } from './dialogs/NewTagDialog';
+import { ResetDialog } from './dialogs/ResetDialog';
+import { ShareDialog } from './dialogs/ShareDialog';
+import { UpgradeDialog } from './dialogs/UpgradeDialog';
+
+import { IdeCommandPalette } from './components/IdeCommandPalette';
+import { IdeKeyboardShortcuts } from './components/IdeKeyboardShortcuts';
 import { RepoHeader } from './components/RepoHeader';
 import { RepoStatusBar } from './components/RepoStatusBar';
 import { RepoTabsNav, type RepoTabId } from './components/RepoTabsNav';
+import { TourOverlay } from './components/TourOverlay';
 import { RepoProvider } from './state/RepoContext';
 import { useRepoData } from './state/useRepoData';
 import { BranchesTab } from './tabs/BranchesTab/BranchesTab';
@@ -21,8 +33,10 @@ import { SettingsTab } from './tabs/SettingsTab/SettingsTab';
  * active tab content → RepoStatusBar (sticky bottom). All state lives in
  * useRepoData and is exposed to tabs via RepoContext.
  *
- * The list view (RepoExplorer + overview hero) lives in RepoListPage at
- * /code-repos; this page handles /code-repos/:repoId.
+ * F3 additions: every IDE dialog (NewBranch / NewTag / Merge / Reset /
+ * Upgrade / Share / Commit / NewPullRequest) is mounted once here driven
+ * by the dialogs store; the IdeCommandPalette listens for F1 / ⌘+Shift+P;
+ * IdeKeyboardShortcuts binds ⌘+S; TourOverlay drives the walkthrough.
  */
 export function CodeReposPage() {
   const { repoId } = useParams<{ repoId: string }>();
@@ -30,8 +44,6 @@ export function CodeReposPage() {
   const [activeTab, setActiveTab] = useState<RepoTabId>('code');
 
   if (!repoId) {
-    // Defensive — the router should never reach this page without a repoId,
-    // but if it does, bounce back to the list rather than throwing.
     return <Navigate to="/code-repos" replace />;
   }
 
@@ -83,6 +95,21 @@ export function CodeReposPage() {
         </main>
 
         <RepoStatusBar />
+
+        {/* IDE dialogs mounted once at the shell level. Each reads its open
+            state from the dialogs store so any caller can invoke them. */}
+        <CommitDialog />
+        <MergeDialog />
+        <NewBranchDialog />
+        <NewMergeRequestDialog />
+        <NewTagDialog />
+        <ResetDialog />
+        <ShareDialog />
+        <UpgradeDialog />
+
+        <IdeCommandPalette />
+        <IdeKeyboardShortcuts />
+        <TourOverlay />
       </div>
     </RepoProvider>
   );

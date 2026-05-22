@@ -124,7 +124,7 @@ export function EditorPanel({ minHeight = 480 }: EditorPanelProps) {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div data-tour="editor" className="flex flex-col flex-1 min-h-0">
       <FileMetaBar file={activeFile} />
       <div className="flex-1 min-h-0 border border-of-border bg-of-surface-raised">
         <MonacoEditor

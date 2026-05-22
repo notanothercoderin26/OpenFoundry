@@ -2,25 +2,8 @@ import { useEffect, useState } from 'react';
 
 import { Glyph } from '@/lib/components/ui/Glyph';
 
-export interface NewMergeRequestDialogProps {
-  open: boolean;
-  onClose: () => void;
-  sourceBranch: string;
-  defaultTargetBranch: string;
-  availableTargets: ReadonlyArray<string>;
-  defaultAuthor?: string;
-  busy: boolean;
-  onSubmit: (draft: {
-    title: string;
-    description: string;
-    source_branch: string;
-    target_branch: string;
-    author: string;
-    labels: string[];
-    reviewers: string[];
-    approvals_required: number;
-  }) => Promise<void> | void;
-}
+import { useRepoIdentity, useRepoState } from '../state/RepoContext';
+import { dialogs, useIsDialogOpen } from '../state/useDialogs';
 
 function parseCsv(value: string) {
   return value
@@ -31,65 +14,80 @@ function parseCsv(value: string) {
 
 /**
  * Foundry-style "Propose changes" modal. Pre-fills source = current branch
- * and target = repository default; lets the user attach labels and
- * reviewers as comma-separated values for now. The labels/reviewers field
- * uses the same CSV input shape as the legacy MergeRequestList form so the
- * server contract stays untouched.
+ * and target = repository default; submits through createMergeRequest with
+ * reviewers + labels parsed from CSV. State is driven by the shared
+ * dialogs store so any caller (CodeTabActionBar, PullRequestsTab,
+ * IdeCommandPalette) can invoke it.
  */
-export function NewMergeRequestDialog({
-  open,
-  onClose,
-  sourceBranch,
-  defaultTargetBranch,
-  availableTargets,
-  defaultAuthor,
-  busy,
-  onSubmit,
-}: NewMergeRequestDialogProps) {
+export function NewMergeRequestDialog() {
+  const open = useIsDialogOpen('new-pull-request');
+  const { repository, currentBranch } = useRepoIdentity();
+  const {
+    branchOptions,
+    busy,
+    mergeRequestDraft,
+    setMergeRequestDraft,
+    createMergeRequestAction,
+    pendingFileChanges,
+  } = useRepoState();
+
+  const sourceBranch = mergeRequestDraft.source_branch || currentBranch;
+  const initialTarget =
+    branchOptions.find((branch) => branch === repository.default_branch && branch !== sourceBranch) ??
+    branchOptions.find((branch) => branch !== sourceBranch) ??
+    repository.default_branch;
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [targetBranch, setTargetBranch] = useState(defaultTargetBranch);
+  const [targetBranch, setTargetBranch] = useState(initialTarget);
   const [labels, setLabels] = useState('');
   const [reviewers, setReviewers] = useState('');
   const [approvalsRequired, setApprovalsRequired] = useState('1');
   const [author, setAuthor] = useState('');
 
   useEffect(() => {
-    if (open) {
-      setTargetBranch(defaultTargetBranch);
-      setAuthor(defaultAuthor ?? '');
-    }
-  }, [open, defaultTargetBranch, defaultAuthor]);
+    if (!open) return;
+    setTitle(mergeRequestDraft.title || '');
+    setDescription(mergeRequestDraft.description || '');
+    setTargetBranch(mergeRequestDraft.target_branch || initialTarget);
+    setLabels(mergeRequestDraft.labels_text || '');
+    setReviewers(mergeRequestDraft.reviewers_text || '');
+    setApprovalsRequired(mergeRequestDraft.approvals_required || '1');
+    setAuthor(mergeRequestDraft.author || '');
+  }, [open, mergeRequestDraft, initialTarget]);
 
   if (!open) return null;
 
   const canSubmit =
+    !busy &&
     title.trim().length > 0 &&
     sourceBranch.length > 0 &&
     targetBranch.length > 0 &&
-    targetBranch !== sourceBranch &&
-    !busy;
+    targetBranch !== sourceBranch;
 
   async function handleSubmit() {
     if (!canSubmit) return;
     const approvals = Number(approvalsRequired);
-    await onSubmit({
+    setMergeRequestDraft({
       title: title.trim(),
       description: description.trim(),
       source_branch: sourceBranch,
       target_branch: targetBranch,
-      author: author.trim() || (defaultAuthor ?? ''),
-      labels: parseCsv(labels),
-      reviewers: parseCsv(reviewers),
-      approvals_required: Number.isFinite(approvals) && approvals > 0 ? approvals : 1,
+      author: author.trim(),
+      labels_text: parseCsv(labels).join(', '),
+      reviewers_text: parseCsv(reviewers).join(', '),
+      approvals_required: String(Number.isFinite(approvals) && approvals > 0 ? approvals : 1),
+      changed_files: String(pendingFileChanges.length || 0),
     });
+    await createMergeRequestAction();
+    dialogs.close('new-pull-request');
   }
 
   return (
     <div
       role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={onClose}
+      onClick={() => dialogs.close('new-pull-request')}
     >
       <div
         role="dialog"
@@ -102,7 +100,7 @@ export function NewMergeRequestDialog({
           <h2 className="text-of-14 font-of-semibold">Propose changes</h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => dialogs.close('new-pull-request')}
             className="inline-flex items-center justify-center w-7 h-7 rounded-of-sm text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
             aria-label="Close"
           >
@@ -126,7 +124,7 @@ export function NewMergeRequestDialog({
                 onChange={(e) => setTargetBranch(e.target.value)}
                 className="mt-1 w-full h-9 px-3 rounded-of-sm border border-of-border bg-of-surface-raised text-of-13"
               >
-                {availableTargets.map((target) => (
+                {branchOptions.map((target) => (
                   <option key={target} value={target} disabled={target === sourceBranch}>
                     {target}
                   </option>
@@ -213,7 +211,7 @@ export function NewMergeRequestDialog({
         <footer className="flex justify-end gap-2 px-4 h-12 border-t border-of-border">
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => dialogs.close('new-pull-request')}
             className="inline-flex items-center h-8 px-3 rounded-of-sm text-of-12 font-of-medium bg-of-surface-muted text-of-text hover:bg-of-border"
           >
             Cancel

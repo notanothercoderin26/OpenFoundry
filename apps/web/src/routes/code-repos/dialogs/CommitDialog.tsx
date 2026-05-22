@@ -1,26 +1,10 @@
 import { useEffect, useState } from 'react';
 
-import type { RepositoryFileMutation } from '@/lib/api/code-repos';
 import { Glyph } from '@/lib/components/ui/Glyph';
 
-export interface CommitDialogProps {
-  open: boolean;
-  onClose: () => void;
-  branchName: string;
-  defaultAuthor?: string;
-  pendingChanges: ReadonlyArray<RepositoryFileMutation>;
-  busy: boolean;
-  /**
-   * Fires when the user confirms the commit. The page is expected to call
-   * createCommit with the supplied draft and then close the dialog.
-   */
-  onSubmit: (draft: {
-    title: string;
-    description: string;
-    sign_off: boolean;
-    author_name?: string;
-  }) => Promise<void> | void;
-}
+import { useRepoIdentity, useRepoState } from '../state/RepoContext';
+import { dialogs, useIsDialogOpen } from '../state/useDialogs';
+import type { RepositoryFileMutation } from '@/lib/api/code-repos';
 
 function actionLabel(action: RepositoryFileMutation['action']) {
   switch (action) {
@@ -59,15 +43,18 @@ function actionTone(action: RepositoryFileMutation['action']) {
  * and an explicit author. Submission is delegated to the page so the
  * existing createCommit handler and its invalidation flow are reused.
  */
-export function CommitDialog({
-  open,
-  onClose,
-  branchName,
-  defaultAuthor,
-  pendingChanges,
-  busy,
-  onSubmit,
-}: CommitDialogProps) {
+export function CommitDialog() {
+  const open = useIsDialogOpen('commit');
+  const { currentBranch } = useRepoIdentity();
+  const {
+    pendingFileChanges,
+    busy,
+    commitDraft,
+    setCommitDraft,
+    createCommitAction,
+  } = useRepoState();
+  const pendingChanges: ReadonlyArray<RepositoryFileMutation> = pendingFileChanges;
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [signOff, setSignOff] = useState(true);
@@ -75,22 +62,33 @@ export function CommitDialog({
 
   useEffect(() => {
     if (open) {
-      setAuthorName(defaultAuthor ?? '');
+      setTitle(commitDraft.title || '');
+      setDescription(commitDraft.description || '');
+      setSignOff(commitDraft.sign_off);
+      setAuthorName(commitDraft.author_name ?? '');
     }
-  }, [open, defaultAuthor]);
+  }, [open, commitDraft.title, commitDraft.description, commitDraft.sign_off, commitDraft.author_name]);
 
   if (!open) return null;
 
+  const branchName = currentBranch;
   const canSubmit = title.trim().length > 0 && pendingChanges.length > 0 && !busy;
 
   async function handleSubmit() {
     if (!canSubmit) return;
-    await onSubmit({
+    setCommitDraft({
+      branch_name: branchName,
       title: title.trim(),
       description: description.trim(),
       sign_off: signOff,
-      author_name: authorName.trim() || undefined,
+      author_name: authorName.trim() || '',
     });
+    await createCommitAction();
+    dialogs.close('commit');
+  }
+
+  function onClose() {
+    dialogs.close('commit');
   }
 
   return (

@@ -180,6 +180,7 @@ export function FilesPanel() {
   return (
     <aside
       aria-label="Files panel"
+      data-tour="files-panel"
       className="flex flex-col w-64 shrink-0 border-r border-of-border bg-of-surface"
     >
       <header className="flex items-center h-9 px-2 border-b border-of-border bg-of-surface-raised">

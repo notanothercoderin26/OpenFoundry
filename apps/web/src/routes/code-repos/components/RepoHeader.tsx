@@ -7,10 +7,9 @@ import { StarFavoriteButton } from '@/lib/components/ui/StarFavoriteButton';
 import { favorites, useIsFavorite } from '@stores/favorites';
 import { notifications } from '@stores/notifications';
 
-import { ResetDialog } from '../dialogs/ResetDialog';
-import { ShareDialog } from '../dialogs/ShareDialog';
-import { UpgradeDialog } from '../dialogs/UpgradeDialog';
 import { useRepoIdentity } from '../state/RepoContext';
+import { dialogs } from '../state/useDialogs';
+import { tour } from '../state/useTour';
 
 import { HeaderMenu } from './HeaderMenu';
 
@@ -35,9 +34,6 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
 
   const cloneTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [cloneOpen, setCloneOpen] = useState(false);
-  const [resetOpen, setResetOpen] = useState(false);
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
 
   async function copyToClipboard(value: string, label: string) {
     try {
@@ -54,7 +50,7 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
       label: 'Take the tour',
       glyph: 'tour' as const,
       description: 'Step-by-step walkthrough of the IDE.',
-      onSelect: () => notifications.info('In-app tour ships in Phase 3'),
+      onSelect: () => tour.start(),
     },
     {
       id: 'docs',
@@ -67,7 +63,8 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
       label: 'Keyboard shortcuts',
       glyph: 'asterisk' as const,
       shortcut: 'F1',
-      onSelect: () => notifications.info('Command palette ships in Phase 3 (F1)'),
+      onSelect: () =>
+        window.dispatchEvent(new CustomEvent('of:code-repos:command-palette')),
     },
   ];
 
@@ -77,13 +74,13 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
       label: 'Reset branch…',
       glyph: 'undo' as const,
       description: `Discard uncommitted changes on ${currentBranch}.`,
-      onSelect: () => setResetOpen(true),
+      onSelect: () => dialogs.open('reset'),
     },
     {
       id: 'upgrade',
       label: 'Upgrade language versions…',
       glyph: 'shield-plus' as const,
-      onSelect: () => setUpgradeOpen(true),
+      onSelect: () => dialogs.open('upgrade'),
     },
   ];
 
@@ -218,16 +215,13 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
           type="button"
           className="inline-flex items-center gap-1.5 h-8 px-3 rounded-of-sm text-of-12 font-of-medium text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
           title="Share repository"
-          onClick={() => setShareOpen(true)}
+          onClick={() => dialogs.open('share')}
         >
           <Glyph name="users" size={14} tone="currentColor" />
           Share
         </button>
       </div>
 
-      <ResetDialog open={resetOpen} onClose={() => setResetOpen(false)} />
-      <UpgradeDialog open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
-      <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} />
     </header>
   );
 }

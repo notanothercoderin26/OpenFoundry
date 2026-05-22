@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react';
 import type { MergeRequestDefinition, MergeRequestStatus } from '@/lib/api/code-repos';
 import { Glyph } from '@/lib/components/ui/Glyph';
 
-import { NewMergeRequestDialog } from '../../dialogs/NewMergeRequestDialog';
 import { useRepoIdentity, useRepoState } from '../../state/RepoContext';
+import { dialogs } from '../../state/useDialogs';
 
 import { PullRequestDetail } from './PullRequestDetail';
 
@@ -42,16 +42,13 @@ export function PullRequestsTab() {
     selectedMergeRequestId,
     mergeRequestDetail,
     branchOptions,
-    busy,
     selectMergeRequest,
-    createMergeRequestAction,
     setMergeRequestDraft,
     pendingFileChanges,
   } = useRepoState();
 
   const [filter, setFilter] = useState<Filter>('open');
   const [search, setSearch] = useState('');
-  const [composerOpen, setComposerOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const lower = search.trim().toLowerCase();
@@ -73,29 +70,13 @@ export function PullRequestsTab() {
     return <PullRequestDetail onBackToList={() => void selectMergeRequest('')} />;
   }
 
-  async function handleSubmit(draft: {
-    title: string;
-    description: string;
-    source_branch: string;
-    target_branch: string;
-    author: string;
-    labels: string[];
-    reviewers: string[];
-    approvals_required: number;
-  }) {
+  function openComposer() {
     setMergeRequestDraft({
-      title: draft.title,
-      description: draft.description,
-      source_branch: draft.source_branch,
-      target_branch: draft.target_branch,
-      author: draft.author,
-      labels_text: draft.labels.join(', '),
-      reviewers_text: draft.reviewers.join(', '),
-      approvals_required: String(draft.approvals_required),
+      source_branch: branchOptions.find((branch) => branch !== repository.default_branch) ?? '',
+      target_branch: repository.default_branch,
       changed_files: String(pendingFileChanges.length || 0),
     });
-    await createMergeRequestAction();
-    setComposerOpen(false);
+    dialogs.open('new-pull-request');
   }
 
   return (
@@ -133,7 +114,7 @@ export function PullRequestsTab() {
 
         <button
           type="button"
-          onClick={() => setComposerOpen(true)}
+          onClick={openComposer}
           className="ml-auto inline-flex items-center gap-1.5 h-8 px-3 rounded-of-sm text-of-12 font-of-medium bg-of-success text-white hover:opacity-90"
         >
           <Glyph name="plus" size={12} tone="currentColor" />
@@ -159,16 +140,6 @@ export function PullRequestsTab() {
         )}
       </section>
 
-      <NewMergeRequestDialog
-        open={composerOpen}
-        onClose={() => setComposerOpen(false)}
-        sourceBranch={branchOptions.find((branch) => branch !== repository.default_branch) ?? ''}
-        defaultTargetBranch={repository.default_branch}
-        availableTargets={branchOptions}
-        defaultAuthor={undefined}
-        busy={busy}
-        onSubmit={handleSubmit}
-      />
     </div>
   );
 }

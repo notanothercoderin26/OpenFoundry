@@ -5,8 +5,8 @@ import type { BranchDefinition, MergeRequestDefinition } from '@/lib/api/code-re
 import { Glyph } from '@/lib/components/ui/Glyph';
 import { notifications } from '@stores/notifications';
 
-import { NewBranchDialog } from '../../dialogs/NewBranchDialog';
 import { useRepoIdentity, useRepoState } from '../../state/RepoContext';
+import { dialogs } from '../../state/useDialogs';
 
 import { TagsPanel } from './TagsPanel';
 
@@ -74,7 +74,6 @@ export function BranchesTab() {
 
   const [mode, setMode] = useState<Mode>('branches');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [newBranchOpen, setNewBranchOpen] = useState(false);
 
   const viewerKey = viewerKeyFromUser(currentUser?.name, currentUser?.email);
   const groups = useMemo(() => classify(branches, viewerKey), [branches, viewerKey]);
@@ -121,10 +120,9 @@ export function BranchesTab() {
           mode={mode}
           onChange={setMode}
           totalBranches={branches.length}
-          onNewBranch={() => setNewBranchOpen(true)}
+          onNewBranch={() => dialogs.open('new-branch')}
         />
         <TagsPanel />
-        <NewBranchDialog open={newBranchOpen} onClose={() => setNewBranchOpen(false)} />
       </div>
     );
   }
@@ -135,7 +133,7 @@ export function BranchesTab() {
         mode={mode}
         onChange={setMode}
         totalBranches={branches.length}
-        onNewBranch={() => setNewBranchOpen(true)}
+        onNewBranch={() => dialogs.open('new-branch')}
       />
 
       {selected.size > 0 ? (
@@ -208,7 +206,6 @@ export function BranchesTab() {
         onPropose={startProposeChanges}
       />
 
-      <NewBranchDialog open={newBranchOpen} onClose={() => setNewBranchOpen(false)} />
     </div>
   );
 }

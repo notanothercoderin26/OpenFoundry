@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react';
 import { Glyph } from '@/lib/components/ui/Glyph';
 import { notifications } from '@stores/notifications';
 
-import { NewTagDialog } from '../../dialogs/NewTagDialog';
 import { useRepoIdentity, useRepoState } from '../../state/RepoContext';
+import { dialogs } from '../../state/useDialogs';
 
 interface TagValidationSettings {
   regex?: string;
@@ -32,7 +32,6 @@ function readTagValidation(settings: Record<string, unknown> | undefined): TagVa
 export function TagsPanel() {
   const { repository } = useRepoIdentity();
   const { tags, branches, createTagAction, busy } = useRepoState();
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState('');
   const [target, setTarget] = useState<string>(repository.default_branch);
   const [message, setMessage] = useState('');
@@ -65,7 +64,7 @@ export function TagsPanel() {
         <h3 className="text-of-14 font-of-semibold">{tags.length} tags</h3>
         <button
           type="button"
-          onClick={() => setDialogOpen(true)}
+          onClick={() => dialogs.open('new-tag')}
           className="ml-auto inline-flex items-center gap-1.5 h-8 px-3 rounded-of-sm text-of-12 font-of-medium bg-of-success text-white hover:opacity-90"
         >
           <Glyph name="plus" size={12} tone="currentColor" />
@@ -179,7 +178,6 @@ export function TagsPanel() {
         )}
       </section>
 
-      <NewTagDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
     </div>
   );
 }

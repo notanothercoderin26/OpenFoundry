@@ -75,6 +75,7 @@ export function RepoStatusBar() {
 
   return (
     <footer
+      data-tour="status-bar"
       className="flex items-center h-6 px-3 gap-4 border-t border-of-border text-of-12 text-of-text-muted"
       style={{ background: 'var(--bg-default)' }}
     >

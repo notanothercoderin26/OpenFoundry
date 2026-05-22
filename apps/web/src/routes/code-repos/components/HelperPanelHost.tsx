@@ -81,6 +81,7 @@ export function HelperPanelHost() {
   return (
     <section
       aria-label="Bottom helper panel"
+      data-tour="helpers"
       className="flex flex-col shrink-0 border-t border-of-border bg-of-surface-raised"
       style={{ height: collapsed ? 34 : 34 + height }}
     >
