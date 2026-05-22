@@ -115,7 +115,7 @@ jobs:
         with:
           version: 1.47.2
       - run: buf lint
-      - run: buf generate
+      - run: make gen-proto
       - name: ensure no drift between checked-in & generated proto
         run: |
           status="$(git status --porcelain=v1 --untracked-files=all -- libs/proto-gen)"

@@ -50,6 +50,11 @@ gen: gen-proto gen-sqlc contracts-gen ## Run all code generators.
 gen-proto: ## Generate Go from .proto via buf.
 	@command -v buf >/dev/null 2>&1 || { echo "buf not found — run 'make tools'"; exit 1; }
 	buf generate
+	@# Drop gRPC stubs whose services are exposed only via REST/JSON; the
+	@# .proto service{} blocks must stay (OpenAPI + SDK generators read
+	@# them) but the Go gRPC client/server code is dead weight.
+	rm -f libs/proto-gen/ai/v1/llm_catalog_grpc.pb.go \
+	      libs/proto-gen/audit/v1/audit_grpc.pb.go
 
 .PHONY: gen-sqlc
 gen-sqlc: ## Generate type-safe DB code via sqlc.
