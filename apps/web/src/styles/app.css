@@ -7022,3 +7022,16 @@ button {
     padding: 18px 18px 36px;
   }
 }
+
+/* Monaco IDE decorations used by the Code Repositories editor. */
+.of-monaco-breakpoint {
+  background: radial-gradient(circle at center, #b42318 0 4px, transparent 4px);
+}
+
+.of-monaco-execution-line {
+  background: rgba(33, 93, 176, 0.12);
+}
+
+.of-monaco-execution-glyph {
+  background: linear-gradient(90deg, transparent 0 4px, #215db0 4px 8px, transparent 8px);
+}

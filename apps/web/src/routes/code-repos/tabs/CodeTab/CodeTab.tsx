@@ -1,75 +1,95 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { DiffViewer } from '@/lib/components/code-repo/DiffViewer';
-import { FileViewer } from '@/lib/components/code-repo/FileViewer';
 
 import { CodeTabActionBar } from '../../components/CodeTabActionBar';
+import { EditorHomeView } from '../../components/EditorHomeView';
+import { EditorPanel } from '../../components/EditorPanel';
+import { EditorTabBar } from '../../components/EditorTabBar';
 import { FilesPanel } from '../../components/FilesPanel';
 import { LeftRail, type LeftPanelId } from '../../components/LeftRail';
 import { SearchPanel } from '../../components/SearchPanel';
 import { useRepoState } from '../../state/RepoContext';
+import { openFiles, useActivePath, useOpenFiles } from '../../state/useOpenFiles';
 
 /**
- * The Code tab now follows the Foundry IDE layout:
+ * Foundry IDE layout for the Code tab:
  *
  *   [           Action bar (full width)                ]
- *   [ LeftRail | (Files | Search) | Editor | DiffViewer]
+ *   [ Rail | (Files|Search) | EditorTabBar           | DiffViewer ]
+ *                              EditorPanel / Home
  *
- * LeftRail toggles between FilesPanel and SearchPanel. The middle column
- * still uses the legacy FileViewer for editing — its tree and search are
- * hidden with the new props so the new side panels become the single
- * source of truth for navigation and search. The full multi-tab editor
- * arrives in the next F1 subtask (Task 4).
+ * The middle column drives the multi-tab editor: tabs come from
+ * useOpenFiles, content from useRepoState.files (with dirty overlay), and
+ * persistence from saveFileAction on blur. When no tabs are open the
+ * EditorHomeView shows a Foundry-style dashboard for the repository.
  */
 export function CodeTab() {
   const {
-    files,
     selectedFilePath,
-    searchQuery,
-    searchResults,
-    busy,
     branchOptions,
     diffBranch,
     diffPatch,
-    selectFile,
-    setSearchQuery,
-    runSearchAction,
-    saveFileAction,
-    fileTreeAction,
-    setPendingFileChanges,
+    busy,
     refreshDiff,
+    setPendingFileChanges,
+    files,
   } = useRepoState();
 
   const [activeLeftPanel, setActiveLeftPanel] = useState<LeftPanelId>('files');
+  const activePath = useActivePath();
+  const { dirty, openFiles: openTabs } = useOpenFiles();
+
+  // Forward every dirty file in useOpenFiles into pendingFileChanges so
+  // the Commit dialog and the status bar dirty count stay accurate.
+  useEffect(() => {
+    const entries = Object.entries(dirty).map(([path, content]) => {
+      const file = files.find((entry) => entry.path === path);
+      return {
+        action: 'save' as const,
+        path,
+        content,
+        branch_name: file?.branch_name,
+      };
+    });
+    setPendingFileChanges(entries);
+  }, [dirty, files, setPendingFileChanges]);
+
+  // First file becomes the implicit "open tab" once data is loaded so the
+  // editor is never blank for an empty session.
+  useEffect(() => {
+    const snapshot = openFiles.getSnapshot();
+    if (snapshot.openFiles.length > 0) return;
+    if (selectedFilePath) {
+      const file = files.find((entry) => entry.path === selectedFilePath);
+      openFiles.open(selectedFilePath, file?.language);
+      return;
+    }
+    const fallback = files[0];
+    if (fallback) {
+      openFiles.open(fallback.path, fallback.language);
+    }
+  }, [selectedFilePath, files]);
+
+  const hasTabs = openTabs.length > 0;
 
   return (
     <div className="flex flex-col">
       <CodeTabActionBar />
-      <div className="flex min-h-[calc(100vh-160px)]">
+      <div className="flex min-h-[calc(100vh-180px)]">
         <LeftRail active={activeLeftPanel} onChange={setActiveLeftPanel} />
         {activeLeftPanel === 'files' ? <FilesPanel /> : <SearchPanel />}
-        <div
-          className="grid gap-4 p-4 flex-1 min-w-0"
-          style={{ gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 0.8fr)' }}
-        >
-          <FileViewer
-            files={files}
-            selectedFilePath={selectedFilePath}
-            searchQuery={searchQuery}
-            searchResults={searchResults}
-            busy={busy}
-            hideHeader
-            hideTree
-            hideSearchResults
-            onSelectFile={selectFile}
-            onSearchQueryChange={setSearchQuery}
-            onRunSearch={() => void runSearchAction()}
-            onSaveFile={(file, content) => void saveFileAction(file, content)}
-            onFileAction={(action, path, nextPath, content) =>
-              void fileTreeAction(action, path, nextPath, content)
-            }
-            onPendingFileChanges={setPendingFileChanges}
-          />
+
+        <div className="flex flex-col flex-1 min-w-0 border-r border-of-border">
+          <EditorTabBar />
+          {hasTabs && activePath ? (
+            <EditorPanel />
+          ) : (
+            <EditorHomeView />
+          )}
+        </div>
+
+        <aside className="w-[36%] min-w-[280px] max-w-[520px] p-4 overflow-auto">
           <DiffViewer
             availableBranches={branchOptions}
             branchName={diffBranch}
@@ -77,7 +97,7 @@ export function CodeTab() {
             busy={busy}
             onSelectBranch={(branch) => void refreshDiff(branch)}
           />
-        </div>
+        </aside>
       </div>
     </div>
   );
