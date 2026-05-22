@@ -250,6 +250,10 @@ export const router = createBrowserRouter([
       },
       {
         path: 'code-repos',
+        lazy: async () => ({ Component: (await import('./routes/code-repos/RepoListPage')).RepoListPage }),
+      },
+      {
+        path: 'code-repos/:repoId',
         lazy: async () => ({ Component: (await import('./routes/code-repos/CodeReposPage')).CodeReposPage }),
       },
       // No canonical equivalent for Marketplace; send to Workspace.
