@@ -3658,6 +3658,173 @@ button {
   line-height: 1.5;
 }
 
+/* Notepad document topbar (T4.1) — narrow application-bar strip with
+   the breadcrumb on the left, star + lock indicator next to it, and
+   the Actions ▾ / + New ▾ buttons on the right. */
+.of-doc-topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--toolbar-border);
+  background: var(--toolbar-bg);
+}
+
+.of-doc-topbar__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-13);
+}
+
+.of-doc-topbar__crumb {
+  min-width: 0;
+  color: var(--text-default);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.of-doc-topbar__crumb--link {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  max-width: 200px;
+}
+
+.of-doc-topbar__crumb--link:hover {
+  color: var(--accent-link);
+  text-decoration: none;
+}
+
+.of-doc-topbar__crumb--current {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.of-doc-topbar__sep {
+  color: var(--text-soft);
+  flex-shrink: 0;
+}
+
+.of-doc-topbar__meta {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.of-doc-topbar__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.of-doc-topbar__icon-btn:hover:not(:disabled) {
+  background: var(--row-hover);
+  color: var(--text-strong);
+}
+
+.of-doc-topbar__icon-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.of-doc-topbar__icon-btn--star[aria-pressed='true'] {
+  color: #f59e0b;
+}
+
+.of-doc-topbar__icon-btn--static {
+  cursor: default;
+}
+
+.of-doc-topbar__icon-btn--static:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.of-doc-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.of-doc-topbar__menu-wrap {
+  position: relative;
+}
+
+.of-doc-topbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-topbar-action);
+  border-radius: var(--radius-sm);
+  background: var(--surface-panel);
+  color: var(--text-default);
+  font-size: var(--text-12);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.of-doc-topbar__btn:hover {
+  background: var(--row-hover);
+}
+
+.of-doc-topbar__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-popover);
+}
+
+.of-doc-topbar__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-default);
+  font-size: var(--text-13);
+  text-align: left;
+  cursor: pointer;
+}
+
+.of-doc-topbar__menu-item:hover:not(:disabled) {
+  background: var(--row-hover);
+}
+
+.of-doc-topbar__menu-item:disabled {
+  color: var(--text-soft);
+  cursor: not-allowed;
+}
+
+.of-doc-topbar__menu-item--danger {
+  color: var(--accent-danger);
+}
+
+.of-doc-topbar__menu-item--danger:hover:not(:disabled) {
+  background: rgba(180, 35, 24, 0.08);
+}
+
 .of-topbar__identity {
   display: grid;
   min-width: 0;

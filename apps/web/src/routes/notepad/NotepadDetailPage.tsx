@@ -7,6 +7,10 @@ import {
   listKnowledgeBases,
   type KnowledgeBase,
 } from '@/lib/api/ai';
+import {
+  DocumentTopbar,
+  type DocumentTopbarAction,
+} from '@/lib/components/notepad/DocumentTopbar';
 import { SaveAsTemplateModal } from '@/lib/components/notepad/TemplateModals';
 import { TipTapEditor } from '@/lib/components/notepad/TipTapEditor';
 import { VersionHistoryPanel } from '@/lib/components/notepad/VersionHistoryPanel';
@@ -415,125 +419,102 @@ export function NotepadDetailPage() {
     );
   }
 
+  const documentTitle = doc.title.trim() || 'Untitled document';
+  // Bag of operations the legacy header exposed. Lives in the Actions ▾
+  // dropdown until T4.2 splits these across File / View / Help menus
+  // and T4.3 retires Save into autosave.
+  const topbarActions: DocumentTopbarAction[] = [
+    {
+      key: 'history',
+      label: historyOpen ? 'Hide version history' : 'Version history',
+      icon: 'history',
+      onClick: () => setHistoryOpen((open) => !open),
+    },
+    {
+      key: 'save-as-template',
+      label: 'Save as template…',
+      icon: 'duplicate',
+      disabled: previewRevision !== null,
+      onClick: () => setShowSaveAsTemplate(true),
+    },
+    {
+      key: 'print',
+      label: 'Print…',
+      icon: 'document',
+      disabled: exporting,
+      onClick: () => void openPrintView(),
+    },
+    {
+      key: 'export-pdf',
+      label: exporting ? 'Exporting…' : 'Export as PDF…',
+      icon: 'document',
+      disabled: exporting,
+      onClick: () => void exportBinary('pdf'),
+    },
+    {
+      key: 'export-docx',
+      label: exporting ? 'Exporting…' : 'Export as DOCX…',
+      icon: 'document',
+      disabled: exporting,
+      onClick: () => void exportBinary('docx'),
+    },
+    {
+      key: 'export-html',
+      label: exporting ? 'Exporting…' : 'Export as HTML…',
+      icon: 'document',
+      disabled: exporting,
+      onClick: () => void exportHTML(),
+    },
+    {
+      key: 'save',
+      label: saving ? 'Saving…' : 'Save now',
+      icon: 'autosaved',
+      disabled: saving || exporting || previewRevision !== null,
+      onClick: () => void saveDocument(),
+    },
+    {
+      key: 'close',
+      label: 'Close document',
+      icon: 'x',
+      onClick: () => navigate('/notepad'),
+    },
+  ];
+
   return (
     <section className="of-page" style={{ display: 'grid', gap: 16 }}>
-      <div className="of-panel" style={{ padding: 24 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-          <div style={{ maxWidth: 720, display: 'grid', gap: 12 }}>
-            <Link to="/notepad" className="of-link" style={{ fontSize: 13 }}>
-              Back to notepad
-            </Link>
-            <input
-              type="text"
-              value={doc.title}
-              onChange={(e) => patchDoc({ title: e.target.value })}
-              placeholder="Document title"
-              style={{
-                width: '100%',
-                background: 'transparent',
-                fontSize: 28,
-                fontWeight: 700,
-                letterSpacing: 0,
-                color: 'var(--text-strong)',
-                border: 0,
-                outline: 'none',
-              }}
-            />
-            <textarea
-              rows={2}
-              value={doc.description}
-              onChange={(e) => patchDoc({ description: e.target.value })}
-              placeholder="What should readers understand after opening this document?"
-              style={{
-                width: '100%',
-                resize: 'none',
-                background: 'transparent',
-                fontSize: 14,
-                lineHeight: 1.7,
-                color: 'var(--text-muted)',
-                border: 0,
-                outline: 'none',
-              }}
-            />
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {doc.template_key && (
-                <span className="of-chip" style={{ fontSize: 11 }}>
-                  {doc.template_key}
-                </span>
-              )}
-              <span className="of-chip" style={{ fontSize: 11 }}>
-                {documentWidgets(doc).length} embeds
-              </span>
-              {doc.last_indexed_at && (
-                <span className="of-chip of-status-success" style={{ fontSize: 11 }}>
-                  Indexed in AIP
-                </span>
-              )}
-            </div>
-          </div>
+      <DocumentTopbar
+        title={documentTitle}
+        folder="Personal"
+        isFavorite={doc.is_favorite}
+        // TODO(T8.3): wire to POST /notepad/documents/:id/favorite once
+        // the toggle endpoint exists. Until then the star is read-only.
+        actions={topbarActions}
+        newAction={{
+          primaryLabel: 'New document',
+          primaryTo: '/notepad?new=blank',
+          menu: [
+            { label: 'New from template', to: '/notepad?new=from-template' },
+            { label: 'New document template', to: '/notepad?new=template' },
+          ],
+        }}
+      />
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            <button type="button" className="of-btn" onClick={() => navigate('/notepad')}>
-              Close
-            </button>
-            <button
-              type="button"
-              className="of-btn"
-              onClick={() => setHistoryOpen((open) => !open)}
-              title="Toggle version history panel"
-            >
-              {historyOpen ? 'Hide history' : 'Version history'}
-            </button>
-            <button
-              type="button"
-              className="of-btn"
-              onClick={() => setShowSaveAsTemplate(true)}
-              title="Save the current document as a reusable template"
-              disabled={previewRevision !== null}
-            >
-              Save as template
-            </button>
-            <button type="button" className="of-btn" onClick={() => void openPrintView()} disabled={exporting}>
-              Print
-            </button>
-            <button type="button" className="of-btn" onClick={() => void exportBinary('pdf')} disabled={exporting}>
-              {exporting ? 'Exporting…' : 'Export PDF'}
-            </button>
-            <button type="button" className="of-btn" onClick={() => void exportBinary('docx')} disabled={exporting}>
-              {exporting ? 'Exporting…' : 'Export DOCX'}
-            </button>
-            <button type="button" className="of-btn" onClick={() => void exportHTML()} disabled={exporting}>
-              {exporting ? 'Exporting…' : 'Export HTML'}
-            </button>
-            <button
-              type="button"
-              className="of-btn of-btn-primary"
-              onClick={() => void saveDocument()}
-              disabled={saving || exporting || previewRevision !== null}
-              title={previewRevision !== null ? 'Revert to a past version to enable Save' : 'Save current edits'}
-            >
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
+      {error && (
+        <div
+          className="of-status-danger"
+          style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
+        >
+          {error}
         </div>
-
-        {error && (
-          <div
-            className="of-status-danger"
-            style={{ marginTop: 16, padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
-          >
-            {error}
-          </div>
-        )}
-        {exportNotice && (
-          <div
-            className="of-status-success"
-            style={{ marginTop: 16, padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
-          >
-            {exportNotice}
-          </div>
-        )}
-      </div>
+      )}
+      {exportNotice && (
+        <div
+          className="of-status-success"
+          style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
+        >
+          {exportNotice}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
         <div style={{ display: 'grid', gap: 16 }}>
