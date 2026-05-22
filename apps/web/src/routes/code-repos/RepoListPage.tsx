@@ -12,8 +12,6 @@ import {
 import { RepoExplorer, type RepositoryDraft } from '@/lib/components/code-repo/RepoExplorer';
 import { notifications } from '@stores/notifications';
 
-import { repoToDraft } from './state/useRepoData';
-
 function emptyRepoDraft(): RepositoryDraft {
   return {
     name: 'Foundry Widget Kit',
@@ -187,24 +185,31 @@ export function RepoListPage() {
         </div>
       )}
 
+      {!loading && repositories.length === 0 && (
+        <div className="of-panel-muted" style={{ padding: 24, borderRadius: 16, textAlign: 'center' }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-strong)' }}>No repositories yet</p>
+          <p className="of-text-muted" style={{ marginTop: 6, fontSize: 13 }}>
+            Use the form below to create your first repository. Selecting an existing repo will open it in the
+            authoring IDE.
+          </p>
+        </div>
+      )}
+
       <RepoExplorer
         overview={overview}
         repositories={repositories}
-        selectedRepositoryId={draft.id ?? ''}
+        selectedRepositoryId=""
         draft={draft}
         busy={loading || busy}
         onSelectRepository={(id) => {
+          // Clicking any existing repo (in the dropdown or the card grid)
+          // navigates straight into the IDE. The empty option ('Create a
+          // new repository') only resets the draft.
           if (!id) {
             setDraft(emptyRepoDraft());
             return;
           }
-          const repository = repositories.find((entry) => entry.id === id);
-          if (!repository) return;
-          // Navigate into the IDE rather than just editing the form — the
-          // form is reserved for creating a repo or editing one inline; deep
-          // configuration lives in the Settings tab of the IDE.
-          navigate(`/code-repos/${repository.id}`);
-          setDraft(repoToDraft(repository));
+          navigate(`/code-repos/${id}`);
         }}
         onDraftChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
         onSave={() => void save()}

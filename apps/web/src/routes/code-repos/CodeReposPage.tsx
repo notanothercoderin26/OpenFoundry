@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useParams } from 'react-router-dom';
 
 import { Glyph } from '@/lib/components/ui/Glyph';
 
@@ -26,15 +26,13 @@ import { SettingsTab } from './tabs/SettingsTab/SettingsTab';
  */
 export function CodeReposPage() {
   const { repoId } = useParams<{ repoId: string }>();
-  const navigate = useNavigate();
   const data = useRepoData(repoId ?? null);
   const [activeTab, setActiveTab] = useState<RepoTabId>('code');
 
   if (!repoId) {
     // Defensive — the router should never reach this page without a repoId,
     // but if it does, bounce back to the list rather than throwing.
-    navigate('/code-repos', { replace: true });
-    return null;
+    return <Navigate to="/code-repos" replace />;
   }
 
   if (data.loading) {
@@ -51,13 +49,12 @@ export function CodeReposPage() {
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-3rem)] gap-3 text-of-text-muted">
         <p className="text-of-14 font-of-semibold text-of-text">Repository not found</p>
         <p className="text-of-13">{data.uiError || `No repository with id ${repoId}.`}</p>
-        <button
-          type="button"
-          onClick={() => navigate('/code-repos')}
+        <Link
+          to="/code-repos"
           className="inline-flex items-center gap-1.5 h-8 px-3 rounded-of-sm text-of-12 font-of-medium bg-of-accent text-white hover:bg-of-accent-hover"
         >
           Back to Code Repositories
-        </button>
+        </Link>
       </div>
     );
   }

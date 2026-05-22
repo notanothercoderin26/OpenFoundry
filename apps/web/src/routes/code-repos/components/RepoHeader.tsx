@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { Glyph } from '@/lib/components/ui/Glyph';
 import { notifications } from '@stores/notifications';
@@ -38,23 +38,21 @@ export function RepoHeader({ unreadNotificationCount = 0 }: RepoHeaderProps) {
 
   return (
     <header className="flex items-center h-12 px-3 gap-2 border-b border-of-border bg-of-surface-raised">
-      <button
-        type="button"
-        onClick={() => navigate('/code-repos')}
+      <Link
+        to="/code-repos"
         className="inline-flex items-center justify-center w-8 h-8 rounded-of-sm text-of-text-muted hover:bg-of-surface-muted hover:text-of-text"
         title="Back to Code Repositories"
       >
         <Glyph name="code" size={16} tone="currentColor" />
-      </button>
+      </Link>
 
       <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-of-13 text-of-text-muted min-w-0">
-        <button
-          type="button"
-          onClick={() => navigate('/code-repos')}
+        <Link
+          to="/code-repos"
           className="hover:text-of-text hover:underline truncate"
         >
           {repository.owner || 'Code Repositories'}
-        </button>
+        </Link>
         <span aria-hidden className="text-of-text-soft">›</span>
         <span className="text-of-text-soft truncate" title={repository.slug}>
           …

@@ -249,12 +249,22 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/audit/AuditPage')).AuditPage }),
       },
       {
+        // The Code Repositories surface is two routes:
+        //   • index → RepoListPage (catalog + create form)
+        //   • :repoId → CodeReposPage (per-repo IDE shell)
+        // Foundry models the IDE as per-repo, so the listing must stay
+        // out of the IDE itself.
         path: 'code-repos',
-        lazy: async () => ({ Component: (await import('./routes/code-repos/RepoListPage')).RepoListPage }),
-      },
-      {
-        path: 'code-repos/:repoId',
-        lazy: async () => ({ Component: (await import('./routes/code-repos/CodeReposPage')).CodeReposPage }),
+        children: [
+          {
+            index: true,
+            lazy: async () => ({ Component: (await import('./routes/code-repos/RepoListPage')).RepoListPage }),
+          },
+          {
+            path: ':repoId',
+            lazy: async () => ({ Component: (await import('./routes/code-repos/CodeReposPage')).CodeReposPage }),
+          },
+        ],
       },
       // No canonical equivalent for Marketplace; send to Workspace.
       { path: 'marketplace', loader: redirectTo('/') },
