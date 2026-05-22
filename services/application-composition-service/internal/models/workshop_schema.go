@@ -6,7 +6,23 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/openfoundry/openfoundry-go/services/application-composition-service/internal/transforms"
 )
+
+// VariableKindTransformation is the Kind value reserved for variables
+// whose value is produced by a transformation pipeline.
+const VariableKindTransformation = "transformation"
+
+// WorkshopTransformation re-exports the transforms package type so
+// existing consumers can keep referencing it under the models namespace.
+type WorkshopTransformation = transforms.WorkshopTransformation
+
+// TransformStep re-exports the transforms package type.
+type TransformStep = transforms.TransformStep
+
+// StepInput re-exports the transforms package type.
+type StepInput = transforms.StepInput
 
 const WorkshopAppSchemaVersion = "2026-05-11.ws.1"
 
@@ -66,19 +82,20 @@ type AppRuntimeMetadata struct {
 }
 
 type WorkshopVariable struct {
-	ID               string           `json:"id"`
-	Kind             string           `json:"kind"`
-	Name             string           `json:"name"`
-	ObjectTypeID     string           `json:"object_type_id,omitempty"`
-	ObjectSetID      string           `json:"object_set_id,omitempty"`
-	SavedObjectSetID string           `json:"saved_object_set_id,omitempty"`
-	SourceWidgetID   string           `json:"source_widget_id,omitempty"`
-	SourceVariableID string           `json:"source_variable_id,omitempty"`
-	FilterVariableID string           `json:"filter_variable_id,omitempty"`
-	StaticFilter     map[string]any   `json:"static_filter,omitempty"`
-	StaticFilters    []map[string]any `json:"static_filters,omitempty"`
-	DefaultValue     json.RawMessage  `json:"default_value,omitempty"`
-	Metadata         map[string]any   `json:"metadata,omitempty"`
+	ID               string                  `json:"id"`
+	Kind             string                  `json:"kind"`
+	Name             string                  `json:"name"`
+	ObjectTypeID     string                  `json:"object_type_id,omitempty"`
+	ObjectSetID      string                  `json:"object_set_id,omitempty"`
+	SavedObjectSetID string                  `json:"saved_object_set_id,omitempty"`
+	SourceWidgetID   string                  `json:"source_widget_id,omitempty"`
+	SourceVariableID string                  `json:"source_variable_id,omitempty"`
+	FilterVariableID string                  `json:"filter_variable_id,omitempty"`
+	StaticFilter     map[string]any          `json:"static_filter,omitempty"`
+	StaticFilters    []map[string]any        `json:"static_filters,omitempty"`
+	DefaultValue     json.RawMessage         `json:"default_value,omitempty"`
+	Metadata         map[string]any          `json:"metadata,omitempty"`
+	Transformation   *WorkshopTransformation `json:"transformation,omitempty"`
 }
 
 type PageLayout struct {
@@ -528,41 +545,91 @@ func normalizeSettings(raw json.RawMessage, pages []AppPage, slug, status string
 	if _, ok := settings["workshop_variables"]; !ok {
 		settings["workshop_variables"] = []WorkshopVariable{}
 	}
-	if err := validateWorkshopVariables(settings["workshop_variables"]); err != nil {
+	normalizedVars, err := validateWorkshopVariables(settings["workshop_variables"])
+	if err != nil {
 		return nil, err
 	}
+	settings["workshop_variables"] = normalizedVars
 	return settings, nil
 }
 
-func validateWorkshopVariables(raw any) error {
+func validateWorkshopVariables(raw any) ([]WorkshopVariable, error) {
 	bytes, err := json.Marshal(raw)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var variables []WorkshopVariable
 	if err := json.Unmarshal(bytes, &variables); err != nil {
-		return newValidationError("invalid_variables", "settings.workshop_variables",
+		return nil, newValidationError("invalid_variables", "settings.workshop_variables",
 			fmt.Sprintf("workshop_variables must be an array: %v", err))
 	}
+
 	seen := map[string]bool{}
-	for i, variable := range variables {
+	for i := range variables {
 		itemPath := fmt.Sprintf("settings.workshop_variables[%d]", i)
-		if strings.TrimSpace(variable.ID) == "" {
-			return newValidationError("missing_id", itemPath+".id", "id is required")
+		v := &variables[i]
+		if strings.TrimSpace(v.ID) == "" {
+			return nil, newValidationError("missing_id", itemPath+".id", "id is required")
 		}
-		if seen[variable.ID] {
-			return newValidationError("duplicate_variable_id", itemPath+".id",
-				fmt.Sprintf("duplicate workshop variable id %q", variable.ID))
+		if seen[v.ID] {
+			return nil, newValidationError("duplicate_variable_id", itemPath+".id",
+				fmt.Sprintf("duplicate workshop variable id %q", v.ID))
 		}
-		seen[variable.ID] = true
-		if strings.TrimSpace(variable.Kind) == "" {
-			return newValidationError("missing_kind", itemPath+".kind", "kind is required")
+		seen[v.ID] = true
+		if strings.TrimSpace(v.Kind) == "" {
+			return nil, newValidationError("missing_kind", itemPath+".kind", "kind is required")
 		}
-		if strings.TrimSpace(variable.Name) == "" {
-			return newValidationError("missing_name", itemPath+".name", "name is required")
+		if strings.TrimSpace(v.Name) == "" {
+			return nil, newValidationError("missing_name", itemPath+".name", "name is required")
+		}
+		if v.Kind == VariableKindTransformation && v.Transformation == nil {
+			return nil, newValidationError("missing_transformation", itemPath+".transformation",
+				"variables of kind \"transformation\" must declare a transformation")
+		}
+		if v.Kind != VariableKindTransformation && v.Transformation != nil {
+			return nil, newValidationError("unexpected_transformation", itemPath+".transformation",
+				fmt.Sprintf("transformation is only allowed on kind \"transformation\" (got %q)", v.Kind))
 		}
 	}
-	return nil
+
+	// Build a resolver over already-declared variables. Transformation
+	// outputs start as KindUnknown and are filled in below in declaration
+	// order; this keeps single-pass validation lenient when one
+	// transformation references another that has not been validated yet.
+	kinds := make(map[string]transforms.Kind, len(variables))
+	for _, v := range variables {
+		if v.Kind == VariableKindTransformation {
+			kinds[v.ID] = transforms.KindUnknown
+			continue
+		}
+		if k, ok := transforms.NormalizeVariableKind(v.Kind); ok {
+			kinds[v.ID] = k
+		} else {
+			kinds[v.ID] = transforms.KindUnknown
+		}
+	}
+	resolver := func(id string) (transforms.Kind, bool) {
+		k, ok := kinds[id]
+		return k, ok
+	}
+
+	for i := range variables {
+		v := &variables[i]
+		if v.Kind != VariableKindTransformation {
+			continue
+		}
+		itemPath := fmt.Sprintf("settings.workshop_variables[%d].transformation", i)
+		out, err := transforms.ValidateTransformation(v.Transformation, resolver, itemPath)
+		if err != nil {
+			if ve, ok := err.(*transforms.ValidationError); ok {
+				return nil, newValidationError(ve.Code, ve.Path, ve.Message)
+			}
+			return nil, err
+		}
+		v.Transformation.OutputKind = string(out)
+		kinds[v.ID] = out
+	}
+	return variables, nil
 }
 
 func normalizeJSONObject(raw json.RawMessage, fallback map[string]any) (map[string]any, error) {

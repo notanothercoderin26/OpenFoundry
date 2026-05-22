@@ -107,3 +107,157 @@ func TestValidateAppContractRejectsInvalidReferences(t *testing.T) {
 	]`), nil, nil)
 	require.ErrorContains(t, err, "widget_type is required")
 }
+
+func TestNormalizeAppContract_TransformationVariableInfersOutputKind(t *testing.T) {
+	t.Parallel()
+
+	pages := json.RawMessage(`[
+		{"id":"main","name":"Main","path":"/","layout":{"kind":"grid"},"visible":true,"widgets":[]}
+	]`)
+	settings := json.RawMessage(`{
+		"workshop_variables": [
+			{"id":"user_name","kind":"string","name":"User"},
+			{"id":"greeting","kind":"transformation","name":"Greeting","transformation":{
+				"steps":[
+					{"id":"concat","op":"string_concat","inputs":{
+						"parts":[
+							{"kind":"literal","value":"Hello, "},
+							{"kind":"variable","ref":"user_name"}
+						]
+					}}
+				]
+			}}
+		]
+	}`)
+
+	contract, err := NormalizeAppContract("Demo", "demo", "draft", pages, nil, settings)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(contract.Settings, &got))
+	vars, ok := got["workshop_variables"].([]any)
+	require.True(t, ok)
+	require.Len(t, vars, 2)
+
+	greeting, ok := vars[1].(map[string]any)
+	require.True(t, ok)
+	transformation, ok := greeting["transformation"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "string", transformation["output_kind"],
+		"transformation output kind should be inferred from final step")
+}
+
+func TestNormalizeAppContract_TransformationKindMismatchRejected(t *testing.T) {
+	t.Parallel()
+
+	pages := json.RawMessage(`[
+		{"id":"main","name":"Main","path":"/","layout":{"kind":"grid"},"visible":true,"widgets":[]}
+	]`)
+	settings := json.RawMessage(`{
+		"workshop_variables": [
+			{"id":"name","kind":"string","name":"Name"},
+			{"id":"bad","kind":"transformation","name":"Bad","transformation":{
+				"steps":[
+					{"id":"oops","op":"add","inputs":{
+						"operands":[
+							{"kind":"literal","value":1},
+							{"kind":"variable","ref":"name"}
+						]
+					}}
+				]
+			}}
+		]
+	}`)
+
+	err := ValidateAppContract("Demo", "demo", "draft", pages, nil, settings)
+	require.Error(t, err)
+	ve := AsValidationError(err)
+	require.NotNil(t, ve)
+	require.Equal(t, "kind_mismatch", ve.Code)
+	require.Contains(t, ve.Path, "steps[0].inputs.operands[1]")
+}
+
+func TestNormalizeAppContract_TransformationRequiresPipeline(t *testing.T) {
+	t.Parallel()
+
+	pages := json.RawMessage(`[
+		{"id":"main","name":"Main","path":"/","layout":{"kind":"grid"},"visible":true,"widgets":[]}
+	]`)
+	settings := json.RawMessage(`{
+		"workshop_variables": [
+			{"id":"orphan","kind":"transformation","name":"Orphan"}
+		]
+	}`)
+
+	err := ValidateAppContract("Demo", "demo", "draft", pages, nil, settings)
+	require.Error(t, err)
+	ve := AsValidationError(err)
+	require.NotNil(t, ve)
+	require.Equal(t, "missing_transformation", ve.Code)
+}
+
+func TestNormalizeAppContract_TransformationOnlyOnTransformationKind(t *testing.T) {
+	t.Parallel()
+
+	pages := json.RawMessage(`[
+		{"id":"main","name":"Main","path":"/","layout":{"kind":"grid"},"visible":true,"widgets":[]}
+	]`)
+	settings := json.RawMessage(`{
+		"workshop_variables": [
+			{"id":"weird","kind":"string","name":"Weird","transformation":{
+				"steps":[{"id":"a","op":"current_date","inputs":{}}]
+			}}
+		]
+	}`)
+
+	err := ValidateAppContract("Demo", "demo", "draft", pages, nil, settings)
+	require.Error(t, err)
+	ve := AsValidationError(err)
+	require.NotNil(t, ve)
+	require.Equal(t, "unexpected_transformation", ve.Code)
+}
+
+func TestNormalizeAppContract_TransformationChainsBetweenVariables(t *testing.T) {
+	t.Parallel()
+
+	pages := json.RawMessage(`[
+		{"id":"main","name":"Main","path":"/","layout":{"kind":"grid"},"visible":true,"widgets":[]}
+	]`)
+	// `length_label` depends on `length_value`, which is itself a
+	// transformation. The validator should pick up `length_value`'s
+	// inferred output kind (number) before validating `length_label`.
+	settings := json.RawMessage(`{
+		"workshop_variables": [
+			{"id":"items","kind":"array","name":"Items"},
+			{"id":"length_value","kind":"transformation","name":"Length","transformation":{
+				"steps":[
+					{"id":"len","op":"array_length","inputs":{
+						"array":{"kind":"variable","ref":"items"}
+					}}
+				]
+			}},
+			{"id":"length_label","kind":"transformation","name":"LengthLabel","transformation":{
+				"steps":[
+					{"id":"text","op":"string_concat","inputs":{
+						"parts":[
+							{"kind":"literal","value":"Total: "},
+							{"kind":"variable","ref":"length_value"}
+						]
+					}}
+				]
+			}}
+		]
+	}`)
+
+	contract, err := NormalizeAppContract("Demo", "demo", "draft", pages, nil, settings)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(contract.Settings, &got))
+	vars := got["workshop_variables"].([]any)
+	require.Len(t, vars, 3)
+	require.Equal(t, "number",
+		vars[1].(map[string]any)["transformation"].(map[string]any)["output_kind"])
+	require.Equal(t, "string",
+		vars[2].(map[string]any)["transformation"].(map[string]any)["output_kind"])
+}
