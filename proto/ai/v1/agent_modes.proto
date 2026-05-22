@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+// Agent operator modes — the broad task context an AI Operator session
+// runs under. Each mode binds (a) a documentation bundle that primes the
+// LLM with Foundry concepts relevant to the task, (b) an allowlist of
+// tool kinds the agent may invoke, and (c) optional mode-specific
+// configuration (transform builder choice, function language, ML
+// authoring style, ...).
+//
+// Modes are an agent-runtime-service concept, distinct from the
+// per-tool `execution_mode` field in `libs/ai-kernel-go/models/tool.go`
+// (which describes *how* a single tool runs: simulated, http_json,
+// native_*). Threads carry exactly one active mode at a time; the
+// `change_mode` agent skill swaps it mid-session.
+//
+// Source of truth for the wire shape. The HTTP surface in
+// services/agent-runtime-service speaks JSON derived from these
+// messages; Go bindings live in libs/proto-gen/ after `make gen`.
+package open_foundry.ai.v1;
+
+import "common/types.proto";
+
+// AgentMode is the closed set of operator-level modes mirrored from
+// Palantir AI FDE. Adding a new mode is a wire change — bump cautiously
+// and register documentation + tool-kind bindings in the same PR.
+enum AgentMode {
+  AGENT_MODE_UNSPECIFIED   = 0;
+  DATA_INTEGRATION         = 1;  // Python transforms or Pipeline Builder
+  DATA_CONNECTION          = 2;  // sources, egress policies, connectors
+  ONTOLOGY_EDITING         = 3;  // object types, links, action types
+  FUNCTIONS_EDITING        = 4;  // Foundry functions (Logic / TS / Python)
+  EXPLORATION              = 5;  // read-only investigation
+  GOVERNANCE               = 6;  // permissions, markings, access control
+  MACHINE_LEARNING         = 7;  // Model Studio or pro-code modelling
+  OSDK_REACT               = 8;  // React apps / custom widgets on OSDK
+  PLATFORM_QA              = 9;  // general "how does Foundry work" Q&A
+}
+
+// TransformBuilder selects the data-integration authoring surface for
+// DATA_INTEGRATION mode. Ignored for other modes.
+enum TransformBuilder {
+  TRANSFORM_BUILDER_UNSPECIFIED = 0;
+  PYTHON_TRANSFORMS             = 1;
+  PIPELINE_BUILDER              = 2;
+}
+
+// BranchingMode controls whether agent-proposed changes land on a
+// Foundry global branch (default, reviewable via Global Branch proposal)
+// or a local-only branch (faster iteration, no proposal). Applies to
+// modes that mutate platform state (DATA_INTEGRATION, ONTOLOGY_EDITING,
+// FUNCTIONS_EDITING, MACHINE_LEARNING, OSDK_REACT).
+enum BranchingMode {
+  BRANCHING_MODE_UNSPECIFIED = 0;
+  FOUNDRY_BRANCHING          = 1;
+  LOCAL_BRANCHING            = 2;
+}
+
+// CodeEditingMode picks the surface used when the agent writes code:
+// Code Workspaces (full repo) vs. inline Authoring (single artifact).
+// Used by DATA_INTEGRATION, FUNCTIONS_EDITING, MACHINE_LEARNING,
+// OSDK_REACT.
+enum CodeEditingMode {
+  CODE_EDITING_MODE_UNSPECIFIED = 0;
+  CODE_WORKSPACES               = 1;
+  AUTHORING                     = 2;
+}
+
+// FunctionLanguage selects the language for FUNCTIONS_EDITING mode.
+// Foundry functions support Logic (no-code), TypeScript, and Python.
+enum FunctionLanguage {
+  FUNCTION_LANGUAGE_UNSPECIFIED = 0;
+  LOGIC                         = 1;
+  TYPESCRIPT                    = 2;
+  PYTHON                        = 3;
+}
+
+// MLAuthoringStyle picks between Model Studio (no-code, visual) and
+// pro-code authoring for MACHINE_LEARNING mode.
+enum MLAuthoringStyle {
+  ML_AUTHORING_STYLE_UNSPECIFIED = 0;
+  MODEL_STUDIO                   = 1;
+  PRO_CODE                       = 2;
+}
+
+// DataIntegrationConfig — settings exposed when AgentMode is
+// DATA_INTEGRATION. Mirrors the AI FDE "Transform data" mode panel:
+// transform type, branching mode, code editing mode, plus the optional
+// "Create and edit object types and links" toggle.
+message DataIntegrationConfig {
+  TransformBuilder transform_builder       = 1;
+  BranchingMode    branching_mode          = 2;
+  CodeEditingMode  code_editing_mode       = 3;
+  bool             allow_ontology_editing  = 4;
+}
+
+// FunctionsConfig — settings exposed when AgentMode is FUNCTIONS_EDITING.
+message FunctionsConfig {
+  FunctionLanguage language          = 1;
+  CodeEditingMode  code_editing_mode = 2;
+}
+
+// MachineLearningConfig — settings exposed when AgentMode is
+// MACHINE_LEARNING.
+message MachineLearningConfig {
+  MLAuthoringStyle authoring_style   = 1;
+  CodeEditingMode  code_editing_mode = 2;
+}
+
+// OntologyEditingConfig — settings exposed when AgentMode is
+// ONTOLOGY_EDITING. Branching is the only knob: Foundry branching (with
+// proposal review) vs. local branching.
+message OntologyEditingConfig {
+  BranchingMode branching_mode = 1;
+}
+
+// OSDKReactConfig — settings exposed when AgentMode is OSDK_REACT.
+message OSDKReactConfig {
+  CodeEditingMode code_editing_mode = 1;
+}
+
+// ModeConfig carries the per-mode configuration on a thread. Exactly
+// one `settings` variant is populated, matching the active `mode`.
+// Modes without configurable knobs (DATA_CONNECTION, EXPLORATION,
+// GOVERNANCE, PLATFORM_QA) leave `settings` empty.
+//
+// `documentation_bundle_id` is the retrieval-context-service knowledge
+// base loaded into the model's context when this mode activates. Empty
+// = no bundle (the agent relies on its baseline Foundry knowledge).
+//
+// `enabled_tool_kinds` is the allowlist of tool kinds the agent may
+// invoke in this mode — drawn from the execution_mode vocabulary in
+// libs/ai-kernel-go/models/tool.go (e.g. "native_pipeline",
+// "native_ontology"). Empty = allow all tools registered for the
+// agent.
+message ModeConfig {
+  AgentMode                mode                    = 1;
+  open_foundry.common.Uuid documentation_bundle_id = 2;
+  repeated string          enabled_tool_kinds      = 3;
+
+  oneof settings {
+    DataIntegrationConfig data_integration  = 10;
+    OntologyEditingConfig ontology_editing  = 11;
+    FunctionsConfig       functions         = 12;
+    MachineLearningConfig machine_learning  = 13;
+    OSDKReactConfig       osdk_react        = 14;
+  }
+}
