@@ -81,6 +81,8 @@ Use this page when you need to quickly answer "where should this change live?"
 | `services/compute-module-service` | compute module resources |
 | `services/report-service` | real same-named backend for `report_service_url`; current default backend for the gateway `Report` alias used by `/api/v1/reports*` |
 
+### Retired / legacy names
+
 > Older docs referenced services that **do not exist** as binaries in this monorepo (`ontology-service`, `auth-service`, `audit-service`, `data-connector`, `pipeline-service`, `dataset-service`, `ai-service`, `ml-service`, `marketplace-service`, `document-reporting-service`, `fusion-service`, `streaming-service`, `nexus-service`, `dataset-quality-service`, `lineage-deletion-service`, `event-streaming-service`, `data-asset-catalog-service`). Their capabilities are consolidated in the services above. A gateway key named `*_service_url` is not a guarantee that `services/<name>/` exists or is the code default target; verify aliases against `services/edge-gateway-service/internal/config/config.go` and `docs/architecture/services-and-ports.md`. `cipher-service`, `knowledge-index-service`, `global-branch-service`, and `report-service` do exist now and are the current same-named default backends for their gateway aliases.
 >
 > Current owners for common retired or legacy names:

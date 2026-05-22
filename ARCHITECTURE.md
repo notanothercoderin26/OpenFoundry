@@ -74,6 +74,11 @@ boundaries are defined in
 [`docs/architecture/adr/ADR-0030-service-consolidation-30-targets.md`](docs/architecture/adr/ADR-0030-service-consolidation-30-targets.md)
 and the per-service status lives in
 [`docs/architecture/service-consolidation-map.md`](docs/architecture/service-consolidation-map.md).
+Older docs reference legacy service names that no longer exist as binaries
+(`ontology-service`, `auth-service`, `audit-service`, `pipeline-service`,
+`ai-service`, `ml-service`, …); the canonical mapping from each retired
+name to its current owner lives in
+[`docs/reference/repository-layout.md`](docs/reference/repository-layout.md#retired--legacy-names).
 
 ## Recommended entry points
 
