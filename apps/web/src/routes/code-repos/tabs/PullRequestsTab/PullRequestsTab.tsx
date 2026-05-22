@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-import type { MergeRequestDefinition, MergeRequestStatus } from '@/lib/api/code-repos';
+import type { CiRun, MergeRequestDefinition, MergeRequestStatus } from '@/lib/api/code-repos';
 import { Glyph } from '@/lib/components/ui/Glyph';
 
 import { useRepoIdentity, useRepoState } from '../../state/RepoContext';
@@ -36,12 +37,14 @@ function relativeTime(iso: string) {
  *     CodeReposPage's internal tab router.
  */
 export function PullRequestsTab() {
+  const navigate = useNavigate();
   const { repository } = useRepoIdentity();
   const {
     mergeRequests,
     selectedMergeRequestId,
     mergeRequestDetail,
     branchOptions,
+    ciRuns,
     selectMergeRequest,
     setMergeRequestDraft,
     pendingFileChanges,
@@ -67,7 +70,22 @@ export function PullRequestsTab() {
   }, [mergeRequests, filter, search]);
 
   if (selectedMergeRequestId && mergeRequestDetail) {
-    return <PullRequestDetail onBackToList={() => void selectMergeRequest('')} />;
+    return (
+      <PullRequestDetail
+        onBackToList={() => {
+          void selectMergeRequest('');
+          navigate(`/code-repos/${repository.id}`);
+        }}
+      />
+    );
+  }
+
+  function openPullRequest(id: string) {
+    navigate(`/code-repos/${repository.id}/pull-requests/${id}`);
+  }
+
+  function latestCiForBranch(branchName: string): CiRun | null {
+    return ciRuns.find((run) => run.branch_name === branchName) ?? null;
   }
 
   function openComposer() {
@@ -133,7 +151,8 @@ export function PullRequestsTab() {
               <PullRequestRow
                 key={mr.id}
                 mr={mr}
-                onOpen={() => void selectMergeRequest(mr.id)}
+                latestCi={latestCiForBranch(mr.source_branch)}
+                onOpen={() => openPullRequest(mr.id)}
               />
             ))}
           </ul>
@@ -146,10 +165,11 @@ export function PullRequestsTab() {
 
 interface PullRequestRowProps {
   mr: MergeRequestDefinition;
+  latestCi: CiRun | null;
   onOpen: () => void;
 }
 
-function PullRequestRow({ mr, onOpen }: PullRequestRowProps) {
+function PullRequestRow({ mr, latestCi, onOpen }: PullRequestRowProps) {
   const status = mr.status;
   const palette =
     status === 'merged'
@@ -160,6 +180,12 @@ function PullRequestRow({ mr, onOpen }: PullRequestRowProps) {
           ? 'bg-of-success text-white'
           : 'bg-of-accent text-white';
   const approvalCount = mr.reviewers.filter((reviewer) => reviewer.approved).length;
+  const checksMeta = (() => {
+    if (!latestCi) return { glyph: 'info' as const, tone: 'text-of-text-soft', label: 'No checks' };
+    if (latestCi.status === 'passed') return { glyph: 'check' as const, tone: 'text-of-success', label: 'Passed' };
+    if (latestCi.status === 'failed') return { glyph: 'circle-x' as const, tone: 'text-of-danger', label: 'Failed' };
+    return { glyph: 'history' as const, tone: 'text-of-text-muted', label: 'Running' };
+  })();
   return (
     <li>
       <button
@@ -193,6 +219,14 @@ function PullRequestRow({ mr, onOpen }: PullRequestRowProps) {
         <div className="text-right text-of-12 text-of-text-soft whitespace-nowrap">
           <p>{mr.author || 'unknown'}</p>
           <p className="mt-0.5">{relativeTime(mr.updated_at || mr.created_at)}</p>
+          <p className={`mt-0.5 inline-flex items-center gap-1 ${checksMeta.tone}`}>
+            <Glyph
+              name={checksMeta.glyph}
+              size={11}
+              tone={checksMeta.tone === 'text-of-danger' ? 'danger' : 'currentColor'}
+            />
+            {checksMeta.label}
+          </p>
           <p className="mt-0.5">
             ✓ {approvalCount}/{mr.approvals_required}
           </p>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 
 import { Glyph } from '@/lib/components/ui/Glyph';
@@ -39,9 +39,21 @@ import { SettingsTab } from './tabs/SettingsTab/SettingsTab';
  * IdeKeyboardShortcuts binds ⌘+S; TourOverlay drives the walkthrough.
  */
 export function CodeReposPage() {
-  const { repoId } = useParams<{ repoId: string }>();
+  const { repoId, prId } = useParams<{ repoId: string; prId?: string }>();
   const data = useRepoData(repoId ?? null);
-  const [activeTab, setActiveTab] = useState<RepoTabId>('code');
+  const [activeTab, setActiveTab] = useState<RepoTabId>(prId ? 'pull-requests' : 'code');
+
+  // Deep-link sync: when the URL carries :prId, force the Pull requests
+  // tab and select the requested merge request.
+  useEffect(() => {
+    if (!prId) return;
+    if (activeTab !== 'pull-requests') setActiveTab('pull-requests');
+    if (data.selectedMergeRequestId !== prId) {
+      void data.selectMergeRequest(prId);
+    }
+    // selectMergeRequest is stable across renders for this hook output.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prId]);
 
   if (!repoId) {
     return <Navigate to="/code-repos" replace />;

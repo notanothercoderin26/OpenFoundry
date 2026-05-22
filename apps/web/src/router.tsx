@@ -264,6 +264,13 @@ export const router = createBrowserRouter([
             path: ':repoId',
             lazy: async () => ({ Component: (await import('./routes/code-repos/CodeReposPage')).CodeReposPage }),
           },
+          {
+            // Deep-link for the Pull request detail view. Same component;
+            // it reads :prId from useParams and forces the Pull requests
+            // tab on mount.
+            path: ':repoId/pull-requests/:prId',
+            lazy: async () => ({ Component: (await import('./routes/code-repos/CodeReposPage')).CodeReposPage }),
+          },
         ],
       },
       // No canonical equivalent for Marketplace; send to Workspace.
