@@ -62,6 +62,18 @@ func (h *Handlers) requestActor(r *http.Request) string {
 	return h.Actor
 }
 
+// requestSubject returns the authenticated subject id from the request
+// context, falling back to the configured service Actor when no claims
+// are attached (e.g. unit tests, internal calls).
+func (h *Handlers) requestSubject(r *http.Request) string {
+	if claims, ok := authmw.FromContext(r.Context()); ok {
+		if sub := strings.TrimSpace(claims.Sub.String()); sub != "" {
+			return sub
+		}
+	}
+	return strings.TrimSpace(h.Actor)
+}
+
 func (h *Handlers) requestGitAuthor(r *http.Request) (string, string) {
 	if claims, ok := authmw.FromContext(r.Context()); ok {
 		name := strings.TrimSpace(claims.Name)

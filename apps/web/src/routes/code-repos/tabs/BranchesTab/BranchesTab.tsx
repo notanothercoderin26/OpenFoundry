@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 
 import type { BranchDefinition, MergeRequestDefinition } from '@/lib/api/code-repos';
 import { Glyph } from '@/lib/components/ui/Glyph';
-import { notifications } from '@stores/notifications';
 
 import { useRepoIdentity, useRepoState } from '../../state/RepoContext';
 import { dialogs } from '../../state/useDialogs';
@@ -12,24 +11,39 @@ import { TagsPanel } from './TagsPanel';
 
 type Mode = 'branches' | 'tags';
 
-function classify(branches: ReadonlyArray<BranchDefinition>, viewerKey: string | null) {
-  const personalSet = new Set<string>();
-  if (viewerKey) {
-    for (const branch of branches) {
-      if (branch.name.toLowerCase().startsWith(`${viewerKey}/`)) {
-        personalSet.add(branch.id);
-      }
-    }
+function isOwnedByViewer(
+  branch: BranchDefinition,
+  viewerId: string | null,
+  viewerNamingKey: string | null,
+): boolean {
+  if (viewerId && branch.created_by && branch.created_by === viewerId) return true;
+  // Fallback heuristic for branches that pre-date the metadata sidecar
+  // (created_by empty): treat "<viewer>/topic" naming as Personal.
+  if (!branch.created_by && viewerNamingKey) {
+    return branch.name.toLowerCase().startsWith(`${viewerNamingKey}/`);
   }
+  return false;
+}
+
+function classify(
+  branches: ReadonlyArray<BranchDefinition>,
+  viewerId: string | null,
+  viewerNamingKey: string | null,
+) {
   const defaultBranch = branches.find((branch) => branch.is_default) ?? null;
-  const personal = branches.filter((branch) => personalSet.has(branch.id) && !branch.is_default);
+  const personal = branches.filter(
+    (branch) => !branch.is_default && isOwnedByViewer(branch, viewerId, viewerNamingKey),
+  );
   const other = branches.filter(
-    (branch) => !personalSet.has(branch.id) && !branch.is_default,
+    (branch) => !branch.is_default && !isOwnedByViewer(branch, viewerId, viewerNamingKey),
   );
   return { defaultBranch, personal, other };
 }
 
-function viewerKeyFromUser(name: string | null | undefined, email: string | null | undefined): string | null {
+function namingKeyFromUser(
+  name: string | null | undefined,
+  email: string | null | undefined,
+): string | null {
   if (email) {
     const local = email.split('@')[0];
     if (local) return local.toLowerCase();
@@ -69,14 +83,19 @@ export function BranchesTab() {
     busy,
     switchBranchAction,
     deleteBranchAction,
+    selectMergeRequest,
     setMergeRequestDraft,
   } = useRepoState();
 
   const [mode, setMode] = useState<Mode>('branches');
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const viewerKey = viewerKeyFromUser(currentUser?.name, currentUser?.email);
-  const groups = useMemo(() => classify(branches, viewerKey), [branches, viewerKey]);
+  const viewerId = currentUser?.id ?? null;
+  const namingKey = namingKeyFromUser(currentUser?.name, currentUser?.email);
+  const groups = useMemo(
+    () => classify(branches, viewerId, namingKey),
+    [branches, viewerId, namingKey],
+  );
 
   function toggleSelected(branchName: string) {
     setSelected((current) => {
@@ -104,8 +123,11 @@ export function BranchesTab() {
       target_branch: repository.default_branch,
       title: `Promote ${branchName}`,
     });
-    notifications.info(`Open the Pull requests tab to finalise the PR for ${branchName}`);
-    navigate(`/code-repos/${repository.id}`);
+    dialogs.open('new-pull-request');
+  }
+
+  function openPullRequest(mergeRequestId: string) {
+    void selectMergeRequest(mergeRequestId);
   }
 
   function openBranchInIde(branchName: string) {
@@ -161,7 +183,8 @@ export function BranchesTab() {
       <BranchSection
         title="Default branch"
         branches={groups.defaultBranch ? [groups.defaultBranch] : []}
-        viewerKey={viewerKey}
+        viewerId={viewerId}
+        viewerNamingKey={namingKey}
         selected={selected}
         toggleSelected={toggleSelected}
         ciRuns={ciRuns}
@@ -170,13 +193,15 @@ export function BranchesTab() {
         onOpenInIde={openBranchInIde}
         onDelete={(branchName) => void deleteBranchAction(branchName)}
         onPropose={startProposeChanges}
-        canDelete={false}
+        onOpenPullRequest={openPullRequest}
+        forbidDelete
       />
 
       <BranchSection
         title="Personal branches"
         branches={groups.personal}
-        viewerKey={viewerKey}
+        viewerId={viewerId}
+        viewerNamingKey={namingKey}
         selected={selected}
         toggleSelected={toggleSelected}
         ciRuns={ciRuns}
@@ -185,17 +210,19 @@ export function BranchesTab() {
         onOpenInIde={openBranchInIde}
         onDelete={(branchName) => void deleteBranchAction(branchName)}
         onPropose={startProposeChanges}
+        onOpenPullRequest={openPullRequest}
         emptyHint={
-          viewerKey
-            ? `Branches you own follow the "${viewerKey}/<topic>" convention.`
-            : 'Personal classification needs a signed-in user — and the backend gap B12 to be precise.'
+          viewerId
+            ? `Branches you create are tagged on the server. Older branches without a created_by are classified by the "${namingKey ?? 'user'}/<topic>" fallback.`
+            : 'Personal classification needs a signed-in user.'
         }
       />
 
       <BranchSection
         title="Other branches"
         branches={groups.other}
-        viewerKey={viewerKey}
+        viewerId={viewerId}
+        viewerNamingKey={namingKey}
         selected={selected}
         toggleSelected={toggleSelected}
         ciRuns={ciRuns}
@@ -204,6 +231,7 @@ export function BranchesTab() {
         onOpenInIde={openBranchInIde}
         onDelete={(branchName) => void deleteBranchAction(branchName)}
         onPropose={startProposeChanges}
+        onOpenPullRequest={openPullRequest}
       />
 
     </div>
@@ -253,7 +281,8 @@ function ModeToggle({ mode, onChange, totalBranches, onNewBranch }: ModeTogglePr
 interface BranchSectionProps {
   title: string;
   branches: ReadonlyArray<BranchDefinition>;
-  viewerKey: string | null;
+  viewerId: string | null;
+  viewerNamingKey: string | null;
   selected: ReadonlySet<string>;
   toggleSelected: (name: string) => void;
   ciRuns: ReturnType<typeof useRepoState>['ciRuns'];
@@ -262,13 +291,18 @@ interface BranchSectionProps {
   onOpenInIde: (branchName: string) => void;
   onDelete: (branchName: string) => void;
   onPropose: (branchName: string) => void;
-  canDelete?: boolean;
+  onOpenPullRequest: (mergeRequestId: string) => void;
+  /** When set, overrides the per-branch owner check (used to lock the
+   *  Default branch row regardless of who created it). */
+  forbidDelete?: boolean;
   emptyHint?: string;
 }
 
 function BranchSection({
   title,
   branches,
+  viewerId,
+  viewerNamingKey,
   selected,
   toggleSelected,
   ciRuns,
@@ -277,7 +311,8 @@ function BranchSection({
   onOpenInIde,
   onDelete,
   onPropose,
-  canDelete = true,
+  onOpenPullRequest,
+  forbidDelete = false,
   emptyHint,
 }: BranchSectionProps) {
   return (
@@ -295,21 +330,33 @@ function BranchSection({
         </p>
       ) : (
         <ul className="divide-y divide-of-border">
-          {branches.map((branch) => (
-            <BranchRow
-              key={branch.id}
-              branch={branch}
-              checked={selected.has(branch.name)}
-              onToggle={() => toggleSelected(branch.name)}
-              latestCi={ciRuns.find((run) => run.branch_name === branch.name) ?? null}
-              pullRequest={mergeRequestForBranch(mergeRequests, branch.name)}
-              busy={busy}
-              onOpenInIde={() => onOpenInIde(branch.name)}
-              onDelete={() => onDelete(branch.name)}
-              onPropose={() => onPropose(branch.name)}
-              canDelete={canDelete}
-            />
-          ))}
+          {branches.map((branch) => {
+            const owned = isOwnedByViewer(branch, viewerId, viewerNamingKey);
+            const canDelete = !forbidDelete && !branch.is_default && owned;
+            return (
+              <BranchRow
+                key={branch.id}
+                branch={branch}
+                checked={selected.has(branch.name)}
+                onToggle={() => toggleSelected(branch.name)}
+                latestCi={ciRuns.find((run) => run.branch_name === branch.name) ?? null}
+                pullRequest={mergeRequestForBranch(mergeRequests, branch.name)}
+                busy={busy}
+                onOpenInIde={() => onOpenInIde(branch.name)}
+                onDelete={() => onDelete(branch.name)}
+                onPropose={() => onPropose(branch.name)}
+                onOpenPullRequest={onOpenPullRequest}
+                canDelete={canDelete}
+                deleteTitle={
+                  branch.is_default
+                    ? 'Default branches cannot be deleted'
+                    : owned
+                      ? 'Delete branch'
+                      : 'Only the branch creator can delete this branch'
+                }
+              />
+            );
+          })}
         </ul>
       )}
     </section>
@@ -326,7 +373,9 @@ interface BranchRowProps {
   onOpenInIde: () => void;
   onDelete: () => void;
   onPropose: () => void;
+  onOpenPullRequest: (mergeRequestId: string) => void;
   canDelete: boolean;
+  deleteTitle: string;
 }
 
 function BranchRow({
@@ -339,7 +388,9 @@ function BranchRow({
   onOpenInIde,
   onDelete,
   onPropose,
+  onOpenPullRequest,
   canDelete,
+  deleteTitle,
 }: BranchRowProps) {
   return (
     <li className="grid grid-cols-[40px_minmax(0,1fr)_140px_180px_40px] gap-2 items-center px-3 py-2">
@@ -371,11 +422,16 @@ function BranchRow({
         ) : null}
       </div>
       <ChecksCell ci={latestCi} />
-      <PullRequestCell pr={pullRequest} onPropose={onPropose} busy={busy} />
+      <PullRequestCell
+        pr={pullRequest}
+        onPropose={onPropose}
+        onOpenPullRequest={onOpenPullRequest}
+        busy={busy}
+      />
       <button
         type="button"
         aria-label={`Delete ${branch.name}`}
-        title={canDelete ? 'Delete branch' : 'Default branches cannot be deleted'}
+        title={deleteTitle}
         disabled={!canDelete || busy}
         onClick={onDelete}
         className={`inline-flex items-center justify-center w-7 h-7 rounded-of-sm ${
@@ -422,10 +478,11 @@ function ChecksCell({ ci }: ChecksCellProps) {
 interface PullRequestCellProps {
   pr: MergeRequestDefinition | null;
   onPropose: () => void;
+  onOpenPullRequest: (mergeRequestId: string) => void;
   busy: boolean;
 }
 
-function PullRequestCell({ pr, onPropose, busy }: PullRequestCellProps) {
+function PullRequestCell({ pr, onPropose, onOpenPullRequest, busy }: PullRequestCellProps) {
   if (!pr) {
     return (
       <button
@@ -448,8 +505,13 @@ function PullRequestCell({ pr, onPropose, busy }: PullRequestCellProps) {
           ? 'bg-of-success text-white'
           : 'bg-of-accent text-white';
   return (
-    <span className={`inline-flex items-center justify-center h-6 px-2 rounded-of-sm text-of-12 font-of-medium capitalize ${palette}`}>
+    <button
+      type="button"
+      onClick={() => onOpenPullRequest(pr.id)}
+      title={`Open “${pr.title}”`}
+      className={`inline-flex items-center justify-center h-6 px-2 rounded-of-sm text-of-12 font-of-medium capitalize hover:opacity-90 ${palette}`}
+    >
       {pr.status}
-    </span>
+    </button>
   );
 }

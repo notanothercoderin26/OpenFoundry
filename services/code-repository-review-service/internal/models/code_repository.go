@@ -164,6 +164,11 @@ type RepositoryBranch struct {
 	AheadBy        int    `json:"ahead_by"`
 	PendingReviews int    `json:"pending_reviews"`
 	UpdatedAt      string `json:"updated_at"`
+	// CreatedBy is the subject id (claims.Sub) of the user that created
+	// the branch. Empty for branches that pre-date the metadata sidecar
+	// or were pushed over plain git. Used by the Code Repositories IDE
+	// to partition branches into Personal vs. Other.
+	CreatedBy string `json:"created_by,omitempty"`
 }
 
 // RepositoryTag is an annotated Git release tag summary.
@@ -183,6 +188,10 @@ type CreateRepositoryBranchRequest struct {
 	Name       string `json:"name"`
 	BaseBranch string `json:"base_branch"`
 	Protected  bool   `json:"protected"`
+	// CreatedBy is server-populated from the auth claims. Clients do
+	// not need to set it — the handler overwrites the field with the
+	// authenticated subject id before forwarding to the git store.
+	CreatedBy string `json:"-"`
 }
 
 // DeleteRepositoryBranchRequest is DELETE /branches/{branch} body.

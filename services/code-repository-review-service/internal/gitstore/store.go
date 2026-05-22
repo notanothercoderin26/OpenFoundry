@@ -3,6 +3,7 @@ package gitstore
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/models"
 )
@@ -95,6 +97,7 @@ func (s *BareRepositoryStore) ListBranches(ctx context.Context, repo models.Code
 	if err != nil {
 		return nil, err
 	}
+	metadata := s.loadBranchMetadata(repo.ID.String())
 	branches := make([]models.RepositoryBranch, 0)
 	for _, line := range splitGitLines(stdout) {
 		parts := strings.Split(line, "\t")
@@ -122,6 +125,7 @@ func (s *BareRepositoryStore) ListBranches(ctx context.Context, repo models.Code
 			Protected:    name == defaultBranch(repo.DefaultBranch),
 			AheadBy:      ahead,
 			UpdatedAt:    updatedAt,
+			CreatedBy:    metadata[name].CreatedBy,
 		})
 	}
 	return branches, nil
@@ -143,6 +147,13 @@ func (s *BareRepositoryStore) CreateBranch(ctx context.Context, repo models.Code
 	if err := s.runGit(ctx, "--git-dir", path, "branch", name, base); err != nil {
 		return models.RepositoryBranch{}, err
 	}
+	if strings.TrimSpace(req.CreatedBy) != "" {
+		if err := s.saveBranchCreator(repo.ID.String(), name, req.CreatedBy); err != nil {
+			// Persisting creator metadata is best-effort — the branch
+			// already exists; don't roll back over a sidecar failure.
+			_ = err
+		}
+	}
 	branches, err := s.ListBranches(ctx, repo)
 	if err != nil {
 		return models.RepositoryBranch{}, err
@@ -155,6 +166,46 @@ func (s *BareRepositoryStore) CreateBranch(ctx context.Context, repo models.Code
 		}
 	}
 	return models.RepositoryBranch{}, fmt.Errorf("created branch %q not found", name)
+}
+
+// branchMetadataEntry is the persisted sidecar shape; expand carefully —
+// older sidecar files must still parse.
+type branchMetadataEntry struct {
+	CreatedBy string `json:"created_by"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+func (s *BareRepositoryStore) metadataPath(repoID string) string {
+	return filepath.Join(s.repositoryPath(repoID), "of-metadata", "branches.json")
+}
+
+func (s *BareRepositoryStore) loadBranchMetadata(repoID string) map[string]branchMetadataEntry {
+	data, err := os.ReadFile(s.metadataPath(repoID))
+	if err != nil {
+		return map[string]branchMetadataEntry{}
+	}
+	out := map[string]branchMetadataEntry{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return map[string]branchMetadataEntry{}
+	}
+	return out
+}
+
+func (s *BareRepositoryStore) saveBranchCreator(repoID, branchName, createdBy string) error {
+	all := s.loadBranchMetadata(repoID)
+	all[branchName] = branchMetadataEntry{
+		CreatedBy: createdBy,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	path := s.metadataPath(repoID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	encoded, err := json.MarshalIndent(all, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, encoded, 0o600)
 }
 
 func (s *BareRepositoryStore) DeleteBranch(ctx context.Context, repo models.CodeRepository, name string, force bool) error {

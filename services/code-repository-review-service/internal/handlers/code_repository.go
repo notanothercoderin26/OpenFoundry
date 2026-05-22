@@ -267,6 +267,7 @@ func (h *Handlers) CreateCodeRepositoryBranch(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	body.CreatedBy = h.requestSubject(r)
 	branch, err := h.GitStore.CreateBranch(r.Context(), *repository, body)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

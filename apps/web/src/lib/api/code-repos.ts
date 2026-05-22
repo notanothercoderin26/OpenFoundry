@@ -103,6 +103,13 @@ export interface BranchDefinition {
 	ahead_by: number;
 	pending_reviews: number;
 	updated_at: string;
+	/**
+	 * Subject id (auth claims) of the user that created the branch.
+	 * Empty for branches that pre-date the metadata sidecar or were
+	 * pushed via plain git. The IDE uses this to partition Personal vs.
+	 * Other in the Branches tab.
+	 */
+	created_by?: string;
 }
 
 
