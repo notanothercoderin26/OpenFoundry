@@ -7,6 +7,7 @@ import { EditorHomeView } from '../../components/EditorHomeView';
 import { EditorPanel } from '../../components/EditorPanel';
 import { EditorTabBar } from '../../components/EditorTabBar';
 import { FilesPanel } from '../../components/FilesPanel';
+import { HelperPanelHost } from '../../components/HelperPanelHost';
 import { LeftRail, type LeftPanelId } from '../../components/LeftRail';
 import { SearchPanel } from '../../components/SearchPanel';
 import { useRepoState } from '../../state/RepoContext';
@@ -76,7 +77,7 @@ export function CodeTab() {
   return (
     <div className="flex flex-col">
       <CodeTabActionBar />
-      <div className="flex min-h-[calc(100vh-180px)]">
+      <div className="flex min-h-[calc(100vh-220px)]">
         <LeftRail active={activeLeftPanel} onChange={setActiveLeftPanel} />
         {activeLeftPanel === 'files' ? <FilesPanel /> : <SearchPanel />}
 
@@ -99,6 +100,7 @@ export function CodeTab() {
           />
         </aside>
       </div>
+      <HelperPanelHost />
     </div>
   );
 }
