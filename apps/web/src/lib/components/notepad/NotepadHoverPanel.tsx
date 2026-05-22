@@ -92,7 +92,7 @@ export function NotepadHoverPanel({
         <div className="of-notepad-hover__heading">
           <h3 className="of-notepad-hover__title">Notepad</h3>
           <p className="of-notepad-hover__desc">
-            Create, share, and export object-aware documents and reports.
+            Create, share and export object-aware documents and reports.
           </p>
           <a
             href="/notepad"

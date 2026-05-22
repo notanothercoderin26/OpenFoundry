@@ -26,6 +26,17 @@ export interface LauncherCategoryDef {
   isHeading?: boolean;
 }
 
+// Sub-action exposed under the global "+ New" flow. The shell renders
+// these alongside the app entry when the user opens "+ New" anywhere
+// in the workspace.
+export interface LauncherAppNewAction {
+  id: string;
+  name: string;
+  description?: string;
+  href: string;
+  icon?: GlyphName;
+}
+
 export interface LauncherApp {
   id: string;
   href: string;
@@ -35,6 +46,7 @@ export interface LauncherApp {
   iconTone: string;
   category: LauncherCategoryId;
   promoted?: boolean;
+  newActions?: LauncherAppNewAction[];
 }
 
 export const LAUNCHER_CATEGORIES: LauncherCategoryDef[] = [
@@ -206,7 +218,15 @@ export const LAUNCHER_APPS: LauncherApp[] = [
     iconTone: '#f472b6',
     category: 'analytics-operations',
     name: 'Notepad',
-    description: 'Create, share, and export object-aware documents and reports.',
+    description: 'Create, share and export object-aware documents and reports.',
+    newActions: [
+      {
+        id: 'notepad-document-template',
+        name: 'Notepad document template',
+        href: '/notepad?new=template',
+        icon: 'file-type',
+      },
+    ],
   },
   {
     id: 'fusion',

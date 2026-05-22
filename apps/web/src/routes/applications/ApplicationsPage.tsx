@@ -45,7 +45,7 @@ const APPS: AppEntry[] = [
   { id: 'object-explorer', name: 'Object explorer', description: 'Search and inspect ontology objects.', to: '/object-explorer', icon: 'search', category: 'analyze-data' },
   { id: 'contour', name: 'Contour', description: 'Point-and-click data analysis on datasets and ontology.', to: '/contour', icon: 'graph', category: 'analyze-data' },
   { id: 'quiver', name: 'Quiver', description: 'Pivot, chart, and slice data in a spreadsheet.', to: '/quiver', icon: 'graph', category: 'analyze-data' },
-  { id: 'notepad', name: 'Notepad', description: 'Author rich documents with embedded data.', to: '/notepad', icon: 'document', category: 'analyze-data' },
+  { id: 'notepad', name: 'Notepad', description: 'Create, share and export object-aware documents and reports.', to: '/notepad', icon: 'document', category: 'analyze-data' },
   { id: 'workshop', name: 'Workshop', description: 'Build operational apps backed by your ontology and datasets.', to: '/apps', icon: 'object', category: 'operational-applications' },
   { id: 'pipeline-builder', name: 'Pipeline builder', description: 'Compose dataset transformation pipelines.', to: '/pipelines', icon: 'run', category: 'build-monitor-pipelines' },
   { id: 'code-repos', name: 'Code repositories', description: 'Version-controlled code repositories for transforms and SDKs.', to: '/code-repos', icon: 'code', category: 'operational-applications' },
