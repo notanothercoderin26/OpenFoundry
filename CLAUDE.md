@@ -58,6 +58,9 @@ Accepted variants — don't force the baseline onto these shapes:
 - **Sink / worker services** (`*-sink`, `pipeline-runner`,
   `iceberg-object-indexer`) often only have `cmd/` + `internal/config/`
   + a consumer/runner package, with neither `handlers/` nor `repo/`.
+- **Non-Go runtime services** (`pipeline-runner-spark`) live in
+  `services/` for delivery/Helm cohesion but ship as a different
+  toolchain (Scala/sbt here) and have their own per-service layout.
 
 When in doubt, read a neighbouring service before copying the skeleton
 verbatim.
