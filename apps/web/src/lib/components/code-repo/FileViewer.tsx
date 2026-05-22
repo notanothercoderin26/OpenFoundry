@@ -9,6 +9,12 @@ interface Props {
   searchQuery: string;
   searchResults: SearchResult[];
   busy?: boolean;
+  /** Hide the descriptive header + top search bar (Code Repositories IDE uses LeftRail/SearchPanel instead). */
+  hideHeader?: boolean;
+  /** Hide the embedded file tree (Code Repositories IDE renders FilesPanel separately). */
+  hideTree?: boolean;
+  /** Hide the inline search results panel (Code Repositories IDE renders SearchPanel separately). */
+  hideSearchResults?: boolean;
   onSelectFile: (path: string) => void;
   onSearchQueryChange: (query: string) => void;
   onRunSearch: () => void;
@@ -71,6 +77,9 @@ export function FileViewer({
   searchQuery,
   searchResults,
   busy = false,
+  hideHeader = false,
+  hideTree = false,
+  hideSearchResults = false,
   onSelectFile,
   onSearchQueryChange,
   onRunSearch,
@@ -188,39 +197,44 @@ export function FileViewer({
     }
   }
 
-  return (
-    <section className="of-panel" style={{ padding: 20 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-        <div>
-          <p className="of-eyebrow" style={{ color: '#b45309' }}>
-            File Browser
-          </p>
-          <h3 className="of-heading-md" style={{ marginTop: 6 }}>
-            Monaco file tree and multi-tab editor
-          </h3>
-          <p className="of-text-muted" style={{ marginTop: 4, fontSize: 13 }}>
-            Right-click files for Git-backed actions. Edits save on blur and warn before navigation when dirty.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 6, maxWidth: 420, width: '100%' }}>
-          <input
-            value={searchQuery}
-            onChange={(e) => onSearchQueryChange(e.target.value)}
-            placeholder="Search package, widget, connector…"
-            className="of-input"
-            style={{ borderRadius: 999 }}
-          />
-          <button type="button" onClick={onRunSearch} disabled={busy} className="of-button of-button--primary" style={{ background: '#f59e0b', color: '#0c0a09', borderRadius: 999 }}>
-            Search
-          </button>
-          <button type="button" onClick={() => void runAction('new', activePath)} disabled={busy} style={actionButton}>
-            New file
-          </button>
-        </div>
-      </div>
+  const gridColumns = hideTree ? 'minmax(0, 1fr)' : 'minmax(220px, 0.7fr) minmax(0, 1.5fr)';
 
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(220px, 0.7fr) minmax(0, 1.5fr)', marginTop: 18 }}>
-        <div className="of-panel-muted" style={{ padding: 14, display: 'grid', alignContent: 'start', gap: 4 }}>
+  return (
+    <section className="of-panel" style={{ padding: hideHeader ? 12 : 20 }}>
+      {!hideHeader && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <p className="of-eyebrow" style={{ color: '#b45309' }}>
+              File Browser
+            </p>
+            <h3 className="of-heading-md" style={{ marginTop: 6 }}>
+              Monaco file tree and multi-tab editor
+            </h3>
+            <p className="of-text-muted" style={{ marginTop: 4, fontSize: 13 }}>
+              Right-click files for Git-backed actions. Edits save on blur and warn before navigation when dirty.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 6, maxWidth: 420, width: '100%' }}>
+            <input
+              value={searchQuery}
+              onChange={(e) => onSearchQueryChange(e.target.value)}
+              placeholder="Search package, widget, connector…"
+              className="of-input"
+              style={{ borderRadius: 999 }}
+            />
+            <button type="button" onClick={onRunSearch} disabled={busy} className="of-button of-button--primary" style={{ background: '#f59e0b', color: '#0c0a09', borderRadius: 999 }}>
+              Search
+            </button>
+            <button type="button" onClick={() => void runAction('new', activePath)} disabled={busy} style={actionButton}>
+              New file
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: gridColumns, marginTop: hideHeader ? 0 : 18 }}>
+        {!hideTree && (
+          <div className="of-panel-muted" style={{ padding: 14, display: 'grid', alignContent: 'start', gap: 4 }}>
           {tree.map((node) => {
             const active = activePath === node.path;
             return (
@@ -260,8 +274,9 @@ export function FileViewer({
               </button>
             );
           })}
-          {files.length === 0 && <p className="of-text-muted" style={{ padding: 12, fontSize: 13 }}>No files yet. Create a file to seed the repository.</p>}
-        </div>
+            {files.length === 0 && <p className="of-text-muted" style={{ padding: 12, fontSize: 13 }}>No files yet. Create a file to seed the repository.</p>}
+          </div>
+        )}
 
         <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
           <div className="of-panel-muted" style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: 8 }}>
@@ -307,21 +322,23 @@ export function FileViewer({
             )}
           </div>
 
-          <div className="of-panel" style={{ padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <p style={{ fontWeight: 600, color: 'var(--text-strong)' }}>Search results</p>
-              <p className="of-eyebrow">{searchResults.length} matches</p>
+          {!hideSearchResults && (
+            <div className="of-panel" style={{ padding: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <p style={{ fontWeight: 600, color: 'var(--text-strong)' }}>Search results</p>
+                <p className="of-eyebrow">{searchResults.length} matches</p>
+              </div>
+              <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                {searchResults.map((result, index) => (
+                  <button key={`${result.path}-${index}`} type="button" onClick={() => selectPath(result.path)} className="of-panel-muted" style={{ padding: 12, textAlign: 'left', border: '1px solid var(--border-default)', borderRadius: 14 }}>
+                    <p style={{ fontWeight: 500, color: 'var(--text-strong)' }}>{result.path}</p>
+                    <p className="of-text-muted" style={{ marginTop: 6, fontSize: 13 }}>{result.snippet}</p>
+                  </button>
+                ))}
+                {searchResults.length === 0 && <p className="of-text-muted" style={{ border: '1px dashed var(--border-default)', borderRadius: 16, padding: 18, fontSize: 13, textAlign: 'center' }}>Run a query to surface indexed snippets across repository files.</p>}
+              </div>
             </div>
-            <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-              {searchResults.map((result, index) => (
-                <button key={`${result.path}-${index}`} type="button" onClick={() => selectPath(result.path)} className="of-panel-muted" style={{ padding: 12, textAlign: 'left', border: '1px solid var(--border-default)', borderRadius: 14 }}>
-                  <p style={{ fontWeight: 500, color: 'var(--text-strong)' }}>{result.path}</p>
-                  <p className="of-text-muted" style={{ marginTop: 6, fontSize: 13 }}>{result.snippet}</p>
-                </button>
-              ))}
-              {searchResults.length === 0 && <p className="of-text-muted" style={{ border: '1px dashed var(--border-default)', borderRadius: 16, padding: 18, fontSize: 13, textAlign: 'center' }}>Run a query to surface indexed snippets across repository files.</p>}
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </section>
