@@ -16,7 +16,7 @@ The intended scope, once shipped, will cover:
 - Go trait/interface definitions for each kind
 - scaffold helpers (Go module setup, manifest JSON, starter package)
 
-> Previous documentation revisions described a Rust SDK with `Cargo.toml` + `lib.rs` scaffolding. That stack is gone — the monorepo is a single Go module rooted at `github.com/openfoundry/openfoundry-go`. The plugin runtime will be WASM, but the SDK host APIs are Go.
+> The monorepo is a single Go module rooted at `github.com/openfoundry/openfoundry-go`. The plugin runtime will be WASM, but the SDK host APIs are Go.
 
 ## Why this matters
 

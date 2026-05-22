@@ -30,10 +30,8 @@ Hosts four foundation CRUDs (parent + child collections) under one
 binary, consolidated per ADR-0030 (S8.1.a).
 
 > **Scope of this iteration**: the four foundation features below are
-> ported. The streaming-monitor / monitor-rule / evaluator surface
-> (~1000 LOC of Rust under `monitoring_rules/streaming_*` and
-> `monitoring_rules/evaluator.rs`) is **deferred** to a follow-up
-> iteration — see TODO at the bottom.
+> implemented. The streaming-monitor / monitor-rule / evaluator surface
+> is **deferred** to a follow-up iteration — see TODO at the bottom.
 
 ## Endpoints
 
@@ -56,7 +54,7 @@ The four feature triplets (canonical order — pinned in `models.AllFeatures`):
 | `execution-runs`   | execution_runs     | execution_logs           | logs         |
 | `monitoring-rules` | monitoring_rules   | monitoring_subscribers   | subscribers  |
 
-Plus `GET /healthz` (Rust-compatible liveness payload) and
+Plus `GET /healthz` (liveness payload) and
 `GET /metrics` (Prometheus). All `/api/v1/*` routes are bearer-JWT
 protected.
 

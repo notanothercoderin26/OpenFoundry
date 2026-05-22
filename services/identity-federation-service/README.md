@@ -120,9 +120,9 @@ Other mounted endpoints:
   tables, SCIM tables, and JWKS key rows.
 - Cassandra/Scylla session support exists only as the `internal/sessionscassandra`
   adapter. Its migrations create `auth_runtime.user_session` and
-  `auth_runtime.refresh_token`; tables from the historical Rust inventory such as
-  OAuth pending auth, session revocations, and WebAuthn Cassandra credentials are
-  not part of this active Go service slice.
+  `auth_runtime.refresh_token`; tables such as OAuth pending auth, session
+  revocations, and WebAuthn Cassandra credentials are not part of this active
+  service slice.
 
 ## Cedar conformance status
 

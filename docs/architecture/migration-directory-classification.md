@@ -3,8 +3,7 @@
 > **Historical snapshot — pre-consolidation baseline.** This document was
 > written as the cleanup baseline for the **56 migration roots** that
 > existed *before* the service consolidation tracked by
-> [ADR-0030](./adr/ADR-0030-service-consolidation-30-targets.md) and the
-> Rust → Go monorepo port. Many service directories listed below
+> [ADR-0030](./adr/ADR-0030-service-consolidation-30-targets.md). Many service directories listed below
 > (e.g. `ai-application-generation-service`, `data-asset-catalog-service`,
 > `marketplace-service`, `mcp-orchestration-service`, `oauth-integration-service`,
 > `scenario-simulation-service`, `checkpoints-purpose-service`,
@@ -17,8 +16,7 @@
 > `time-series-data-service`, `automation-operations-service`) **no longer
 > exist as standalone binaries** in the current Go monorepo — their
 > migrations have been merged into the consolidated services listed in
-> ADR-0030 and ADR-0042. Cross-references to `*.rs` files reflect the
-> Rust era of the codebase; the Go ports live under
+> ADR-0030 and ADR-0042. The Go services live under
 > `services/<svc>/internal/repo/migrations/`. For the current per-service
 > migration layout consult the live tree. `cipher-service`, `network-boundary-service`,
 > `report-service`, `global-branch-service`, and `knowledge-index-service` do exist
@@ -124,11 +122,11 @@ chain for it.
 
 ## `cassandra`
 
-- `services/identity-federation-service/src/sessions_cassandra.rs`
+- `services/identity-federation-service/internal/sessions/cassandra`
   Owns `auth_runtime` session state; replaces the archived `scoped_sessions` SQL path.
-- `services/oauth-integration-service/src/pending_auth_cassandra.rs`
+- `services/oauth-integration-service/internal/pendingauth/cassandra`
   Owns short-lived OAuth pending-auth state; no active SQL migration dir is allowed for that hot path.
-- `services/event-ingestion-replication-service/src/domain/runtime_store.rs`
+- `services/event-ingestion-replication-service/internal/domain/runtime_store`
   Owns the hot runtime ledger that replaced `streaming_events`, `streaming_checkpoints`,
   `streaming_cold_archives` and `streaming_topology_checkpoints`.
 

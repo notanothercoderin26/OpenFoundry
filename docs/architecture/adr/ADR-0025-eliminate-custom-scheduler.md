@@ -5,9 +5,9 @@
 - **Deciders:** OpenFoundry platform architecture group
 - **Supersedes / supplements:**
   - The bespoke scheduler in
-    [services/pipeline-schedule-service/src/main.rs](../../../services/pipeline-schedule-service/src/main.rs)
+    [services/pipeline-schedule-service](../../../services/pipeline-schedule-service)
     and the in-process tick loop in
-    [services/workflow-automation-service/src/domain/executor.rs](../../../services/workflow-automation-service/src/domain/executor.rs).
+    [services/workflow-automation-service/internal/domain/executor](../../../services/workflow-automation-service/internal/domain/executor).
 - **Related ADRs:**
   - [ADR-0021](./ADR-0021-temporal-on-cassandra-go-workers.md) —
     Temporal becomes the platform's durable execution engine; this
@@ -16,10 +16,10 @@
 ## Context
 
 The current platform schedules pipelines and recurring jobs through
-`pipeline-schedule-service`, a Rust Deployment that:
+`pipeline-schedule-service`, a Deployment that:
 
-- Holds a `cron = "0.12"` table in process memory.
-- Uses a per-replica `tokio::time::interval` tick loop.
+- Holds a cron table in process memory.
+- Uses a per-replica interval tick loop.
 - Persists "next fire" markers in Postgres.
 - Is **scaled to a single replica**, because two replicas would
   double-fire every job. There is no leader election, no fencing
@@ -62,10 +62,10 @@ functionality.
 - Every recurring job is rewritten as a Temporal Schedule that
   triggers a Workflow defined in `workers-go/pipeline/`.
 - The "API surface" (start / pause / resume / list / next-run) is
-  served by Temporal's own gRPC and is wrapped by a thin Rust client
+  served by Temporal's own gRPC and is wrapped by a thin client
   in `libs/temporal-client` for UI / CLI consumers.
-- The Rust crate, the binary, the Helm chart, the Postgres tables and
-  the alerts disappear from the repository in the same change set.
+- The source package, the binary, the Helm chart, the Postgres tables
+  and the alerts disappear from the repository in the same change set.
 - Schedule definitions are **declared in code** under
   `workers-go/pipeline/schedules/` and registered at worker startup
   via `client.ScheduleClient().Create(ctx, …)`, idempotently.
@@ -81,10 +81,10 @@ functionality.
 
 ### Option C — Keep `pipeline-schedule-service` as a thin proxy in front of Temporal (rejected)
 
-- A Rust service that receives schedule CRUD calls and forwards them
+- A service that receives schedule CRUD calls and forwards them
   to Temporal.
 - Adds a hop without adding value: Temporal's own gRPC is the proxy
-  surface, and `libs/temporal-client` already gives Rust callers a
+  surface, and `libs/temporal-client` already gives callers a
   typed client.
 - Keeps a Deployment alive only to host glue that does not need to
   exist.
@@ -106,7 +106,7 @@ are retired in the same change set. **Temporal Schedules**
 platform's only scheduled-execution mechanism going forward.
 
 The same decision applies to the in-process tick loop in
-`workflow-automation-service/src/domain/executor.rs`: every recurring
+`workflow-automation-service/internal/domain/executor`: every recurring
 trigger it owns becomes a Temporal Schedule.
 
 ## Migration path
@@ -125,11 +125,10 @@ trigger it owns becomes a Temporal Schedule.
 4. After every project has cut over and **one full release cycle has
    passed without traffic** to `pipeline-schedule-service`:
    - Delete the Helm release.
-   - Delete the source crate.
+   - Delete the source package.
    - Drop the Postgres tables (they live in a soon-to-be-decommissioned
      cluster per [ADR-0024](./ADR-0024-postgres-consolidation.md);
      deletion happens as part of that consolidation).
-   - Remove the Cargo workspace member entry.
    - Remove the `compose.yaml` service.
 
 The cutover is gated by the same one-release-cycle "decommissioned
@@ -139,8 +138,7 @@ schedule reveals itself before the code is gone.
 
 ## Operational consequences
 
-- One fewer Deployment, one fewer Helm release, one fewer Cargo
-  member, one fewer set of alerts.
+- One fewer Deployment, one fewer Helm release, one fewer set of alerts.
 - Schedule visibility moves to Temporal Web (already provisioned
   by [ADR-0021](./ADR-0021-temporal-on-cassandra-go-workers.md)).
 - A new section in `infra/runbooks/temporal.md` covers the
@@ -148,8 +146,7 @@ schedule reveals itself before the code is gone.
   the last via Temporal's first-class backfill API rather than
   any bespoke replay mechanism).
 - New CI check: a denylist in workspace lints that fails the build
-  if `pipeline-schedule-service` reappears as a workspace member or
-  as a Helm release.
+  if `pipeline-schedule-service` reappears as a module or as a Helm release.
 - `compose.yaml` no longer references `pipeline-schedule-service`;
   the dev environment uses the Temporal docker compose file the
   Helm chart ships.
@@ -167,9 +164,8 @@ schedule reveals itself before the code is gone.
 
 ### Negative
 
-- Schedule **definitions live in Go** (under
-  `workers-go/pipeline/schedules/`) rather than in a Rust service. The
-  team accepted this trade-off in
+- Schedule **definitions live in Go** under
+  `workers-go/pipeline/schedules/`. The team accepted this trade-off in
   [ADR-0021](./ADR-0021-temporal-on-cassandra-go-workers.md); this
   ADR inherits the trade-off.
 - Pipelines that previously relied on side effects of being inside

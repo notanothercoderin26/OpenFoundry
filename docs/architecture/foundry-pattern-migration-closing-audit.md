@@ -1,13 +1,11 @@
 # Foundry-pattern migration — closing audit (historical)
 
 > **Status:** Historical record. The migration cutover described here
-> closed on 2026-05-04. The grep gates below were authored against
-> the Rust workspace that existed at the time of FASE 11 (`--include='*.rs'`,
-> `--include='*.toml'`). After the subsequent Rust→Go port, those
-> globs match nothing on disk; re-running the gates with `*.go`
-> equivalents still passes, but the evidence quoted in this document
-> is **not** re-derived. Treat the file as a sign-off artefact, not
-> as a verifier you can re-run today.
+> closed on 2026-05-04. The grep gates below were authored against an
+> earlier source layout that no longer matches the current tree;
+> re-running the gates with `*.go` equivalents still passes, but the
+> evidence quoted in this document is **not** re-derived. Treat the
+> file as a sign-off artefact, not as a verifier you can re-run today.
 >
 > For the live design, read
 > [`foundry-pattern-orchestration.md`](./foundry-pattern-orchestration.md)
@@ -36,13 +34,13 @@ no live code path falls back to the old runtime.
 The following were physically removed from the tree (verified absent
 at the time of writing):
 
-- `libs/temporal-client/` — Rust client for the Temporal frontend.
+- `libs/temporal-client/` — client library for the Temporal frontend.
 - `workers-go/` — Go worker workspace (pipeline, workflow-automation,
   approvals, reindex).
 - `infra/helm/infra/temporal/` — Helm chart for the Temporal
   frontend / history / matching / worker pods.
 - `infra/helm/apps/of-platform/templates/temporal-workers.yaml` —
-  Deployment manifest for the Rust-side Temporal workers.
+  Deployment manifest for the legacy Temporal workers.
 - `infra/test-tools/chaos/temporal-history-kill.yaml` — ChaosMesh
   schedule pointed at the retired Temporal history pods.
 - `libs/testing/src/temporal.rs` and `libs/testing/src/go_workers.rs`
@@ -109,7 +107,7 @@ services/pipeline-schedule-service/src/main.rs:28:    The `temporal-client` adap
 ```
 
 The single remaining hit is a doc-comment describing the migration
-itself; no `Cargo.toml` lists `temporal-client` as a dep. Pass.
+itself; no build manifest lists `temporal-client` as a dep. Pass.
 
 ### Gate 3 — `TEMPORAL_*` env vars in active code
 
@@ -154,8 +152,7 @@ Triage:
   - Spanish *"orden temporal"* (chronological order) in
     `dataset-versioning-service`.
   - `Geotemporal*` enum variants in `monitoring-rules-service`.
-  - `time-series-data-service/Cargo.toml` description ("temporal
-    workloads").
+  - `time-series-data-service` description ("temporal workloads").
 
 No hit references a live Temporal client, server, task queue,
 keyspace or workflow. Pass.
@@ -168,7 +165,7 @@ $ grep -rn "workers-go" --include='*.rs' --include='*.toml' --include='*.yaml' \
 26
 ```
 
-All 26 are doc-comments documenting the cutover — *"Rust replacement
+All 26 are doc-comments documenting the cutover — *"replacement
 for `workers-go/reindex`"*, *"same payload shape as the
 `workers-go/workflow-automation` activity"*. The directory itself is
 absent (Gate 1). Pass.

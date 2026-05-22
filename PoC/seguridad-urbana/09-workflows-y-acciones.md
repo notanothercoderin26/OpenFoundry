@@ -174,7 +174,7 @@ For each Action Type, the demo verifies in real time:
 
 OpenFoundry's `workflow-automation-service` is **not** the customer-facing concept — Foundry-native users see *Actions + side effects + AIP Logic*. The service runs the saga / outbox / idempotency machinery, but the demo script never names it (see [`00-contrato-foundry-native.md`](00-contrato-foundry-native.md)).
 
-The retired Rust-era "saga" parity gate is not enforced today (per the repo CLAUDE.md); the integration tests on Postgres now cover it via the `integration` build tag. For this PoC we accept that contract.
+The integration tests on Postgres cover the saga / outbox / idempotency machinery via the `integration` build tag. For this PoC we accept that contract.
 
 ---
 

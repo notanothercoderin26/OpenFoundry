@@ -34,8 +34,9 @@ The split is documented in
 * Re-compile of bundles becomes idempotent on the consolidated
   `pg-schemas` cluster; the projection move to Cassandra is per-S1.7
   the dominant scaling lever for query planning latency.
-* Service binary no longer applies `sqlx::migrate!`; the consolidated
-  schema apply for `pg-schemas` is the canonical mechanism.
+* Service binary no longer applies its legacy migration bootstrap;
+  the consolidated schema apply for `pg-schemas` is the canonical
+  mechanism.
 
 These files are kept verbatim as the canonical source for the
 data-migration tooling that backfills `ontology_security.visibility_*`

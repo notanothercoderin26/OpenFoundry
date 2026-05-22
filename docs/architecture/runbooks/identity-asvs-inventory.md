@@ -64,7 +64,7 @@ following must be in place:
    `OF_WEBAUTHN_RP_ORIGIN`) deployed.
 4. SCIM provisioning bearer token in Vault.
 5. Refresh-token family detection in shadow mode for ≥7 days
-   (compare CQL view vs sqlx view).
+   (compare CQL view vs SQL view).
 6. Audit topic `audit.identity.v1` accepting messages.
 7. Redis sentinel reachable; `LimitConfig::LOGIN` in shadow mode for
    ≥7 days.

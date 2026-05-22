@@ -48,7 +48,7 @@ the crate at their own endpoint at their own risk.
 
 ### Option A — Lakekeeper (chosen)
 
-- Apache-2.0 licensed, written in Rust.
+- Apache-2.0 licensed.
 - Multi-tenant by design (warehouses / projects / namespaces).
 - Native OIDC integration, which lines up with the rest of the
   OpenFoundry control plane.

@@ -25,7 +25,7 @@ Environment variables referenced by the code:
 
 Keep this section in sync when changing routes, config, or persistence behavior.
 
-This Go service is the incremental port of the Rust `dataset-versioning-service`.
+This Go service owns dataset versioning.
 
 ## Port status
 

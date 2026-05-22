@@ -19,9 +19,8 @@
 
 ## Backing dependency
 
-`github.com/cedar-policy/cedar-go` v1.6.0+ (post-1.0). AWS maintains
-cedar-go in lock-step with cedar-rust v4 against the same conformance
-test suite — `conformance_test.go` re-runs that suite locally.
+`github.com/cedar-policy/cedar-go` v1.6.0+ (post-1.0).
+`conformance_test.go` re-runs the AWS Cedar conformance suite locally.
 
 ## Boundaries you must not cross
 

@@ -53,7 +53,7 @@ We therefore need a single, supported wide-column store that:
    discipline as the rest of the platform (operator, backups, repair,
    monitoring, runbook).
 2. Is fully open-source under a permissive license (Apache-2.0).
-3. Has a healthy Rust ecosystem (CQL driver, testcontainers).
+3. Has a healthy Go ecosystem (CQL driver, testcontainers).
 4. Is multi-DC capable from day one, without requiring an architectural
    pivot when we cross the cross-region boundary in
    [ADR-0023](./ADR-0023-iceberg-cross-region-dr.md) (planned).
@@ -74,12 +74,10 @@ We therefore need a single, supported wide-column store that:
 - Endorsed as Temporal's reference persistence backend, which lets us
   collapse "operational state store" and "Temporal persistence" into one
   cluster (see [ADR-0021](./ADR-0021-temporal-on-cassandra-go-workers.md)).
-- **Rust ecosystem:** the `scylla` crate (Apache-2.0, ScyllaDB Inc.) is
-  the most mature CQL driver in Rust — token-aware routing, prepared
-  statement cache, paging streams, speculative execution, full async on
-  Tokio — and it speaks plain CQL, so it is fully compatible with
-  Cassandra 5.0. (The crate name is a historical artifact; it is not
-  ScyllaDB-specific.)
+- **Go ecosystem:** `gocql` (Apache-2.0) provides a mature CQL driver
+  with token-aware routing, prepared statement cache, paging,
+  speculative execution and async-friendly APIs, fully compatible with
+  Cassandra 5.0.
 
 ### Option B — ScyllaDB
 
@@ -121,8 +119,8 @@ We therefore need a single, supported wide-column store that:
 
 We adopt **Apache Cassandra 5.0** as the single operational state store
 for OpenFoundry, deployed and operated through the
-**k8ssandra-operator** on Kubernetes, with the **`scylla` Rust crate**
-(version 0.13+) as the official CQL driver across the workspace.
+**k8ssandra-operator** on Kubernetes, with **`gocql`** as the
+official CQL driver across the workspace.
 
 The Cassandra cluster is the canonical store for:
 
@@ -280,9 +278,6 @@ linter on `*.cql` files.
   Cassandra. Mitigated by the CI linter on `*.cql` files, by the rules
   in this ADR, and by the workshop scheduled in the migration plan
   before stream S1 starts.
-- The Rust driver crate is named `scylla` even though we run Cassandra.
-  This is a recurring source of confusion; documented here and in
-  `libs/cassandra-kernel/README.md`.
 - LWT and SAI are powerful but easy to misuse; both require an explicit
   ADR exception per use site.
 

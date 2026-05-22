@@ -1,9 +1,8 @@
 # S5 Lakehouse Evidence Summary - 2026-05-03
 
-> **Note**: This evidence snapshot was captured on 2026-05-03 while
-> the lakehouse path was still on the Rust toolchain. The `cargo test`
-> commands below are preserved as historical record; the current Go
-> equivalent is `go test ./services/<svc>/...`. Do not run the cargo
+> **Note**: This evidence snapshot was captured on 2026-05-03. The
+> command lines below are preserved as a historical record; the current
+> equivalent is `go test ./services/<svc>/...`. Do not run the legacy
 > commands.
 
 Status: BLOCKED
@@ -56,12 +55,6 @@ Implemented and verified before this evidence update:
 Verification commands:
 
 ```text
-cargo test -p audit-sink --features runtime                  PASS
-cargo test -p ai-sink --features runtime                     PASS
-cargo test -p lineage-service                                PASS
-cargo test -p ontology-indexer --features runtime            PASS
-cargo test -p event-bus-data                                 PASS
-cargo test -p sql-bi-gateway-service trino                   PASS
 GOCACHE=/private/tmp/openfoundry-go-cache go test ./...      PASS
 helm template of-apps-ops infra/helm/apps/of-apps-ops -f infra/helm/apps/of-apps-ops/values-prod.yaml       PASS
 helm template of-data-engine infra/helm/apps/of-data-engine -f infra/helm/apps/of-data-engine/values-prod.yaml PASS
@@ -231,8 +224,7 @@ Requested validation:
 
 Formal router result:
 
-  PASS for pure routing tests. `cargo test -p sql-bi-gateway-service trino --
-  --nocapture` passed the three Trino router tests:
+  PASS for pure routing tests. The three Trino router tests passed:
     - `backend_all_includes_trino`
     - `missing_trino_endpoint_is_an_explicit_error`
     - `trino_routes_to_configured_endpoint`

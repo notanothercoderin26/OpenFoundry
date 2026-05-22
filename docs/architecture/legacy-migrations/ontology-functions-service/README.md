@@ -1,7 +1,7 @@
 # `ontology-functions-service` — S1.7 split (no archived migrations)
 
 Runtime for ontology functions (validate, simulate, runs, metrics).
-Currently has **no sqlx migrations** — all storage today comes via
+Currently has **no service-local migrations** — all storage today comes via
 `ontology-service`'s legacy schema (tables
 `ontology_function_packages`, `function_package_versions`,
 `function_package_run_metrics`, archived under

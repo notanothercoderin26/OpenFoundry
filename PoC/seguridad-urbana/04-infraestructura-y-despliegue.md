@@ -23,8 +23,8 @@ The deployment plane is otherwise identical: same compose / Helm chart, same ~14
 ### Compose bring-up (cloud)
 
 ```bash
-git clone https://github.com/diocrafts/openfoundry.git
-cd openfoundry
+git clone https://github.com/DioCrafts/OpenFoundry.git
+cd OpenFoundry
 cp .env.example .env  # fill in: AEMET_API_KEY,
                        #          AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT,
                        #          S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY,

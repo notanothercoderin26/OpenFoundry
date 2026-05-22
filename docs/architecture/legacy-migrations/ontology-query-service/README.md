@@ -18,8 +18,8 @@ Per [migration-plan §S1.5](../../migration-plan-cassandra-foundry-parity.md):
 * The vector / lexical projections move to the search abstraction
   (`libs/search-abstraction`, ADR-0024) — Vespa or OpenSearch
   depending on `SEARCH_BACKEND`.
-* `ontology-query-service` no longer applies `sqlx::migrate!` and
-  does not depend on `sqlx`.
+* `ontology-query-service` no longer applies its legacy migration
+  bootstrap and does not depend on the retired ORM layer.
 
 These files are kept here verbatim as the **canonical source for
 the data-migration tooling** (S1.7) that backfills the new keyspaces

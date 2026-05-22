@@ -221,7 +221,7 @@ vs the 'feat/risk-model-v2' branch. Are there meaningful differences?
 
 > *"This is the PoC. What comes next? A pilot with your real data, on your infra, in 6 weeks. No lock-in. No license fees. And all the code is on GitHub."*
 
-«Show `github.com/unnamedlab/OpenFoundry`.»
+«Show `github.com/DioCrafts/OpenFoundry`.»
 
 «Move to Q&A.»
 

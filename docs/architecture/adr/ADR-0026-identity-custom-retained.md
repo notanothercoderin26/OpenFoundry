@@ -61,7 +61,7 @@ Reasons that win the trade-off in our context:
 - **Security-relevant code already passes review** (auth-middleware
   re-uses the same primitives and is exercised across every service);
   rewriting the surface is a larger risk than hardening it.
-- **Operational surface is one Rust binary**, not a JVM cluster + a
+- **Operational surface is one Go binary**, not a JVM cluster + a
   Postgres + an admin UI. Keycloak's operational footprint is
   defensible at scale we do not have.
 - **Customisation cost is paid up-front and known**. Keycloak
@@ -109,7 +109,7 @@ What needs to change for this to be defensible:
     a clustered cache and a Postgres backend tuned for the
     Keycloak schema. The operational footprint is closer to
     Temporal (a multi-component cluster with its own learning
-    curve) than to a Rust binary.
+    curve) than to a single Go binary.
   - **Customisation drift**: every claim shape, every protocol mapper
     and every credential type that does not match Keycloak's model
     is a Java SPI we own forever, with rebuild + redeploy on every
@@ -134,8 +134,8 @@ What needs to change for this to be defensible:
 ### Option C — Replace with Zitadel / Authentik / Ory stack (rejected)
 
 - Each is a credible point on the build-vs-buy curve. Each carries
-  a different combination of (a) operational surface, (b) Rust /
-  non-Rust dialect, (c) extension model. None gives us a meaningful
+  a different combination of (a) operational surface, (b) language
+  dialect, (c) extension model. None gives us a meaningful
   enough advantage over hardened in-house to justify a rewrite of a
   surface that already exists, is already in use across every
   service via `auth-middleware`, and is on the critical path for
@@ -253,7 +253,7 @@ state moves to Cassandra
 
 ### Positive
 
-- Identity surface stays in Rust, in the same operational dialect as
+- Identity surface stays in Go, in the same operational dialect as
   the rest of the platform.
 - Token shape and Cedar entity model evolve together without a
   cross-language integration boundary.

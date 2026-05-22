@@ -68,8 +68,6 @@ semantics under realistic consistency settings.
 
 ## Don't
 
-- Don't reach for the `scylla-rs` Rust driver — we deliberately use
-  pure-Go `gocql`.
 - Don't add a single-PK partition table to a hot path; composite PK
   is mandatory (see ontology-anti-hot-partitions.md).
 - Don't drop a column in a migration; nullify and stop writing it

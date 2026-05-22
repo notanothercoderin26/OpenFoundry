@@ -44,7 +44,7 @@ the rest are now shipped as JSON.
 | Apache Flink      | *Flink Dashboard*                               | **[14911][gc-14911]** | Prometheus | Job uptime, checkpoints, savepoints — pairs with `flink.yaml`. |
 | NATS / JetStream  | *NATS Server Dashboard*                         | **[2279][gc-2279]**   | Prometheus | Built for the official prometheus-nats-exporter. |
 | NATS / JetStream  | *JetStream Dashboard*                           | **[14862][gc-14862]** | Prometheus | Per-stream / per-consumer view; pairs with `nats.yaml`. |
-| Lakekeeper        | *Lakekeeper service overview*                   | n/a                 | Prometheus | OpenFoundry-specific — see [`lakekeeper-overview.json`](./lakekeeper-overview.json). RED metrics + sqlx pool, pairs with `lakekeeper.yaml`. |
+| Lakekeeper        | *Lakekeeper service overview*                   | n/a                 | Prometheus | OpenFoundry-specific — see [`lakekeeper-overview.json`](./lakekeeper-overview.json). RED metrics + DB pool, pairs with `lakekeeper.yaml`. |
 | CloudNativePG     | *CNPG cluster fleet*                            | n/a                 | Prometheus | OpenFoundry-specific fleet view across the per-bounded-context clusters in `infra/k8s/cnpg/clusters/` — see [`cnpg-overview.json`](./cnpg-overview.json). Pairs with `cnpg.yaml`. |
 | Apache Flink      | *Flink jobs overview*                           | n/a                 | Prometheus | OpenFoundry-specific — see [`flink-overview.json`](./flink-overview.json). Uptime, checkpoints, savepoint age (T15 maintenance), pairs with `flink.yaml`. |
 

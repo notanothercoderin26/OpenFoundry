@@ -17,7 +17,7 @@ domain that was authoritative before Stream **S2.5** (see
 - The Postgres table `workflow_approvals` (defined in
   `services/workflow-automation-service/migrations/20260421140000_workflows.sql`,
   rows 36–53) is **deprecated** and must not be written to from new
-  code paths. As of G-S2-PG (2026-05-03), live Rust handlers no
+  code paths. As of G-S2-PG (2026-05-03), live handlers no
   longer read or write it; `drop_workflow_approvals.sql.disabled`
   remains staged for the database cutover window.
 
@@ -27,7 +27,7 @@ The DROP migration **MUST NOT** run before:
 
 1. every persisted `workflow_approvals` row with `status='pending'`
    has either been replayed into Temporal or has expired naturally;
-2. all historical callers of `services/approvals-service/src/handlers/approvals.rs`
+2. all historical callers of `services/approvals-service/internal/handlers/approvals`
    had switched to `domain::temporal_adapter::ApprovalsAdapter`;
 3. the audit-event consumer reports zero `approval.*` events sourced
    from the Postgres path for at least 7 days.

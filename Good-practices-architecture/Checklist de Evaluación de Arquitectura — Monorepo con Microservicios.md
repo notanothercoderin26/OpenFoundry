@@ -49,7 +49,7 @@ monorepo/
 - [ ] Is controlled dependency hoisting used (no phantom dependencies)?
 - [ ] Are shared dependency versions aligned across services?
 - [ ] Is there a clear policy on when a dependency should be shared vs. local?
-- [ ] Are native workspaces used (pnpm/yarn/npm workspaces, Go workspaces, Cargo workspaces)?
+- [ ] Are native workspaces used (pnpm/yarn/npm workspaces, Go workspaces)?
 
 ---
 

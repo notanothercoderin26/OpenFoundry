@@ -1,13 +1,12 @@
 # `libs/authz-cedar-go`
 
-Go port of `libs/authz-cedar`, backed by
+Cedar policy evaluator backed by
 [`github.com/cedar-policy/cedar-go`](https://github.com/cedar-policy/cedar-go)
-v1.6.0+ (post-1.0; AWS maintains it in lock-step with cedar-rust v4
-against the same conformance test suite).
+v1.6.0+ (post-1.0).
 
-## Status — conformance-ready port
+## Status — conformance-ready
 
-This package now mirrors the reusable Rust `libs/authz-cedar` surfaces:
+This package provides the following surfaces:
 
 - `lib.go` — `PolicyStore` (in-memory `*cedar.PolicySet` + bundled
   schema, behind a `sync.RWMutex`), `PolicyRecord` (mirrors the
@@ -15,20 +14,18 @@ This package now mirrors the reusable Rust `libs/authz-cedar` surfaces:
   schema validation + atomic swap.
 - `engine.go` — `AuthzEngine` + `AuthorizeOutcome`, fire-and-forget
   audit emission via goroutine.
-- `audit.go` — `AuthzAuditEvent` (wire-format pinned to Rust
+- `audit.go` — `AuthzAuditEvent` (wire-format pinned to
   `audit.authz.v1`), `AuthzAuditSink` interface, `NoopAuditSink`,
   `SlogAuditSink`.
 - `errors.go` — `PolicyParseError`, `ValidationError`, sentinel errors.
-- `cedar_schema.cedarschema` — bundled schema, copied verbatim from
-  `libs/authz-cedar/`.
+- `cedar_schema.cedarschema` — bundled schema.
 - `pg.go` — Postgres reload adapter for the latest active policy version
   per id, with atomic replacement semantics.
 - `nats.go` — hot-reload subscriber interface for `authz.policy.changed`.
 - `audit_kafka.go` — Kafka audit sink publishing `audit.authz.v1` with
-  the Rust-compatible OpenLineage header shape.
-- `chi.go` — chi middleware replacement for the Rust `axum.rs` guard.
-- `iceberg_policies.go` / `schedule_policies.go` — policy bundles kept
-  in parity with the Rust helpers.
+  the OpenLineage header shape.
+- `chi.go` — chi middleware guard.
+- `iceberg_policies.go` / `schedule_policies.go` — policy bundles.
 - Tests covering schema parsing, policy validation (strict mode,
   duplicate ids, schema-incompatible attribute), end-to-end Allow/Deny
   via the engine, diagnostics reasons/errors, Postgres reload,
@@ -40,20 +37,20 @@ This package now mirrors the reusable Rust `libs/authz-cedar` surfaces:
 - Keep extending the local conformance corpus when new service policy
   shapes land, and run it before cedar-go upgrades.
 
-## Cedar-go API differences vs cedar-rust
+## Cedar-go API notes
 
-Notable shape differences picked up during the port:
+Key cedar-go v1.6.0 API surfaces used here:
 
-| cedar-rust v4 (used by Rust impl)                                | cedar-go v1.6.0                                          |
+| API                                                              | cedar-go v1.6.0                                          |
 |------------------------------------------------------------------|----------------------------------------------------------|
-| `cedar_policy::PolicySet::new()`                                 | `cedar.NewPolicySet()`                                   |
-| `Policy::parse(Some(id), src)` returns `Result<Policy, _>`       | `var p cedar.Policy; p.UnmarshalCedar(b []byte) error`   |
-| `Authorizer::is_authorized(req, set, ents)` returns `Response`   | `policySet.IsAuthorized(entities, req)` returns `(Decision, Diagnostic)` |
-| `Schema::from_cedarschema_str(src)`                              | `var s schema.Schema; s.UnmarshalCedar(b)` (in `x/exp/schema`) |
-| `Validator::new(schema).validate(set, ValidationMode::Strict)`   | `validate.New(resolved, validate.WithStrict()).Policy(id, ast)` per-policy (in `x/exp/schema/validate`) |
-| `Decision::Allow / Decision::Deny`                               | `cedar.Allow / cedar.Deny`                               |
-| `response.diagnostics().reason()`                                | `Diagnostic.Reasons` field (typed `[]DiagnosticReason`)  |
-| `response.diagnostics().errors()`                                | `Diagnostic.Errors` field (typed `[]DiagnosticError`)    |
+| Policy set construction                                          | `cedar.NewPolicySet()`                                   |
+| Policy parsing                                                   | `var p cedar.Policy; p.UnmarshalCedar(b []byte) error`   |
+| Authorization                                                    | `policySet.IsAuthorized(entities, req)` returns `(Decision, Diagnostic)` |
+| Schema parsing                                                   | `var s schema.Schema; s.UnmarshalCedar(b)` (in `x/exp/schema`) |
+| Validation                                                       | `validate.New(resolved, validate.WithStrict()).Policy(id, ast)` per-policy (in `x/exp/schema/validate`) |
+| Decision constants                                               | `cedar.Allow / cedar.Deny`                               |
+| Diagnostic reasons                                               | `Diagnostic.Reasons` field (typed `[]DiagnosticReason`)  |
+| Diagnostic errors                                                | `Diagnostic.Errors` field (typed `[]DiagnosticError`)    |
 
 The validator is in an experimental namespace
 (`x/exp/schema/validate`) but is the same code path the cedar-go
@@ -72,7 +69,7 @@ the same direct pointer cast that cedar-go's own test suite uses (see
 
 - snake_case fields (`policy_ids`, not `policyIds`).
 - `tenant`, `policy_ids`, `diagnostics` use `omitempty` — they MUST be
-  absent from the wire when empty (matches Rust `skip_serializing_if`).
+  absent from the wire when empty.
 - `decision` is the lowercase string `"allow"` or `"deny"`.
 
 ## Usage

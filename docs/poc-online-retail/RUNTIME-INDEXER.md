@@ -65,9 +65,9 @@ lands the wire shape doesn't change.
   Operator + `_pipeline-run-template.yaml` machinery is already wired,
   battle-tested for the 4 PoC transforms, and ships Iceberg + Lakekeeper
   REST + Hadoop-AWS support. Reusing it avoids a second runtime stack.
-- **Scala for Iceberg reads.** PyIceberg and iceberg-go are immature for
-  hidden partitioning, time-travel, and the Lakekeeper REST flavour we
-  use. The Scala/Java runtime is the canonical client.
+- **Scala for Iceberg reads.** iceberg-go is immature for hidden
+  partitioning, time-travel, and the Lakekeeper REST flavour we use.
+  The Scala/Java runtime is the canonical client.
 - **Go control plane for orchestration.** Run records, watermarks per
   table, retries, status — these are HTTP/DB problems Go handles
   cleanly. The Spark JAR stays a pure transform.

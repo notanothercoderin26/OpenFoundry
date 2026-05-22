@@ -23,5 +23,5 @@ service: the **runtime** time-series data lives in
 ## Why archived
 
 Schema collapses into the consolidated `pg-schemas` apply (same
-mechanism as S1.6). Service binary no longer invokes
-`sqlx::migrate!`.
+mechanism as S1.6). Service binary no longer invokes the legacy
+migration bootstrap.

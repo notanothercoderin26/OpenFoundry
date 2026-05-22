@@ -47,7 +47,7 @@ Trino (Solution A), or a full Apache Arrow Flight SQL server inside the
 gateway that subsumes Trino's edge role (Solution B). Solution B is the
 "platform-grade" choice: federation is preserved at the external
 boundary (Tableau still sees a single catalog tree) while collapsing
-the auth / quotas / audit / saved-queries plane onto a single Rust
+the auth / quotas / audit / saved-queries plane onto a single
 service we already own.
 
 ## Decision
@@ -126,12 +126,12 @@ service we already own.
 ### Positive
 
 - **Single edge surface, single policy plane.** Tenant scoping,
-  quotas, JWT validation and audit are owned by the same Rust crate
+  quotas, JWT validation and audit are owned by the same service
   that owns the data-plane bounded contexts; drift between Trino's
   access-control plugin and `auth-middleware` disappears.
 - **Smaller infra footprint.** Trino's coordinator + workers (~1 vCPU
   / 2 GiB minimum, plus PDBs and Helm values) are gone; the gateway is
-  a single Rust binary co-located with its CNPG cluster.
+  a single Go binary co-located with its CNPG cluster.
 - **Single SQL dialect for new work.** Internal services already
   speak DataFusion SQL (per ADR-0009); BI now also reaches the same
   dialect on the local side, with routed engines (Trino, Vespa,
@@ -140,7 +140,7 @@ service we already own.
   one structured audit event per statement, including a deterministic
   SQL fingerprint that is safe to log.
 - **Roadmap clear.** Column masking, row-level security and a query
-  cache can be implemented at one well-defined plane in Rust.
+  cache can be implemented at one well-defined plane.
 
 ### Negative / Risks
 

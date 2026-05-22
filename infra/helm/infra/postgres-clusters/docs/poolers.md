@@ -20,8 +20,8 @@ Transaction-mode constraints — services hosted here MUST NOT rely on:
 * session-scoped advisory locks,
 * `SET LOCAL` outside an explicit `BEGIN/COMMIT`,
 * `LISTEN/NOTIFY`,
-* server-side prepared statements without `prepared_statements=false`
-  in the sqlx connect options.
+* server-side prepared statements without disabling prepared
+  statements in the database driver connect options.
 
 This is the same contract that `cnpg-kernel` documents for the legacy
 per-service Poolers; the only change is that the back-end is now one

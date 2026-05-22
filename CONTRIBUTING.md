@@ -80,8 +80,8 @@ Architecture overview: [`docs/architecture/index.md`](docs/architecture/index.md
 **First-time setup**
 
 ```bash
-git clone https://github.com/diocrafts/openfoundry.git
-cd openfoundry
+git clone https://github.com/DioCrafts/OpenFoundry.git
+cd OpenFoundry
 make tools          # installs buf, golangci-lint, sqlc, gofumpt to ./bin
 make build          # compile every Go package
 make test           # fast unit tests (no Docker needed)

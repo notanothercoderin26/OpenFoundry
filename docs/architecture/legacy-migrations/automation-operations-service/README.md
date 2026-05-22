@@ -18,7 +18,7 @@ automation-ops control plane that was authoritative before Stream
   (archived in
   `docs/architecture/legacy-migrations/automation-operations-service/20260427070600_06_automation_queues_foundation.sql`)
   are **deprecated** and must not be written to from new code paths.
-  As of G-S2-PG (2026-05-03), live Rust handlers no longer read or
+  As of G-S2-PG (2026-05-03), live handlers no longer read or
   write them; the disabled DROP remains staged for the database
   cutover window.
 

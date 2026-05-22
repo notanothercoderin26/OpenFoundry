@@ -1,10 +1,9 @@
 # Bus audit — archived
 
 > **Status**: Historical document. The original audit (2026-04-29)
-> reviewed `Cargo.toml` and `.rs` files looking for `event-bus-data`
-> usage with control-plane semantics. After the Rust→Go port, the
-> `Cargo.toml` files, the `.rs` sources, the `tools/bus-lint/check_bus.py`
-> lint, and the `.github/bus-allowlist.yaml` allowlist **no longer exist**
+> reviewed service build manifests looking for `event-bus-data` usage
+> with control-plane semantics. The `tools/bus-lint/check_bus.py` lint
+> and the `.github/bus-allowlist.yaml` allowlist **no longer exist**
 > in the tree, so the methodology is not reproducible and the verdict
 > (*"0 services migrating"*) is not actionable.
 >

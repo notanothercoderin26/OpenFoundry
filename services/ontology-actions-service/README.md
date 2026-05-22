@@ -77,8 +77,8 @@ post-processing.
 |---|---|
 | Health (`/health`, `/healthz`) + Prometheus (`/metrics`) | ✅ wired |
 | JWT-protected `/api/v1/ontology/*` mount | ✅ wired |
-| URL grid (every Rust route mounted with the same path / verb) | ✅ wired |
-| `mediafunctions` package (`read_raw`, `ocr`, `extract_text`, `transcribe_audio`, `read_metadata` + `MockRuntime`) | ✅ ported 1:1 with Rust H6 tests |
+| URL grid (every route mounted with the same path / verb) | ✅ wired |
+| `mediafunctions` package (`read_raw`, `ocr`, `extract_text`, `transcribe_audio`, `read_metadata` + `MockRuntime`) | ✅ wired with H6 tests |
 | Action / funnel / function / rule handlers | ✅ mounted from `libs/ontology-kernel/handlers/*` whenever the service has an `AppState` |
 | Missing `DATABASE_URL` or Cassandra runtime stores | ✅ fails startup by default with a clear error |
 | Object/link/action hot-path stores | ✅ wired to Cassandra/Scylla via `libs/cassandra-kernel` |
@@ -102,7 +102,7 @@ go test ./services/ontology-actions-service/...
 
 ## Configuration
 
-Env vars (defaults match the Rust port):
+Env vars:
 
 | Variable | Default |
 |---|---|
@@ -136,7 +136,7 @@ Env vars (defaults match the Rust port):
 
 ### Python function runtime
 
-When deployments allow inline Python function packages, set `PYTHON_PACKAGES_ENABLED=true` and provide `PYTHON_SIDECAR_BINARY` pointing at the deployed `openfoundry-pyruntime` binary. Startup fails in production if Python packages are enabled without a sidecar, turning `python_runtime_not_wired` into a deployment configuration error instead of a runtime 503. Local/test runs using `OF_DEV_STUB_MODE=true` may intentionally omit the sidecar to exercise the Rust-compatible `python_runtime_not_wired` response.
+When deployments allow inline Python function packages, set `PYTHON_PACKAGES_ENABLED=true` and provide `PYTHON_SIDECAR_BINARY` pointing at the deployed `openfoundry-pyruntime` binary. Startup fails in production if Python packages are enabled without a sidecar, turning `python_runtime_not_wired` into a deployment configuration error instead of a runtime 503. Local/test runs using `OF_DEV_STUB_MODE=true` may intentionally omit the sidecar to exercise the `python_runtime_not_wired` response.
 
 Use `PYTHON_SIDECAR_ARGS` for additional sidecar flags, `PYTHON_SIDECAR_ENV` for comma/newline-separated `KEY=VALUE` environment entries, and `PYTHON_SIDECAR_TIMEOUT` for both sidecar startup and hard-call timeout.
 

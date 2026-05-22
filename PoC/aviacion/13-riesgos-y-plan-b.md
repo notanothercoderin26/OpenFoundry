@@ -19,7 +19,7 @@
 | R9 | Workflow doesn't fire a notification | Low | Medium | Mailtrap pre-loaded with a sample email |
 | R10 | Audit log doesn't show recent action | Low | High | Manual refresh, expected lag < 5 s |
 | R11 | Branch comparison shows odd results | Medium | Medium | Pre-validate at T-1 that distributions differ and are explainable |
-| R12 | Customer asks to see source code live | Medium | Low | Have `apps/web` and a Rust service open in VSCode |
+| R12 | Customer asks to see source code live | Medium | Low | Have `apps/web` and a Go service open in VSCode |
 | R13 | Question about license/AGPL | High | Low | Prepared answer (see §FAQ) |
 | R14 | Question about enterprise cost | High | Low | Model already thought through (see §FAQ) |
 | R15 | Customer wants to use it in production tomorrow | High | Low (good!) | 6-week pilot roadmap ready |

@@ -27,7 +27,7 @@ Environment variables referenced by the code:
 
 Keep this section in sync when changing routes, config, or persistence behavior.
 
-Go runtime for the Foundry Data Connection app migration. The Go service now uses the same runtime configuration names and defaults as the Rust service where those defaults exist.
+Go runtime for the Foundry Data Connection app.
 
 ## Compatibility naming
 
@@ -170,12 +170,12 @@ listener read permission can inspect received records with:
 | `JWT_SECRET` or `OPENFOUNDRY_JWT_SECRET` | JWT signing/validation secret. `OPENFOUNDRY_JWT_SECRET` wins when both are set. The service fails to start when neither is set. |
 | `CREDENTIAL_ENCRYPTION_KEY` | Base64 AES-256-GCM key for credential ciphertext at rest. Dev environments may derive from JWT secret while credential storage is being ported; production should set a dedicated key. |
 
-## Rust-compatible runtime defaults
+## Runtime defaults
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `HOST` | `0.0.0.0` | HTTP bind host. |
-| `PORT` | `50088` | HTTP bind port, matching Rust. |
+| `PORT` | `50088` | HTTP bind port. |
 | `DATASET_SERVICE_URL` | `http://localhost:50079` | Dataset-versioning service base URL. |
 | `PIPELINE_SERVICE_URL` | `http://localhost:50080` | Pipeline service base URL. |
 | `ONTOLOGY_SERVICE_URL` | `http://localhost:50103` | Ontology service base URL. |

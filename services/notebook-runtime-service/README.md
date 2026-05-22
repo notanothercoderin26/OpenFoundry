@@ -35,7 +35,7 @@ workspace files, notepad documents + presence + export.
 | Component | Status |
 |---|---|
 | Health (`/health`, `/healthz`) + Prometheus (`/metrics`) | ✅ wired |
-| URL grid (every Rust route mounted under `/api/v1`) | ✅ wired |
+| URL grid (every route mounted under `/api/v1`) | ✅ wired |
 | Notebook CRUD | ✅ pgx-backed in production; explicit `NOTEBOOK_RUNTIME_SMOKE_MODE=true` enables in-memory smoke CRUD without `DATABASE_URL` |
 | Cell CRUD | ✅ pgx-backed in production; explicit smoke mode persists cells in memory for smoke tests |
 | Session CRUD | ✅ pgx-backed in production; explicit smoke mode persists session lifecycle in memory |
