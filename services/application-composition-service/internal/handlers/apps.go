@@ -425,3 +425,102 @@ func embedInfo(slug string) map[string]any {
 		"iframe_html": `<iframe src="` + url + `" loading="lazy" style="width:100%;height:720px;border:0;"></iframe>`,
 	}
 }
+
+// interfaceVariableDTO is the public projection of a module-interface
+// variable returned by GetPublishedAppInterface. Consumers (the
+// Embedded Module widget editor and the runtime EmbeddedModuleRenderer)
+// use it to discover what variables they can map.
+type interfaceVariableDTO struct {
+	ExternalID  string `json:"external_id"`
+	Kind        string `json:"kind"`
+	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
+	// OutputKind is set for transformation variables and exposes the
+	// inferred type of the pipeline's final step so callers can validate
+	// mapping compatibility without re-running the transformation.
+	OutputKind string `json:"output_kind,omitempty"`
+}
+
+// GetPublishedAppInterface returns the module-interface variables of an
+// app's published version. Used by the Embedded Module widget and the
+// Loop layout to discover what variables can be mapped from the parent.
+// Public (anonymous) since embedded modules can be composed inside
+// portal-grade apps that have no auth context.
+func (h *Handlers) GetPublishedAppInterface(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "slug is required")
+		return
+	}
+	branch := branchFromRequest(r)
+	app, err := h.Repo.GetAppBySlug(r.Context(), slug, branch)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if app == nil || app.PublishedVersionID == nil {
+		writeError(w, http.StatusNotFound, "no published version for slug")
+		return
+	}
+	v, err := h.Repo.GetPublishedVersion(r.Context(), app.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if v == nil {
+		writeError(w, http.StatusNotFound, "published version missing")
+		return
+	}
+	publishedApp, err := appFromPublishedVersion(app, v)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !publishedAppIsPublic(app, v) {
+		writeError(w, http.StatusNotFound, "no public published version for slug")
+		return
+	}
+	variables, err := extractInterfaceVariables(publishedApp.Settings)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"slug":                slug,
+		"app_id":              publishedApp.ID.String(),
+		"interface_variables": variables,
+	})
+}
+
+func extractInterfaceVariables(settings json.RawMessage) ([]interfaceVariableDTO, error) {
+	out := []interfaceVariableDTO{}
+	if len(settings) == 0 || string(settings) == "null" {
+		return out, nil
+	}
+	var holder struct {
+		Variables []models.WorkshopVariable `json:"workshop_variables"`
+	}
+	if err := json.Unmarshal(settings, &holder); err != nil {
+		return nil, err
+	}
+	for _, v := range holder.Variables {
+		if v.ExternalID == "" {
+			continue
+		}
+		if v.Interface == nil || !v.Interface.Enabled {
+			continue
+		}
+		outputKind := ""
+		if v.Transformation != nil {
+			outputKind = v.Transformation.OutputKind
+		}
+		out = append(out, interfaceVariableDTO{
+			ExternalID:  v.ExternalID,
+			Kind:        v.Kind,
+			DisplayName: v.Interface.DisplayName,
+			Description: v.Interface.Description,
+			OutputKind:  outputKind,
+		})
+	}
+	return out, nil
+}

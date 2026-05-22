@@ -538,6 +538,26 @@ function makeFilterListWidget(): AppWidget {
   };
 }
 
+function makeEmbeddedModuleWidget(): AppWidget {
+  return {
+    id: makeId('embedded_module'),
+    widget_type: 'embedded_module',
+    title: 'Embedded module',
+    description: '',
+    position: { x: 0, y: 0, width: 1, height: 4 },
+    props: {
+      module_slug: '',
+      module_rid: '',
+      mapping: {},
+      lazy_load: true,
+      open_referenced_module_in_new_tab: false,
+    },
+    binding: null,
+    events: [],
+    children: [],
+  };
+}
+
 function makeFreeFormAnalysisWidget(): AppWidget {
   return {
     id: makeId('free_form_analysis'),
@@ -1416,6 +1436,21 @@ export function WorkshopEditorPage() {
                         style={addWidgetItemStyle()}
                       >
                         <Glyph name="settings" size={13} tone="#c2410c" /> Scenario controls
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const widget = makeEmbeddedModuleWidget();
+                          patchSection(section.id, (s) => ({
+                            ...s,
+                            children: [...s.children, widget],
+                          }));
+                          setSelection({ kind: 'widget', id: widget.id });
+                          setWidgetMenuSection(null);
+                        }}
+                        style={addWidgetItemStyle()}
+                      >
+                        <Glyph name="apps-grid" size={13} tone="#2d72d2" /> Embedded module
                       </button>
                     </div>
                   ) : null}

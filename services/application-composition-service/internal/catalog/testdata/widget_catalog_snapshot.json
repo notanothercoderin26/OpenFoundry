@@ -219,6 +219,18 @@
       "supports_children": false
     },
     {
+      "widget_type": "embedded_module",
+      "widget_kind": "embed",
+      "category": "embed",
+      "display_icon": "applications",
+      "input_count": 0,
+      "output_count": 0,
+      "event_names": [],
+      "permissions": ["app:read"],
+      "supported_bindings": [],
+      "supports_children": false
+    },
+    {
       "widget_type": "container",
       "widget_kind": "layout",
       "category": "layout",

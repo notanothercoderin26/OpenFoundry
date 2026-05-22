@@ -14,7 +14,7 @@
 // editor chrome (header, "Edit" button, lineage shortcut) and accepts a
 // page list. The published runtime owns its own chrome via AppRenderer.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { AppDefinition, WidgetEvent } from '@/lib/api/apps';
 import { listObjectTypes, type ObjectInstance, type ObjectType } from '@/lib/api/ontology';
@@ -41,6 +41,11 @@ import {
   readPersistedState,
   writePersistedState,
 } from './workshopModuleInterface';
+import {
+  applyBridgeToPrimitives,
+  EmbeddedBridgeContext,
+  hydrateFromBridge,
+} from './embeddedRuntimeBridge';
 
 import { WorkshopDataContext, type WorkshopDataContextValue } from './workshop-context';
 
@@ -101,23 +106,36 @@ export function WorkshopRuntimeProvider({
   const slugRef = useRef(appSlug);
   const userIdRef = useRef(scopedUserId);
 
+  // Bridge from a surrounding `EmbeddedModuleRenderer` (null at the
+  // top level). When present, mapped variables read & write through
+  // the parent so the two modules stay in sync.
+  const bridge = useContext(EmbeddedBridgeContext);
+
   // First-load initial primitive values: persisted state wins over URL
-  // params, which in turn win over the variable's static default. The
-  // initializer fires exactly once thanks to useState's lazy form, so
-  // hot-reloads of `urlParams` after mount can't reset user edits.
+  // params, URL params lose to the bridge (parent-owned values win
+  // because Workshop's contract is "parent variable definition wins"
+  // for mapped variables). The initializer fires exactly once thanks
+  // to useState's lazy form, so hot-reloads of `urlParams` after mount
+  // can't reset user edits.
   const [activeObjects, setActiveObjects] = useState<Record<string, ObjectInstance | null>>({});
   const [selectedObjectSets, setSelectedObjectSets] = useState<Record<string, ObjectInstance[]>>({});
   const [shapeOutputs, setShapeOutputs] = useState<Record<string, WorkshopMapFeatureCollection | null>>({});
   const [filterValues, setFilterValues] = useState<Record<string, WorkshopFilterRuntimeValue>>({});
   const [filterMetadata, setFilterMetadata] = useState<Record<string, WorkshopRuntimeFilterMetadata>>({});
   const [primitiveValues, setPrimitiveValues] = useState<Record<string, unknown>>(() => {
-    // Persisted state is the baseline; URL params override it because
-    // they are an explicit user signal to enter the app with a
-    // specific entry-point state.
     const fromStorage = readPersistedState(variables, slugRef.current, userIdRef.current);
     const fromUrl = hydrateVariablesFromUrl(variables, urlParams ?? {});
-    return { ...fromStorage, ...fromUrl };
+    const fromBridge = bridge ? hydrateFromBridge(variables, bridge) : {};
+    return { ...fromStorage, ...fromUrl, ...fromBridge };
   });
+  // The bridge owns mapped-variable values for the lifetime of the
+  // module. We merge it on top of `primitiveValues` on every render so
+  // the variable engine, widgets, and downstream effects always see
+  // the latest parent value.
+  const effectivePrimitiveValues = useMemo(
+    () => applyBridgeToPrimitives(primitiveValues, variables, bridge),
+    [bridge, primitiveValues, variables],
+  );
   const [functionValues, setFunctionValues] = useState<Record<string, WorkshopFunctionRuntimeValue>>({});
   const [runtimeParameters, setRuntimeParametersState] = useState<Record<string, string>>({});
   const [refreshKey, setRefreshKey] = useState(0);
@@ -149,7 +167,15 @@ export function WorkshopRuntimeProvider({
   }, []);
   const setPrimitiveValue = useCallback((variableId: string, value: unknown) => {
     setPrimitiveValues((current) => (Object.is(current[variableId], value) ? current : { ...current, [variableId]: value }));
-  }, []);
+    // If the variable is bridged to a parent, also write upstream so
+    // the parent (and any sibling embeds) pick up the change.
+    if (bridge) {
+      const variable = variables.find((entry) => entry.id === variableId);
+      if (variable?.external_id && bridge.mappedExternalIDs.includes(variable.external_id)) {
+        bridge.write(variable.external_id, value);
+      }
+    }
+  }, [bridge, variables]);
   const setRuntimeParameters = useCallback((parameters: Record<string, string>) => {
     setRuntimeParametersState((current) => (sameStringRecord(current, parameters) ? current : { ...parameters }));
   }, []);
@@ -226,10 +252,10 @@ export function WorkshopRuntimeProvider({
     shapeOutputs,
     filterValues,
     filterMetadata,
-    primitiveValues,
+    primitiveValues: effectivePrimitiveValues,
     functionValues,
     runtimeParameters,
-  }), [activeObjects, filterMetadata, filterValues, functionValues, primitiveValues, runtimeParameters, selectedObjectSets, shapeOutputs, variables]);
+  }), [activeObjects, effectivePrimitiveValues, filterMetadata, filterValues, functionValues, runtimeParameters, selectedObjectSets, shapeOutputs, variables]);
   useEffect(() => {
     for (const variable of variables) {
       if (variable.kind !== 'function_output') continue;
@@ -306,7 +332,7 @@ export function WorkshopRuntimeProvider({
     shapeOutputs,
     filterValues,
     filterMetadata,
-    primitiveValues,
+    primitiveValues: effectivePrimitiveValues,
     runtimeParameters,
     variableEngine,
     refreshKey,
@@ -320,7 +346,7 @@ export function WorkshopRuntimeProvider({
     dispatchEvents,
     setEventHandlers,
     onButtonClick,
-  }), [activeObjects, dispatchEvents, executeObjectSet, filterMetadata, filterValues, primitiveValues, refreshKey, runtimeParameters, selectedObjectSets, setActiveObject, setEventHandlers, setFilterValue, setPrimitiveValue, setRuntimeParameters, setSelectedObjectSet, setShapeOutput, shapeOutputs, variableEngine, onButtonClick]);
+  }), [activeObjects, dispatchEvents, executeObjectSet, effectivePrimitiveValues, filterMetadata, filterValues, refreshKey, runtimeParameters, selectedObjectSets, setActiveObject, setEventHandlers, setFilterValue, setPrimitiveValue, setRuntimeParameters, setSelectedObjectSet, setShapeOutput, shapeOutputs, variableEngine, onButtonClick]);
 
   const data = useMemo<WorkshopDataContextValue>(
     () => ({ variables, objectTypes }),

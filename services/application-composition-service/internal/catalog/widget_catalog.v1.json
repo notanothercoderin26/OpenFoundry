@@ -1561,6 +1561,69 @@
       "supports_children": false
     },
     {
+      "widget_type": "embedded_module",
+      "widget_kind": "embed",
+      "label": "Embedded module",
+      "description": "Embed another published Workshop module and bind its module-interface variables to parent variables. Mapped variables share state in both directions; the parent's variable definition is authoritative and the child's default is ignored.",
+      "category": "embed",
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "module_slug": {
+            "type": "string",
+            "description": "Slug of the published child module to embed."
+          },
+          "module_rid": {
+            "type": "string",
+            "description": "Optional resource id alias for the child module; takes precedence over module_slug when both are provided."
+          },
+          "mapping": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "kind": { "type": "string", "enum": ["variable", "literal", "runtime_parameter"] },
+                "variable_id": { "type": "string" },
+                "value": {}
+              }
+            },
+            "description": "Maps child interface external ids to parent value sources. Keys are child external_ids."
+          },
+          "lazy_load": {
+            "type": "boolean",
+            "description": "Defer mounting the child until the embed scrolls into the viewport. Defaults to true."
+          },
+          "open_referenced_module_in_new_tab": {
+            "type": "boolean"
+          }
+        }
+      },
+      "interface_mapping": "dynamic_from_target_module",
+      "input_variables": [],
+      "output_variables": [],
+      "events": [],
+      "permissions": ["app:read"],
+      "display": {
+        "icon": "applications",
+        "accent": "blue",
+        "tags": ["embed", "composition"],
+        "sort_order": 175,
+        "preferred_chrome": "card"
+      },
+      "default_props": {
+        "module_slug": "",
+        "module_rid": "",
+        "mapping": {},
+        "lazy_load": true,
+        "open_referenced_module_in_new_tab": false
+      },
+      "default_size": { "width": 12, "height": 6 },
+      "supported_bindings": [],
+      "supports_children": false
+    },
+    {
       "widget_type": "container",
       "widget_kind": "layout",
       "label": "Container",

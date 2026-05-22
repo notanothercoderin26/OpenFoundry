@@ -205,6 +205,11 @@ type WidgetCatalogItem struct {
 	DefaultSize       WidgetDefaultSize       `json:"default_size"`
 	SupportedBindings []string                `json:"supported_bindings"`
 	SupportsChildren  bool                    `json:"supports_children"`
+	// InterfaceMapping declares how the widget's interface bindings are
+	// resolved. The Embedded Module widget sets this to
+	// `dynamic_from_target_module` so the editor knows it must fetch the
+	// child module's interface to render the mapping panel.
+	InterfaceMapping string `json:"interface_mapping,omitempty"`
 }
 
 type SlatePackageFile struct {

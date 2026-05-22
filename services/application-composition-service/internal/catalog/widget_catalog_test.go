@@ -33,7 +33,7 @@ func TestLoadWidgetCatalogValidatesDataDrivenContract(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "2026-05-11.ws.22", doc.CatalogVersion)
 	require.Equal(t, WidgetCatalogSchemaVersion, doc.SchemaVersion)
-	require.Len(t, doc.Items, 19)
+	require.Len(t, doc.Items, 20)
 
 	seen := map[string]bool{}
 	for _, item := range doc.Items {

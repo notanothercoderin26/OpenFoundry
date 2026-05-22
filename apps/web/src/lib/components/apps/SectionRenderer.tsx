@@ -2,6 +2,8 @@ import { useEffect, useState, type CSSProperties, type DragEvent, type ReactElem
 
 import type { AppSection, AppWidget, PageLayout, WidgetEvent } from '@/lib/api/apps';
 import { AppWidgetRenderer } from '@/lib/components/apps/AppWidgetRenderer';
+import { EmbeddedModuleRenderer } from '@/lib/components/apps/widgets/EmbeddedModuleRenderer';
+import type { InterfaceMapping } from '@/lib/components/apps/widgets/embeddedRuntimeBridge';
 
 const SUPPORTED_LAYOUT_KINDS = new Set([
   'grid',
@@ -353,6 +355,32 @@ function buildBodyStyle(kind: string, layout: PageLayout, columns: number): CSSP
   } as CSSProperties;
 }
 
+interface LoopChildModuleConfig {
+  module_slug?: string;
+  module_rid?: string;
+  // The external id of the child interface variable that receives the
+  // iteration item. Required when `module_slug` is set.
+  item_external_id?: string;
+  // Extra mappings that should propagate the same value to every
+  // iteration (e.g. selection state shared across the loop).
+  shared_mapping?: InterfaceMapping;
+}
+
+function readLoopChildModule(props: Record<string, unknown> | undefined): LoopChildModuleConfig | null {
+  const raw = props?.child_module;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const entry = raw as Record<string, unknown>;
+  const slug =
+    typeof entry.module_slug === 'string' ? entry.module_slug : typeof entry.module_rid === 'string' ? entry.module_rid : '';
+  if (!slug.trim()) return null;
+  return {
+    module_slug: typeof entry.module_slug === 'string' ? entry.module_slug : '',
+    module_rid: typeof entry.module_rid === 'string' ? entry.module_rid : '',
+    item_external_id: typeof entry.item_external_id === 'string' ? entry.item_external_id : '',
+    shared_mapping: (entry.shared_mapping as InterfaceMapping) ?? {},
+  };
+}
+
 function LoopBody({
   section,
   columns,
@@ -370,6 +398,7 @@ function LoopBody({
     return <div className="of-app-runtime__empty">{readLoopEmptyMessage(section.props)}</div>;
   }
 
+  const childModule = readLoopChildModule(section.props);
   const widgets = sortByPosition(Array.isArray(section.widgets) ? section.widgets : []);
   const childSections = Array.isArray(section.sections) ? section.sections : [];
 
@@ -378,6 +407,49 @@ function LoopBody({
       {limited.map((item, index) => {
         const iterationParams = augmentRuntimeParametersForLoopItem(ctx.runtimeParameters, item, index);
         const iterationCtx: SectionRendererContext = { ...ctx, runtimeParameters: iterationParams };
+
+        // Child-module loops: render an embedded child per item, with
+        // the iteration value bound to the configured interface var.
+        // Inline widgets/child sections still render alongside for
+        // builders that mix layouts; in pure embed kanbans they'll
+        // typically be empty.
+        if (childModule && childModule.item_external_id) {
+          const itemMapping: InterfaceMapping = {
+            [childModule.item_external_id]: { kind: 'literal', value: item },
+            ...(childModule.shared_mapping ?? {}),
+          };
+          return (
+            <div
+              key={`loop-${index}`}
+              className="of-app-section__loop-item"
+              data-loop-index={index}
+            >
+              <EmbeddedModuleRenderer
+                config={{
+                  module_slug: childModule.module_slug,
+                  module_rid: childModule.module_rid,
+                  mapping: itemMapping,
+                  lazy_load: index > 4,
+                }}
+                fallbackLabel={`Loop iteration #${index + 1}`}
+              />
+              {widgets.map((widget) => (
+                <WidgetItem
+                  key={`${widget.id}-${index}`}
+                  widget={widget}
+                  parentColumns={columns}
+                  layoutKind="loop"
+                  globalFilter={iterationCtx.globalFilter}
+                  runtimeParameters={iterationCtx.runtimeParameters}
+                  interactivePromptSeed={iterationCtx.interactivePromptSeed}
+                  primaryInteractiveAgentWidgetId={iterationCtx.primaryInteractiveAgentWidgetId}
+                  onAction={iterationCtx.onAction}
+                />
+              ))}
+            </div>
+          );
+        }
+
         return (
           <div
             key={`loop-${index}`}

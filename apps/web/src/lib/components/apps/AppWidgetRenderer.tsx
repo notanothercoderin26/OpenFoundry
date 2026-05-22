@@ -13,6 +13,7 @@ import { getWidget, useWorkshopData } from '@/lib/components/apps/widgets';
 import { WorkshopMapWidget } from '@/lib/components/apps/widgets/WorkshopMapWidget';
 import { WorkshopRuntimeContext } from '@/lib/components/apps/widgets/workshop-runtime-context';
 import { buildWorkshopScenarioValue, type WorkshopScenarioStatus } from '@/lib/components/apps/widgets/workshopScenarios';
+import { EmbeddedModuleRenderer, widgetToEmbeddedConfig } from '@/lib/components/apps/widgets/EmbeddedModuleRenderer';
 
 interface Props {
   widget: AppWidget;
@@ -549,6 +550,8 @@ export function AppWidgetRenderer({
         <div className="min-h-0 flex-1"><MediaPreviewWidget widget={widget} runtimeParameters={runtimeParameters} /></div>
       ) : widget.widget_type === 'media_uploader' ? (
         <div className="min-h-0 flex-1"><MediaUploaderWidget widget={widget} runtimeParameters={runtimeParameters} onAction={onAction} /></div>
+      ) : widget.widget_type === 'embedded_module' ? (
+        <div className="min-h-0 flex-1"><EmbeddedModuleRenderer config={widgetToEmbeddedConfig(widget)} /></div>
       ) : widget.widget_type === 'container' || widget.widget_type === 'section' ? (
         <div className="flex flex-1 flex-col gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
           <div className="text-sm font-medium text-slate-600">{stringProp('title', widget.title)}</div>

@@ -70,6 +70,7 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 	// embedded / portal consumers can render published apps anonymously.
 	r.Get("/api/v1/apps/public/{slug}", h.GetPublishedApp)
 	r.Get("/api/v1/apps/public/{slug}/embed", h.GetAppEmbedInfo)
+	r.Get("/api/v1/apps/public/{slug}/interface", h.GetPublishedAppInterface)
 	r.Route("/api/v1/widgets", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 		api.Get("/catalog", h.ListWidgetCatalog)

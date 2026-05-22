@@ -12,6 +12,14 @@
 //   - State saving: variables with `state_saving.enabled` round-trip
 //     through `localStorage` under a key scoped by (app slug, user id,
 //     external id) so values survive reloads.
+//
+// In addition to the URL/localStorage path, embedded child modules
+// share state with their parent through an `EmbeddedRuntimeBridge` (see
+// embeddedRuntimeBridge.ts). The bridge is a small object exposed
+// through React context: when a child variable's `external_id` is
+// listed in `bridge.mappedExternalIDs`, the child's runtime provider
+// reads and writes through the bridge instead of its local state, so
+// updates in either direction stay synchronized.
 
 import type { WorkshopVariableLike } from './workshopVariables';
 

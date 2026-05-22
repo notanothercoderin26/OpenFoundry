@@ -526,3 +526,26 @@ export function getPublishedApp(slug: string) {
 export function getAppEmbedInfo(slug: string) {
 	return api.get<AppEmbedInfo>(`/apps/public/${encodeURIComponent(slug)}/embed`);
 }
+
+export interface AppInterfaceVariable {
+	external_id: string;
+	kind: string;
+	display_name?: string;
+	description?: string;
+	output_kind?: string;
+}
+
+export interface AppInterfaceResponse {
+	slug: string;
+	app_id: string;
+	interface_variables: AppInterfaceVariable[];
+}
+
+/**
+ * Fetches the module-interface variables of an app's published version.
+ * Used by the Embedded Module widget and the Loop layout to discover
+ * what they can map. Public endpoint (anonymous-readable).
+ */
+export function getPublishedAppInterface(slug: string) {
+	return api.get<AppInterfaceResponse>(`/apps/public/${encodeURIComponent(slug)}/interface`);
+}
