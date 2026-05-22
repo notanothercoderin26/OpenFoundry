@@ -16,6 +16,15 @@ export type DocumentSaveState =
   | { kind: 'saving' }
   | { kind: 'dirty' };
 
+// Structural shape so the topbar stays decoupled from the API types.
+// Compatible with NotepadPresence from lib/api/notepad.
+export interface DocumentTopbarPresence {
+  id: string;
+  display_name: string;
+  cursor_label?: string;
+  color?: string;
+}
+
 export interface DocumentTopbarProps {
   title: string;
   folder?: string;
@@ -23,6 +32,7 @@ export interface DocumentTopbarProps {
   onToggleFavorite?: () => void;
   isLocked?: boolean;
   saveState?: DocumentSaveState;
+  presence?: DocumentTopbarPresence[];
   newAction?: DocumentTopbarNewAction;
 }
 
@@ -46,6 +56,7 @@ export function DocumentTopbar({
   onToggleFavorite,
   isLocked = false,
   saveState,
+  presence,
   newAction,
 }: DocumentTopbarProps) {
   const [newOpen, setNewOpen] = useState(false);
@@ -107,6 +118,31 @@ export function DocumentTopbar({
           >
             <Glyph name="lock" size={14} />
           </span>
+        )}
+
+        {presence && presence.length > 0 && (
+          <div
+            className="of-doc-topbar__avatars"
+            aria-label={`${presence.length} active collaborator${presence.length === 1 ? '' : 's'}`}
+          >
+            {presence.slice(0, 3).map((collaborator) => (
+              <span
+                key={collaborator.id}
+                className="of-doc-topbar__avatar"
+                style={{ background: collaborator.color || '#2d72d2' }}
+                title={`${collaborator.display_name}${
+                  collaborator.cursor_label ? `: ${collaborator.cursor_label}` : ''
+                }`}
+              >
+                {collaborator.display_name.slice(0, 1).toUpperCase()}
+              </span>
+            ))}
+            {presence.length > 3 && (
+              <span className="of-doc-topbar__avatar of-doc-topbar__avatar--more">
+                +{presence.length - 3}
+              </span>
+            )}
+          </div>
         )}
       </div>
 

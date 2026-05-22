@@ -3776,6 +3776,38 @@ button {
   color: #9a5b00;
 }
 
+/* Presence cluster (T4.4) — overlapping circular avatars in the
+   meta zone, replaces the side panel that used to list collaborators. */
+.of-doc-topbar__avatars {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.of-doc-topbar__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: var(--text-11);
+  font-weight: 700;
+  border: 2px solid var(--toolbar-bg);
+  margin-left: -6px;
+  user-select: none;
+}
+
+.of-doc-topbar__avatars > .of-doc-topbar__avatar:first-child {
+  margin-left: 0;
+}
+
+.of-doc-topbar__avatar--more {
+  background: var(--chip-bg);
+  color: var(--text-default);
+}
+
 /* Shared dropdown primitive (T4.2). Used by the document File / View /
    Help menus and reusable for future menus across the redesign. */
 .of-dropdown {

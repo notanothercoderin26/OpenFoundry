@@ -2,11 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { Editor } from '@tiptap/react';
 
-import {
-  createKnowledgeDocument,
-  listKnowledgeBases,
-  type KnowledgeBase,
-} from '@/lib/api/ai';
 import { ConfirmDialog } from '@components/ConfirmDialog';
 import { DocumentMenuBar } from '@/lib/components/notepad/DocumentMenuBar';
 import {
@@ -28,7 +23,6 @@ import {
   upsertNotepadPresence,
   type NotepadBinaryExport,
   type NotepadDocument,
-  type NotepadExportPayload,
   type NotepadPresence,
   type NotepadRevision,
   type NotepadTemplateInput,
@@ -98,14 +92,10 @@ export function NotepadDetailPage() {
   const user = useCurrentUser();
 
   const [doc, setDoc] = useState<NotepadDocument | null>(null);
-  const [exportPayload, setExportPayload] = useState<NotepadExportPayload | null>(null);
   const [presence, setPresence] = useState<NotepadPresence[]>([]);
-  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [indexing, setIndexing] = useState(false);
   const [error, setError] = useState('');
   const [exportNotice, setExportNotice] = useState('');
   // Selected past revision (null = live current document).
@@ -189,23 +179,17 @@ export function NotepadDetailPage() {
     setError('');
     void (async () => {
       try {
-        const [d, exp, pres, kbs] = await Promise.all([
+        const [d, pres] = await Promise.all([
           getNotepadDocument(documentId),
-          exportNotepadDocumentHTML(documentId),
           listNotepadPresence(documentId),
-          listKnowledgeBases().catch(() => ({ data: [] as KnowledgeBase[] })),
         ]);
         if (cancelled) return;
         setDoc(d);
-        setExportPayload(exp);
         setPresence(pres.data);
-        setKnowledgeBases(kbs.data);
-        setSelectedKnowledgeBaseId(kbs.data[0]?.id ?? '');
       } catch (cause) {
         if (!cancelled) {
           setError(cause instanceof Error ? cause.message : 'Failed to load document');
           setDoc(null);
-          setExportPayload(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -257,21 +241,6 @@ export function NotepadDetailPage() {
     return () => window.clearTimeout(timer);
   }, [dirty, previewRevision, exporting, saving]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function refreshHTMLPreview(sourceDoc: NotepadDocument) {
-    const exp = await exportNotepadDocumentHTML(sourceDoc.id, {
-      id: sourceDoc.id,
-      title: sourceDoc.title,
-      description: sourceDoc.description,
-      content: sourceDoc.content,
-      content_doc: contentDocRef.current ?? undefined,
-      widgets: sourceDoc.widgets,
-      template_key: sourceDoc.template_key,
-      html_body: contentHTMLRef.current,
-    });
-    setExportPayload(exp);
-    return exp;
-  }
-
   async function saveDocument() {
     if (!doc) return;
     setSaving(true);
@@ -288,8 +257,6 @@ export function NotepadDetailPage() {
       lastSavedJSONRef.current = JSON.stringify(contentDocRef.current ?? {});
       setLastSavedAt(new Date());
       setDirty(false);
-      await refreshHTMLPreview(updated);
-      setExportNotice('Saved and refreshed the export preview.');
       await sendPresence('reviewing latest changes');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to save document');
@@ -356,38 +323,6 @@ export function NotepadDetailPage() {
     setExportNotice(`Saved "${body.name}" as a reusable template.`);
   }
 
-  async function indexInKnowledgeBase() {
-    if (!doc || !selectedKnowledgeBaseId) return;
-    setIndexing(true);
-    setError('');
-    try {
-      const plainBody = contentHTMLRef.current.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || doc.content;
-      await createKnowledgeDocument(selectedKnowledgeBaseId, {
-        title: doc.title,
-        content: [
-          plainBody,
-          '',
-          ...documentWidgets(doc).map(
-            (widget) => `- ${widget.title ?? 'Widget'}: ${widget.summary ?? ''}`,
-          ),
-        ].join('\n'),
-        source_uri: `notepad://${doc.id}`,
-        metadata: {
-          source: 'notepad',
-          widget_count: documentWidgets(doc).length,
-        },
-      });
-      const updated = await updateNotepadDocument(doc.id, {
-        last_indexed_at: new Date().toISOString(),
-      });
-      setDoc(updated);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to index document');
-    } finally {
-      setIndexing(false);
-    }
-  }
-
   async function openPrintView() {
     if (!doc) return;
     const windowRef = window.open('', '_blank', 'noopener,noreferrer');
@@ -396,7 +331,16 @@ export function NotepadDetailPage() {
     setError('');
     setExportNotice('');
     try {
-      const exp = await refreshHTMLPreview(doc);
+      const exp = await exportNotepadDocumentHTML(doc.id, {
+        id: doc.id,
+        title: doc.title,
+        description: doc.description,
+        content: doc.content,
+        content_doc: contentDocRef.current ?? undefined,
+        widgets: doc.widgets,
+        template_key: doc.template_key,
+        html_body: contentHTMLRef.current,
+      });
       windowRef.document.write(exp.html);
       windowRef.document.close();
       windowRef.focus();
@@ -490,6 +434,7 @@ export function NotepadDetailPage() {
         // TODO(T8.3): wire to POST /notepad/documents/:id/favorite once
         // the toggle endpoint exists. Until then the star is read-only.
         saveState={saveState}
+        presence={presence}
         newAction={{
           primaryLabel: 'New document',
           primaryTo: '/notepad?new=blank',
@@ -539,20 +484,26 @@ export function NotepadDetailPage() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
-        <div style={{ display: 'grid', gap: 16 }}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        {historyOpen && (
           <section className="of-panel" style={{ padding: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div>
-                <p className="of-eyebrow">Document body</p>
-                <h2 className="of-heading-md" style={{ marginTop: 4 }}>
-                  {previewRevision && compareRevision ? 'Comparing versions' : 'Rich-text editor'}
-                </h2>
-              </div>
-              <span className="of-text-muted" style={{ fontSize: 12 }}>
-                {presence.length} active collaborators
-              </span>
-            </div>
+            <VersionHistoryPanel
+              documentId={doc.id}
+              current={doc}
+              selectedRev={previewRevision?.rev ?? null}
+              onSelect={(revision) => setPreviewRevision(revision)}
+              onCompareChange={(revision) => setCompareRevision(revision)}
+              onReverted={(updated) => {
+                setDoc(updated);
+                setPreviewRevision(null);
+                setCompareRevision(null);
+                setExportNotice('Reverted document — new state is now the live version.');
+              }}
+            />
+          </section>
+        )}
+
+        <section className="of-panel" style={{ padding: 24 }}>
             {previewRevision && compareRevision ? (
               <RevisionDiffView left={compareRevision} right={previewRevision} />
             ) : (
@@ -625,143 +576,6 @@ export function NotepadDetailPage() {
             onChange={updateWidgets}
             onInsertReference={insertWidgetReference}
           />
-        </div>
-
-        <aside style={{ display: 'grid', gap: 16 }}>
-          {historyOpen && (
-            <section className="of-panel" style={{ padding: 24 }}>
-              <VersionHistoryPanel
-                documentId={doc.id}
-                current={doc}
-                selectedRev={previewRevision?.rev ?? null}
-                onSelect={(revision) => setPreviewRevision(revision)}
-                onCompareChange={(revision) => setCompareRevision(revision)}
-                onReverted={(updated) => {
-                  setDoc(updated);
-                  setPreviewRevision(null);
-                  setCompareRevision(null);
-                  setExportNotice(`Reverted document — new state is now the live version.`);
-                  void refreshHTMLPreview(updated).catch(() => undefined);
-                }}
-              />
-            </section>
-          )}
-
-          <section className="of-panel" style={{ padding: 24 }}>
-            <p className="of-eyebrow">Presence</p>
-            <h2 className="of-heading-md" style={{ marginTop: 4 }}>
-              Who is in the document
-            </h2>
-
-            <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
-              {presence.length === 0 ? (
-                <div
-                  style={{
-                    border: '1px dashed var(--border-default)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '16px',
-                    fontSize: 13,
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  No active collaborators right now.
-                </div>
-              ) : (
-                presence.map((collaborator) => (
-                  <div key={collaborator.id} className="of-panel-muted" style={{ padding: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <span
-                        style={{
-                          width: 12,
-                          height: 12,
-                          borderRadius: '50%',
-                          background: collaborator.color,
-                        }}
-                      />
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>
-                          {collaborator.display_name}
-                        </div>
-                        <div className="of-text-muted" style={{ fontSize: 12 }}>
-                          {collaborator.cursor_label || 'Browsing the document'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section className="of-panel" style={{ padding: 24 }}>
-            <p className="of-eyebrow">AIP Assist</p>
-            <h2 className="of-heading-md" style={{ marginTop: 4 }}>
-              Index the document into knowledge
-            </h2>
-
-            <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
-              <Field label="Knowledge base">
-                <select
-                  className="of-select"
-                  value={selectedKnowledgeBaseId}
-                  onChange={(e) => setSelectedKnowledgeBaseId(e.target.value)}
-                >
-                  {knowledgeBases.map((kb) => (
-                    <option key={kb.id} value={kb.id}>
-                      {kb.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <button
-                type="button"
-                className="of-btn of-btn-primary"
-                disabled={!selectedKnowledgeBaseId || indexing}
-                onClick={() => void indexInKnowledgeBase()}
-              >
-                {indexing ? 'Indexing…' : 'Index in AIP'}
-              </button>
-            </div>
-          </section>
-
-          <section className="of-panel" style={{ padding: 24 }}>
-            <p className="of-eyebrow">Preview</p>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
-              <h2 className="of-heading-md">Rendered export</h2>
-              <button type="button" className="of-btn" onClick={() => void refreshHTMLPreview(doc).catch(() => undefined)} disabled={exporting} style={{ minHeight: 30, fontSize: 12 }}>
-                Refresh
-              </button>
-            </div>
-
-            {exportPayload ? (
-              <iframe
-                title="Notepad preview"
-                srcDoc={exportPayload.html}
-                style={{
-                  marginTop: 16,
-                  height: 540,
-                  width: '100%',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-default)',
-                  background: '#fff',
-                }}
-              />
-            ) : (
-              <div
-                style={{
-                  marginTop: 16,
-                  border: '1px dashed var(--border-default)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: '20px 16px',
-                  fontSize: 13,
-                  color: 'var(--text-muted)',
-                }}
-              >
-                Save or export the document to refresh the rendered preview.
-              </div>
-            )}
-          </section>
-        </aside>
       </div>
 
       {showSaveAsTemplate && doc && (
@@ -785,25 +599,6 @@ export function NotepadDetailPage() {
         onCancel={() => setShowTrashConfirm(false)}
       />
     </section>
-  );
-}
-
-interface FieldProps {
-  label: string;
-  children: React.ReactNode;
-  fullWidth?: boolean;
-}
-
-function Field({ label, children, fullWidth }: FieldProps) {
-  return (
-    <label
-      style={{ display: 'block', fontSize: 13, gridColumn: fullWidth ? '1 / -1' : undefined }}
-    >
-      <div className="of-eyebrow" style={{ marginBottom: 6 }}>
-        {label}
-      </div>
-      {children}
-    </label>
   );
 }
 
