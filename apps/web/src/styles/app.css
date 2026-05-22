@@ -3093,6 +3093,97 @@ button {
   text-decoration: none;
 }
 
+/* Create-a-new-document panel (T3.2). Three equal cards in a 3-col
+   grid that collapses to a single column on narrow viewports. */
+.of-create-doc-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+}
+
+.of-create-doc-panel__title {
+  margin: 0;
+  font-size: var(--text-14);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.of-create-doc-panel__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+  .of-create-doc-panel__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.of-create-doc-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  color: var(--text-default);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.of-create-doc-card:hover:not(:disabled) {
+  border-color: var(--accent-link);
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.06);
+}
+
+.of-create-doc-card:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px rgba(41, 101, 204, 0.2);
+}
+
+.of-create-doc-card:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.of-create-doc-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-panel-muted);
+  color: var(--accent-link);
+}
+
+.of-create-doc-card__body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.of-create-doc-card__title {
+  color: var(--text-strong);
+  font-size: var(--text-14);
+  font-weight: 600;
+}
+
+.of-create-doc-card__desc {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 1.45;
+}
+
 .of-topbar__identity {
   display: grid;
   min-width: 0;

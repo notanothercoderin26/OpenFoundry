@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } fro
 import { Link, useNavigate } from 'react-router-dom';
 
 import { ConfirmDialog } from '@components/ConfirmDialog';
+import { CreateDocumentPanel } from '@/lib/components/notepad/CreateDocumentPanel';
 import { NewFromTemplateModal } from '@/lib/components/notepad/TemplateModals';
 import {
   createNotepadDocument,
@@ -332,6 +333,13 @@ export function NotepadListPage() {
           Create, share and export object-aware documents and reports.
         </p>
       </header>
+
+      <CreateDocumentPanel
+        onBlank={() => void createBlankDocument()}
+        onFromTemplate={() => setShowTemplateModal(true)}
+        onDocumentTemplate={() => navigate('/notepad?new=template')}
+        disabled={creating}
+      />
 
       {error && (
         <div className="of-status-danger" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}>
