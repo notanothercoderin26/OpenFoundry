@@ -14,11 +14,9 @@ import {
   deleteNotepadDocument,
   instantiateNotepadTemplate,
   listNotepadDocuments,
-  listNotepadPresence,
   listNotepadTemplates,
   type NotepadDocument,
   type NotepadListSort,
-  type NotepadPresence,
   type NotepadTemplate,
 } from '@/lib/api/notepad';
 
@@ -159,25 +157,14 @@ interface ResourceRow {
   rawDocument?: NotepadDocument;
 }
 
-function countWords(value: string | null | undefined) {
-  const text = value?.trim();
-  if (!text) return 0;
-  return text.split(/\s+/).length;
-}
-
 function documentTitle(doc: NotepadDocument) {
   return doc.title.trim() || 'Untitled document';
-}
-
-function documentWidgets(doc: NotepadDocument) {
-  return Array.isArray(doc.widgets) ? doc.widgets : [];
 }
 
 export function NotepadListPage() {
   const navigate = useNavigate();
   const currentUser = useCurrentUser();
   const [documents, setDocuments] = useState<NotepadDocument[]>([]);
-  const [presenceByDocument, setPresenceByDocument] = useState<Record<string, NotepadPresence[]>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [view, setView] = useState<ViewKey>('recents');
@@ -189,26 +176,6 @@ export function NotepadListPage() {
   const [userTemplates, setUserTemplates] = useState<NotepadTemplate[]>([]);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [openKebabFor, setOpenKebabFor] = useState<string | null>(null);
-
-  async function hydratePresence(nextDocuments: NotepadDocument[]) {
-    if (nextDocuments.length === 0) {
-      setPresenceByDocument({});
-      return;
-    }
-
-    const visibleDocuments = nextDocuments.slice(0, 20);
-    const entries = await Promise.all(
-      visibleDocuments.map(async (document) => {
-        try {
-          const response = await listNotepadPresence(document.id);
-          return [document.id, response.data] as const;
-        } catch {
-          return [document.id, []] as const;
-        }
-      }),
-    );
-    setPresenceByDocument(Object.fromEntries(entries));
-  }
 
   async function load(
     nextSearch = search,
@@ -226,12 +193,9 @@ export function NotepadListPage() {
       });
       const data = response.data ?? [];
       setDocuments(data);
-      setPresenceByDocument({});
-      void hydratePresence(data);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to load notepad documents');
       setDocuments([]);
-      setPresenceByDocument({});
     } finally {
       setLoading(false);
     }
@@ -320,26 +284,6 @@ export function NotepadListPage() {
     return [...builtIn, ...userRows];
   }, [userTemplates, currentUser]);
 
-  async function createFromTemplate(template: Template) {
-    setCreatingTarget(template.key);
-    setError('');
-    setFeedback('');
-    try {
-      const document = await createNotepadDocument({
-        title: template.name,
-        description: template.description,
-        content: template.content,
-        template_key: template.key,
-        widgets: template.widgets,
-      });
-      navigate(`/notepad/${document.id}`);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to create document');
-    } finally {
-      setCreatingTarget(null);
-    }
-  }
-
   async function createBlankDocument() {
     setCreatingTarget('blank');
     setError('');
@@ -375,28 +319,11 @@ export function NotepadListPage() {
     }
   }
 
-  const indexedCount = useMemo(
-    () => documents.filter((document) => document.last_indexed_at).length,
-    [documents],
-  );
-  const embedCount = useMemo(
-    () => documents.reduce((sum, document) => sum + documentWidgets(document).length, 0),
-    [documents],
-  );
-  const wordCount = useMemo(
-    () => documents.reduce((sum, document) => sum + countWords(document.content), 0),
-    [documents],
-  );
   const latestDocument = useMemo(() => {
     return [...documents].sort((left, right) => {
       return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
     })[0] ?? null;
   }, [documents]);
-  const activePresence = useMemo(() => {
-    return documents.flatMap((document) =>
-      (presenceByDocument[document.id] ?? []).map((collaborator) => ({ document, collaborator })),
-    );
-  }, [documents, presenceByDocument]);
 
   // Merge documents and user templates into a single resource list for
   // the table. Documents go to /notepad/:id; templates to a
@@ -537,27 +464,27 @@ export function NotepadListPage() {
         })}
       </div>
 
-      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', alignItems: 'start' }}>
-        <section>
+      <section>
           {loading ? (
-            <p className="of-text-muted" style={{ margin: 0, padding: 14 }}>
-              Loading documents...
-            </p>
+            <div className="of-resource-empty" aria-live="polite">
+              <p className="of-resource-empty__desc">Loading documents…</p>
+            </div>
           ) : resourceRows.length === 0 ? (
-            <div style={{ display: 'grid', justifyItems: 'start', gap: 8, padding: 16 }}>
-              <p className="of-heading-sm" style={{ margin: 0 }}>
-                No documents match this view.
-              </p>
-              <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
-                Start a blank note or use one of the templates.
+            <div className="of-resource-empty">
+              <span className="of-resource-empty__icon" aria-hidden="true">
+                <Glyph name="document" size={26} />
+              </span>
+              <h3 className="of-resource-empty__title">No documents yet</h3>
+              <p className="of-resource-empty__desc">
+                Start a blank note or pick one of the templates to spin up your first document.
               </p>
               <button
                 type="button"
-                className="of-button of-button--primary"
+                className="of-button of-button--accent-primary"
                 onClick={() => void createBlankDocument()}
                 disabled={creating}
               >
-                {creatingTarget === 'blank' ? 'Creating...' : 'New document'}
+                {creatingTarget === 'blank' ? 'Creating…' : 'New document'}
               </button>
             </div>
           ) : (
@@ -660,109 +587,6 @@ export function NotepadListPage() {
             </div>
           )}
         </section>
-
-        <aside style={{ display: 'grid', gap: 10 }}>
-          <section className="of-panel" style={{ overflow: 'hidden' }}>
-            <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-default)' }}>
-              <p className="of-eyebrow">Templates</p>
-              <h2 className="of-heading-sm" style={{ marginTop: 4 }}>
-                Structured starts
-              </h2>
-            </div>
-            <div style={{ display: 'grid', gap: 8, padding: 10 }}>
-              {TEMPLATES.map((template) => (
-                <button
-                  key={template.key}
-                  type="button"
-                  onClick={() => void createFromTemplate(template)}
-                  disabled={creating}
-                  className="of-panel-muted"
-                  style={{
-                    width: '100%',
-                    display: 'grid',
-                    gap: 4,
-                    padding: 12,
-                    textAlign: 'left',
-                    cursor: creating ? 'not-allowed' : 'pointer',
-                    opacity: creating && creatingTarget !== template.key ? 0.58 : 1,
-                  }}
-                >
-                  <span style={{ color: 'var(--text-strong)', fontWeight: 700 }}>{template.name}</span>
-                  <span className="of-text-muted" style={{ fontSize: 12, lineHeight: 1.45 }}>
-                    {template.description}
-                  </span>
-                  <span className="of-text-muted" style={{ fontSize: 11 }}>
-                    {creatingTarget === template.key ? 'Creating...' : `${template.widgets.length} starter embeds`}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="of-panel" style={{ overflow: 'hidden' }}>
-            <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-default)' }}>
-              <p className="of-eyebrow">Live presence</p>
-              <h2 className="of-heading-sm" style={{ marginTop: 4 }}>
-                Active collaborators
-              </h2>
-            </div>
-            {activePresence.length === 0 ? (
-              <p className="of-text-muted" style={{ margin: 0, padding: 12, fontSize: 12 }}>
-                No active collaborators.
-              </p>
-            ) : (
-              <div style={{ display: 'grid', gap: 8, padding: 10 }}>
-                {activePresence.slice(0, 6).map(({ document, collaborator }) => (
-                  <div key={collaborator.id} className="of-panel-muted" style={{ display: 'grid', gap: 4, padding: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flex: '0 0 auto',
-                          width: 22,
-                          height: 22,
-                          borderRadius: 3,
-                          background: collaborator.color || '#2d72d2',
-                          color: '#fff',
-                          fontSize: 10,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {collaborator.display_name.slice(0, 1).toUpperCase()}
-                      </span>
-                      <div style={{ minWidth: 0 }}>
-                        <p style={{ margin: 0, color: 'var(--text-strong)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {collaborator.display_name}
-                        </p>
-                        <p className="of-text-muted" style={{ margin: 0, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {collaborator.cursor_label || 'viewing'}
-                        </p>
-                      </div>
-                    </div>
-                    <Link to={`/notepad/${document.id}`} className="of-link" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {documentTitle(document)}
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="of-panel" style={{ padding: 12 }}>
-            <p className="of-eyebrow">Corpus</p>
-            <dl style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px 12px', margin: '10px 0 0', fontSize: 12 }}>
-              <dt className="of-text-muted">Words</dt>
-              <dd style={{ margin: 0, color: 'var(--text-strong)', fontWeight: 700 }}>{wordCount}</dd>
-              <dt className="of-text-muted">Indexed documents</dt>
-              <dd style={{ margin: 0, color: 'var(--text-strong)', fontWeight: 700 }}>{indexedCount}</dd>
-              <dt className="of-text-muted">Workspace embeds</dt>
-              <dd style={{ margin: 0, color: 'var(--text-strong)', fontWeight: 700 }}>{embedCount}</dd>
-            </dl>
-          </section>
-        </aside>
-      </div>
 
       <ConfirmDialog
         open={deleteTarget !== null}

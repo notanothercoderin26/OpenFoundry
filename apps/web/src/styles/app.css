@@ -3590,6 +3590,74 @@ button {
   background: rgba(180, 35, 24, 0.08);
 }
 
+/* Green primary button variant that uses the redesign accent tokens.
+   `.of-button--primary` stays blue for the rest of the app; this one
+   matches the topbar split-button + Notepad empty-state CTA. */
+.of-button--accent-primary {
+  border-color: var(--accent-primary-hover);
+  background: var(--accent-primary);
+  color: var(--accent-primary-contrast);
+  font-weight: 600;
+}
+
+.of-button--accent-primary:hover {
+  border-color: var(--accent-primary-hover);
+  background: var(--accent-primary-hover);
+  color: var(--accent-primary-contrast);
+}
+
+.of-button--accent-primary:active {
+  background: var(--accent-primary-active);
+}
+
+.of-button--accent-primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* Resource table empty / loading placeholder (T3.7). Centered with a
+   dashed boundary so it reads as an intentional state, not a layout
+   gap. Loading omits the icon and title; empty shows all three. */
+.of-resource-empty {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 10px;
+  min-height: 240px;
+  padding: 40px 16px;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.of-resource-empty__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--surface-panel-muted);
+  color: var(--accent-link);
+}
+
+.of-resource-empty__title {
+  margin: 4px 0 0;
+  color: var(--text-strong);
+  font-size: var(--text-15);
+  font-weight: 600;
+}
+
+.of-resource-empty__desc {
+  margin: 0;
+  max-width: 360px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: 1.5;
+}
+
 .of-topbar__identity {
   display: grid;
   min-width: 0;
