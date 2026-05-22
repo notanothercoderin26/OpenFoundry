@@ -3825,6 +3825,147 @@ button {
   background: rgba(180, 35, 24, 0.08);
 }
 
+/* Shared dropdown primitive (T4.2). Used by the document File / View /
+   Help menus and reusable for future menus across the redesign. */
+.of-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.of-dropdown__trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-topbar-action);
+  border-radius: var(--radius-sm);
+  background: var(--surface-panel);
+  color: var(--text-default);
+  font-size: var(--text-12);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.of-dropdown__trigger:hover,
+.of-dropdown__trigger[aria-expanded='true'] {
+  background: var(--row-hover);
+}
+
+.of-dropdown__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 240px;
+  padding: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-popover);
+}
+
+.of-dropdown__menu--right {
+  left: auto;
+  right: 0;
+}
+
+.of-dropdown__item {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-default);
+  font-size: var(--text-13);
+  text-align: left;
+  cursor: pointer;
+}
+
+.of-dropdown__item:hover:not(:disabled) {
+  background: var(--row-hover);
+  text-decoration: none;
+}
+
+.of-dropdown__item:disabled {
+  color: var(--text-soft);
+  cursor: not-allowed;
+}
+
+.of-dropdown__item--danger {
+  color: var(--accent-danger);
+}
+
+.of-dropdown__item--danger:hover:not(:disabled) {
+  background: rgba(180, 35, 24, 0.08);
+}
+
+.of-dropdown__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.of-dropdown__item:hover .of-dropdown__icon,
+.of-dropdown__item--danger .of-dropdown__icon {
+  color: inherit;
+}
+
+.of-dropdown__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.of-dropdown__shortcut {
+  color: var(--text-soft);
+  font-size: var(--text-11);
+  font-family: var(--font-mono);
+}
+
+.of-dropdown__sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border-subtle);
+}
+
+/* Document menubar (File / View / Help) — narrow strip right under
+   the document topbar. The triggers are borderless so the menubar
+   reads as inline text labels with a hover/active background. */
+.of-doc-menubar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 10px;
+  border-bottom: 1px solid var(--toolbar-border);
+  background: var(--toolbar-bg);
+}
+
+.of-doc-menubar__trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-default);
+  font-size: var(--text-12);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.of-doc-menubar__trigger:hover,
+.of-doc-menubar__trigger[aria-expanded='true'] {
+  background: var(--row-hover);
+  color: var(--text-strong);
+}
+
 .of-topbar__identity {
   display: grid;
   min-width: 0;

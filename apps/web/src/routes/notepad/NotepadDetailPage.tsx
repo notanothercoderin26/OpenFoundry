@@ -7,6 +7,8 @@ import {
   listKnowledgeBases,
   type KnowledgeBase,
 } from '@/lib/api/ai';
+import { ConfirmDialog } from '@components/ConfirmDialog';
+import { DocumentMenuBar } from '@/lib/components/notepad/DocumentMenuBar';
 import {
   DocumentTopbar,
   type DocumentTopbarAction,
@@ -17,6 +19,7 @@ import { VersionHistoryPanel } from '@/lib/components/notepad/VersionHistoryPane
 import { WidgetEmbeds, type WidgetEmbedRecord } from '@/lib/components/notepad/WidgetEmbeds';
 import {
   createNotepadTemplate,
+  deleteNotepadDocument,
   exportNotepadDocumentBinary,
   exportNotepadDocumentHTML,
   getNotepadDocument,
@@ -125,6 +128,8 @@ export function NotepadDetailPage() {
   const [compareRevision, setCompareRevision] = useState<NotepadRevision | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showSaveAsTemplate, setShowSaveAsTemplate] = useState(false);
+  const [showTrashConfirm, setShowTrashConfirm] = useState(false);
+  const [trashing, setTrashing] = useState(false);
 
   // The TipTap editor is the source of truth for live edits. We mirror
   // its current JSON + HTML into refs so save / export handlers can
@@ -400,6 +405,51 @@ export function NotepadDetailPage() {
     }
   }
 
+  // window.prompt is intentionally crude — gives users back the
+  // rename affordance the inline title editor used to provide
+  // (T4.1 removed it). T8.4 replaces this with a proper modal.
+  async function renameDocument() {
+    if (!doc) return;
+    const next = window.prompt('Rename document', doc.title);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === doc.title) return;
+    try {
+      const updated = await updateNotepadDocument(doc.id, { title: trimmed });
+      setDoc(updated);
+      setExportNotice('Renamed.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Rename failed');
+    }
+  }
+
+  async function copyDocumentPath() {
+    if (!doc) return;
+    // Synthetic path until the folder model lands in T8.1 — the URL
+    // is the most useful pointer to share today.
+    const path = `${window.location.origin}/notepad/${doc.id}`;
+    try {
+      await navigator.clipboard.writeText(path);
+      setExportNotice('Document link copied to clipboard.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not copy');
+    }
+  }
+
+  async function confirmTrash() {
+    if (!doc) return;
+    setTrashing(true);
+    setError('');
+    try {
+      await deleteNotepadDocument(doc.id);
+      navigate('/notepad');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to delete document');
+      setTrashing(false);
+      setShowTrashConfirm(false);
+    }
+  }
+
   if (loading) {
     return (
       <section className="of-page" style={{ padding: 80, textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -497,6 +547,28 @@ export function NotepadDetailPage() {
             { label: 'New document template', to: '/notepad?new=template' },
           ],
         }}
+      />
+
+      <DocumentMenuBar
+        isFavorite={doc.is_favorite}
+        exporting={exporting}
+        saving={saving}
+        printDisabled={exporting}
+        saveDisabled={saving || exporting || previewRevision !== null}
+        onNewDocument={() => navigate('/notepad?new=blank')}
+        onNewFromTemplate={() => navigate('/notepad?new=from-template')}
+        onOpenDocument={() => navigate('/notepad')}
+        onRename={() => void renameDocument()}
+        onCopyPath={() => void copyDocumentPath()}
+        onSaveAsTemplate={() => setShowSaveAsTemplate(true)}
+        onSaveNow={() => void saveDocument()}
+        onPrint={() => void openPrintView()}
+        onExportPDF={() => void exportBinary('pdf')}
+        onExportDOCX={() => void exportBinary('docx')}
+        onMoveToTrash={() => setShowTrashConfirm(true)}
+        historyOpen={historyOpen}
+        onToggleHistory={() => setHistoryOpen((open) => !open)}
+        onViewDocumentation={() => navigate('/notepad')}
       />
 
       {error && (
@@ -745,6 +817,17 @@ export function NotepadDetailPage() {
           onSave={saveAsTemplate}
         />
       )}
+
+      <ConfirmDialog
+        open={showTrashConfirm}
+        title="Move document to trash"
+        message={`Move "${documentTitle}" to trash? You can restore it from the trash later.`}
+        confirmLabel="Move to trash"
+        danger
+        busy={trashing}
+        onConfirm={confirmTrash}
+        onCancel={() => setShowTrashConfirm(false)}
+      />
     </section>
   );
 }
