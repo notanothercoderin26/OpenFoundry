@@ -324,7 +324,7 @@ export function ProjectsListPage() {
   const [manageOpen, setManageOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<OntologyProject | null>(null);
   const [purgeTarget, setPurgeTarget] = useState<TrashEntry | null>(null);
-  const [namespace, setNamespace] = useState<string | null>(null);
+  const [namespace, setNamespace] = useState<string | null>(() => searchParams.get('ns'));
   const [filters, setFilters] = useState<CompassFilterState>(() => filtersFromSearchParams(searchParams));
   const [globalQuery, setGlobalQuery] = useState<string>(() => searchParams.get('q') ?? '');
   const [searchResults, setSearchResults] = useState<CompassSearchResult[]>([]);
@@ -337,6 +337,7 @@ export function ProjectsListPage() {
   const [namespaces, setNamespaces] = useState<CompassNamespace[]>([]);
 
   const manageRef = useRef<HTMLDivElement>(null);
+  const globalSearchRef = useRef<HTMLInputElement>(null);
 
   const activeNamespaceId = useMemo(() => {
     if (!namespace) return null;
@@ -416,6 +417,18 @@ export function ProjectsListPage() {
   useEffect(() => {
     setSearchParams((prev) => applyFiltersToSearchParams(prev, filters), { replace: true });
   }, [filters]);
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (namespace) next.set('ns', namespace);
+        else next.delete('ns');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [namespace]);
 
   useEffect(() => {
     setSearchParams(
@@ -502,6 +515,31 @@ export function ProjectsListPage() {
         setNamespaces([]);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const inEditable =
+        !!target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+      const cmdK = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
+      if (cmdK) {
+        event.preventDefault();
+        globalSearchRef.current?.focus();
+        globalSearchRef.current?.select();
+        return;
+      }
+      if (!inEditable && (event.key === 'n' || event.key === 'N') && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        setCreateOpen(true);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   useEffect(() => {
@@ -804,23 +842,9 @@ export function ProjectsListPage() {
             </button>
             <button
               type="button"
-              className="of-button"
+              className="of-button of-button--foundry-green"
               onClick={() => setCreateOpen(true)}
-              style={{
-                paddingLeft: 10,
-                paddingRight: 12,
-                gap: 6,
-                background: '#137F4D',
-                borderColor: '#0F6A3F',
-                color: '#fff',
-                fontWeight: 600,
-              }}
-              onMouseEnter={(event) => {
-                event.currentTarget.style.background = '#0F6A3F';
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.background = '#137F4D';
-              }}
+              style={{ paddingLeft: 10, paddingRight: 12 }}
             >
               <PlusIcon color="#fff" /> New project
             </button>
@@ -926,6 +950,7 @@ export function ProjectsListPage() {
       <QuickFilterCards onApply={handleQuickFilter} />
 
       <GlobalSearchBar
+        ref={globalSearchRef}
         value={globalQuery}
         onChange={setGlobalQuery}
         onClear={() => setGlobalQuery('')}
@@ -1627,8 +1652,12 @@ function ProjectsTable({
         <tbody>
           {sorted.length === 0 ? (
             <tr>
-              <td colSpan={4} style={{ padding: 40, textAlign: 'center' }}>
-                <span className="of-text-muted">No projects found.</span>
+              <td colSpan={4} style={{ padding: 0 }}>
+                <CompassEmptyState
+                  glyph={<BriefcaseIcon size={32} color="#aab4c0" />}
+                  title="No projects match these filters"
+                  message="Adjust filters in the rail or create a new project to populate this view."
+                />
               </td>
             </tr>
           ) : (
@@ -1966,7 +1995,7 @@ function SharedTable({ shared, loading }: { shared: ResourceShare[]; loading: bo
     );
   }
   return (
-    <table className="of-table">
+    <table className="of-table of-table--compass">
       <thead>
         <tr>
           <th style={{ paddingLeft: 22 }}>Resource</th>
@@ -1978,8 +2007,12 @@ function SharedTable({ shared, loading }: { shared: ResourceShare[]; loading: bo
       <tbody>
         {shared.length === 0 ? (
           <tr>
-            <td colSpan={4} style={{ padding: 40, textAlign: 'center' }}>
-              <span className="of-text-muted">Nothing shared with you.</span>
+            <td colSpan={4} style={{ padding: 0 }}>
+              <CompassEmptyState
+                glyph={<GroupIcon size={32} color="#aab4c0" />}
+                title="Nothing shared with you yet"
+                message="When a teammate shares a resource, it lands here."
+              />
             </td>
           </tr>
         ) : (
@@ -2010,6 +2043,53 @@ function SharedTable({ shared, loading }: { shared: ResourceShare[]; loading: bo
         )}
       </tbody>
     </table>
+  );
+}
+
+function CompassEmptyState({
+  glyph,
+  title,
+  message,
+}: {
+  glyph: React.ReactNode;
+  title: string;
+  message: string;
+}) {
+  return (
+    <div
+      style={{
+        padding: '48px 24px',
+        display: 'grid',
+        gap: 8,
+        justifyItems: 'center',
+        textAlign: 'center',
+      }}
+    >
+      {glyph}
+      <p
+        style={{
+          margin: 0,
+          fontSize: 14,
+          fontWeight: 600,
+          color: 'var(--text-strong)',
+        }}
+      >
+        {title}
+      </p>
+      <p style={{ margin: 0, maxWidth: 460, fontSize: 12, color: 'var(--of-foundry-text-muted)' }}>
+        {message}
+      </p>
+    </div>
+  );
+}
+
+function SearchEmptyIcon() {
+  return (
+    <svg width={32} height={32} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" stroke="#aab4c0" strokeWidth="1.6" />
+      <path d="M16 16l4 4" stroke="#aab4c0" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M8 11h6" stroke="#aab4c0" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -2052,11 +2132,13 @@ function GlobalSearchResults({
         </p>
       </div>
       {results.length === 0 ? (
-        <div style={{ padding: 40, textAlign: 'center' }}>
-          <span className="of-text-muted">No matching resources.</span>
-        </div>
+        <CompassEmptyState
+          glyph={<SearchEmptyIcon />}
+          title={`No results for "${query}"`}
+          message="Try a different keyword, or check the filter rail to broaden the type/tag/portfolio scope."
+        />
       ) : (
-        <table className="of-table">
+        <table className="of-table of-table--compass">
           <thead>
             <tr>
               <th style={{ paddingLeft: 22 }}>File name</th>

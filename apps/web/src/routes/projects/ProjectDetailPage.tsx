@@ -1745,6 +1745,7 @@ function SidebarItem({
           fontWeight: active ? 600 : 500,
           textAlign: 'left',
           cursor: 'pointer',
+          boxShadow: active ? 'inset 2px 0 0 var(--of-foundry-blue)' : 'none',
         }}
       >
         {icon && <Glyph name={icon} size={15} tone={active ? NAV_ACCENT_TEXT : iconTone ?? '#5c7080'} />}
@@ -1953,7 +1954,7 @@ function FilesView(props: FilesViewProps) {
       />
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-        <table className="of-table" style={{ tableLayout: 'fixed' }}>
+        <table className="of-table of-table--compass" style={{ tableLayout: 'fixed' }}>
           <colgroup>
             <col style={{ width: 'auto' }} />
             <col style={{ width: 220 }} />
@@ -2288,22 +2289,8 @@ function FilesAreaHeader({
         <button
           type="button"
           onClick={onNewResource}
-          className="of-button"
-          style={{
-            paddingLeft: 10,
-            paddingRight: 10,
-            gap: 6,
-            background: '#137F4D',
-            borderColor: '#0F6A3F',
-            color: '#fff',
-            fontWeight: 600,
-          }}
-          onMouseEnter={(event) => {
-            event.currentTarget.style.background = '#0F6A3F';
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.background = '#137F4D';
-          }}
+          className="of-button of-button--foundry-green"
+          style={{ paddingLeft: 10, paddingRight: 10 }}
         >
           <Glyph name="plus" size={13} />
           New
@@ -2703,7 +2690,7 @@ function FileReferencesView({ references }: { references: ProjectFileReference[]
   }
   return (
     <div style={{ padding: '14px 24px', overflow: 'auto', flex: 1 }}>
-      <table className="of-table">
+      <table className="of-table of-table--compass">
         <thead>
           <tr>
             <th style={{ width: 80 }}>Direction</th>
@@ -2791,15 +2778,8 @@ function ExternalReferencesView({
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#1c2127' }}>External references</h2>
         <button
           type="button"
-          className="of-button"
+          className="of-button of-button--foundry-green"
           onClick={() => setAddOpen((value) => !value)}
-          style={{
-            background: '#137F4D',
-            borderColor: '#0F6A3F',
-            color: '#fff',
-            fontWeight: 600,
-            gap: 6,
-          }}
         >
           <Glyph name="plus" size={13} />
           Add reference

@@ -8,7 +8,8 @@ export type GlyphName =
   | 'external-link' | 'info' | 'duplicate' | 'asterisk' | 'autosaved' | 'cover-page'
   | 'pie-chart' | 'project' | 'undo' | 'circle-x' | 'add-user' | 'tour' | 'pencil'
   | 'move' | 'badge-check' | 'view-grid' | 'login'
-  | 'mail' | 'apps-grid' | 'filter' | 'back-arrow' | 'share' | 'lineage' | 'book-open';
+  | 'mail' | 'apps-grid' | 'filter' | 'back-arrow' | 'share' | 'lineage' | 'book-open'
+  | 'notebook' | 'pipeline' | 'workflow' | 'model' | 'dashboard' | 'schedule' | 'stream' | 'vertex-analysis';
 
 interface GlyphProps {
   name?: GlyphName;
@@ -120,6 +121,50 @@ const PATHS: Record<string, string[]> = {
   'book-open': [
     'M4 6c2-1 5-1 8 0v13c-3-1-6-1-8 0z',
     'M20 6c-2-1-5-1-8 0v13c3-1 6-1 8 0z',
+  ],
+  notebook: [
+    'M6 4.5h13v15H6z',
+    'M6 4.5v15',
+    'M4 8h2', 'M4 12h2', 'M4 16h2',
+    'M9 9.5h7', 'M9 12.5h7', 'M9 15.5h4',
+  ],
+  pipeline: [
+    'M3.5 6.5h4l3 5-3 5h-4',
+    'M9.5 11.5h6',
+    'M16.5 6.5h4l-3 5 3 5h-4',
+  ],
+  workflow: [
+    'M5 4h5v5H5z',
+    'M14 7h5v5h-5z',
+    'M9 15h5v5H9z',
+    'M10 9v4', 'M14 9v4',
+    'M10 9l4 4',
+  ],
+  model: [
+    'M12 4.5l6 3.5v8L12 19.5 6 16V8z',
+    'M6 8l6 3.5L18 8',
+    'M12 11.5v8',
+    'M9 6.2l6 3.6', 'M15 6.2l-6 3.6',
+  ],
+  dashboard: [
+    'M4 4.5h7v7H4z',
+    'M13 4.5h7v4h-7z',
+    'M13 10.5h7v9h-7z',
+    'M4 13.5h7v6H4z',
+  ],
+  schedule: [
+    'M4 8a8 8 0 1 1 0 8',
+    'M4 4v4h4',
+    'M12 8v4l3 2',
+  ],
+  stream: [
+    'M3 8c2-2 4-2 6 0s4 2 6 0 4-2 6 0',
+    'M3 13c2-2 4-2 6 0s4 2 6 0 4-2 6 0',
+    'M3 18c2-2 4-2 6 0s4 2 6 0 4-2 6 0',
+  ],
+  'vertex-analysis': [
+    'M12 4l1.7 4.4 4.6.3-3.5 3 1.1 4.5L12 13.7 8.1 16.2l1.1-4.5-3.5-3 4.6-.3z',
+    'M5 19h14',
   ],
 };
 

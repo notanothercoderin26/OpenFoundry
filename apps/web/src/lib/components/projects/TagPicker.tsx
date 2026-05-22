@@ -251,7 +251,7 @@ export function TagChips({ tags, max }: { tags: CompassTag[]; max?: number }) {
             borderRadius: 8,
             fontSize: 10,
             fontWeight: 500,
-            background: `${tag.color}1a`,
+            background: `${tag.color}26`,
             color: tag.color,
           }}
         >

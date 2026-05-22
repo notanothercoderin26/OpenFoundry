@@ -178,6 +178,20 @@
 
   --space-section: 24px;
   --space-card-gap: 16px;
+
+  /* Foundry Compass palette — exact tokens used by the Compass surface
+     (projects landing, project dashboard, filter rail, quick filters). */
+  --of-foundry-blue: #2d72d2;
+  --of-foundry-blue-hover: #1f5ea8;
+  --of-foundry-blue-soft: #d2e1f4;
+  --of-foundry-green: #137f4d;
+  --of-foundry-green-hover: #0f6a3f;
+  --of-foundry-purple: #7c5dd6;
+  --of-foundry-purple-soft: #f2ecfb;
+  --of-foundry-border: #e1e8ed;
+  --of-foundry-surface: #f5f8fa;
+  --of-foundry-text-muted: #5c7080;
+  --of-foundry-text-soft: #8a96a6;
 }
 
 html,
@@ -472,6 +486,24 @@ button {
   background: #0f6a32;
 }
 
+.of-button--foundry-green {
+  background: var(--of-foundry-green);
+  border-color: var(--of-foundry-green-hover);
+  color: var(--text-inverse);
+  font-weight: 600;
+  gap: 6px;
+}
+
+.of-button--foundry-green:hover {
+  background: var(--of-foundry-green-hover);
+  border-color: var(--of-foundry-green-hover);
+}
+
+.of-button--foundry-green:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .of-chip {
   display: inline-flex;
   align-items: center;
@@ -589,6 +621,42 @@ button {
 
 .of-table tbody tr:hover {
   background: #f9fbfe;
+}
+
+/* Compass-aligned density (Foundry calco): 36px row height, 12px
+   horizontal padding, uppercase column headers in #5C7080. Opt in via
+   `.of-table--compass` or `.compass-files-table` so other tables
+   across the app keep their current density. */
+.of-table--compass,
+.compass-files-table {
+  font-size: 13px;
+}
+
+.of-table--compass th,
+.compass-files-table th {
+  height: 32px;
+  padding: 0 12px;
+  background: #fff;
+  color: var(--of-foundry-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--of-foundry-border);
+}
+
+.of-table--compass td,
+.compass-files-table td {
+  height: 36px;
+  padding: 0 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--of-foundry-border);
+  color: var(--text-strong);
+}
+
+.of-table--compass tbody tr:hover,
+.compass-files-table tbody tr:hover {
+  background: var(--of-foundry-surface);
 }
 
 .of-card-grid {
@@ -920,7 +988,7 @@ button {
 .of-sidebar__link--active {
   background: var(--bg-sidebar-active);
   color: #fff;
-  box-shadow: inset 3px 0 0 #2965cc;
+  box-shadow: inset 2px 0 0 var(--of-foundry-blue);
 }
 
 .of-sidebar__link--button {

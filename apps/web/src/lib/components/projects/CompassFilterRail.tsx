@@ -614,7 +614,7 @@ function TagsMultiSelect({
                   gap: 4,
                   padding: '1px 4px 1px 6px',
                   borderRadius: 8,
-                  background: `${color}1a`,
+                  background: `${color}26`,
                   color,
                   fontSize: 10,
                   fontWeight: 500,
