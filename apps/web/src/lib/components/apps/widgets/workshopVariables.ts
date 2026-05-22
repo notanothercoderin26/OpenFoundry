@@ -38,6 +38,10 @@ export interface WorkshopVariableLike {
   static_filters?: WorkshopVariableFilter[];
   default_value?: unknown;
   metadata?: Record<string, unknown>;
+  external_id?: string;
+  interface?: { enabled: boolean; display_name?: string; description?: string };
+  routing?: { enabled: boolean };
+  state_saving?: { enabled: boolean };
 }
 
 export interface WorkshopRuntimeFilterValue {

@@ -261,3 +261,161 @@ func TestNormalizeAppContract_TransformationChainsBetweenVariables(t *testing.T)
 	require.Equal(t, "string",
 		vars[2].(map[string]any)["transformation"].(map[string]any)["output_kind"])
 }
+
+func TestNormalizeAppContract_ExternalIDFormatAndUniqueness(t *testing.T) {
+	t.Parallel()
+
+	pages := json.RawMessage(`[
+		{"id":"main","name":"Main","path":"/","layout":{"kind":"grid"},"visible":true,"widgets":[]}
+	]`)
+
+	cases := []struct {
+		name      string
+		variables string
+		wantCode  string
+	}{
+		{
+			name: "invalid_format_with_dash",
+			variables: `[
+				{"id":"a","kind":"string","name":"A","external_id":"flight-id"}
+			]`,
+			wantCode: "invalid_external_id",
+		},
+		{
+			name: "invalid_format_starting_with_digit",
+			variables: `[
+				{"id":"a","kind":"string","name":"A","external_id":"1flight"}
+			]`,
+			wantCode: "invalid_external_id",
+		},
+		{
+			name: "valid_format_with_underscore",
+			variables: `[
+				{"id":"a","kind":"string","name":"A","external_id":"flight_id"}
+			]`,
+			wantCode: "",
+		},
+		{
+			name: "duplicate_external_id",
+			variables: `[
+				{"id":"a","kind":"string","name":"A","external_id":"x"},
+				{"id":"b","kind":"string","name":"B","external_id":"x"}
+			]`,
+			wantCode: "duplicate_external_id",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			settings := json.RawMessage(`{"workshop_variables":` + tc.variables + `}`)
+			err := ValidateAppContract("Demo", "demo", "draft", pages, nil, settings)
+			if tc.wantCode == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			ve := AsValidationError(err)
+			require.NotNil(t, ve)
+			require.Equal(t, tc.wantCode, ve.Code)
+		})
+	}
+}
+
+func TestNormalizeAppContract_RoutingRequiresExternalID(t *testing.T) {
+	t.Parallel()
+
+	pages := json.RawMessage(`[
+		{"id":"main","name":"Main","path":"/","layout":{"kind":"grid"},"visible":true,"widgets":[]}
+	]`)
+
+	cases := []struct {
+		name      string
+		variables string
+		wantCode  string
+	}{
+		{
+			name: "routing_without_external_id",
+			variables: `[
+				{"id":"a","kind":"string","name":"A","routing":{"enabled":true}}
+			]`,
+			wantCode: "missing_external_id",
+		},
+		{
+			name: "interface_without_external_id",
+			variables: `[
+				{"id":"a","kind":"string","name":"A","interface":{"enabled":true,"display_name":"A"}}
+			]`,
+			wantCode: "missing_external_id",
+		},
+		{
+			name: "state_saving_without_external_id",
+			variables: `[
+				{"id":"a","kind":"string","name":"A","state_saving":{"enabled":true}}
+			]`,
+			wantCode: "missing_external_id",
+		},
+		{
+			name: "routing_with_external_id_ok",
+			variables: `[
+				{"id":"a","kind":"string","name":"A","external_id":"flight_id","routing":{"enabled":true},"interface":{"enabled":true,"display_name":"Flight"},"state_saving":{"enabled":true}}
+			]`,
+			wantCode: "",
+		},
+		{
+			name: "routing_disabled_no_external_id_ok",
+			variables: `[
+				{"id":"a","kind":"string","name":"A","routing":{"enabled":false}}
+			]`,
+			wantCode: "",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			settings := json.RawMessage(`{"workshop_variables":` + tc.variables + `}`)
+			err := ValidateAppContract("Demo", "demo", "draft", pages, nil, settings)
+			if tc.wantCode == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			ve := AsValidationError(err)
+			require.NotNil(t, ve)
+			require.Equal(t, tc.wantCode, ve.Code)
+		})
+	}
+}
+
+func TestNormalizeAppContract_InterfaceFieldsPreserved(t *testing.T) {
+	t.Parallel()
+
+	pages := json.RawMessage(`[
+		{"id":"main","name":"Main","path":"/","layout":{"kind":"grid"},"visible":true,"widgets":[]}
+	]`)
+	settings := json.RawMessage(`{
+		"workshop_variables": [
+			{"id":"a","kind":"string","name":"Selected","external_id":"selectedFlight",
+			 "interface":{"enabled":true,"display_name":"Selected Flight","description":"Currently selected flight id"},
+			 "routing":{"enabled":true},
+			 "state_saving":{"enabled":true}}
+		]
+	}`)
+
+	contract, err := NormalizeAppContract("Demo", "demo", "draft", pages, nil, settings)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(contract.Settings, &got))
+	vars := got["workshop_variables"].([]any)
+	require.Len(t, vars, 1)
+	v := vars[0].(map[string]any)
+	require.Equal(t, "selectedFlight", v["external_id"])
+	iface := v["interface"].(map[string]any)
+	require.Equal(t, true, iface["enabled"])
+	require.Equal(t, "Selected Flight", iface["display_name"])
+	require.Equal(t, "Currently selected flight id", iface["description"])
+	require.Equal(t, true, v["routing"].(map[string]any)["enabled"])
+	require.Equal(t, true, v["state_saving"].(map[string]any)["enabled"])
+}

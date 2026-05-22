@@ -96,7 +96,37 @@ type WorkshopVariable struct {
 	DefaultValue     json.RawMessage         `json:"default_value,omitempty"`
 	Metadata         map[string]any          `json:"metadata,omitempty"`
 	Transformation   *WorkshopTransformation `json:"transformation,omitempty"`
+	ExternalID       string                  `json:"external_id,omitempty"`
+	Interface        *VariableInterface      `json:"interface,omitempty"`
+	Routing          *VariableRouting        `json:"routing,omitempty"`
+	StateSaving      *VariableStateSave      `json:"state_saving,omitempty"`
 }
+
+// VariableInterface marks a variable as part of the module interface so
+// it can be mapped from a parent module when embedded and surfaced via
+// the Open Workshop module event picker. Requires `ExternalID`.
+type VariableInterface struct {
+	Enabled     bool   `json:"enabled"`
+	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// VariableRouting enables initialization of the variable from the
+// URL query string at first load. The query parameter name is the
+// variable's `ExternalID`. Changes to the URL after mount are ignored,
+// matching Palantir Workshop behavior.
+type VariableRouting struct {
+	Enabled bool `json:"enabled"`
+}
+
+// VariableStateSave enables persistence of the variable value to
+// localStorage scoped to (app slug, user id, external id) so the value
+// survives page reloads.
+type VariableStateSave struct {
+	Enabled bool `json:"enabled"`
+}
+
+var externalIDPattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
 
 type PageLayout struct {
 	Kind       string `json:"kind"`
@@ -565,6 +595,7 @@ func validateWorkshopVariables(raw any) ([]WorkshopVariable, error) {
 	}
 
 	seen := map[string]bool{}
+	seenExternal := map[string]bool{}
 	for i := range variables {
 		itemPath := fmt.Sprintf("settings.workshop_variables[%d]", i)
 		v := &variables[i]
@@ -589,6 +620,33 @@ func validateWorkshopVariables(raw any) ([]WorkshopVariable, error) {
 		if v.Kind != VariableKindTransformation && v.Transformation != nil {
 			return nil, newValidationError("unexpected_transformation", itemPath+".transformation",
 				fmt.Sprintf("transformation is only allowed on kind \"transformation\" (got %q)", v.Kind))
+		}
+		v.ExternalID = strings.TrimSpace(v.ExternalID)
+		if v.ExternalID != "" {
+			if !externalIDPattern.MatchString(v.ExternalID) {
+				return nil, newValidationError("invalid_external_id", itemPath+".external_id",
+					fmt.Sprintf("external_id %q must match %s", v.ExternalID, externalIDPattern.String()))
+			}
+			if seenExternal[v.ExternalID] {
+				return nil, newValidationError("duplicate_external_id", itemPath+".external_id",
+					fmt.Sprintf("external_id %q is already used by another variable", v.ExternalID))
+			}
+			seenExternal[v.ExternalID] = true
+		}
+		// `routing.enabled`, `interface.enabled`, and `state_saving.enabled`
+		// all require an external id because that is the stable name they
+		// expose to the URL query, parent modules, and localStorage keys.
+		if v.Routing != nil && v.Routing.Enabled && v.ExternalID == "" {
+			return nil, newValidationError("missing_external_id", itemPath+".external_id",
+				"routing.enabled requires external_id")
+		}
+		if v.Interface != nil && v.Interface.Enabled && v.ExternalID == "" {
+			return nil, newValidationError("missing_external_id", itemPath+".external_id",
+				"interface.enabled requires external_id")
+		}
+		if v.StateSaving != nil && v.StateSaving.Enabled && v.ExternalID == "" {
+			return nil, newValidationError("missing_external_id", itemPath+".external_id",
+				"state_saving.enabled requires external_id")
 		}
 	}
 

@@ -36,15 +36,33 @@ import { executeWorkshopObjectSet, type WorkshopObjectSetExecutionOptions } from
 import { downloadWorkshopEventPayload, runWorkshopEvents, type WorkshopEventHandlers } from './workshopEvents';
 import { buildFunctionInvocation, clearWorkshopFunctionResultCache, executeCachedFunctionVariable, getCachedFunctionVariableValue, type WorkshopFunctionRuntimeValue } from './workshopFunctions';
 import { scenarioPayloadToActionDefaults } from './workshopScenarios';
+import {
+  hydrateVariablesFromUrl,
+  readPersistedState,
+  writePersistedState,
+} from './workshopModuleInterface';
 
 import { WorkshopDataContext, type WorkshopDataContextValue } from './workshop-context';
 
 export function WorkshopRuntimeProvider({
   app,
   children,
+  urlParams,
+  userId,
 }: {
   app: AppDefinition;
   children: React.ReactNode;
+  /**
+   * Initial URL query parameters used to hydrate `routing.enabled`
+   * interface variables. Read once on mount; subsequent updates are
+   * ignored, matching Palantir Workshop behavior.
+   */
+  urlParams?: Record<string, string>;
+  /**
+   * Identifier scoping `state_saving` localStorage keys. Falls back to
+   * "anonymous" when omitted so embedded preview surfaces still work.
+   */
+  userId?: string;
 }) {
   const variables: WorkshopVariable[] = useMemo(
     () => readWorkshopVariables(app.settings),
@@ -71,12 +89,35 @@ export function WorkshopRuntimeProvider({
     };
   }, []);
 
+  // App slug + user id key the localStorage entries. Resolved once on
+  // mount and held in a ref so first-load hydration is deterministic
+  // even when these props change later (state saving keeps writing to
+  // the original key for the rest of the session).
+  const appSlug =
+    (app.settings as { runtime_metadata?: { public_slug?: string } } | null | undefined)?.runtime_metadata?.public_slug
+    ?? app.id
+    ?? 'app';
+  const scopedUserId = userId ?? 'anonymous';
+  const slugRef = useRef(appSlug);
+  const userIdRef = useRef(scopedUserId);
+
+  // First-load initial primitive values: persisted state wins over URL
+  // params, which in turn win over the variable's static default. The
+  // initializer fires exactly once thanks to useState's lazy form, so
+  // hot-reloads of `urlParams` after mount can't reset user edits.
   const [activeObjects, setActiveObjects] = useState<Record<string, ObjectInstance | null>>({});
   const [selectedObjectSets, setSelectedObjectSets] = useState<Record<string, ObjectInstance[]>>({});
   const [shapeOutputs, setShapeOutputs] = useState<Record<string, WorkshopMapFeatureCollection | null>>({});
   const [filterValues, setFilterValues] = useState<Record<string, WorkshopFilterRuntimeValue>>({});
   const [filterMetadata, setFilterMetadata] = useState<Record<string, WorkshopRuntimeFilterMetadata>>({});
-  const [primitiveValues, setPrimitiveValues] = useState<Record<string, unknown>>({});
+  const [primitiveValues, setPrimitiveValues] = useState<Record<string, unknown>>(() => {
+    // Persisted state is the baseline; URL params override it because
+    // they are an explicit user signal to enter the app with a
+    // specific entry-point state.
+    const fromStorage = readPersistedState(variables, slugRef.current, userIdRef.current);
+    const fromUrl = hydrateVariablesFromUrl(variables, urlParams ?? {});
+    return { ...fromStorage, ...fromUrl };
+  });
   const [functionValues, setFunctionValues] = useState<Record<string, WorkshopFunctionRuntimeValue>>({});
   const [runtimeParameters, setRuntimeParametersState] = useState<Record<string, string>>({});
   const [refreshKey, setRefreshKey] = useState(0);
@@ -123,6 +164,19 @@ export function WorkshopRuntimeProvider({
       if (eventHandlersRef.current === handlers) eventHandlersRef.current = {};
     };
   }, []);
+  // Persist state-saving variables whenever their values change. We
+  // ignore the very first effect run (the initializer already hydrated
+  // from storage) by tracking a hasMounted flag, otherwise the
+  // hydrated values would be re-written byte-for-byte.
+  const hasMountedRef = useRef(false);
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+    writePersistedState(variables, primitiveValues, slugRef.current, userIdRef.current);
+  }, [variables, primitiveValues]);
+
   const defaultEventHandlers = useMemo<WorkshopEventHandlers>(() => ({
     setVariable: (variableId, value) => setPrimitiveValue(variableId, value),
     setRuntimeParameters,
@@ -130,6 +184,14 @@ export function WorkshopRuntimeProvider({
       if (typeof window === 'undefined') return;
       if (url.startsWith('/')) window.location.assign(url);
       else window.open(url, '_blank', 'noopener,noreferrer');
+    },
+    openWorkshopModule: (url, options) => {
+      if (typeof window === 'undefined') return;
+      if (options.newTab) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else {
+        window.location.assign(url);
+      }
     },
     refresh: () => {
       clearWorkshopFunctionResultCache();

@@ -18,6 +18,11 @@ export interface WorkshopEventHandlers {
   setFilter?: (value: string, event: WidgetEvent) => void | Promise<void>;
   seedPrompt?: (prompt: string, event: WidgetEvent) => void | Promise<void>;
   notice?: (message: string, tone: 'info' | 'success' | 'warning', event: WidgetEvent) => void | Promise<void>;
+  openWorkshopModule?: (
+    url: string,
+    options: { newTab: boolean; targetSlug: string; params: Record<string, string> },
+    event: WidgetEvent,
+  ) => void | Promise<void>;
 }
 
 export interface WorkshopEventExecution {
@@ -189,6 +194,42 @@ async function runOneEvent(
     return;
   }
 
+  if (action === 'open_workshop_module') {
+    const targetSlug = readString(config, [
+      'target_module_slug',
+      'targetModuleSlug',
+      'target_module_rid',
+      'targetModuleRid',
+      'slug',
+    ]);
+    if (!targetSlug) {
+      trace.push({
+        event_id: event.id,
+        action,
+        status: 'skipped',
+        detail: 'missing_target_module',
+      });
+      return;
+    }
+    const mapping = buildModuleInterfaceMapping(config, state, payload);
+    const newTab = Boolean(
+      config.new_tab ?? (config as Record<string, unknown>).newTab ?? false,
+    );
+    const targetPageId = readString(config, ['target_page_id', 'targetPageId', 'page', 'page_id']);
+    if (targetPageId) {
+      mapping.page = targetPageId;
+    }
+    const url = buildModuleInterfaceUrl(targetSlug, mapping);
+    await handlers.openWorkshopModule?.(url, { newTab, targetSlug, params: mapping }, event);
+    // Fall back to openUrl so the navigation still happens if the
+    // caller has only provided the legacy handler.
+    if (!handlers.openWorkshopModule) {
+      await handlers.openUrl?.(url, event);
+    }
+    trace.push({ event_id: event.id, action, status: 'executed', detail: url });
+    return;
+  }
+
   await handlers.command?.(event.action, payload, event);
   await handlers.notice?.(`${event.label ?? event.action} is not wired to a runtime handler yet.`, 'warning', event);
   trace.push({ event_id: event.id, action, status: 'skipped', detail: 'unsupported_action' });
@@ -201,7 +242,64 @@ function normalizeAction(action: string) {
   if (normalized === 'setvariable') return 'set_variable';
   if (normalized === 'applyaction' || normalized === 'action') return 'apply_action';
   if (normalized === 'export_data' || normalized === 'download') return 'export';
+  if (normalized === 'openworkshopmodule' || normalized === 'open_module') return 'open_workshop_module';
   return normalized;
+}
+
+function buildModuleInterfaceMapping(
+  config: Record<string, unknown>,
+  state: WorkshopEventRuntimeState,
+  payload: Record<string, unknown>,
+): Record<string, string> {
+  const raw =
+    (config.variable_mapping as unknown) ??
+    (config as Record<string, unknown>).variableMapping ??
+    {};
+  if (!isRecord(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [externalId, source] of Object.entries(raw)) {
+    if (!externalId) continue;
+    const value = resolveMappingSource(source, state, payload);
+    if (value === null || value === undefined) continue;
+    out[externalId] = stringifyRuntimeValue(value);
+  }
+  return out;
+}
+
+function resolveMappingSource(
+  source: unknown,
+  state: WorkshopEventRuntimeState,
+  payload: Record<string, unknown>,
+): unknown {
+  if (source === null || source === undefined) return null;
+  if (typeof source === 'string' || typeof source === 'number' || typeof source === 'boolean') {
+    if (typeof source === 'string') {
+      return interpolate(source, state.runtimeParameters ?? {}, payload);
+    }
+    return source;
+  }
+  if (!isRecord(source)) return null;
+  const kind = typeof source.kind === 'string' ? source.kind : '';
+  if (kind === 'literal' || kind === 'static') return source.value ?? null;
+  if (kind === 'payload_path' || kind === 'payload') {
+    const path = typeof source.path === 'string' ? source.path : '';
+    return readPayloadValue(payload, path);
+  }
+  if (kind === 'variable' || kind === 'parameter') {
+    const key = typeof source.ref === 'string' ? source.ref : '';
+    return state.runtimeParameters?.[key] ?? null;
+  }
+  if (typeof source.value !== 'undefined') return source.value;
+  return null;
+}
+
+function buildModuleInterfaceUrl(
+  targetSlug: string,
+  params: Record<string, string>,
+): string {
+  const base = `/apps/runtime/${encodeURIComponent(targetSlug)}`;
+  const query = new URLSearchParams(params).toString();
+  return query ? `${base}?${query}` : base;
 }
 
 function resolveEventValue(

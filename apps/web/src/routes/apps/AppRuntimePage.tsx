@@ -240,7 +240,7 @@ export function AppRuntimePage() {
         )}
 
         {status === 'ready' && app && (
-          <WorkshopRuntimeProvider app={app}>
+          <WorkshopRuntimeProvider app={app} urlParams={runtimeParameters}>
             <AppRenderer
               app={app}
               mode="published"

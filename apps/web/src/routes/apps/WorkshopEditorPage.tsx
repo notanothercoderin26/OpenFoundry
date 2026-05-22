@@ -631,6 +631,20 @@ interface VariableStaticFilter {
   max_variable_id?: string;
 }
 
+export interface WorkshopVariableInterface {
+  enabled: boolean;
+  display_name?: string;
+  description?: string;
+}
+
+export interface WorkshopVariableRouting {
+  enabled: boolean;
+}
+
+export interface WorkshopVariableStateSave {
+  enabled: boolean;
+}
+
 export interface WorkshopVariable {
   id: string;
   kind: VariableKind;
@@ -645,7 +659,13 @@ export interface WorkshopVariable {
   static_filters?: VariableStaticFilter[];
   default_value?: unknown;
   metadata?: Record<string, unknown>;
+  external_id?: string;
+  interface?: WorkshopVariableInterface;
+  routing?: WorkshopVariableRouting;
+  state_saving?: WorkshopVariableStateSave;
 }
+
+export const EXTERNAL_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 
 const VARIABLE_KIND_LABEL: Record<string, string> = {
   primitive: 'Primitive',
@@ -972,6 +992,11 @@ export function WorkshopEditorPage() {
               onDelete={(variableId) => {
                 setVariables((current) => current.filter((v) => v.id !== variableId));
                 if (editingVariableId === variableId) setEditingVariableId(null);
+              }}
+              onUpdate={(variableId, patch) => {
+                setVariables((current) =>
+                  current.map((v) => (v.id === variableId ? { ...v, ...patch } : v)),
+                );
               }}
             />
           ) : (
@@ -5060,6 +5085,7 @@ function VariablesPanel({
   onRename,
   onSelect,
   onDelete,
+  onUpdate,
 }: {
   variables: WorkshopVariable[];
   widgets: AppWidget[];
@@ -5069,7 +5095,9 @@ function VariablesPanel({
   onRename: (variableId: string, name: string) => void;
   onSelect: (variableId: string) => void;
   onDelete: (variableId: string) => void;
+  onUpdate: (variableId: string, patch: Partial<WorkshopVariable>) => void;
 }) {
+  const [openSettings, setOpenSettings] = useState<Record<string, boolean>>({});
   function usedInCount(variableId: string) {
     let count = 0;
     for (const section of widgets) {
@@ -5199,11 +5227,188 @@ function VariablesPanel({
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                 {VARIABLE_KIND_LABEL[variable.kind]} · Used in {usedInCount(variable.id)} widget{usedInCount(variable.id) === 1 ? '' : 's'}
               </span>
+              <button
+                type="button"
+                onClick={() => setOpenSettings((current) => ({ ...current, [variable.id]: !current[variable.id] }))}
+                aria-expanded={Boolean(openSettings[variable.id])}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 4px', margin: 0, border: 0, background: 'transparent', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', textAlign: 'left' }}
+              >
+                <Glyph name={openSettings[variable.id] ? 'chevron-down' : 'chevron-right'} size={10} />
+                Variable settings
+                {variable.external_id ? <span style={{ marginLeft: 'auto', fontFamily: 'monospace', color: '#5c7080' }}>{variable.external_id}</span> : null}
+              </button>
+              {openSettings[variable.id] ? (
+                <VariableSettingsPanel variable={variable} variables={variables} onUpdate={(patch) => onUpdate(variable.id, patch)} />
+              ) : null}
             </div>
           ))
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Module-interface settings for a single variable: external id +
+ * three opt-in toggles (interface, routing, state_saving). Mirrors the
+ * Palantir Workshop "Variable settings" panel.
+ */
+function VariableSettingsPanel({
+  variable,
+  variables,
+  onUpdate,
+}: {
+  variable: WorkshopVariable;
+  variables: WorkshopVariable[];
+  onUpdate: (patch: Partial<WorkshopVariable>) => void;
+}) {
+  const externalId = variable.external_id ?? '';
+  const externalIdValid = externalId === '' || EXTERNAL_ID_PATTERN.test(externalId);
+  const duplicateExternalId =
+    externalId !== '' &&
+    variables.some((v) => v.id !== variable.id && v.external_id === externalId);
+  const requiresExternalId =
+    (variable.routing?.enabled ||
+      variable.interface?.enabled ||
+      variable.state_saving?.enabled) === true;
+  const missingExternalId = requiresExternalId && externalId === '';
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gap: 8,
+        padding: 8,
+        background: '#f8fafc',
+        border: '1px dashed var(--border-subtle)',
+        borderRadius: 4,
+      }}
+    >
+      <label style={{ display: 'grid', gap: 4 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>External ID</span>
+        <input
+          type="text"
+          value={externalId}
+          placeholder="e.g. selectedFlight"
+          onChange={(event) => onUpdate({ external_id: event.target.value })}
+          aria-invalid={!externalIdValid || duplicateExternalId || missingExternalId}
+          style={{
+            padding: '4px 6px',
+            fontSize: 12,
+            fontFamily: 'monospace',
+            border: `1px solid ${!externalIdValid || duplicateExternalId || missingExternalId ? '#dc2626' : 'var(--border-default)'}`,
+            borderRadius: 4,
+            background: '#fff',
+          }}
+        />
+        {!externalIdValid ? (
+          <span style={{ fontSize: 10, color: '#dc2626' }}>
+            Must match {EXTERNAL_ID_PATTERN.source} (letter/underscore start, alphanumerics + underscores).
+          </span>
+        ) : duplicateExternalId ? (
+          <span style={{ fontSize: 10, color: '#dc2626' }}>External ID is already used by another variable.</span>
+        ) : missingExternalId ? (
+          <span style={{ fontSize: 10, color: '#dc2626' }}>External ID is required when any toggle below is on.</span>
+        ) : (
+          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+            Exposed as a URL query param, an interface binding, and a localStorage key.
+          </span>
+        )}
+      </label>
+
+      <SettingsToggle
+        label="Module interface"
+        description="Allow parent modules and Open Workshop module events to bind this variable."
+        checked={Boolean(variable.interface?.enabled)}
+        onChange={(enabled) =>
+          onUpdate({
+            interface: {
+              enabled,
+              display_name: variable.interface?.display_name ?? '',
+              description: variable.interface?.description ?? '',
+            },
+          })
+        }
+      />
+      {variable.interface?.enabled ? (
+        <>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Display name</span>
+            <input
+              type="text"
+              value={variable.interface.display_name ?? ''}
+              onChange={(event) =>
+                onUpdate({
+                  interface: {
+                    enabled: true,
+                    display_name: event.target.value,
+                    description: variable.interface?.description ?? '',
+                  },
+                })
+              }
+              style={{ padding: '4px 6px', fontSize: 12, border: '1px solid var(--border-default)', borderRadius: 4, background: '#fff' }}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Description</span>
+            <textarea
+              value={variable.interface.description ?? ''}
+              rows={2}
+              onChange={(event) =>
+                onUpdate({
+                  interface: {
+                    enabled: true,
+                    display_name: variable.interface?.display_name ?? '',
+                    description: event.target.value,
+                  },
+                })
+              }
+              style={{ padding: '4px 6px', fontSize: 12, border: '1px solid var(--border-default)', borderRadius: 4, background: '#fff', resize: 'vertical' }}
+            />
+          </label>
+        </>
+      ) : null}
+
+      <SettingsToggle
+        label="Routing (URL parameter)"
+        description="Initialize from ?<external_id>=… on first load."
+        checked={Boolean(variable.routing?.enabled)}
+        onChange={(enabled) => onUpdate({ routing: { enabled } })}
+      />
+      <SettingsToggle
+        label="State saving"
+        description="Persist this variable's value to localStorage between reloads."
+        checked={Boolean(variable.state_saving?.enabled)}
+        onChange={(enabled) => onUpdate({ state_saving: { enabled } })}
+      />
+    </div>
+  );
+}
+
+function SettingsToggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        style={{ marginTop: 2 }}
+      />
+      <span style={{ display: 'grid', gap: 2 }}>
+        <span style={{ fontSize: 12, fontWeight: 600 }}>{label}</span>
+        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{description}</span>
+      </span>
+    </label>
   );
 }
 

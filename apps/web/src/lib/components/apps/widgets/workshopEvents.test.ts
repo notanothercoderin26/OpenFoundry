@@ -107,4 +107,74 @@ describe('Workshop event engine', () => {
       expect.objectContaining({ id: 'scenario-reset' }),
     );
   });
+
+  it('open_workshop_module builds a URL with mapped interface variables', async () => {
+    const openWorkshopModule = vi.fn();
+    const openUrl = vi.fn();
+
+    const trace = await runWorkshopEvents({
+      trigger: 'click',
+      events: [
+        event('open', 'click', 'open_workshop_module', {
+          target_module_slug: 'flight-detail',
+          new_tab: false,
+          variable_mapping: {
+            selectedFlight: { kind: 'payload_path', path: 'row.id' },
+            filterStatus: { kind: 'literal', value: 'open' },
+            owner: { kind: 'variable', ref: 'current_user' },
+          },
+        }),
+      ],
+      payload: { row: { id: 'abc123' } },
+      state: { runtimeParameters: { current_user: 'alice' } },
+      handlers: { openWorkshopModule, openUrl },
+    });
+
+    expect(openWorkshopModule).toHaveBeenCalledTimes(1);
+    const [url, options] = openWorkshopModule.mock.calls[0]!;
+    expect(url).toContain('/apps/runtime/flight-detail');
+    expect(url).toContain('selectedFlight=abc123');
+    expect(url).toContain('filterStatus=open');
+    expect(url).toContain('owner=alice');
+    expect(options.newTab).toBe(false);
+    expect(options.targetSlug).toBe('flight-detail');
+    expect(options.params).toEqual({
+      selectedFlight: 'abc123',
+      filterStatus: 'open',
+      owner: 'alice',
+    });
+    // openUrl is NOT called when the dedicated handler is registered.
+    expect(openUrl).not.toHaveBeenCalled();
+    expect(trace[0]?.status).toBe('executed');
+  });
+
+  it('open_workshop_module falls back to openUrl when no dedicated handler is registered', async () => {
+    const openUrl = vi.fn();
+
+    await runWorkshopEvents({
+      trigger: 'click',
+      events: [
+        event('open', 'click', 'open_workshop_module', {
+          target_module_slug: 'inbox',
+          variable_mapping: { sel: { kind: 'literal', value: 'x' } },
+        }),
+      ],
+      handlers: { openUrl },
+    });
+
+    expect(openUrl).toHaveBeenCalledTimes(1);
+    expect(openUrl.mock.calls[0]![0]).toBe('/apps/runtime/inbox?sel=x');
+  });
+
+  it('open_workshop_module skips when target slug is missing', async () => {
+    const openWorkshopModule = vi.fn();
+    const trace = await runWorkshopEvents({
+      trigger: 'click',
+      events: [event('open', 'click', 'open_workshop_module', { variable_mapping: {} })],
+      handlers: { openWorkshopModule },
+    });
+    expect(openWorkshopModule).not.toHaveBeenCalled();
+    expect(trace[0]?.status).toBe('skipped');
+    expect(trace[0]?.detail).toBe('missing_target_module');
+  });
 });
