@@ -2,12 +2,11 @@
 
 Date: 2026-05-03
 
-> **Reader note** — The `.rs` paths in the rows below are historical: they
-> were authored against the Rust workspace at the time of the closure
-> audit. After the Rust → Go monorepo port (`go.mod` at the repo root,
-> `services/<svc>/cmd/<svc>/main.go` and `internal/...` layout), the
-> equivalent Go paths apply (e.g. `services/event-ingestion-replication-service/src/main.rs`
-> → `services/ingestion-replication-service/cmd/ingestion-replication-service/main.go`).
+> **Reader note** — The source paths in the rows below are historical
+> anchors from the time of the closure audit. The live tree uses
+> `go.mod` at the repo root with `services/<svc>/cmd/<svc>/main.go`
+> and `internal/...` layout (e.g. the closure-audit anchor maps to
+> `services/ingestion-replication-service/cmd/ingestion-replication-service/main.go`).
 > Re-deriving the grep with `*.go` globs over the live tree still passes
 > the allowlist semantics, but the file/line anchors quoted in this
 > document are not re-resolvable as-is.
@@ -44,7 +43,7 @@ of the allowlist rows below, or the closure fails.
 | GLS-A05 | dev/test-only allowed | `libs/storage-abstraction::repositories::noop`, `libs/ontology-kernel::stores::Stores::in_memory`, handler unit tests using `noop::InMemory*`, `libs/authz-cedar::with_noop_audit`, `services/ontology-query-service`/`object-database-service`/ontology handler local in-memory stores, `infra/helm/bench/ontology-bench-namespace.yaml` `bench.execute.noop` | Ontology platform + Test infra owners | These are in-memory fakes for unit tests, smoke tests, local dev, or benchmark no-op workloads. They are not accepted as production storage backends. |
 | GLS-A06 | dev/local dry-run allowed | `libs/temporal-client::LoggingWorkflowClient`, `NoopWorkflowClient` run IDs/tests, references from workflow adapters | Workflow/Temporal maintainers | The Temporal facade already fails fast when `TEMPORAL_REQUIRE_REAL_CLIENT=true` or deployment env is staging/prod. The logging client is local dry-run only. |
 | GLS-A07 | dev/local degraded-mode allowed | `services/event-ingestion-replication-service::NoopHotBuffer` and its log strings | Data engine owner | Kept for smoke/dev when no broker exists. After this pass it fails fast in staging/prod-like environments, so it cannot silently drop production events. |
-| GLS-A08 | comment/documentation allowed | Rust doc comments mentioning consolidation `pending`, dependency wording such as "without depending on", and non-runtime explanation comments | Platform architecture + owning service team | These hits explain migration/consolidation status or module boundaries. They do not execute as stubs. |
+| GLS-A08 | comment/documentation allowed | Doc comments mentioning consolidation `pending`, dependency wording such as "without depending on", and non-runtime explanation comments | Platform architecture + owning service team | These hits explain migration/consolidation status or module boundaries. They do not execute as stubs. |
 | GLS-A09 | legitimate runtime control-flow | `std::future::pending::<()>()` in `#[cfg(not(unix))]` shutdown handlers | Owning service team | This is the standard never-resolving future for the non-Unix branch of graceful shutdown selection. It is not a business operation placeholder. |
 
 ## Reproducible Verification

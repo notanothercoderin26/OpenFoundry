@@ -86,9 +86,9 @@ for the close-out evidence (six green grep gates).
   plus a chaos test suite (FASE 6).
 - `services/approvals-service` 5-state machine + dedicated
   `approvals-timeout-sweep` `CronJob` binary (FASE 7).
-- `services/reindex-coordinator-service` Rust Kafka-driven
+- `services/reindex-coordinator-service` Kafka-driven
   coordinator replacing the Go `workers-go/reindex` worker (FASE 4).
-- `schedules-tick` `CronJob` (Rust binary in `libs/event-scheduler`)
+- `schedules-tick` `CronJob` (binary in `libs/event-scheduler`)
   driving cron dispatch from `schedules.definitions` rows.
 - End-to-end smoke scenario
   [`smoke/scenarios/foundry-pattern-full-flow.json`](smoke/scenarios/foundry-pattern-full-flow.json),
@@ -123,8 +123,8 @@ for the close-out evidence (six green grep gates).
   The Compose service is renamed `redis` → `valkey`, the volume `redis_data` →
   `valkey_data`, the image variable `OPENFOUNDRY_REDIS_IMAGE` →
   `OPENFOUNDRY_VALKEY_IMAGE` (default `valkey/valkey:8-alpine`), and the
-  intra-cluster `REDIS_URL` now points to `redis://valkey:6379`. The Rust
-  `redis-rs` client is unchanged; Valkey speaks the same wire protocol.
+  intra-cluster `REDIS_URL` now points to `redis://valkey:6379`. The
+  Redis client is unchanged; Valkey speaks the same wire protocol.
   Migration: `docker compose down` then `docker compose up -d` (the old
   `redis_data` volume is no longer referenced; recreate state if needed).
 
@@ -133,10 +133,10 @@ for the close-out evidence (six green grep gates).
   retained for historical context only.
 
 ### Removed
-- **BREAKING:** `libs/temporal-client` Rust crate.
+- **BREAKING:** `libs/temporal-client`.
 - **BREAKING:** `workers-go/` Go worker workspace (pipeline,
   workflow-automation, approvals, reindex). Run-time replacements
-  ship as Rust services consuming Kafka events.
+  ship as services consuming Kafka events.
 - **BREAKING:** `infra/helm/infra/temporal/` Helm chart and the
   Temporal frontend / history / matching / worker Deployments.
   `temporal-workers.yaml`, the Temporal devserver + UI services in

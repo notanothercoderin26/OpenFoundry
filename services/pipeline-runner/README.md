@@ -74,7 +74,7 @@ honoured by the AWS SDK underneath apache/iceberg-go for S3 access.
 
 ## Endpoints
 
-- `GET /healthz` — liveness JSON (Rust-compatible).
+- `GET /healthz` — liveness JSON.
 - `GET /metrics` — Prometheus scrape (default registry; Go runtime + process metrics).
 
 ## Phase A discoveries — bundled with the binary

@@ -104,9 +104,9 @@ Why it does not work:
 - **No bespoke relay.** The thing that polls / claims / publishes
   / deletes is Debezium. We own configuration, not code.
 
-### Option C — Outbox in Postgres + custom Rust relay (rejected)
+### Option C — Outbox in Postgres + custom relay (rejected)
 
-- A Rust relay would re-implement what Debezium does — leader
+- A bespoke relay would re-implement what Debezium does — leader
   election, ordering, replay from offset, schema registry integration,
   back-pressure — with strictly less production hardening. Debezium
   has been in production for almost a decade across thousands of
@@ -260,32 +260,27 @@ the migration plan, §3.6 of
 
 ## Producer-side library
 
-A new workspace crate `libs/outbox` exposes the only sanctioned way
+A new library `libs/outbox` exposes the only sanctioned way
 for handlers to enqueue events:
 
-```rust
-pub struct OutboxEvent {
-    pub aggregate: &'static str,
-    pub aggregate_id: String,
-    pub topic: &'static str,
-    pub headers: serde_json::Value,
-    pub payload: serde_json::Value,
+```go
+type OutboxEvent struct {
+    Aggregate   string
+    AggregateID string
+    Topic       string
+    Headers     json.RawMessage
+    Payload     json.RawMessage
 }
 
-impl OutboxEvent {
-    pub fn event_id(&self, version: u64) -> Uuid { /* deterministic UUIDv5 */ }
-}
+// EventID computes a deterministic UUIDv5 for the event.
+func (e *OutboxEvent) EventID(version uint64) uuid.UUID { /* ... */ }
 
-pub async fn enqueue<'c>(
-    tx: &mut sqlx::PgTransaction<'c>,
-    event: &OutboxEvent,
-    version: u64,
-) -> Result<()>;
+func Enqueue(ctx context.Context, tx pgx.Tx, event *OutboxEvent, version uint64) error
 ```
 
 Rules of use:
 
-- `enqueue` **must** be called inside the same `sqlx::PgTransaction`
+- `Enqueue` **must** be called inside the same `pgx.Tx`
   as any policy / metadata write.
 - A handler that mutates Cassandra must compute `event_id` before
   calling Cassandra, write Cassandra idempotently with that id, then

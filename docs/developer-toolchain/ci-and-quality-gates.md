@@ -20,7 +20,7 @@ The Go CI pipeline does more than compile:
 - it checks the stable capabilities snapshot
 - it runs unit and integration tests
 
-That behavior is defined in `.github/workflows/openfoundry-go.yml`. Older references to `ci.yml`, Cargo, or Rust workspace checks are historical and should not be copied into new automation.
+That behavior is defined in `.github/workflows/openfoundry-go.yml`.
 
 ## Why this matters
 

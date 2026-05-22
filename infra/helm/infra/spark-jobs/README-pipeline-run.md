@@ -1,6 +1,6 @@
 # `_pipeline-run-template.yaml` — pipeline-run SparkApplication template
 
-`pipeline-build-service` (Rust) loads
+`pipeline-build-service` loads
 [`templates/_pipeline-run-template.yaml`](./templates/_pipeline-run-template.yaml)
 as a string, performs `${...}` substitution, and `POST`s the result to
 the Kubernetes API as a `sparkoperator.k8s.io/v1beta2/SparkApplication`.
@@ -23,8 +23,8 @@ at request time by `pipeline-build-service`, long after the chart is
 installed. We need a substitution syntax that:
 
 1. Survives `helm install` untouched (Helm will not interpret `${...}`).
-2. Is trivially renderable from Rust without pulling in a Tera /
-   Handlebars dependency — a single `String::replace` per variable.
+2. Is trivially renderable without pulling in a heavy templating
+   dependency — a single string replace per variable suffices.
 3. Is recognisable as "not Helm" to anyone reading the file.
 
 `${var}` (POSIX-shell-style) satisfies all three.
@@ -38,7 +38,7 @@ installed. We need a substitution syntax that:
 | `${namespace}`               | string  | `openfoundry-spark`                        | Must be the namespace the Spark Operator watches. Default in prod: `openfoundry-spark`. |
 | `${spark_application_type}`  | enum    | `Scala` \| `Python`                        | `Scala` for `sql`/`spark` nodes, `Python` for `pyspark` nodes.                          |
 | `${pipeline_runner_image}`   | string  | `ghcr.io/unnamedlab/pipeline-runner:0.1.0` | Built in **Tarea 3.3**. Until 3.3 lands the Pod will fail to pull.                      |
-| `${main_class}`              | string  | `com.openfoundry.pipeline.PipelineRunner`  | Set for `Scala`; the Rust generator omits the line for `Python`.                        |
+| `${main_class}`              | string  | `com.openfoundry.pipeline.PipelineRunner`  | Set for `Scala`; the generator omits the line for `Python`.                             |
 | `${main_application_file}`   | string  | `local:///opt/spark/jars/pipeline-runner.jar` <br> or `local:///opt/spark/work-dir/pipeline_runner.py` | JAR for `Scala`, `.py` entrypoint for `Python`. Both are baked into the image. |
 | `${input_dataset_rid}`       | string  | `ri.dataset.main.4abc`                     | Iceberg table reference resolved by `pipeline-runner` against Lakekeeper.               |
 | `${output_dataset_rid}`      | string  | `ri.dataset.main.9def`                     | Same as above; output table is created or appended to.                                  |
@@ -119,7 +119,7 @@ Python YAML parse above is the offline equivalent.
   and the operator will surface the failure on the `SparkApplication`
   status.
 - The Spark Operator imposes a 63-char limit on derived Pod names. The
-  Rust generator MUST truncate `${pipeline_id}`/`${run_id}` so that
+  generator MUST truncate `${pipeline_id}`/`${run_id}` so that
   `pipeline-run-${pipeline_id}-${run_id}` is ≤ 50 chars before POST.
 - `${spark_application_type: Python}` requires the generator to omit
   the `mainClass:` line entirely (rather than substituting an empty

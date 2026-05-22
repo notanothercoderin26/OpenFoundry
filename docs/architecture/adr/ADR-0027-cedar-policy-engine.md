@@ -1,4 +1,4 @@
-# ADR-0027: Cedar policy engine, embedded as a Rust library
+# ADR-0027: Cedar policy engine, embedded as a library
 
 - **Status:** Accepted
 - **Date:** 2026-05-02
@@ -42,13 +42,12 @@ storage model for policies.
 
 ## Options considered
 
-### Option A — Cedar embedded as a Rust library (chosen)
+### Option A — Cedar embedded as an in-process library (chosen)
 
 - **Cedar** is the open-source policy language and engine published
-  by AWS (Apache-2.0), with a first-class Rust crate
-  (`cedar-policy = "4"`). The same engine powers Amazon Verified
-  Permissions in production.
-- The engine is **a library**, not a service: each Rust service
+  by AWS (Apache-2.0). The same engine powers Amazon Verified
+  Permissions in production. We embed it via its Go SDK.
+- The engine is **a library**, not a service: each service
   evaluates Cedar policies in-process against an in-memory
   `PolicySet` and an in-memory entity store assembled from the
   request context.
@@ -59,7 +58,7 @@ storage model for policies.
 - Schema is **derived from `core-models`**: `User`, `Object`,
   `Branch`, `Marking`, `Project`, `Action` — the same domain types
   the platform uses everywhere else. A single schema source feeds
-  Cedar's typed policies and the Rust types used by callers.
+  Cedar's typed policies and the Go types used by callers.
 - Latency: in-process evaluation is sub-millisecond and removes any
   network hop from the authorisation path.
 
@@ -91,11 +90,11 @@ storage model for policies.
 
 - OPA is the de-facto standard for policy as code in CNCF land. The
   Rego language is expressive and has a large ecosystem.
-- Embedding OPA in Rust requires either:
+- Embedding OPA in our services requires either:
   - Calling out to a sidecar (network hop per decision), or
   - Embedding OPA-WASM (works, adds a WASM runtime to every service,
     Rego compilation cycles to manage, and a different debugging
-    surface than the rest of our Rust code).
+    surface than the rest of our code).
 - Rego is **untyped**; policy authors get errors at evaluation, not
   authoring. Cedar is typed against a schema and rejects ill-typed
   policies at upload.
@@ -109,8 +108,8 @@ storage model for policies.
 ## Decision
 
 We adopt **Option A**: **Cedar (the AWS open-source policy language
-and engine) is embedded as a Rust library** (`cedar-policy = "4"`)
-in every service that needs to make an authorisation decision.
+and engine) is embedded as an in-process library** in every service
+that needs to make an authorisation decision.
 
 Policy documents and the Cedar schema live in
 **`pg-policy.cedar_policies`** ([ADR-0024](./ADR-0024-postgres-consolidation.md)).
@@ -180,10 +179,9 @@ action BranchCreate appliesTo {
 };
 ```
 
-The Rust types in `libs/core-models` carry `From` / `Into`
-implementations for each Cedar entity, so services build the entity
-store from their already-loaded domain objects without any manual
-mapping.
+The Go types in `libs/core-models` carry conversion helpers for each
+Cedar entity, so services build the entity store from their
+already-loaded domain objects without any manual mapping.
 
 ## Storage and distribution
 
@@ -226,8 +224,8 @@ CREATE TABLE cedar_schema (
   so that every service can subscribe via the cheap control bus
   and avoid Kafka client overhead in every binary.
 - Each service holds:
-  - `Arc<RwLock<PolicySet>>` — the active policy set.
-  - `Arc<RwLock<Schema>>` — the active Cedar schema.
+  - A read-locked active `PolicySet`.
+  - A read-locked active Cedar schema.
 - Hot-reload handler:
   1. Receives `authz.policy.changed` on NATS.
   2. Reads the new `PolicySet` from `pg-policy.cedar_policies`
@@ -240,17 +238,15 @@ CREATE TABLE cedar_schema (
 
 ### Evaluation
 
-A request handler asks `auth_middleware::authorize(request)`:
+A request handler asks `authmiddleware.Authorize(ctx, request)`:
 
-```rust
-let decision = engine.is_authorized(
-    &authz_request,
-    policy_set.read().await.deref(),
-    entities.read().await.deref(),
-);
-match decision.decision() {
-    Decision::Allow => Ok(()),
-    Decision::Deny  => Err(Forbidden { reasons: decision.diagnostics().reason().collect() }),
+```go
+decision := engine.IsAuthorized(ctx, authzRequest, policySet.Load(), entities.Load())
+switch decision.Decision {
+case cedar.Allow:
+    return nil
+case cedar.Deny:
+    return Forbidden{Reasons: decision.Diagnostics.Reasons}
 }
 ```
 
@@ -263,7 +259,7 @@ Every decision emits a structured audit log line with:
 
 ## Operational consequences
 
-- New workspace crate `libs/authz-cedar` providing:
+- New library `libs/authz-cedar` providing:
   - `PolicyStore` (loader + hot-reload subscriber).
   - `EntitiesBuilder` (composes Cedar entities from `core-models`).
   - `authorize` helper.

@@ -209,10 +209,9 @@ abstraction needs to be reintroduced.
 
 > **Status:** Accepted · **Date:** 2026-04-29
 
-After verifying that no workspace service, no integration test, and no
-scenario under `smoke/` consumes Meilisearch (only the unused
-`meilisearch-sdk` declaration in
-`Cargo.toml [workspace.dependencies]` remained), the decision is
+After verifying that no service, no integration test, and no scenario
+under `smoke/` consumes Meilisearch (only an unused SDK declaration in
+the workspace dependency manifest remained), the decision is
 consolidated as follows:
 
 - **Vespa Lite** (`vespaengine/vespa`, Apache-2.0) becomes the
@@ -250,6 +249,6 @@ Concrete changes associated with this addendum (2026-04):
   Meilisearch from the list of common dependencies and point to the
   `demo` profile.
 
-If in the future the demo were also retired, the
-`meilisearch-sdk` declaration in `Cargo.toml` can be removed alongside this
-service without affecting any consumer.
+If in the future the demo were also retired, the residual SDK
+declaration can be removed alongside this service without affecting
+any consumer.

@@ -167,7 +167,7 @@ Each platform substrate is anchored to one of the planes above:
   - **`iceberg-catalog-service`** owns the *Foundry-internal* catalog
     (multi-table all-or-nothing commit, markings + Cedar, strict schema
     evolution, `master`↔`main` alias) consumed by external Iceberg
-    clients (PyIceberg, Spark, Trino, Snowflake) and the `/iceberg-tables`
+    clients (Spark, Trino, Snowflake) and the `/iceberg-tables`
     admin UI — see [ADR-0041](./adr/ADR-0041-iceberg-catalog-service.md).
 - **Vespa** for production search **and** local DX (single-node
   `vespaengine/vespa` container in dev compose); pgvector for embedded

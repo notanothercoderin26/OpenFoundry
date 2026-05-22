@@ -1,7 +1,7 @@
-# PyIceberg integration suite
+# Iceberg integration suite
 
 End-to-end tests that exercise `iceberg-catalog-service` with real
-Iceberg clients (PyIceberg, Snowflake-style requests). The suite is
+Iceberg clients (Snowflake-style requests). The suite is
 skipped automatically when the catalog isn't reachable so a developer
 without Docker can still run `pytest --collect-only`.
 
@@ -18,7 +18,7 @@ ICEBERG_CATALOG_URL=http://localhost:8197 \
 
 Override the credentials via:
 
-* `ICEBERG_TEST_CLIENT_ID` (default `pyiceberg-suite`)
+* `ICEBERG_TEST_CLIENT_ID` (default `iceberg-suite`)
 * `ICEBERG_TEST_CLIENT_SECRET` (default `dev-secret`)
 
 ## CI

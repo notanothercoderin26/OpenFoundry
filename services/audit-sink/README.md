@@ -80,7 +80,7 @@ Helm `values.yaml` drives every audit-sink deployment.
 
 ## Endpoints
 
-- `GET /healthz` — liveness payload (Rust-compatible).
+- `GET /healthz` — liveness payload.
 - `GET /metrics` — Prometheus scrape (`audit_sink_lag_seconds`,
   `audit_sink_records_total`, `audit_sink_batch_size_records`,
   `audit_sink_commits_total{outcome=success|failure|poison}`).
@@ -97,8 +97,7 @@ Kafka offsets uncommitted for replay:
 Adapter response bodies are preserved in the wrapped error (bounded to 4 KiB)
 for operator diagnostics. JSONL mode is intentionally opt-in; production should
 leave `AUDIT_SINK_JSONL_PATH` unset so selecting Iceberg cannot fall back to a
-dev file sink. See `openfoundry-go/docs/migration/audit-sink-iceberg.md` for
-the Rust contract review and cutover details.
+dev file sink.
 
 ## Build / run
 

@@ -38,15 +38,15 @@ data ingestion; runaway data producers must not starve control signals).
 ## Decision
 
 We make the control-vs-data split a **contractual, mechanically-checked
-property** of every service crate.
+property** of every service.
 
-1. **Contract rule.** The Cargo dependencies of each service on
+1. **Contract rule.** Each service's dependencies on
    `event-bus-control` and/or `event-bus-data` must respect the matrix
    documented in `docs/architecture/runtime-topology.md` §"Control vs Data".
    Each service explicitly declares which bus(es) it is allowed to use.
 
 2. **Allowlist file.** The current authoritative matrix lives in
-   `/.github/bus-allowlist.yaml`. It maps each service crate name to the
+   `/.github/bus-allowlist.yaml`. It maps each service name to the
    list of buses it may depend on (`control`, `data`, or both). The file
    starts as a **snapshot of the current state** of the repository (no
    service is migrated by this ADR).
@@ -54,14 +54,9 @@ property** of every service crate.
 3. **CI check.** A small Python 3 script (no extra dependencies, standard
    library only) lives at `/tools/bus-lint/check_bus.py`. It:
 
-   - walks `/services/*/Cargo.toml`,
-   - scans each `Cargo.toml` line-by-line — deliberately not via a strict
-     TOML parser, since a couple of service crates currently declare the
-     same dependency table twice (e.g. two `[dependencies.async-trait]`
-     blocks); Cargo accepts that, but strict parsers reject it,
+   - walks each service's source imports under `/services/*`,
    - determines whether the service depends on `event-bus-control` and/or
-     `event-bus-data` (in any of the three Cargo dependency forms:
-     detached table, inline simple value, or inline `.workspace = true`),
+     `event-bus-data`,
    - cross-references the result with `/.github/bus-allowlist.yaml`,
    - **fails CI** if any service:
      - depends on a bus that is not declared for it in the allowlist,
@@ -71,9 +66,7 @@ property** of every service crate.
 
 4. **Workflow integration.** The check is wired into the existing
    `.github/workflows/ci.yml` workflow as a new lightweight job
-   (`bus-contract`) that runs on every `pull_request`. We deliberately
-   reuse the existing Rust CI workflow rather than introducing a new
-   workflow file, keeping the lint surface narrow and discoverable.
+   (`bus-contract`) that runs on every `pull_request`.
 
 ## Consequences
 
@@ -94,7 +87,7 @@ property** of every service crate.
 ## Notes
 
 - The allowlist is authoritative for **services only**
-  (`/services/*/Cargo.toml`). Library crates under `/libs/**` are out of
-  scope — they are the producers of the bus abstractions, not consumers.
+  (`/services/*`). Libraries under `/libs/**` are out of scope — they
+  are the producers of the bus abstractions, not consumers.
 - This ADR does not change any service code. It only adds documentation,
   the allowlist, the lint script, and a CI job.

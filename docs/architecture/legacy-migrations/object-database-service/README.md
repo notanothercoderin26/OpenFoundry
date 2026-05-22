@@ -63,11 +63,11 @@ binding** primitive ("Models in the Ontology") and the **traversal
 ## Why archived
 
 The CQRS write path collapses onto `apply_object_with_outbox`
-(`libs/ontology-kernel/src/domain/writeback.rs`, S1.4.c) and the
+(`libs/ontology-kernel/domain/writeback`, S1.4.c) and the
 Cassandra `objects_by_id` revision counter; bindings move to
 `pg-schemas`; FTS/traversal move to the search abstraction. The
-service binary is substrate-only and no longer applies
-`sqlx::migrate!`.
+service binary is substrate-only and no longer applies the legacy
+migration bootstrap.
 
 These files remain the canonical source for the S1.7 data-migration
 tooling and for incident-response schema reference.

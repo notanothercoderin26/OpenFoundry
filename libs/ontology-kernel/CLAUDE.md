@@ -73,7 +73,7 @@ Every JSON shape, error string, enum token, and ordering rule has a
 golden test (look for `*_test.go` with `golden` or `fixture` in the
 name, plus `models/contract_fixtures_test.go`). **If a test pins a
 field name, do not rename it casually** — there are external consumers
-(SDKs, archived Rust binaries during migration, frontend types).
+(SDKs, frontend types).
 
 ## Testing this lib
 

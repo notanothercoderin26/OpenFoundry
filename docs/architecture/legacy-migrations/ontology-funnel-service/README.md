@@ -2,7 +2,7 @@
 
 This service ingests datasets and streams into ontology objects
 (funnel, sync, indexing, storage insights). It currently has **no
-sqlx migrations** — all storage today comes via
+service-local migrations** — all storage today comes via
 `ontology-service`'s legacy schema (tables `ontology_funnel_sources`,
 `ontology_funnel_runs`, archived under
 [`legacy-migrations/ontology-definition-service/`](../ontology-definition-service/README.md)).
@@ -20,7 +20,7 @@ sqlx migrations** — all storage today comes via
   - The funnel's index-output documents already flow through the
     search abstraction (ADR-0024); no schema lives here.
 
-The substrate ([`src/lib.rs`](../../../../services/ontology-funnel-service/src/lib.rs))
-is shell-only; the per-handler refactor to `Arc<dyn ObjectStore>` and
+The substrate is shell-only; the per-handler refactor to an
+`ObjectStore` interface and
 the run-history CF land in per-PR follow-ups (same pragmatic
 deferral as S1.4.b / S1.5.f).

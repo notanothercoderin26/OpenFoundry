@@ -1,13 +1,11 @@
 # Ontology queries inventory (S1.1.a)
 
-> **Reader note (2026-05-14)** — Methodology and file paths in this
-> document were authored against the Rust workspace. After the
-> Rust→Go port the grep below no longer runs as-is (`sqlx` is Rust;
-> the Go equivalent uses `pgx` directly or `sqlc`-generated code) and
-> every `<entity>.rs:<line>` reference is historical. The schema-level
-> conclusions (which Postgres tables are hot, which migrate to
-> Cassandra, the access-pattern groupings) remain valid as design
-> guidance and feed
+> **Reader note (2026-05-14)** — File paths in this document are
+> historical anchors. Today the data layer uses `pgx` directly or
+> `sqlc`-generated code, and every `<entity>:<line>` reference is
+> historical. The schema-level conclusions (which Postgres tables are
+> hot, which migrate to Cassandra, the access-pattern groupings)
+> remain valid as design guidance and feed
 > [`ontology-cassandra-tables.md`](./ontology-cassandra-tables.md);
 > the *call-site coordinates* should be re-derived if you need an
 > up-to-date count. Three service names below
@@ -23,17 +21,8 @@
 > access pattern rather than by entity. This is the source of truth for
 > the Postgres → Cassandra migration of stream **S1**.
 >
-> **Method (historical, Rust era)** — Static grep over the active code:
->
-> ```
-> grep -rEn 'sqlx::query[a-z_]*!|sqlx::query\b|query_as|query_scalar' \
->   libs/ontology-kernel/src \
->   services/ontology-exploratory-analysis-service/src \
->   services/ontology-timeseries-analytics-service/src
-> ```
->
-> **Go-native equivalent** — to re-derive the inventory today, grep
-> for `pgx`-style call sites + any `sqlc`-generated `Queries` methods:
+> **Method** — to re-derive the inventory, grep for `pgx`-style call
+> sites + any `sqlc`-generated `Queries` methods:
 >
 > ```
 > grep -rEn 'pool\.Query|pool\.QueryRow|pool\.Exec|tx\.Query|tx\.QueryRow|tx\.Exec' \
@@ -44,7 +33,7 @@
 >   services/ontology-actions-service
 > ```
 >
-> The other 7 ontology service crates (`object-database`, `ontology-actions`,
+> The other 7 ontology services (`object-database`, `ontology-actions`,
 > `ontology-definition`, `ontology-funnel`, `ontology-functions`,
 > `ontology-query`, `ontology-security`) were thin HTTP shells whose
 > handler logic lived in [`libs/ontology-kernel`](../../libs/ontology-kernel)
@@ -82,7 +71,7 @@
 > `ontology-security-service` and `ontology-timeseries-analytics-service` no
 > longer exist on disk. Their handlers live in the consolidated owners above.
 
-Total distinct call sites: **~330** (Rust-era count — `sqlx::query*` + `query_as` + `query_scalar`)
+Total distinct call sites: **~330** (historical count over the data-access layer)
 distributed across **42 Postgres tables**. The 8 hottest tables
 (`object_instances`, `object_revisions`, `link_instances`, `object_types`,
 `link_types`, `action_executions`, `ontology_funnel_runs`,

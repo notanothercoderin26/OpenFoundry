@@ -237,7 +237,7 @@ targets/errors/share metadata.
 
 ## Follow-up slices (deferred)
 
-- Spaces (`tenancy_workspaces` table) — Rust migration `0002`
+- Spaces (`tenancy_workspaces` table)
 - Projects (`tenancy_projects` table)
 - Sharing rules + invitations
 - `resource_resolve` / `resource_ops` helpers (cross-service RID lookup)

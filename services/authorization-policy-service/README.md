@@ -45,7 +45,7 @@ placeholder handler matches** in this service. Test-only matches live in
 Cedar policy CRUD over Postgres with strict schema validation via
 `libs/authz-cedar-go` before every write. Optional NATS publish on
 `authz.policy.changed` so peer services hot-reload. The service also mounts the
-Rust top-level authorization surface: tenant-scoped ABAC policies/evaluation and
+top-level authorization surface: tenant-scoped ABAC policies/evaluation and
 RBAC roles/groups/permissions.
 
 Endpoints (all under `/api/v1`, JWT-protected):

@@ -153,19 +153,18 @@ production-only code paths can use (and that returns
 `Err(Unsupported)` on OpenSearch) or modelled at a level both
 engines can implement.
 
-```rust
-#[async_trait]
-pub trait SearchBackend: Send + Sync {
-    async fn upsert(&self, doc: SearchDoc) -> Result<()>;
-    async fn delete(&self, id: &DocId) -> Result<()>;
+```go
+type SearchBackend interface {
+    Upsert(ctx context.Context, doc SearchDoc) error
+    Delete(ctx context.Context, id DocID) error
 
-    async fn lexical(&self, q: &LexicalQuery) -> Result<SearchResults>;
-    async fn vector(&self, q: &VectorQuery) -> Result<SearchResults>;
-    async fn hybrid(&self, q: &HybridQuery) -> Result<SearchResults>;
+    Lexical(ctx context.Context, q LexicalQuery) (SearchResults, error)
+    Vector(ctx context.Context, q VectorQuery) (SearchResults, error)
+    Hybrid(ctx context.Context, q HybridQuery) (SearchResults, error)
 
-    async fn facet(&self, q: &FacetQuery) -> Result<FacetResults>;
+    Facet(ctx context.Context, q FacetQuery) (FacetResults, error)
 
-    async fn health(&self) -> Result<BackendHealth>;
+    Health(ctx context.Context) (BackendHealth, error)
 }
 ```
 
@@ -183,19 +182,18 @@ Where:
   feature when available, or by client-side normalised RRF when it is
   not.
 
-`VespaExt` (optional, lives in the same crate, only the Vespa impl
+`VespaExt` (optional, lives in the same library, only the Vespa impl
 implements it):
 
-```rust
-#[async_trait]
-pub trait VespaExt {
-    async fn ranking_profile(&self, q: &RankingProfileQuery) -> Result<SearchResults>;
+```go
+type VespaExt interface {
+    RankingProfile(ctx context.Context, q RankingProfileQuery) (SearchResults, error)
 }
 ```
 
 Code paths that import `VespaExt` are required by lint to live behind
-a `cfg(feature = "vespa-ext")` and to provide a documented graceful
-fallback for OpenSearch dev environments.
+a `vespa_ext` build tag and to provide a documented graceful fallback
+for OpenSearch dev environments.
 
 ## Selection and configuration
 

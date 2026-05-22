@@ -37,10 +37,10 @@
 matching / worker) backed by the platform Cassandra (default + visibility
 keyspaces) and a fleet of five Go workers under
 [`workers-go/`](../../../workers-go/) (`pipeline`, `reindex`,
-`workflow-automation`, `automation-ops`, `approvals`). Three Rust services
+`workflow-automation`, `automation-ops`, `approvals`). Three services
 (`pipeline-schedule-service`, `approvals-service`,
 `automation-operations-service`) consume Temporal via the in-tree
-`libs/temporal-client/` crate.
+`libs/temporal-client/` library.
 
 That decision was correct given the alternatives evaluated at the time
 (custom scheduler vs. Temporal). Two facts have since become decisive:
@@ -72,7 +72,7 @@ That decision was correct given the alternatives evaluated at the time
 | Saga / compensation | Workflow code with `defer`-style compensation | Choreography: each step publishes outcome via outbox; failure publishes `stepN.failed`, compensations react |
 | Determinism contract | **Required** in business code (footgun) | Not required; idempotency by `event_id` (UUID v5 over deterministic keys) |
 | Operational footprint | Temporal (4 svc) + dedicated Cassandra keyspaces + Go worker fleet | Reuses already-provisioned Spark Operator, Kafka, Debezium, CNPG, NATS |
-| Skill surface | Temporal SDK (Go + Rust client) + Cassandra ops | Kafka + Postgres + K8s CRDs (already required by every other team) |
+| Skill surface | Temporal SDK (Go client) + Cassandra ops | Kafka + Postgres + K8s CRDs (already required by every other team) |
 | DR posture | Cross-region Temporal+Cassandra replication (open question in ADR-0021) | Falls under existing Kafka MirrorMaker / Postgres logical replication / Iceberg DR (ADR-0023) plans |
 | Audit / observability | Temporal Web UI; weak coupling to platform audit | Each step writes to `audit_compliance` schema; per-event Prometheus counters; replay via Kafka offsets |
 
@@ -146,7 +146,7 @@ ADR. Sequencing and exact paths are tracked in the
   keyspaces (`temporal`, `temporal_visibility`); no second cluster on
   the on-call rotation; reuses infra teams already operate.
 - **Removes the determinism footgun from business code.** Service
-  authors write ordinary Rust against Postgres + Kafka; correctness
+  authors write ordinary Go against Postgres + Kafka; correctness
   comes from idempotency and outbox atomicity, not from a hidden replay
   contract.
 - **Architectural alignment.** ADR-0022 already declared outbox +
@@ -161,7 +161,7 @@ ADR. Sequencing and exact paths are tracked in the
 
 ### Negative
 
-- **Refactor cost.** Three Rust services lose their `temporal_*`
+- **Refactor cost.** Three services lose their `temporal_*`
   modules; five Go workers are deleted (or rewritten as Kafka
   consumers); Helm charts, CI workflows, justfile recipes and several
   ADRs / migration documents need updates. The
@@ -202,7 +202,7 @@ failure modes per task, lives in
 At a glance:
 
 - Phase 0 — Decision + ADRs + inventory (this ADR is task 0.1).
-- Phase 1 — New Rust support libs (`state-machine`, `saga`,
+- Phase 1 — New support libraries (`state-machine`, `saga`,
   `event-scheduler`, idempotency helpers).
 - Phase 2 — Infra: `KafkaTopic` CRs, `SparkApplication` templates,
   Postgres schema migrations, K8s `CronJob`s, Debezium connectors.

@@ -23,10 +23,10 @@ catalog surface.
 
 ## Decision
 
-Build a dedicated Rust service, `iceberg-catalog-service`, that:
+Build a dedicated service, `iceberg-catalog-service`, that:
 
 1. **Implements the Apache Iceberg REST Catalog OpenAPI spec** for
-   external clients (PyIceberg, Spark, Trino, Snowflake) so any
+   external clients (Spark, Trino, Snowflake) so any
    compliant Iceberg client can read / write Foundry tables without a
    Foundry-specific shim.
 2. **Wraps every spec endpoint in Foundry-pattern transaction
@@ -68,9 +68,8 @@ to internal storage refactors. The service depends on
 * Markings + Cedar enforcement live in the same service that owns the
   resource lifecycle, so a marking added on a namespace surfaces to
   policies without crossing service boundaries.
-* Coverage: 39 lib tests + 14 integration tests in Rust, 4 Python
-  PyIceberg suites, 2 Playwright e2e specs, plus a `cargo llvm-cov ≥ 72%`
-  CI gate.
+* Coverage: 39 lib tests + 14 integration tests, plus 2 Playwright
+  e2e specs and a coverage CI gate.
 
 ### Negative
 

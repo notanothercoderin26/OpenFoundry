@@ -56,14 +56,7 @@ Both queries must return no rows.
 ls infra/helm/infra/temporal 2>/dev/null
 ```
 
-### 1.3 Confirm Rust services no longer carry the dep
-
-```bash
-# Should produce nothing — the workspace dep was retired by FASE 8.
-grep -l 'temporal-client' services/*/Cargo.toml libs/*/Cargo.toml 2>/dev/null
-```
-
-### 1.4 Take a Medusa snapshot (only if you might want history back)
+### 1.3 Take a Medusa snapshot (only if you might want history back)
 
 ```bash
 # Only if there is ANY chance of legal / compliance recovery —
@@ -184,8 +177,6 @@ service READMEs:
   workload still has it. Most likely a stale Deployment / ReplicaSet
   somewhere; `kubectl get all -A | grep temporal` finds it. Resolve
   before dropping the keyspaces.
-* **Pre-flight finds a `temporal-client` Cargo dep** — STOP. FASE 8
-  was supposed to retire it. Re-run the FASE 8 checklist.
 * **Pre-flight finds a `temporal_*` keyspace but no Medusa snapshot
   budget** — proceed. The whole point of the retirement is that the
   workflow history is no longer business-critical (every domain has

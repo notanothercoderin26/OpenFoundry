@@ -89,7 +89,7 @@ is the contract; live introspection only fills in the schema.
 catalog) → CompatibilityStatus` function. Each of the five published
 catalog kinds is its own module with config validation + a
 deterministic stub body; live SDK calls land behind the
-`provider-iceberg` cargo feature in P2.next.
+`provider-iceberg` build tag in P2.next.
 
 **Why.** The Foundry doc lists each catalog as a separate row of the
 "Iceberg catalogs" matrix, with cells that go beyond GA / N/A
@@ -156,7 +156,7 @@ clearance than the source it points to.
   tests fail, the type signatures diverge, and CI breaks. Worth the
   duplication for a contract this load-bearing.
 * P2.next (live SDK integrations) is gated behind `provider-databricks`
-  and `provider-iceberg` cargo features. CI runs the default profile so
+  and `provider-iceberg` build tags. CI runs the default profile so
   the service compiles and tests run on a developer laptop without
   AWS / Databricks / Snowflake credentials.
 * Update detection (P5) and auto-registration (P4) are wired as

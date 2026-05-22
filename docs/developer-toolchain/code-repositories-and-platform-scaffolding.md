@@ -22,7 +22,7 @@ The CLI in `tools/of-cli/main.go` currently exposes:
 - `bench run` / `benchmark run` — execute benchmarks under `benchmarks/`
 - `mock-provider serve` — local mock provider for development
 
-> The original Rust-era roadmap entries (`of project init`, deploy plan rendering, plugin scaffolding) are not yet shipped in the Go CLI; they remain on the [ROADMAP](../../ROADMAP.md) as candidates for the developer ecosystem milestone.
+> Roadmap entries (`of project init`, deploy plan rendering, plugin scaffolding) are not yet shipped in the Go CLI; they remain on the [ROADMAP](../../ROADMAP.md) as candidates for the developer ecosystem milestone.
 
 ## Why this matters
 

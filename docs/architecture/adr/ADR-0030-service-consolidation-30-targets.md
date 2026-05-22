@@ -28,17 +28,16 @@
 
 ## Context
 
-The 85-bounded-context map produced one Rust crate per documented
+The 85-bounded-context map produced one source module per documented
 domain. Older S8 drafts treated this as a physical reduction target
-from 97 crates to no more than 30 binaries. A live audit on
+from 97 modules to no more than 30 binaries. A live audit on
 2026-05-03 found **95 directories** under `services/`: the retired
 `health-check-service`, `tool-registry-service` and
 `widget-registry-service` are gone, while `media-sets-service` is a
 real current service and must be tracked. The audit still found this
 granularity:
 
-* **inflates Cargo build time** (each service is a workspace member
-  with its own deps tree),
+* **inflates build time** (each service has its own deps tree),
 * **duplicates infrastructure boilerplate** (DI, telemetry, health
   endpoints repeated across 95 current directories),
 * **fragments oncall** (no human can hold context on 95 service
@@ -68,8 +67,8 @@ of one or more bounded contexts that share:
 3. the same scaling and SLO profile.
 
 Bounded contexts that fit this rule are merged into a parent service
-at the **module** level (one Rust module per bounded context inside
-the same crate), preserving ownership clarity in the source tree
+at the **module** level (one Go package per bounded context inside
+the same service), preserving ownership clarity in the source tree
 without the runtime cost of a separate process.
 
 ## Target topology (33 ownership boundaries + 3 sinks)
@@ -229,8 +228,8 @@ and duplicated the Prometheus scrape target.
   `application-composition-service` now also takes down widget
   registry. Mitigated by:
   * keeping bounded-context modules **internal** so a refactor inside
-    one module does not require redeploying others (Rust enforces
-    this at the type-system level),
+    one module does not require redeploying others (Go's package
+    boundaries enforce this),
   * preserving the Helm Deployment-per-service model (multiple
     replicas, PDB, HPA),
   * the chaos suite (S8.4) explicitly tests "kill one Pod of `merged service`"
@@ -248,9 +247,9 @@ Per-service deletion is sequenced by the existing
 program (Phase 9 R-prompts), with this ADR replacing the 85-service
 target with the 33-boundary target. Each merger is a separate PR with:
 
-1. The bounded-context Rust module moved into the parent crate.
-2. Routes re-registered in the parent's `axum::Router`.
-3. The legacy crate removed from `Cargo.toml` workspace members.
+1. The bounded-context Go package moved into the parent service.
+2. Routes re-registered in the parent's chi router.
+3. The legacy service directory removed.
 4. The legacy Helm sub-chart removed.
 5. Smoke tests confirming the parent serves the moved routes.
 

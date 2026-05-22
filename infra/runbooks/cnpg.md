@@ -81,9 +81,9 @@ never migrate everything in one PR.
    ```
 
 7. **Run migrations.** Migrations are baked into the service container
-   and execute on startup against `$DATABASE_URL` (`sqlx migrate run`).
-   Confirm with `kubectl logs deploy/<svc>` that the migration step
-   succeeded.
+   and execute on startup against `$DATABASE_URL` (goose-style SQL
+   migrations). Confirm with `kubectl logs deploy/<svc>` that the
+   migration step succeeded.
 
 ## Manual failover
 

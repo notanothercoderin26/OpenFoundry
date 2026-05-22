@@ -4,7 +4,7 @@
 - **Date:** 2026-05-17
 - **Deciders:** Streaming + Frontend WG (pending review)
 - **Related ADRs:**
-  - [ADR-0035](./ADR-0035-streams-foundry-parity.md) — Streams Foundry parity. P3 ("Streaming profiles + project refs", migration `20260504000003_streaming_profiles.sql`) targeted `ingestion-replication-service` but never landed on the Go side after the Rust → Go cleanup.
+  - [ADR-0035](./ADR-0035-streams-foundry-parity.md) — Streams Foundry parity. P3 ("Streaming profiles + project refs", migration `20260504000003_streaming_profiles.sql`) targeted `ingestion-replication-service` but has not yet landed.
 - **Related code:**
   - [`services/identity-federation-service/internal/handlers/control_panel.go`](../../../services/identity-federation-service/internal/handlers/control_panel.go) — sibling in-memory resources (`FileAccessPresetConfig`, `ApplicationAccessConfig`, `ScopedSessionConfig`, `MemberDiscoveryConfig`).
   - [`services/ingestion-replication-service/internal/server/server.go`](../../../services/ingestion-replication-service/internal/server/server.go) — `StreamingMetadata` slot pattern (Schemas / Branches) that the future P3 implementation will fit into.
@@ -22,8 +22,7 @@ the repo that names the resource is
 (`StreamingConfig.streaming_profile_id`, a consumer field). ADR-0035
 foresaw streaming profiles as block P3 inside the streaming control
 plane (`ingestion-replication-service`), with a dedicated Postgres
-migration; that work was scheduled for the Rust era and did not make
-it across the port.
+migration; that work has not yet been delivered.
 
 Two delivery paths are viable:
 

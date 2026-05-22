@@ -9,8 +9,7 @@ disagreement ever appears, **this file wins** for agent purposes.
 ## What this repo is
 
 Single Go module (`github.com/openfoundry/openfoundry-go`) plus a React
-frontend. Originated as a port of a Rust workspace; the Rust side is gone
-from this tree but its vocabulary still leaks into docs.
+frontend.
 
 ```
 apps/web/        React 19 + Vite + TypeScript frontend
@@ -63,10 +62,8 @@ pnpm --filter @open-foundry/web test   # vitest
 ## Gotchas (real, not theoretical)
 
 - **`justfile` is a thin shim over `make`.** Every recipe just calls the
-  matching Make target; the Makefile is canonical. (Until recently the
-  justfile was full of `cargo` recipes pointing at a Rust workspace
-  that no longer exists in this tree. If you see `just <recipe>` in
-  legacy docs, mentally translate to `make <recipe>`.)
+  matching Make target; the Makefile is canonical. If you see `just
+  <recipe>` in legacy docs, mentally translate to `make <recipe>`.
 - **`make lint` baselines pre-existing issues.** `.golangci.yml` is
   configured with `new-from-rev: HEAD`, so `make lint` only flags
   issues introduced *after* the latest commit. To audit the full
@@ -79,27 +76,24 @@ pnpm --filter @open-foundry/web test   # vitest
   `sqlc` (`sqlc generate` drift check), `test` (unit, race +
   coverage), `integration` (build tag `integration`, runs after
   lint+test, uses GH runner Docker for testcontainers). It mirrors
-  `make ci` plus full generation drift checks. The legacy `ci.yml`
-  (cargo-based, Rust era) has been removed.
+  `make ci` plus full generation drift checks.
 - **Other Go-side CI workflows.** `proto-check.yml` validates the
   OpenAPI + TS/Python/Java SDK drift via `go run ./tools/of-cli`.
   `security-audit.yml` runs `govulncheck` on schedule and on
   `go.mod`/`go.sum` changes. `chaos-smoke.yml` is nightly-only
   (`workflow_dispatch` + cron) and builds `of-cli` with `go build`
   before invoking `smoke/chaos/run.sh`.
-- **Removed CI gates (no Go replacement yet).** Three things were
-  retired in the Rust→Go cleanup and are not enforced today: (1) the
-  `bus-contract` lint that walked `services/*/Cargo.toml` against
+- **Removed CI gates (no Go replacement yet).** Three legacy gates are
+  not enforced today: (1) the `bus-contract` lint against
   `.github/bus-allowlist.yaml`; (2) the `data-residency` registry
-  check (`.github/data-residency-allowlist.toml`) that gated
-  migration directories and `sqlx::query*` hot-path calls;
-  (3) the per-service Iceberg `cargo llvm-cov ≥ 72%` coverage
-  threshold and the `pyiceberg` / `playwright iceberg` E2E suites.
-  The `integration-foundry-pattern` workflow (saga + state-machine +
-  outbox + idempotency Postgres tests) is now covered by the
-  `integration` job's `go test -tags=integration ./...`. If any of
-  these gates need to come back, they have to be reimplemented
-  against the Go tree from scratch.
+  check (`.github/data-residency-allowlist.toml`) that gated migration
+  directories and SQL hot-path calls; (3) the per-service Iceberg
+  coverage threshold (`≥ 72%`) and the iceberg E2E suites. The
+  `integration-foundry-pattern` workflow
+  (saga + state-machine + outbox + idempotency Postgres tests) is now
+  covered by the `integration` job's `go test -tags=integration ./...`.
+  If any of these gates need to come back, they have to be
+  reimplemented against the Go tree from scratch.
 - **Single Go module, root `go.mod`.** Don't create per-service modules.
 - **`libs/proto-gen/` is generated.** Don't edit by hand — re-run `make gen`.
 
@@ -142,10 +136,10 @@ prefer additive changes over rewrites.
 These exist for human historical context only. Loading them into your
 context window wastes tokens and may give you obsolete instructions:
 
-- `docs/archive/**` — Rust→Go migration logs, route audits, evaluations,
-  inventories, and prompt programs. Superseded by the live code or by
-  ADRs in `docs/architecture/adr/`. Don't load these by default; only
-  read a specific section if an ADR cites it.
+- `docs/archive/**` — historical migration logs, route audits,
+  evaluations, inventories, and prompt programs. Superseded by the live
+  code or by ADRs in `docs/architecture/adr/`. Don't load these by
+  default; only read a specific section if an ADR cites it.
 - `docs_original_palantir_foundry/` — third-party reference material,
   not OpenFoundry's own docs.
 

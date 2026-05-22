@@ -37,10 +37,9 @@ Same architecture as `audit-sink`; the only difference is the per-table
 routing inside `internal/runtime`. The default writer is the productive
 OpenFoundry Iceberg table-writer adapter and JSONL is only an explicit
 dev/staging fallback. The adapter is used because `apache/iceberg-go`
-still lacks a stable end-to-end write API matching Rust's
-`append_record_batches`; it writes one durable append per non-empty table
-group and reports typed errors for empty batches, missing tables, schema
-mismatches, and commit failures.
+still lacks a stable end-to-end write API; it writes one durable append
+per non-empty table group and reports typed errors for empty batches,
+missing tables, schema mismatches, and commit failures.
 
 The Go writer sends the adapter both the Lakekeeper REST catalog URL and
 the Iceberg table spec (`lakekeeper.of_ai.<table>`). The adapter is
@@ -68,7 +67,7 @@ Plus the same `KAFKA_SASL_*` set documented in `audit-sink/README.md`.
 
 ## Endpoints
 
-- `GET /healthz` — liveness payload (Rust-compatible).
+- `GET /healthz` — liveness payload.
 - `GET /metrics` — Prometheus scrape; metrics labelled by table:
   - `ai_sink_lag_seconds{table=...}`
   - `ai_sink_records_total{table=...}`
@@ -104,7 +103,7 @@ The sink targets exactly these Lakekeeper tables:
 - `lakekeeper.of_ai.evaluations`
 - `lakekeeper.of_ai.traces`
 
-All four tables use the Rust-compatible schema: `event_id`, `at`,
+All four tables use the schema: `event_id`, `at`,
 `kind`, `run_id`, `trace_id`, `producer`, `schema_version`, and
 `payload`, with field IDs 1 through 8, partition transform `day(at)`,
 and sort order `at ASC`. The writer appends only non-empty per-table

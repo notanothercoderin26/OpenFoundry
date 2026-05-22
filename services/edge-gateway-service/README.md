@@ -116,13 +116,6 @@ docker build -t openfoundry/edge-gateway-service:dev \
   -f services/edge-gateway-service/Dockerfile .
 ```
 
-## Historical cutover note
-
-This service was originally introduced during a Rust-to-Go migration. The
-live repository no longer contains a `services/gateway` Rust source tree.
-For current changes, treat `services/edge-gateway-service` plus
-`internal/proxy/router_table.go` as the canonical gateway implementation.
-
 ## Wire-compat invariants (do not break)
 
 - Error envelope shape + every code listed above.

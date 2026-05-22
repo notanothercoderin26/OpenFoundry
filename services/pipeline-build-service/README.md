@@ -31,10 +31,9 @@ Environment variables referenced by the code:
 
 Keep this section in sync when changing routes, config, or persistence behavior.
 
-Build / execution side of Pipeline Builder. The Go service now mounts the
-Rust route surface under `/api/v1/data-integration`, `/api/v1/pipeline/builds`
-and `/v1`, while keeping the older `/api/v1/*` compatibility aliases for
-callers that already moved to the Go namespace.
+Build / execution side of Pipeline Builder. The Go service mounts routes
+under `/api/v1/data-integration`, `/api/v1/pipeline/builds` and `/v1`,
+with `/api/v1/*` compatibility aliases preserved.
 
 ## Compatibility naming
 
@@ -125,5 +124,5 @@ go test ./services/pipeline-build-service/...
 | `PIPELINE_RUNNER_IMAGE` | `openfoundry/pipeline-runner:dev` |
 | `KUBERNETES_API_URL` / in-cluster service env | unset; SparkApplication handlers return explicit `503` until kube wiring is available |
 | `KUBERNETES_BEARER_TOKEN` | unset |
-| `FOUNDRY_ICEBERG_CATALOG_URL` | unset (boot-time warning matches Rust) |
+| `FOUNDRY_ICEBERG_CATALOG_URL` | unset (boot-time warning) |
 | `FOUNDRY_ICEBERG_CATALOG_BEARER` | unset |

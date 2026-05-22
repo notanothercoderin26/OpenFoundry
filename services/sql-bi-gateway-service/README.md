@@ -41,17 +41,16 @@ warehousing, tabular) is fully wired.
 
 ## Routing model
 
-`internal/routing` ports `routing.rs` 1:1: catalog-prefix dispatch
-(`trino.<...>`, `vespa.<...>`, `postgres.<...>`, otherwise local
-DataFusion or `sql-warehousing-service`). Statements that target an
-unconfigured backend fail with a typed `ErrBackendUnavailable` —
-matching the Rust `RoutingError::BackendUnavailable` shape.
+`internal/routing` performs catalog-prefix dispatch (`trino.<...>`,
+`vespa.<...>`, `postgres.<...>`, otherwise local DataFusion or
+`sql-warehousing-service`). Statements that target an unconfigured
+backend fail with a typed `ErrBackendUnavailable`.
 
 ## Audit
 
-`internal/audit` ports `audit.rs` 1:1, including the FNV-1a-64 SQL
-fingerprint that lets us log SQL identity without leaking content.
-The unit tests assert byte-for-byte parity with the Rust output.
+`internal/audit` provides a FNV-1a-64 SQL fingerprint that lets us log
+SQL identity without leaking content. The unit tests pin the byte-level
+output.
 
 ## Build & run
 

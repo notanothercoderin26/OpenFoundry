@@ -96,10 +96,10 @@ so callers cannot silently degrade to `AT_LEAST_ONCE`.
 
 ## Verification
 
-* `cargo test -p event-ingestion-replication-service`: 69 lib tests + 30+
+* `go test ./services/event-ingestion-replication-service/...`: 69 lib tests + 30+
   integration tests (kinesis/pubsub/preview/profiles/monitors/reset
   view/streaming-config/stateful/schema-bridge).
-* `cargo test -p monitoring-rules-service`: evaluator + dedup
+* `go test ./services/monitoring-rules-service/...`: evaluator + dedup
   contract.
 * `pnpm check`: zero new errors / warnings from the streaming
   surfaces.

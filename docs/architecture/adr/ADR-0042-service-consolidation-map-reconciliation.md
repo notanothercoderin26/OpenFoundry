@@ -4,7 +4,7 @@
 * **Amends:** [ADR-0030](ADR-0030-service-consolidation-30-targets.md)
   ("95 dirs → 33 ownership boundaries + 3 sinks")
 * **Related:** [ADR-0021](ADR-0021-temporal-on-cassandra-go-workers.md)
-  (Temporal workers, eventually replaced by Rust),
+  (Temporal workers),
   [ADR-0036](ADR-0036-builds-foundry-parity.md) (builds / SparkApplication CRs),
   [ADR-0039](ADR-0039-media-sets-architecture.md) (media sets architecture),
   [ADR-0041](ADR-0041-iceberg-catalog-service.md) (Iceberg REST catalog).
@@ -19,7 +19,7 @@ directories the map did not enumerate are:
 
 1. `iceberg-catalog-service`
 2. `media-transform-runtime-service`
-3. `pipeline-runner` (Spark/Scala image, not Rust)
+3. `pipeline-runner` (Spark/Scala image, not a Go service)
 4. `reindex-coordinator-service`
 
 All four were already accepted by other ADRs or migration-plan tasks
@@ -29,8 +29,8 @@ ownership boundary, but two of them require classification choices
 that the map's existing legend (`keep` / `merge` / `merged` /
 `delete` / `sink`) does not unambiguously cover, hence this mini-ADR.
 
-The decisions here are **documentation-only**: no code, no Cargo
-workspace, no Helm chart, no Kafka topic and no Postgres schema is
+The decisions here are **documentation-only**: no code, no module
+boundary, no Helm chart, no Kafka topic and no Postgres schema is
 moved as a result of this ADR. We are reconciling the map with the
 state of the tree as it already exists.
 
@@ -45,7 +45,7 @@ writes, marking inheritance with snapshot semantics, explicit schema
 evolution) that ADR-0041 explicitly carved out from Lakekeeper's
 external surface. It is its own ownership boundary, owns its own
 Postgres schema and Cedar policy surface, and is consumed by
-PyIceberg / Spark / Trino / Snowflake clients. There is no other
+Spark / Trino / Snowflake clients. There is no other
 service in the consolidation map whose runtime owns the
 `/iceberg/v1/...` surface, so a merge target does not exist.
 
@@ -66,7 +66,7 @@ keep both as separate ownership boundaries.
 
 ### 3. `pipeline-runner` → new `image` classification
 
-`pipeline-runner` is **not** a Rust workspace member. It is a
+`pipeline-runner` is **not** a Go service. It is a
 Scala 2.12 / SBT project (FASE 3 / Tarea 3.3) whose only output is
 a Docker image, layered on top of `apache/spark:3.5.4`, that ships
 the Iceberg-Spark binding and an entry-point JAR. Each pipeline run
@@ -78,7 +78,7 @@ SQL against the Iceberg/Lakekeeper catalog, and exits.
 
 The map's existing statuses do not fit:
 
-* `keep` and `merge` describe **ownership boundaries** in the Rust
+* `keep` and `merge` describe **ownership boundaries** in the Go
   service taxonomy; `pipeline-runner` has no service binary, no
   Helm Deployment, no Kafka surface, no Postgres schema. It is a
   build artifact.
@@ -93,12 +93,12 @@ We therefore introduce a new `image` status in the legend, applied
 exclusively to `pipeline-runner` for now. It is counted separately
 from ownership boundaries (just like `sink`) and matches the
 existing carve-out in `tools/regenerate_service_dockerfiles.py`'s
-`NON_RUST_SERVICES` skip set, which already treats `pipeline-runner`
-as a non-Rust directory.
+`NON_GO_SERVICES` skip set, which already treats `pipeline-runner`
+as a non-Go directory.
 
 ### 4. `reindex-coordinator-service` → `keep`
 
-FASE 4 / Tarea 4.2 Rust replacement for the Go `workers-go/reindex`
+FASE 4 / Tarea 4.2 replacement for the Go `workers-go/reindex`
 Temporal worker (per ADR-0021 and the Foundry-pattern orchestration
 migration plan). It owns its own restart-safe state — the resume
 cursor in `pg-runtime-config.reindex_jobs.resume_token` — and drives
@@ -123,13 +123,13 @@ is kept distinct from its downstream `audit-sink` /
   * Refreshed "Summary by status" totals
     (36 keep + 56 merge + 3 delete + 3 sink + 1 image = 99).
 * The aggregate metric is now
-  **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image
+  **36 ownership boundaries + 3 sinks + 1 non-Go runtime image
   across 6 Helm releases**.
 * ADR-0030's body (which references "95 dirs / 33 boundaries") is
   preserved as the historical record of the original consolidation
   decision. This ADR is the authoritative amendment to those numbers
   and the consolidation map links to both.
-* No code, Cargo workspace member, Helm chart, Kafka topic or
+* No code, module boundary, Helm chart, Kafka topic or
   Postgres schema is changed by this ADR.
 
 ## Not chosen
@@ -143,7 +143,7 @@ is kept distinct from its downstream `audit-sink` /
   (and bill) independently of media-set CRUD.
 * **Reclassifying `reindex-coordinator-service` as a `sink`.**
   Rejected: it owns Postgres state (the resume cursor) and is the
-  Rust replacement for a Temporal worker, not a Kafka relay.
+  replacement for a Temporal worker, not a Kafka relay.
 * **Folding `iceberg-catalog-service` under
   `dataset-versioning-service`.** Rejected: ADR-0041 carves the
   Foundry Iceberg semantics out of Lakekeeper precisely because they

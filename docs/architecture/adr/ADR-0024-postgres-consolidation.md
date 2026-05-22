@@ -221,7 +221,7 @@ For every cluster:
 - **Cross-schema writes are forbidden.** A service writes only to its
   own schema. The outbox (`pg-policy.outbox`) is the channel for
   cross-domain side effects.
-- **Migrations** run via `sqlx-cli` from a per-schema migrations
+- **Migrations** run via `goose` from a per-schema migrations
   directory under each owning service repo, executed by an init
   container with the `<schema>_owner` role.
 
