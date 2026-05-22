@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { ConfirmDialog } from '@components/ConfirmDialog';
@@ -7,6 +7,7 @@ import {
   NewFromTemplateModal,
   type TemplateRow,
 } from '@/lib/components/notepad/TemplateModals';
+import { Glyph } from '@/lib/components/ui/Glyph';
 import { useCurrentUser } from '@/lib/stores/auth';
 import {
   createNotepadDocument,
@@ -134,6 +135,30 @@ function formatDateTime(value: string | null | undefined) {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
+function formatShortDate(value: string | null | undefined) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(date);
+}
+
+type ResourceKind = 'document' | 'template';
+
+interface ResourceRow {
+  key: string;
+  kind: ResourceKind;
+  title: string;
+  path: string;
+  author: string;
+  updatedAt: string;
+  isFavorite: boolean;
+  href: string;
+  // For the kebab menu's Delete action. Only documents are deletable
+  // from the table today; templates show Open only until T8.4 adds a
+  // delete-template endpoint we trust here.
+  rawDocument?: NotepadDocument;
+}
+
 function countWords(value: string | null | undefined) {
   const text = value?.trim();
   if (!text) return 0;
@@ -144,19 +169,8 @@ function documentTitle(doc: NotepadDocument) {
   return doc.title.trim() || 'Untitled document';
 }
 
-function documentPreview(doc: NotepadDocument) {
-  const source = doc.description?.trim() || doc.content.replace(/^#\s*/gm, '').trim();
-  if (!source) return 'No description yet.';
-  return source.length > 150 ? `${source.slice(0, 147)}...` : source;
-}
-
 function documentWidgets(doc: NotepadDocument) {
   return Array.isArray(doc.widgets) ? doc.widgets : [];
-}
-
-function templateLabel(key: string | null) {
-  if (!key) return 'Blank';
-  return TEMPLATES.find((template) => template.key === key)?.name ?? key;
 }
 
 export function NotepadListPage() {
@@ -174,6 +188,7 @@ export function NotepadListPage() {
   const [feedback, setFeedback] = useState('');
   const [userTemplates, setUserTemplates] = useState<NotepadTemplate[]>([]);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [openKebabFor, setOpenKebabFor] = useState<string | null>(null);
 
   async function hydratePresence(nextDocuments: NotepadDocument[]) {
     if (nextDocuments.length === 0) {
@@ -360,20 +375,6 @@ export function NotepadListPage() {
     }
   }
 
-  function openRow(event: MouseEvent<HTMLTableRowElement>, id: string) {
-    const target = event.target as HTMLElement;
-    if (target.closest('a,button')) return;
-    navigate(`/notepad/${id}`);
-  }
-
-  function openRowWithKeyboard(event: KeyboardEvent<HTMLTableRowElement>, id: string) {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    const target = event.target as HTMLElement;
-    if (target.closest('a,button')) return;
-    event.preventDefault();
-    navigate(`/notepad/${id}`);
-  }
-
   const indexedCount = useMemo(
     () => documents.filter((document) => document.last_indexed_at).length,
     [documents],
@@ -396,6 +397,59 @@ export function NotepadListPage() {
       (presenceByDocument[document.id] ?? []).map((collaborator) => ({ document, collaborator })),
     );
   }, [documents, presenceByDocument]);
+
+  // Merge documents and user templates into a single resource list for
+  // the table. Documents go to /notepad/:id; templates to a
+  // /notepad/templates/:id route that lands in T10.1 — for now the
+  // anchor is still emitted so the URL is stable.
+  const resourceRows = useMemo<ResourceRow[]>(() => {
+    const authorName = currentUser?.name ?? 'You';
+    const docRows: ResourceRow[] = documents.map((doc) => ({
+      key: `doc:${doc.id}`,
+      kind: 'document',
+      title: doc.title.trim() || 'Untitled document',
+      path: '/Personal/Notepad',
+      author: authorName,
+      updatedAt: doc.updated_at,
+      isFavorite: doc.is_favorite,
+      href: `/notepad/${doc.id}`,
+      rawDocument: doc,
+    }));
+    const tplRows: ResourceRow[] = userTemplates.map((tpl) => ({
+      key: `tpl:${tpl.id}`,
+      kind: 'template',
+      title: tpl.name.trim() || 'Untitled template',
+      path: '/Personal/Notepad/Templates',
+      author: authorName,
+      updatedAt: tpl.updated_at,
+      isFavorite: false,
+      href: `/notepad/templates/${tpl.id}`,
+    }));
+    return [...docRows, ...tplRows].sort(
+      (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    );
+  }, [documents, userTemplates, currentUser]);
+
+  // Outside-click closes any open kebab menu. Scoped to when one is
+  // open so the listener is not always attached.
+  useEffect(() => {
+    if (!openKebabFor) return;
+    function onPointer(event: MouseEvent) {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('.of-resource-kebab')) {
+        setOpenKebabFor(null);
+      }
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpenKebabFor(null);
+    }
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [openKebabFor]);
 
   const creating = creatingTarget !== null;
 
@@ -484,17 +538,12 @@ export function NotepadListPage() {
       </div>
 
       <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', alignItems: 'start' }}>
-        <section className="of-panel" style={{ overflow: 'hidden' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-default)' }}>
-            <p className="of-eyebrow">Document gallery</p>
-            <span className="of-chip">{documents.length} loaded</span>
-          </div>
-
+        <section>
           {loading ? (
             <p className="of-text-muted" style={{ margin: 0, padding: 14 }}>
               Loading documents...
             </p>
-          ) : documents.length === 0 ? (
+          ) : resourceRows.length === 0 ? (
             <div style={{ display: 'grid', justifyItems: 'start', gap: 8, padding: 16 }}>
               <p className="of-heading-sm" style={{ margin: 0 }}>
                 No documents match this view.
@@ -513,105 +562,99 @@ export function NotepadListPage() {
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table className="of-table">
+              <table className="of-resource-table">
                 <thead>
                   <tr>
-                    <th>Document</th>
-                    <th>Template</th>
-                    <th>Embeds</th>
-                    <th>Presence</th>
-                    <th>Updated</th>
-                    <th style={{ width: 150 }} />
+                    <th scope="col">Resource</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Author</th>
+                    <th scope="col">Last modified</th>
+                    <th scope="col" aria-label="Actions" />
                   </tr>
                 </thead>
                 <tbody>
-                  {documents.map((doc) => {
-                    const presence = presenceByDocument[doc.id] ?? [];
-                    return (
-                      <tr
-                        key={doc.id}
-                        role="link"
-                        tabIndex={0}
-                        aria-label={`Open ${documentTitle(doc)}`}
-                        onClick={(event) => openRow(event, doc.id)}
-                        onKeyDown={(event) => openRowWithKeyboard(event, doc.id)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <td style={{ minWidth: 280 }}>
-                          <Link to={`/notepad/${doc.id}`} style={{ fontWeight: 700, color: 'var(--text-link)' }}>
-                            {documentTitle(doc)}
-                          </Link>
-                          <p className="of-text-muted" style={{ margin: '3px 0 0', maxWidth: 560, fontSize: 12 }}>
-                            {documentPreview(doc)}
-                          </p>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                            <span className="of-chip" style={{ fontSize: 11 }}>
-                              {countWords(doc.content)} words
-                            </span>
-                            {doc.last_indexed_at && (
-                              <span className="of-chip of-status-success" style={{ fontSize: 11 }}>
-                                Indexed in AIP
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="of-text-muted" style={{ minWidth: 120 }}>
-                          {templateLabel(doc.template_key)}
-                        </td>
-                        <td>{documentWidgets(doc).length}</td>
-                        <td style={{ minWidth: 150 }}>
-                          {presence.length > 0 ? (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                              {presence.slice(0, 3).map((collaborator) => (
-                                <span
-                                  key={collaborator.id}
-                                  title={`${collaborator.display_name}: ${collaborator.cursor_label}`}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: 22,
-                                    height: 22,
-                                    borderRadius: 3,
-                                    background: collaborator.color || '#2d72d2',
-                                    color: '#fff',
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                  }}
-                                >
-                                  {collaborator.display_name.slice(0, 1).toUpperCase()}
-                                </span>
-                              ))}
-                              {presence.length > 3 && (
-                                <span className="of-chip" style={{ minHeight: 22, fontSize: 11 }}>
-                                  +{presence.length - 3}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="of-text-muted">-</span>
-                          )}
-                        </td>
-                        <td className="of-text-muted" style={{ minWidth: 150 }}>
-                          {formatDateTime(doc.updated_at)}
-                        </td>
-                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          <Link to={`/notepad/${doc.id}`} className="of-button" style={{ fontSize: 11 }}>
-                            Open
-                          </Link>
-                          <button
-                            type="button"
-                            className="of-button of-btn-danger"
-                            onClick={() => setDeleteTarget(doc)}
-                            disabled={deleteBusy}
-                            style={{ marginLeft: 6, fontSize: 11 }}
+                  {resourceRows.map((row) => (
+                    <tr
+                      key={row.key}
+                      tabIndex={0}
+                      role="link"
+                      aria-label={`Open ${row.title}`}
+                      className="of-resource-row"
+                      onClick={(event) => {
+                        const target = event.target as HTMLElement;
+                        if (target.closest('a,button')) return;
+                        navigate(row.href);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        const target = event.target as HTMLElement;
+                        if (target.closest('a,button')) return;
+                        event.preventDefault();
+                        navigate(row.href);
+                      }}
+                    >
+                      <td>
+                        <div className="of-resource-cell">
+                          <span
+                            className={`of-resource-cell__icon of-resource-cell__icon--${row.kind}`}
+                            aria-hidden="true"
                           >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                            <Glyph name={row.kind === 'template' ? 'file-type' : 'document'} size={18} />
+                          </span>
+                          <div className="of-resource-cell__copy">
+                            <div className="of-resource-cell__title-row">
+                              <Link to={row.href} className="of-resource-cell__title">
+                                {row.title}
+                              </Link>
+                              <button
+                                type="button"
+                                className="of-resource-cell__star"
+                                aria-pressed={row.isFavorite}
+                                aria-label={
+                                  row.isFavorite ? `Unfavorite ${row.title}` : `Favorite ${row.title}`
+                                }
+                                title={row.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  // TODO(T8.3): wire to POST /notepad/documents/:id/favorite.
+                                }}
+                              >
+                                <Glyph
+                                  name={row.isFavorite ? 'star-filled' : 'star'}
+                                  size={14}
+                                />
+                              </button>
+                            </div>
+                            <div className="of-resource-cell__path">{row.path}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`of-chip-type of-chip-type--${row.kind}`}>
+                          {row.kind === 'template' ? 'Template' : 'Document'}
+                        </span>
+                      </td>
+                      <td className="of-resource-row__author">{row.author}</td>
+                      <td className="of-resource-row__date">{formatShortDate(row.updatedAt)}</td>
+                      <td className="of-resource-row__actions">
+                        <RowKebab
+                          rowKey={row.key}
+                          open={openKebabFor === row.key}
+                          canDelete={Boolean(row.rawDocument)}
+                          deleteBusy={deleteBusy}
+                          onToggle={() =>
+                            setOpenKebabFor((current) => (current === row.key ? null : row.key))
+                          }
+                          onClose={() => setOpenKebabFor(null)}
+                          onOpen={() => navigate(row.href)}
+                          onDelete={() => {
+                            if (row.rawDocument) setDeleteTarget(row.rawDocument);
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -742,3 +785,60 @@ export function NotepadListPage() {
     </section>
   );
 }
+
+interface RowKebabProps {
+  rowKey: string;
+  open: boolean;
+  canDelete: boolean;
+  deleteBusy: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onOpen: () => void;
+  onDelete: () => void;
+}
+
+function RowKebab({ open, canDelete, deleteBusy, onToggle, onClose, onOpen, onDelete }: RowKebabProps) {
+  return (
+    <div className="of-resource-kebab" onClick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        className="of-resource-kebab__btn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More actions"
+        onClick={onToggle}
+      >
+        <Glyph name="more-vertical" size={16} />
+      </button>
+      {open && (
+        <div role="menu" className="of-resource-kebab__menu">
+          <button
+            type="button"
+            role="menuitem"
+            className="of-resource-kebab__item"
+            onClick={() => {
+              onOpen();
+              onClose();
+            }}
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="of-resource-kebab__item of-resource-kebab__item--danger"
+            disabled={!canDelete || deleteBusy}
+            onClick={() => {
+              if (!canDelete) return;
+              onDelete();
+              onClose();
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+

@@ -3347,6 +3347,249 @@ button {
   display: inline-flex;
 }
 
+/* Documents/templates resource table (T3.5). Flat, no vertical
+   borders. Headers in uppercase muted; rows hover with the standard
+   row-hover token and emit a kebab menu on hover/focus. */
+.of-resource-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: transparent;
+}
+
+.of-resource-table th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.of-resource-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+  color: var(--text-default);
+}
+
+.of-resource-row {
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.of-resource-row:hover,
+.of-resource-row:focus-visible {
+  background: var(--row-hover);
+}
+
+.of-resource-row:focus-visible {
+  outline: none;
+}
+
+.of-resource-cell {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.of-resource-cell__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--chip-bg-document);
+  color: var(--chip-text-document);
+}
+
+.of-resource-cell__icon--template {
+  background: var(--chip-bg-template);
+  color: var(--chip-text-template);
+}
+
+.of-resource-cell__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.of-resource-cell__title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.of-resource-cell__title {
+  color: var(--accent-link);
+  font-size: var(--text-13);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.of-resource-cell__title:hover {
+  color: var(--accent-link-hover);
+  text-decoration: underline;
+}
+
+.of-resource-cell__star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.of-resource-cell__star:hover {
+  background: var(--row-hover);
+  color: #f59e0b;
+}
+
+.of-resource-cell__star[aria-pressed='true'] {
+  color: #f59e0b;
+}
+
+.of-resource-cell__path {
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Document / Template chips in the Type column. */
+.of-chip-type {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--text-11);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.of-chip-type--document {
+  background: var(--chip-bg-document);
+  color: var(--chip-text-document);
+}
+
+.of-chip-type--template {
+  background: var(--chip-bg-template);
+  color: var(--chip-text-template);
+}
+
+.of-resource-row__author,
+.of-resource-row__date {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+
+.of-resource-row__actions {
+  width: 36px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Kebab menu — invisible at rest, surfaces on row hover/focus so the
+   table reads as data first, actions on demand. Touch devices keep it
+   visible since there is no hover state to rely on. */
+.of-resource-kebab {
+  position: relative;
+  display: inline-block;
+}
+
+.of-resource-kebab__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s ease, background-color 0.12s ease;
+}
+
+.of-resource-row:hover .of-resource-kebab__btn,
+.of-resource-row:focus-within .of-resource-kebab__btn,
+.of-resource-kebab__btn[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.of-resource-kebab__btn:hover {
+  background: var(--surface-panel-muted);
+  color: var(--text-strong);
+}
+
+@media (hover: none) {
+  .of-resource-kebab__btn {
+    opacity: 1;
+  }
+}
+
+.of-resource-kebab__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-popover);
+}
+
+.of-resource-kebab__item {
+  display: block;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-default);
+  font-size: var(--text-13);
+  text-align: left;
+  cursor: pointer;
+}
+
+.of-resource-kebab__item:hover:not(:disabled) {
+  background: var(--row-hover);
+}
+
+.of-resource-kebab__item:disabled {
+  color: var(--text-soft);
+  cursor: not-allowed;
+}
+
+.of-resource-kebab__item--danger {
+  color: var(--accent-danger);
+}
+
+.of-resource-kebab__item--danger:hover:not(:disabled) {
+  background: rgba(180, 35, 24, 0.08);
+}
+
 .of-topbar__identity {
   display: grid;
   min-width: 0;
