@@ -12,9 +12,23 @@ import {
   listNotepadPresence,
   listNotepadTemplates,
   type NotepadDocument,
+  type NotepadListSort,
   type NotepadPresence,
   type NotepadTemplate,
 } from '@/lib/api/notepad';
+
+type ViewKey = 'recents' | 'mine' | 'favorites' | 'all';
+
+const VIEW_TABS: Array<{ key: ViewKey; label: string; sort: NotepadListSort }> = [
+  { key: 'recents', label: 'Recents', sort: 'recent' },
+  { key: 'mine', label: 'Created by me', sort: 'created_by_me' },
+  { key: 'favorites', label: 'Favorites', sort: 'favorite' },
+  { key: 'all', label: 'All', sort: 'all' },
+];
+
+function sortForView(view: ViewKey): NotepadListSort {
+  return VIEW_TABS.find((tab) => tab.key === view)?.sort ?? 'recent';
+}
 
 interface Template {
   key: string;
@@ -147,6 +161,7 @@ export function NotepadListPage() {
   const [presenceByDocument, setPresenceByDocument] = useState<Record<string, NotepadPresence[]>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [view, setView] = useState<ViewKey>('recents');
   const [creatingTarget, setCreatingTarget] = useState<CreateTarget>(null);
   const [deleteTarget, setDeleteTarget] = useState<NotepadDocument | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -175,13 +190,18 @@ export function NotepadListPage() {
     setPresenceByDocument(Object.fromEntries(entries));
   }
 
-  async function load(nextSearch = search, options: { clearFeedback?: boolean } = {}) {
+  async function load(
+    nextSearch = search,
+    options: { clearFeedback?: boolean } = {},
+    nextView: ViewKey = view,
+  ) {
     setLoading(true);
     setError('');
     if (options.clearFeedback ?? true) setFeedback('');
     try {
       const response = await listNotepadDocuments({
         search: nextSearch.trim() || undefined,
+        sort: sortForView(nextView),
         per_page: 100,
       });
       const data = response.data ?? [];
@@ -198,9 +218,9 @@ export function NotepadListPage() {
   }
 
   useEffect(() => {
-    void load('');
+    void load(search, { clearFeedback: false }, view);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [view]);
 
   async function refreshUserTemplates() {
     try {
@@ -389,6 +409,25 @@ export function NotepadListPage() {
           {latestDocument ? `Last update ${formatDateTime(latestDocument.updated_at)}` : 'No recent updates'}
         </span>
       </form>
+
+      <div className="of-view-tabs" role="tablist" aria-label="View">
+        <span className="of-view-tabs__label">View</span>
+        {VIEW_TABS.map((tab) => {
+          const active = view === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={`of-view-tabs__chip${active ? ' is-active' : ''}`}
+              onClick={() => setView(tab.key)}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
 
       <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', alignItems: 'start' }}>
         <section className="of-panel" style={{ overflow: 'hidden' }}>

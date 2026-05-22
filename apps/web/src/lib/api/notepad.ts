@@ -11,10 +11,13 @@ export interface NotepadDocument {
   content_doc: ProseMirrorDoc | Record<string, never> | null;
   template_key: string | null;
   widgets: Array<Record<string, unknown>>;
+  is_favorite: boolean;
   last_indexed_at: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export type NotepadListSort = 'recent' | 'created_by_me' | 'favorite' | 'all';
 
 export type NotepadExportSource = Partial<
   Pick<NotepadDocument, 'id' | 'title' | 'description' | 'content' | 'content_doc' | 'widgets' | 'template_key'>
@@ -52,11 +55,17 @@ export interface NotepadBinaryExport {
   mime_type: string;
 }
 
-export function listNotepadDocuments(params?: { page?: number; per_page?: number; search?: string }) {
+export function listNotepadDocuments(params?: {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  sort?: NotepadListSort;
+}) {
   const query = new URLSearchParams();
   if (params?.page) query.set('page', String(params.page));
   if (params?.per_page) query.set('per_page', String(params.per_page));
   if (params?.search) query.set('search', params.search);
+  if (params?.sort) query.set('sort', params.sort);
   const qs = query.toString();
 
   return api.get<{ data: NotepadDocument[]; total: number; page: number; per_page: number }>(

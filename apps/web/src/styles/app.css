@@ -3184,6 +3184,46 @@ button {
   line-height: 1.45;
 }
 
+/* View tabs above the documents table (T3.3). Label + pill-style
+   chips, single-select. */
+.of-view-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.of-view-tabs__label {
+  margin-right: 6px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: 500;
+}
+
+.of-view-tabs__chip {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.of-view-tabs__chip:hover {
+  background: var(--row-hover);
+  color: var(--text-strong);
+}
+
+.of-view-tabs__chip.is-active {
+  background: var(--row-selected);
+  color: var(--accent-link);
+  font-weight: 600;
+}
+
 .of-topbar__identity {
   display: grid;
   min-width: 0;

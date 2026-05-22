@@ -204,6 +204,7 @@ func (s *State) ListDocuments(w http.ResponseWriter, r *http.Request) {
 		Page:    page,
 		PerPage: perPage,
 		Search:  r.URL.Query().Get("search"),
+		Sort:    r.URL.Query().Get("sort"),
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))

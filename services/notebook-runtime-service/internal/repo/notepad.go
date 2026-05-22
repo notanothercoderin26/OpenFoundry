@@ -25,6 +25,12 @@ type ListDocumentsParams struct {
 	Page    int64
 	PerPage int64
 	Search  string
+	// Sort controls ordering and the favourites filter (T3.3). Accepts
+	// "recent" (default), "created_by_me", "favorite", "all". Unknown
+	// values fall back to "recent". The "all" / "" / "recent" branch
+	// all return updated_at-desc; they exist as separate tokens so the
+	// UI tab state round-trips through the URL unchanged.
+	Sort string
 }
 
 type ListDocumentsResult struct {
@@ -85,18 +91,19 @@ func NewPostgresNotepadRepository(pool *pgxpool.Pool) *PostgresNotepadRepository
 func (r *PostgresNotepadRepository) ListDocuments(ctx context.Context, params ListDocumentsParams) (ListDocumentsResult, error) {
 	page, perPage := normalizePage(params.Page, params.PerPage)
 	pattern := "%" + params.Search + "%"
+	favoriteClause, orderClause := sortClauses(params.Sort)
 	// Pre-allocate so an empty result serializes as [] rather than null;
 	// the frontend types data as an array and calls .filter on it.
 	out := ListDocumentsResult{Data: []models.NotepadDocument{}, Page: page, PerPage: perPage}
-	if err := r.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM notepad_documents WHERE owner_id = $1 AND (title ILIKE $2 OR description ILIKE $2)`, params.OwnerID, pattern).Scan(&out.Total); err != nil {
+	countSQL := `SELECT COUNT(*) FROM notepad_documents WHERE owner_id = $1 AND (title ILIKE $2 OR description ILIKE $2)` + favoriteClause
+	if err := r.Pool.QueryRow(ctx, countSQL, params.OwnerID, pattern).Scan(&out.Total); err != nil {
 		return out, err
 	}
 	offset := (page - 1) * perPage
-	rows, err := r.Pool.Query(ctx, `SELECT id, title, description, owner_id, content, content_doc, template_key, widgets, last_indexed_at, created_at, updated_at
+	listSQL := `SELECT id, title, description, owner_id, content, content_doc, template_key, widgets, is_favorite, last_indexed_at, created_at, updated_at
 		FROM notepad_documents
-		WHERE owner_id = $1 AND (title ILIKE $2 OR description ILIKE $2)
-		ORDER BY updated_at DESC, created_at DESC
-		LIMIT $3 OFFSET $4`, params.OwnerID, pattern, perPage, offset)
+		WHERE owner_id = $1 AND (title ILIKE $2 OR description ILIKE $2)` + favoriteClause + ` ` + orderClause + ` LIMIT $3 OFFSET $4`
+	rows, err := r.Pool.Query(ctx, listSQL, params.OwnerID, pattern, perPage, offset)
 	if err != nil {
 		return out, err
 	}
@@ -109,6 +116,21 @@ func (r *PostgresNotepadRepository) ListDocuments(ctx context.Context, params Li
 		out.Data = append(out.Data, doc)
 	}
 	return out, rows.Err()
+}
+
+// sortClauses maps a normalised sort token to the SQL fragments shared
+// by the count and list queries. The favorite branch tacks on an
+// is_favorite filter; the others only flip ORDER BY.
+func sortClauses(sort string) (favoriteClause, orderClause string) {
+	switch strings.ToLower(strings.TrimSpace(sort)) {
+	case "created_by_me", "mine":
+		return "", "ORDER BY created_at DESC"
+	case "favorite", "favorites":
+		return " AND is_favorite", "ORDER BY updated_at DESC, created_at DESC"
+	default:
+		// "recent", "recents", "all", "" — keep the historical default.
+		return "", "ORDER BY updated_at DESC, created_at DESC"
+	}
 }
 
 func (r *PostgresNotepadRepository) CreateDocument(ctx context.Context, params CreateDocumentParams) (models.NotepadDocument, error) {
@@ -126,13 +148,13 @@ func (r *PostgresNotepadRepository) CreateDocument(ctx context.Context, params C
 	}
 	row := r.Pool.QueryRow(ctx, `INSERT INTO notepad_documents (id, title, description, owner_id, content, content_doc, template_key, widgets)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, title, description, owner_id, content, content_doc, template_key, widgets, last_indexed_at, created_at, updated_at`,
+		RETURNING id, title, description, owner_id, content, content_doc, template_key, widgets, is_favorite, last_indexed_at, created_at, updated_at`,
 		id, params.Title, params.Description, params.OwnerID, params.Content, string(contentDoc), params.TemplateKey, string(widgets))
 	return scanDocument(row)
 }
 
 func (r *PostgresNotepadRepository) GetDocument(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) (models.NotepadDocument, bool, error) {
-	row := r.Pool.QueryRow(ctx, `SELECT id, title, description, owner_id, content, content_doc, template_key, widgets, last_indexed_at, created_at, updated_at FROM notepad_documents WHERE id = $1 AND owner_id = $2`, id, ownerID)
+	row := r.Pool.QueryRow(ctx, `SELECT id, title, description, owner_id, content, content_doc, template_key, widgets, is_favorite, last_indexed_at, created_at, updated_at FROM notepad_documents WHERE id = $1 AND owner_id = $2`, id, ownerID)
 	doc, err := scanDocument(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.NotepadDocument{}, false, nil
@@ -146,7 +168,7 @@ func (r *PostgresNotepadRepository) UpdateDocument(ctx context.Context, params U
 		    content_doc = COALESCE($6, content_doc),
 		    template_key = COALESCE($7, template_key), widgets = COALESCE($8, widgets), last_indexed_at = COALESCE($9, last_indexed_at), updated_at = NOW()
 		WHERE id = $1 AND owner_id = $2
-		RETURNING id, title, description, owner_id, content, content_doc, template_key, widgets, last_indexed_at, created_at, updated_at`,
+		RETURNING id, title, description, owner_id, content, content_doc, template_key, widgets, is_favorite, last_indexed_at, created_at, updated_at`,
 		params.ID, params.OwnerID, params.Title, params.Description, params.Content, nullableJSON(params.ContentDoc), params.TemplateKey, nullableJSON(params.Widgets), params.LastIndexedAt)
 	doc, err := scanDocument(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -235,9 +257,15 @@ func (r *InMemoryNotepadRepository) ListDocuments(_ context.Context, params List
 	defer r.mu.Unlock()
 	page, perPage := normalizePage(params.Page, params.PerPage)
 	search := strings.ToLower(params.Search)
+	sortKey := strings.ToLower(strings.TrimSpace(params.Sort))
+	favouritesOnly := sortKey == "favorite" || sortKey == "favorites"
+	byCreated := sortKey == "created_by_me" || sortKey == "mine"
 	matches := []models.NotepadDocument{}
 	for _, doc := range r.documents {
 		if doc.OwnerID != params.OwnerID {
+			continue
+		}
+		if favouritesOnly && !doc.IsFavorite {
 			continue
 		}
 		if search != "" && !strings.Contains(strings.ToLower(doc.Title), search) && !strings.Contains(strings.ToLower(doc.Description), search) {
@@ -246,6 +274,9 @@ func (r *InMemoryNotepadRepository) ListDocuments(_ context.Context, params List
 		matches = append(matches, doc)
 	}
 	sort.SliceStable(matches, func(i, j int) bool {
+		if byCreated {
+			return matches[i].CreatedAt.After(matches[j].CreatedAt)
+		}
 		if !matches[i].UpdatedAt.Equal(matches[j].UpdatedAt) {
 			return matches[i].UpdatedAt.After(matches[j].UpdatedAt)
 		}
@@ -433,7 +464,7 @@ type scanner interface{ Scan(dest ...any) error }
 
 func scanDocument(row scanner) (models.NotepadDocument, error) {
 	var doc models.NotepadDocument
-	if err := row.Scan(&doc.ID, &doc.Title, &doc.Description, &doc.OwnerID, &doc.Content, &doc.ContentDoc, &doc.TemplateKey, &doc.Widgets, &doc.LastIndexedAt, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
+	if err := row.Scan(&doc.ID, &doc.Title, &doc.Description, &doc.OwnerID, &doc.Content, &doc.ContentDoc, &doc.TemplateKey, &doc.Widgets, &doc.IsFavorite, &doc.LastIndexedAt, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
 		return models.NotepadDocument{}, err
 	}
 	return doc, nil

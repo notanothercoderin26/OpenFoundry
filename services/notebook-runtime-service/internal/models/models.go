@@ -104,6 +104,7 @@ type NotepadDocument struct {
 	ContentDoc    json.RawMessage `json:"content_doc"`
 	TemplateKey   *string         `json:"template_key,omitempty"`
 	Widgets       json.RawMessage `json:"widgets"`
+	IsFavorite    bool            `json:"is_favorite"`
 	LastIndexedAt *time.Time      `json:"last_indexed_at,omitempty"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
