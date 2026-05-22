@@ -2883,6 +2883,216 @@ button {
   color: var(--text-strong);
 }
 
+/* Shared green split button (Topbar "+ New document", Notepad hover
+   panel, future SplitButton component for T1.2). */
+.of-split-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: var(--radius-sm);
+}
+
+.of-split-btn__primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--accent-primary-hover);
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
+  background: var(--accent-primary);
+  color: var(--accent-primary-contrast);
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+
+.of-split-btn__primary:hover {
+  background: var(--accent-primary-hover);
+  color: var(--accent-primary-contrast);
+  text-decoration: none;
+}
+
+.of-split-btn__primary:active {
+  background: var(--accent-primary-active);
+}
+
+.of-split-btn__caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  border: 1px solid var(--accent-primary-hover);
+  border-left: 0;
+  border-top-right-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+  background: var(--accent-primary);
+  color: var(--accent-primary-contrast);
+  cursor: pointer;
+}
+
+.of-split-btn__caret:hover {
+  background: var(--accent-primary-hover);
+}
+
+.of-split-btn__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-popover);
+}
+
+.of-split-btn__menu-item {
+  display: block;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-default);
+  font-size: var(--text-13);
+  text-align: left;
+}
+
+.of-split-btn__menu-item:hover {
+  background: var(--row-hover);
+  text-decoration: none;
+}
+
+/* Notepad hover panel (T2.2). Anchored next to the sidebar rail via
+   inline top/left. Portalled into <body> so the sidebar's overflow
+   does not clip it. */
+.of-notepad-hover {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  width: 320px;
+  padding: 14px;
+  gap: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-default);
+  font-size: var(--text-13);
+}
+
+.of-notepad-hover__header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.of-notepad-hover__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--surface-panel-muted);
+  flex-shrink: 0;
+}
+
+.of-notepad-hover__heading {
+  min-width: 0;
+}
+
+.of-notepad-hover__title {
+  margin: 0;
+  font-size: var(--text-15);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.of-notepad-hover__desc {
+  margin: 4px 0 6px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 1.45;
+}
+
+.of-notepad-hover__docs {
+  color: var(--accent-link);
+  font-size: var(--text-12);
+  font-weight: 500;
+}
+
+.of-notepad-hover__refs {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 10px;
+}
+
+.of-notepad-hover__refs-label {
+  margin: 0 0 4px;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.of-notepad-hover__refs-empty {
+  margin: 0;
+  padding: 6px 4px;
+  color: var(--text-soft);
+  font-size: var(--text-12);
+}
+
+.of-notepad-hover__ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-default);
+  font-size: var(--text-13);
+  overflow: hidden;
+}
+
+.of-notepad-hover__ref:hover {
+  background: var(--row-hover);
+  color: var(--text-strong);
+  text-decoration: none;
+}
+
+.of-notepad-hover__ref > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.of-notepad-hover__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 10px;
+}
+
+.of-notepad-hover__examples {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-default);
+  font-size: var(--text-12);
+  font-weight: 500;
+}
+
+.of-notepad-hover__examples:hover {
+  color: var(--text-strong);
+  text-decoration: none;
+}
+
 .of-topbar__identity {
   display: grid;
   min-width: 0;

@@ -8,6 +8,7 @@ import {
   LAUNCHER_CATEGORIES,
   type LauncherApp,
 } from '@/lib/launcher/catalog';
+import { NotepadHoverPanel } from './notepad/NotepadHoverPanel';
 import { Glyph, type GlyphName } from './ui/Glyph';
 
 const SearchPageLazy = lazy(async () => {
@@ -115,12 +116,54 @@ export function Sidebar() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [favorites, setFavorites] = useState<string[]>(() => readFavorites());
   const [applicationVisibility, setApplicationVisibility] = useState<Record<string, boolean> | null>(null);
+  const [notepadHover, setNotepadHover] = useState<{ top: number; left: number } | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const hoverCloseTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
+
+  // The hover panel only makes sense in rail mode (the label is hidden
+  // behind an icon). Expanding the sidebar should dismiss any open
+  // flyout immediately.
+  useEffect(() => {
+    if (!collapsed && notepadHover) setNotepadHover(null);
+  }, [collapsed, notepadHover]);
+
+  useEffect(() => {
+    return () => {
+      if (hoverCloseTimerRef.current !== null) {
+        window.clearTimeout(hoverCloseTimerRef.current);
+      }
+    };
+  }, []);
+
+  function openNotepadHover(rect: DOMRect) {
+    if (hoverCloseTimerRef.current !== null) {
+      window.clearTimeout(hoverCloseTimerRef.current);
+      hoverCloseTimerRef.current = null;
+    }
+    setNotepadHover({ top: rect.top, left: rect.right + 8 });
+  }
+
+  function scheduleHoverClose() {
+    if (hoverCloseTimerRef.current !== null) {
+      window.clearTimeout(hoverCloseTimerRef.current);
+    }
+    hoverCloseTimerRef.current = window.setTimeout(() => {
+      setNotepadHover(null);
+      hoverCloseTimerRef.current = null;
+    }, 160);
+  }
+
+  function cancelHoverClose() {
+    if (hoverCloseTimerRef.current !== null) {
+      window.clearTimeout(hoverCloseTimerRef.current);
+      hoverCloseTimerRef.current = null;
+    }
+  }
 
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
@@ -292,14 +335,41 @@ export function Sidebar() {
           {favoriteApps.length > 0 && (
             <section className="of-sidebar__section">
               <div className="of-sidebar__heading">{t('nav.workshop.section')}</div>
-              {favoriteApps.map((app) => (
-                <SidebarLink
-                  key={`fav-${app.id}`}
-                  item={{ to: app.href, label: app.name, icon: app.icon, iconTone: app.iconTone }}
-                  pathname={pathname}
-                  collapsed={collapsed}
-                />
-              ))}
+              {favoriteApps.map((app) => {
+                const navItem = { to: app.href, label: app.name, icon: app.icon, iconTone: app.iconTone };
+                if (collapsed && app.id === 'notepad') {
+                  const active = isActive(app.href, pathname);
+                  return (
+                    <NavLink
+                      key={`fav-${app.id}`}
+                      to={app.href}
+                      className={`of-sidebar__link${active ? ' of-sidebar__link--active' : ''}`}
+                      title={app.name}
+                      aria-label={app.name}
+                      onMouseEnter={(event) => openNotepadHover(event.currentTarget.getBoundingClientRect())}
+                      onMouseLeave={scheduleHoverClose}
+                      onFocus={(event) => openNotepadHover(event.currentTarget.getBoundingClientRect())}
+                      onBlur={scheduleHoverClose}
+                    >
+                      <span
+                        className="of-sidebar__icon"
+                        style={app.iconTone ? { color: app.iconTone } : undefined}
+                      >
+                        <Glyph name={app.icon} size={17} tone={app.iconTone ?? null} />
+                      </span>
+                      <span className="of-sidebar__label">{app.name}</span>
+                    </NavLink>
+                  );
+                }
+                return (
+                  <SidebarLink
+                    key={`fav-${app.id}`}
+                    item={navItem}
+                    pathname={pathname}
+                    collapsed={collapsed}
+                  />
+                );
+              })}
             </section>
           )}
         </nav>
@@ -325,6 +395,19 @@ export function Sidebar() {
             </Suspense>
           </div>
         </div>
+      )}
+
+      {notepadHover && (
+        <NotepadHoverPanel
+          anchorTop={notepadHover.top}
+          anchorLeft={notepadHover.left}
+          onClose={() => {
+            cancelHoverClose();
+            setNotepadHover(null);
+          }}
+          onMouseEnter={cancelHoverClose}
+          onMouseLeave={scheduleHoverClose}
+        />
       )}
 
       {launcherOpen && (
