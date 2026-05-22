@@ -4,7 +4,7 @@ Use this page when you need to quickly answer "where should this change live?"
 
 ## Runtime Code
 
-`services/` contains 50 service directories under a single Go module rooted at `github.com/openfoundry/openfoundry-go`. The textual boilerplate every new service starts from lives at `docs/templates/service-skeleton/` (its `.go` files carry `//go:build ignore` so the toolchain skips them in place). Grouping below follows the Helm releases under `infra/helm/apps/` (`of-platform`, `of-data-engine`, `of-ontology`, `of-ml-aip`, `of-apps-ops`, `of-web`).
+`services/` contains 51 service directories under a single Go module rooted at `github.com/openfoundry/openfoundry-go`. The textual boilerplate every new service starts from lives at `docs/templates/service-skeleton/` (its `.go` files carry `//go:build ignore` so the toolchain skips them in place). Grouping below follows the Helm releases under `infra/helm/apps/` (`of-platform`, `of-data-engine`, `of-ontology`, `of-ml-aip`, `of-apps-ops`, `of-web`). Re-run `ls -d services/*/ | wc -l` after adding or removing a service and update this count alongside the entry below.
 
 ### Platform (auth, gateway, tenancy)
 
@@ -106,7 +106,7 @@ Use this page when you need to quickly answer "where should this change live?"
 
 ## Shared Libraries
 
-`libs/` contains 36 cross-cutting Go packages: `auth-middleware`, `authz-cedar-go` (Cedar engine), `audit-trail`, `core-models`, `db-pool`, `event-bus-control` (NATS JetStream), `event-bus-data` (Kafka), `event-scheduler`, `observability` (slog + OTel + Prometheus), `ontology-kernel`, `pipeline-expression`, `pipeline-plan`, `pipeline-runtime`, `plugin-sdk` (WASM connectors — placeholder), `proto-gen` (generated), `python-sidecar`, `query-engine`, `restrictedview`, `saga`, `scheduling-cron`, `state-machine`, `storage-abstraction`, `testing`, `vector-store`, `ai-kernel-go`, `ml-kernel-go`, `geospatial-core`, `geospatial-tiles`, `cassandra-kernel`, `idempotency`, `outbox`, `media-scanner`, `analytical-logic`, `search-abstraction`, `capabilities`, `scheduling-linter`.
+`libs/` contains 37 hand-written cross-cutting Go packages plus one generated package (`proto-gen`), for 38 directories total: `auth-middleware`, `authz-cedar-go` (Cedar engine), `audit-trail`, `core-models`, `db-pool`, `event-bus-control` (NATS JetStream), `event-bus-data` (Kafka), `event-scheduler`, `observability` (slog + OTel + Prometheus), `ontology-kernel`, `pipeline-expression`, `pipeline-plan`, `pipeline-runtime`, `plugin-sdk` (WASM connectors — placeholder), `python-sidecar`, `query-engine`, `restrictedview`, `saga`, `scheduling-cron`, `state-machine`, `storage-abstraction`, `testing`, `vector-store`, `ai-kernel-go`, `ml-kernel-go`, `aip-graph-reasoning`, `geospatial-core`, `geospatial-tiles`, `cassandra-kernel`, `idempotency`, `outbox`, `media-scanner`, `analytical-logic`, `search-abstraction`, `capabilities`, `scheduling-linter`, `poc-geopolitica-transforms`. The generated `proto-gen` is re-derived from `proto/` via `make gen` and must not be edited by hand. Re-run `ls libs/ | wc -l` after touching `libs/` and update this count.
 
 ## UI and Contracts
 
